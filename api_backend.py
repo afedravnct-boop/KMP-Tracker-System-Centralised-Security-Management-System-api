@@ -1,5 +1,9 @@
 import io
 import os
+import gc
+import tempfile
+from fastapi.responses import FileResponse
+from fastapi import BackgroundTasks
 import re         
 import html
 import shutil
@@ -674,81 +678,9 @@ async def create_admin_communication(comm: Admin_CommunicationCreate, db: Sessio
     return {"status": "success", "id": db_comm.id}
 
 # =====================================================================
-# 7. FORENSIC EXPORT MODULES (Encrypted, Watermarked, Audited)
-# =====================================================================
-
-def strip_html_to_plain_text(raw_text):
-    if not raw_text:
-        return ""
-    text = str(raw_text)
-    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
-    text = re.sub(r'</p>', '\n', text, flags=re.IGNORECASE)
-    text = re.sub(r'<li>', '\n• ', text, flags=re.IGNORECASE)
-    text = re.sub(r'<[^>]+>', '', text)
-    text = html.unescape(text)
-    text = re.sub(r'\n\s*\n', '\n', text)
-    return text.strip()
-
-def apply_custom_sheet_design(workbook, worksheet, df, sheet_name, authorized_user):
-    worksheet.set_paper(9)                                        
-    worksheet.set_landscape()                                     
-    worksheet.fit_to_pages(1, 0)                                   
-    worksheet.set_print_scale(False)
-    worksheet.set_margins(left=0.25, right=0.25, top=0.5, bottom=0.5)
-    worksheet.repeat_rows(0)
-    worksheet.print_area(0, 0, len(df), len(df.columns) - 1)
-
-    cell_center = workbook.add_format({'align': 'center', 'valign': 'top', 'border': 1})
-    cell_left_wrap = workbook.add_format({'align': 'left', 'valign': 'top', 'border': 1, 'text_wrap': True})
-
-    if sheet_name == "Crime Registry":
-        header_format = workbook.add_format({'bg_color': '#0F172A', 'font_color': 'white', 'bold': True, 'border': 1, 'align': 'center'})
-        for col_num, col_name in enumerate(df.columns):
-            worksheet.write(0, col_num, col_name, header_format)
-        worksheet.set_column('A:A', 6, cell_center)
-        worksheet.set_column('B:C', 16, cell_center)
-        worksheet.set_column('D:D', 10, cell_center)
-        worksheet.set_column('E:F', 18, cell_center)
-        worksheet.set_column('G:G', 20, cell_center)
-        worksheet.set_column('H:H', 18, cell_center)
-        worksheet.set_column('I:I', 10, cell_center)
-        worksheet.set_column('J:J', 70, cell_left_wrap) 
-
-    elif sheet_name == "OPS Statistics":
-        header_format = workbook.add_format({'bg_color': '#1E3A8A', 'font_color': 'white', 'bold': True, 'border': 1, 'align': 'center'})
-        for col_num, col_name in enumerate(df.columns):
-            worksheet.write(0, col_num, col_name, header_format)
-        worksheet.set_column('A:B', 12, cell_center)
-        worksheet.set_column('C:D', 18, cell_center)
-        worksheet.set_column('E:L', 14, cell_center)
-
-    elif sheet_name == "Success Stories":
-        header_format = workbook.add_format({'bg_color': '#B45309', 'font_color': 'white', 'bold': True, 'border': 1, 'align': 'center'})
-        for col_num, col_name in enumerate(df.columns):
-            worksheet.write(0, col_num, col_name, header_format)
-        worksheet.set_column('A:A', 6, cell_center)
-        worksheet.set_column('B:C', 12, cell_center)
-        worksheet.set_column('D:E', 18, cell_center)
-        worksheet.set_column('F:F', 18, cell_center)
-        worksheet.set_column('G:G', 80, cell_left_wrap)
-
-    elif sheet_name == "Nominal Roll":
-        header_format = workbook.add_format({'bg_color': '#4C1D95', 'font_color': 'white', 'bold': True, 'border': 1, 'align': 'center'})
-        for col_num, col_name in enumerate(df.columns):
-            worksheet.write(0, col_num, col_name, header_format)
-        worksheet.set_column('A:A', 6, cell_center)  
-        worksheet.set_column('B:B', 15, cell_center)   
-        worksheet.set_column('C:C', 10, cell_center)   
-        worksheet.set_column('D:D', 28, cell_left_wrap)
-        worksheet.set_column('E:Y', 15, cell_center) 
-
-    ghost_format = workbook.add_format({'font_color': '#FFFFFF'}) 
-    worksheet.write('XFD1000000', f'TRACE_ID:{authorized_user.fnum}', ghost_format)
-    watermark_text = f'&C&"Arial,Bold"&14RESTRICTED LAW ENFORCEMENT DATA\n&"Arial"&10Forensic ID: {authorized_user.fnum} | {datetime.now().strftime("%Y-%m-%d %H:%M")}'
-    worksheet.set_header(watermark_text)
-
 @app.get("/api/v1/reports/export")
 def export_master_excel(
+    background_tasks: BackgroundTasks, # <-- Added to clean up files after download
     timeframe: Optional[str] = "all",
     scope: Optional[str] = None, 
     value: Optional[str] = None, 
@@ -756,62 +688,80 @@ def export_master_excel(
     authorized_user: models.Users = Depends(require_export_privilege)
 ):
     try:
-        crime_data = db.query(models.Crime_Reports).all()
-        stats_data = db.query(models.Operational_Statistics).all()
-        stories_data = db.query(models.Success_Stories).all()
-        roll_data = db.query(models.Nominal_Roll).all()
+        # 1. Create temporary files on Render's physical disk (Saves RAM)
+        temp_dir = tempfile.mkdtemp()
+        excel_path = os.path.join(temp_dir, f"temp_master_{authorized_user.fnum}.xlsx")
+        zip_path = os.path.join(temp_dir, f"KMP_Master_Database_{authorized_user.fnum}.zip")
 
-        crime_list = [{
-            "SN": getattr(r, 'sn', ''), "SD Ref": getattr(r, 'sd_ref', getattr(r, 'sdRef', '')),
-            "Date": getattr(r, 'date', ''), "Time": getattr(r, 'time', ''), "Region": getattr(r, 'region', ''),
-            "Station": getattr(r, 'station', ''), "Offence": getattr(r, 'offence', ''), "Status": getattr(r, 'status', ''),
-            "Suspects": getattr(r, 'suspects', 0), "Narrative": strip_html_to_plain_text(getattr(r, 'narrative', ''))
-        } for r in crime_data]
-
-        stats_list = [{
-            "SN": getattr(s, 'sn', ''), "Date": getattr(s, 'date', ''), "Region": getattr(s, 'region', ''),
-            "Station": getattr(s, 'station', ''), "Arrested": getattr(s, 'arrested', 0), "Given Bond": getattr(s, 'given_bond', 0),
-            "Cautioned": getattr(s, 'cautioned', 0), "Pending Court": getattr(s, 'pending_court', 0), "Taken To Court": getattr(s, 'taken_to_court', 0),
-            "Released": getattr(s, 'released', 0), "Remanded": getattr(s, 'remanded', 0), "Convicted": getattr(s, 'convicted', 0)
-        } for s in stats_data]
-
-        stories_list = [{
-            "SN": getattr(s, 'sn', ''), "Date": getattr(s, 'date', ''), "Time": getattr(s, 'time', ''),
-            "Region": getattr(s, 'region', ''), "Station": getattr(s, 'station', ''), "Status": getattr(s, 'status', ''),
-            "Narrative": strip_html_to_plain_text(getattr(s, 'narrative', ''))
-        } for s in stories_data]
-
-        roll_list = [{
-            "SN": getattr(n, 'sn', ''), "Force Number": getattr(n, 'fnum', getattr(n, 'f_num', '')),
-            "Rank": getattr(n, 'rank', ''), "Name": getattr(n, 'name', ''), "Sex": getattr(n, 'sex', ''),
-            "Position": getattr(n, 'position', ''), "DOB": getattr(n, 'dob', ''), "DOE": getattr(n, 'doe', ''),
-            "DO POST": getattr(n, 'dopost', getattr(n, 'do_post', '')), "DO PRO": getattr(n, 'dopro', getattr(n, 'do_pro', '')),
-            "Contact": getattr(n, 'contact', ''), "Educ Level": getattr(n, 'educlevel', getattr(n, 'educ_level', '')),
-            "IPPS": getattr(n, 'ipps', ''), "TIN": getattr(n, 'tin', ''), "NIN": getattr(n, 'nin', ''),
-            "Home Dist": getattr(n, 'homedist', getattr(n, 'home_dist', '')), "Tribe": getattr(n, 'tribe', ''),
-            "Acc No": getattr(n, 'accno', getattr(n, 'acc_no', '')), "Bank Branch": getattr(n, 'bankbranch', getattr(n, 'bank_branch', '')),
-            "Station": getattr(n, 'station', ''), "District": getattr(n, 'district', ''), "Region": getattr(n, 'region', ''),
-            "Section": getattr(n, 'section', ''), "Directorate": getattr(n, 'dir', ''), "Status": getattr(n, 'status', '')
-        } for n in roll_data]
-
-        df_crime = pd.DataFrame(crime_list) if crime_list else pd.DataFrame(columns=["SN", "SD Ref", "Date", "Time", "Region", "Station", "Offence", "Status", "Suspects", "Narrative"])
-        df_stats = pd.DataFrame(stats_list) if stats_list else pd.DataFrame(columns=["SN", "Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"])
-        df_stories = pd.DataFrame(stories_list) if stories_list else pd.DataFrame(columns=["SN", "Date", "Time", "Region", "Station", "Status", "Narrative"])
-        df_roll = pd.DataFrame(roll_list) if roll_list else pd.DataFrame(columns=["SN", "Force Number", "Rank", "Name", "Sex", "Position", "DOB", "DOE", "DO POST", "DO PRO", "Contact", "Educ Level", "IPPS", "TIN", "NIN", "Home Dist", "Tribe", "Acc No", "Bank Branch", "Station", "District", "Region", "Section", "Directorate", "Status"])
-
-        excel_io = io.BytesIO()
-        with pd.ExcelWriter(excel_io, engine='xlsxwriter') as writer:
-            df_crime.to_excel(writer, sheet_name="Crime Registry", index=False)
-            df_stats.to_excel(writer, sheet_name="OPS Statistics", index=False)
-            df_stories.to_excel(writer, sheet_name="Success Stories", index=False)
-            df_roll.to_excel(writer, sheet_name="Nominal Roll", index=False)
-            
+        with pd.ExcelWriter(excel_path, engine='xlsxwriter') as writer:
             workbook = writer.book
-            
+
+            # --- PROCESS CRIME DATA ---
+            # yield_per(1000) prevents the database from dumping all rows into RAM at once
+            crime_data = db.query(models.Crime_Reports).yield_per(1000)
+            crime_list = [{
+                "SN": getattr(r, 'sn', ''), "SD Ref": getattr(r, 'sd_ref', getattr(r, 'sdRef', '')),
+                "Date": getattr(r, 'date', ''), "Time": getattr(r, 'time', ''), "Region": getattr(r, 'region', ''),
+                "Station": getattr(r, 'station', ''), "Offence": getattr(r, 'offence', ''), "Status": getattr(r, 'status', ''),
+                "Suspects": getattr(r, 'suspects', 0), "Narrative": strip_html_to_plain_text(getattr(r, 'narrative', ''))
+            } for r in crime_data]
+            df_crime = pd.DataFrame(crime_list) if crime_list else pd.DataFrame(columns=["SN", "SD Ref", "Date", "Time", "Region", "Station", "Offence", "Status", "Suspects", "Narrative"])
+            df_crime.to_excel(writer, sheet_name="Crime Registry", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["Crime Registry"], df_crime, "Crime Registry", authorized_user)
+            
+            # 🧹 FREE RAM INSTANTLY before moving to the next table
+            del crime_data, crime_list, df_crime
+            gc.collect() 
+
+            # --- PROCESS OPS STATISTICS ---
+            stats_data = db.query(models.Operational_Statistics).yield_per(1000)
+            stats_list = [{
+                "SN": getattr(s, 'sn', ''), "Date": getattr(s, 'date', ''), "Region": getattr(s, 'region', ''),
+                "Station": getattr(s, 'station', ''), "Arrested": getattr(s, 'arrested', 0), "Given Bond": getattr(s, 'given_bond', 0),
+                "Cautioned": getattr(s, 'cautioned', 0), "Pending Court": getattr(s, 'pending_court', 0), "Taken To Court": getattr(s, 'taken_to_court', 0),
+                "Released": getattr(s, 'released', 0), "Remanded": getattr(s, 'remanded', 0), "Convicted": getattr(s, 'convicted', 0)
+            } for s in stats_data]
+            df_stats = pd.DataFrame(stats_list) if stats_list else pd.DataFrame(columns=["SN", "Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"])
+            df_stats.to_excel(writer, sheet_name="OPS Statistics", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["OPS Statistics"], df_stats, "OPS Statistics", authorized_user)
+            
+            del stats_data, stats_list, df_stats
+            gc.collect()
+
+            # --- PROCESS SUCCESS STORIES ---
+            stories_data = db.query(models.Success_Stories).yield_per(1000)
+            stories_list = [{
+                "SN": getattr(s, 'sn', ''), "Date": getattr(s, 'date', ''), "Time": getattr(s, 'time', ''),
+                "Region": getattr(s, 'region', ''), "Station": getattr(s, 'station', ''), "Status": getattr(s, 'status', ''),
+                "Narrative": strip_html_to_plain_text(getattr(s, 'narrative', ''))
+            } for s in stories_data]
+            df_stories = pd.DataFrame(stories_list) if stories_list else pd.DataFrame(columns=["SN", "Date", "Time", "Region", "Station", "Status", "Narrative"])
+            df_stories.to_excel(writer, sheet_name="Success Stories", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["Success Stories"], df_stories, "Success Stories", authorized_user)
+            
+            del stories_data, stories_list, df_stories
+            gc.collect()
+
+            # --- PROCESS NOMINAL ROLL ---
+            roll_data = db.query(models.Nominal_Roll).yield_per(1000)
+            roll_list = [{
+                "SN": getattr(n, 'sn', ''), "Force Number": getattr(n, 'fnum', getattr(n, 'f_num', '')),
+                "Rank": getattr(n, 'rank', ''), "Name": getattr(n, 'name', ''), "Sex": getattr(n, 'sex', ''),
+                "Position": getattr(n, 'position', ''), "DOB": getattr(n, 'dob', ''), "DOE": getattr(n, 'doe', ''),
+                "DO POST": getattr(n, 'dopost', getattr(n, 'do_post', '')), "DO PRO": getattr(n, 'dopro', getattr(n, 'do_pro', '')),
+                "Contact": getattr(n, 'contact', ''), "Educ Level": getattr(n, 'educlevel', getattr(n, 'educ_level', '')),
+                "IPPS": getattr(n, 'ipps', ''), "TIN": getattr(n, 'tin', ''), "NIN": getattr(n, 'nin', ''),
+                "Home Dist": getattr(n, 'homedist', getattr(n, 'home_dist', '')), "Tribe": getattr(n, 'tribe', ''),
+                "Acc No": getattr(n, 'accno', getattr(n, 'acc_no', '')), "Bank Branch": getattr(n, 'bankbranch', getattr(n, 'bank_branch', '')),
+                "Station": getattr(n, 'station', ''), "District": getattr(n, 'district', ''), "Region": getattr(n, 'region', ''),
+                "Section": getattr(n, 'section', ''), "Directorate": getattr(n, 'dir', ''), "Status": getattr(n, 'status', '')
+            } for n in roll_data]
+            df_roll = pd.DataFrame(roll_list) if roll_list else pd.DataFrame(columns=["SN", "Force Number", "Rank", "Name", "Sex", "Position", "DOB", "DOE", "DO POST", "DO PRO", "Contact", "Educ Level", "IPPS", "TIN", "NIN", "Home Dist", "Tribe", "Acc No", "Bank Branch", "Station", "District", "Region", "Section", "Directorate", "Status"])
+            df_roll.to_excel(writer, sheet_name="Nominal Roll", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["Nominal Roll"], df_roll, "Nominal Roll", authorized_user)
+            
+            del roll_data, roll_list, df_roll
+            gc.collect()
 
             workbook.set_properties({
                 'title': 'KMP Master Database - RESTRICTED',
@@ -821,16 +771,14 @@ def export_master_excel(
                 'comments': f'FORENSIC TRACE: Downloaded by {authorized_user.fnum} on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
             })
 
-        excel_io.seek(0)
-        excel_data = excel_io.read()
-
-        zip_io = io.BytesIO()
+        # 2. Write AES Zip directly to physical disk
         zip_password = authorized_user.fnum.encode('utf-8')
-
-        with pyzipper.AESZipFile(zip_io, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+        with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
-            zf.writestr(f"KMP_Master_Database_{authorized_user.fnum}.xlsx", excel_data)
-        zip_io.seek(0)
+            zf.write(excel_path, f"KMP_Master_Database_{authorized_user.fnum}.xlsx")
+
+        # Clean up the raw excel file immediately for security
+        os.remove(excel_path)
         
         if hasattr(models, 'Audit_Logs'):
             audit_entry = models.Audit_Logs(
@@ -840,57 +788,74 @@ def export_master_excel(
             db.add(audit_entry)
             db.commit()
 
-        headers = {'Content-Disposition': f'attachment; filename="KMP_Master_Database_{authorized_user.fnum}.zip"'}
-        return StreamingResponse(zip_io, headers=headers, media_type='application/zip')
+        # 3. Schedule final cleanup after the user finishes downloading
+        def cleanup_temp_files(path_to_delete: str, dir_to_delete: str):
+            try:
+                if os.path.exists(path_to_delete): os.remove(path_to_delete)
+                if os.path.exists(dir_to_delete): os.rmdir(dir_to_delete)
+            except Exception:
+                pass
+
+        background_tasks.add_task(cleanup_temp_files, zip_path, temp_dir)
+
+        # 4. Stream the file directly from disk to the browser
+        return FileResponse(
+            path=zip_path,
+            filename=f"KMP_Master_Database_{authorized_user.fnum}.zip",
+            media_type='application/zip'
+        )
         
     except Exception as e:
         print(f"Export Error: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate secure Master Database file.")
 
+
 @app.get("/api/v1/export/establishments")
-def export_establishments(db: Session = Depends(get_db), authorized_user: models.Users = Depends(require_export_privilege)):
+def export_establishments(
+    background_tasks: BackgroundTasks, 
+    db: Session = Depends(get_db), 
+    authorized_user: models.Users = Depends(require_export_privilege)
+):
     try:
-        hr_data = db.query(models.Nominal_Roll).all()
-        hr_list = [{"Force Number": getattr(h, 'f_num', getattr(h, 'fnum', '')), "Name": getattr(h, 'name', ''), "Rank": getattr(h, 'rank', ''), "Sex": getattr(h, 'sex', ''), "Region": getattr(h, 'region', ''), "Station": getattr(h, 'station', ''), "Position": getattr(h, 'position', ''), "Status": getattr(h, 'status', '')} for h in hr_data]
+        temp_dir = tempfile.mkdtemp()
+        excel_path = os.path.join(temp_dir, f"temp_est_{authorized_user.fnum}.xlsx")
+        zip_path = os.path.join(temp_dir, f"KMP_HR_Ledger_{authorized_user.fnum}.zip")
 
-        est_data = db.query(models.Establishments).all()
-        
-        est_list = [{
-            "ID": getattr(e, 'id', ''),
-            "Region": getattr(e, 'region', ''),
-            "Division": getattr(e, 'division', ''),
-            "Station": getattr(e, 'station', ''),
-            "Personnel (Station)": getattr(e, 'personnel_in_station', 0) or 0,
-            "Sub-Station": getattr(e, 'sub_station', ''),
-            "Personnel (Sub-Stn)": getattr(e, 'personnel_in_sub_station', 0) or 0,
-            "Post": getattr(e, 'post', ''),
-            "Personnel (Post)": getattr(e, 'personnel_in_post', 0) or 0,
-            "Booths": getattr(e, 'booths', 0) or 0,
-            "Personnel (Booth)": getattr(e, 'personnel_in_booth', 0) or 0,
-            "Installed By": getattr(e, 'installed_by', ''),
-            "Location": getattr(e, 'location', ''),
-            "Status": getattr(e, 'status', ''),
-            "Comment": strip_html_to_plain_text(getattr(e, 'comment', '')),
-            "Last Updated By": getattr(e, 'last_updated_by', ''),
-            "Created At": getattr(e, 'created_at', '').strftime("%Y-%m-%d %H:%M") if getattr(e, 'created_at', None) else ''
-        } for e in est_data]
-
-        df_hr = pd.DataFrame(hr_list) if hr_list else pd.DataFrame(columns=["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status"])
-        df_est = pd.DataFrame(est_list) if est_list else pd.DataFrame(columns=[
-            "ID", "Region", "Division", "Station", "Personnel (Station)", "Sub-Station", 
-            "Personnel (Sub-Stn)", "Post", "Personnel (Post)", "Booths", "Personnel (Booth)", 
-            "Installed By", "Location", "Status", "Comment", "Last Updated By", "Created At"
-        ])
-
-        excel_io = io.BytesIO()
-        with pd.ExcelWriter(excel_io, engine='xlsxwriter') as writer:
-            df_hr.to_excel(writer, sheet_name="Nominal Roll", index=False)
-            df_est.to_excel(writer, sheet_name="establishments", index=False)
-            
+        with pd.ExcelWriter(excel_path, engine='xlsxwriter') as writer:
             workbook = writer.book
-            
+
+            # Process HR Data
+            hr_data = db.query(models.Nominal_Roll).yield_per(1000)
+            hr_list = [{"Force Number": getattr(h, 'f_num', getattr(h, 'fnum', '')), "Name": getattr(h, 'name', ''), "Rank": getattr(h, 'rank', ''), "Sex": getattr(h, 'sex', ''), "Region": getattr(h, 'region', ''), "Station": getattr(h, 'station', ''), "Position": getattr(h, 'position', ''), "Status": getattr(h, 'status', '')} for h in hr_data]
+            df_hr = pd.DataFrame(hr_list) if hr_list else pd.DataFrame(columns=["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status"])
+            df_hr.to_excel(writer, sheet_name="Nominal Roll", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["Nominal Roll"], df_hr, "Nominal Roll", authorized_user)
+            
+            del hr_data, hr_list, df_hr
+            gc.collect()
+
+            # Process Establishments Data
+            est_data = db.query(models.Establishments).yield_per(1000)
+            est_list = [{
+                "ID": getattr(e, 'id', ''), "Region": getattr(e, 'region', ''), "Division": getattr(e, 'division', ''),
+                "Station": getattr(e, 'station', ''), "Personnel (Station)": getattr(e, 'personnel_in_station', 0) or 0,
+                "Sub-Station": getattr(e, 'sub_station', ''), "Personnel (Sub-Stn)": getattr(e, 'personnel_in_sub_station', 0) or 0,
+                "Post": getattr(e, 'post', ''), "Personnel (Post)": getattr(e, 'personnel_in_post', 0) or 0,
+                "Booths": getattr(e, 'booths', 0) or 0, "Personnel (Booth)": getattr(e, 'personnel_in_booth', 0) or 0,
+                "Installed By": getattr(e, 'installed_by', ''), "Location": getattr(e, 'location', ''),
+                "Status": getattr(e, 'status', ''), "Comment": strip_html_to_plain_text(getattr(e, 'comment', '')),
+                "Last Updated By": getattr(e, 'last_updated_by', ''), "Created At": getattr(e, 'created_at', '').strftime("%Y-%m-%d %H:%M") if getattr(e, 'created_at', None) else ''
+            } for e in est_data]
+            df_est = pd.DataFrame(est_list) if est_list else pd.DataFrame(columns=[
+                "ID", "Region", "Division", "Station", "Personnel (Station)", "Sub-Station", 
+                "Personnel (Sub-Stn)", "Post", "Personnel (Post)", "Booths", "Personnel (Booth)", 
+                "Installed By", "Location", "Status", "Comment", "Last Updated By", "Created At"
+            ])
+            df_est.to_excel(writer, sheet_name="establishments", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["establishments"], df_est, "establishments", authorized_user)
+            
+            del est_data, est_list, df_est
+            gc.collect()
             
             workbook.set_properties({
                 'title': 'KMP HR & establishments - RESTRICTED',
@@ -901,16 +866,12 @@ def export_establishments(db: Session = Depends(get_db), authorized_user: models
             })
             workbook.set_custom_property('Forensic_FNUM', authorized_user.fnum)
 
-        excel_io.seek(0)
-        excel_data = excel_io.read()
-
-        zip_io = io.BytesIO()
         zip_password = authorized_user.fnum.encode('utf-8')
-
-        with pyzipper.AESZipFile(zip_io, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+        with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
-            zf.writestr(f"KMP_HR_establishments_{authorized_user.fnum}.xlsx", excel_data)
-        zip_io.seek(0)
+            zf.write(excel_path, f"KMP_HR_establishments_{authorized_user.fnum}.xlsx")
+
+        os.remove(excel_path)
         
         if hasattr(models, 'AuditLog'):
             audit_entry = models.AuditLog(
@@ -920,8 +881,20 @@ def export_establishments(db: Session = Depends(get_db), authorized_user: models
             db.add(audit_entry)
             db.commit()
 
-        headers = {'Content-Disposition': f'attachment; filename="KMP_HR_Ledger_{authorized_user.fnum}.zip"'}
-        return StreamingResponse(zip_io, headers=headers, media_type='application/zip')
+        def cleanup_temp_files(path_to_delete: str, dir_to_delete: str):
+            try:
+                if os.path.exists(path_to_delete): os.remove(path_to_delete)
+                if os.path.exists(dir_to_delete): os.rmdir(dir_to_delete)
+            except Exception:
+                pass
+
+        background_tasks.add_task(cleanup_temp_files, zip_path, temp_dir)
+
+        return FileResponse(
+            path=zip_path,
+            filename=f"KMP_HR_Ledger_{authorized_user.fnum}.zip",
+            media_type='application/zip'
+        )
         
     except Exception as e:
         print(f"HR Export Error: {e}")
