@@ -243,13 +243,19 @@ def refresh_session_token(current_user = Depends(get_current_user)):
     return {"access_token": new_access_token, "token_type": "bearer"}
 
 def require_admin(current_user: models.Users = Depends(get_current_user)):
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN"]:
+    # 1. Safely convert to uppercase and strip hidden spaces
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    
+    if user_role not in ["ADMIN", "SUPER_ADMIN"]:
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
     return current_user
 
 def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
+    # 1. Safely convert to uppercase and strip hidden spaces
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
     perms = current_user.permissions or {}
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"] and not perms.get("export_data", False):
+    
+    if user_role not in ["ADMIN", "SUPER_ADMIN", "RPC"] and not perms.get("export_data", False):
         raise HTTPException(status_code=403, detail="Clearance Denied: Data Export Privileges Required.")
     return current_user
 

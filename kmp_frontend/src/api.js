@@ -1,6 +1,5 @@
 // src/api.js
-const BASE_URL = 'http://127.0.0.1:8000'; 
-
+const BASE_URL = 'https://kmp-tracker-system-centralised-security.onrender.com';
 export async function authFetch(endpoint, options = {}) {
   const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
   
