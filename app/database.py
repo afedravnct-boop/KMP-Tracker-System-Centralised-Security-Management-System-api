@@ -7,19 +7,17 @@ from dotenv import load_dotenv
 # Load variables from your .env file
 load_dotenv() 
 
-# 1. Database URLs (Pulls from .env, falls back to hardcoded strings)
-SQLALCHEMY_DATABASE_URL = os.getenv(
-    "DATABASE_URL", 
-    "postgresql://neondb_owner:npg_G93LQNXBtfqV@ep-mute-term-at027rko-pooler.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
-)
+# 1. Database URLs (Strictly pulls from .env, no hardcoded fallbacks!)
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
+LOGS_DATABASE_URL = os.getenv("LOGS_DATABASE_URL")
 
-LOGS_DATABASE_URL = os.getenv(
-    "LOGS_DATABASE_URL", 
-    "postgresql://neondb_owner:npg_G93LQNXBtfqV@ep-bold-glade-ata782qd-pooler.c-9.us-east-1.aws.neon.tech/activity_logs?sslmode=require&channel_binding=require"
-)
+# If the variables are missing, stop the app immediately rather than failing silently
+if not SQLALCHEMY_DATABASE_URL or not LOGS_DATABASE_URL:
+    raise ValueError("Database URLs are missing! Check your .env file or Render environment variables.")
 
 # 2. Main Engine & Session
 engine = create_engine(
+# ... keep the rest of your file exactly the same ...
     SQLALCHEMY_DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=300,
