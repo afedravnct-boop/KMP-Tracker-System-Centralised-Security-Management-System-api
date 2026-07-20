@@ -17,8 +17,18 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 @router.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(database.get_db)):
+    
+    # 🚨 THE BETTER WAY: Stop giant passwords at the door!
+    if len(form_data.password) > 72:
+         raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Password exceeds maximum allowed length."
+        )
+
     # Standardized: Querying models.Users (plural)
     user = db.query(models.Users).filter(models.Users.fnum == form_data.username.upper()).first()
+    
+    # ... the rest of your normal login code ...
     
     if not user or not security.verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
