@@ -325,6 +325,11 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [showLockup, setShowLockup] = useState(false);
   const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mentalhealthstatus: '' });
 
+  const handleOperationToggle = (mode) => {
+    setOperation(mode);
+    setUpdateSearch(''); // Clears the search bar automatically when you switch modes
+  };
+
  const handleSmartExport = (scope, value) => {
     // Swap localhost for the dynamic API_URL
     let url = `${API_URL}/api/v1/reports/export?timeframe=all`;
