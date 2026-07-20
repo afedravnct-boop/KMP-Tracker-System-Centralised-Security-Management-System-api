@@ -16,6 +16,7 @@ import ConsolidatedLedger from './ConsolidatedLedger';
 import HrEstablishmentsLedger from './HrEstablishmentsLedger';
 import Admin_Communication from './Admin_Communication';
 
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -324,13 +325,15 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [showLockup, setShowLockup] = useState(false);
   const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mentalhealthstatus: '' });
 
-  const handleSmartExport = (scope, value) => {
-    let url = `http://127.0.0.1:8000/api/v1/reports/export?timeframe=all`;
+ const handleSmartExport = (scope, value) => {
+    // Swap localhost for the dynamic API_URL
+    let url = `${API_URL}/api/v1/reports/export?timeframe=all`;
+    
     if (scope && value) {
         url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
     }
     window.open(url, '_blank');
-  };
+};
 
   const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
 
@@ -483,9 +486,9 @@ const handleFormSubmit = async (e) => { // <-- Added 'async'
         suspectDetails: formData.suspectDetails
       };
       
-      try {
+     try {
         // 2. Direct fetch to ensure the token and data penetrate the backend perfectly
-        const response = await fetch("http://127.0.0.1:8000/api/v1/reports", {
+        const response = await fetch(`${API_URL}/api/v1/reports`, {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
@@ -542,8 +545,8 @@ const handleFormSubmit = async (e) => { // <-- Added 'async'
       };
       delete updatedRecord.updateText;
       
-      try {
-        const response = await fetch(`http://127.0.0.1:8000/api/v1/reports/${formData.sn}`, {
+     try {
+        const response = await fetch(`${API_URL}/api/v1/reports/${formData.sn}`, {
           method: "PUT",
           headers: { 
             "Content-Type": "application/json",
@@ -1075,7 +1078,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
       };
       
       try {
-        const response = await fetch("http://127.0.0.1:8000/api/v1/stats", {
+        const response = await fetch(`${API_URL}/api/v1/stats`, {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
@@ -1116,7 +1119,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
 
       try {
         // 🚨 THE FIX: Notice the /${formData.id} dynamically added to the end of the URL
-        const response = await authFetch(`http://127.0.0.1:8000/api/v1/establishments/${formData.id}`, {
+        const response = await authFetch(`${API_URL}/api/v1/establishments/${formData.id}`, {
           method: "PUT",
           headers: { 
             "Content-Type": "application/json"
@@ -2407,7 +2410,7 @@ const filteredNominal_Roll_archives = useMemo(() => {
       const newEntry = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       
       try {
-        const response = await fetch("http://127.0.0.1:8000/api/v1/nominal-roll", {
+        const response = await fetch(`${API_URL}/api/v1/nominal-roll`, {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
@@ -2434,7 +2437,7 @@ const filteredNominal_Roll_archives = useMemo(() => {
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       
       try {
-          const response = await fetch(`http://127.0.0.1:8000/api/v1/nominal-roll/${formData.sn}`, {
+          const response = await fetch(`${API_URL}/api/v1/nominal-roll/${formData.sn}`, {
             method: "PUT",
             headers: { 
               "Content-Type": "application/json",
@@ -3502,7 +3505,7 @@ const handleLoginSubmit = async (e) => {
       formData.append('password', password.trim());
 
       // 🚨 THE FIX: Use standard 'fetch' here instead of 'authFetch'
-      const response = await fetch('http://127.0.0.1:8000/api/auth/login', {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: formData, 
@@ -3786,7 +3789,7 @@ const DashboardLayout = ({
   const handleExportLogs = async () => {
     try {
       const token = localStorage.getItem('kmp_authToken');
-      const response = await fetch("http://127.0.0.1:8000/api/v1/activity-logs", {
+      const response = await fetch(`${API_URL}/api/v1/activity-logs`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 

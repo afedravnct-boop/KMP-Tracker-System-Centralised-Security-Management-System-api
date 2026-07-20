@@ -187,7 +187,11 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "*"], # Added "*" for initial cloud testing
+    allow_origins=[
+        "http://localhost:5173", 
+        "http://127.0.0.1:5173", 
+        "https://kmp-tracker-system-centralised-secu.vercel.app" # <--- Add your live Vercel link here!
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
