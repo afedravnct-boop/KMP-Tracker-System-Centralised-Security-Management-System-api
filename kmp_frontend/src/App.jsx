@@ -325,12 +325,28 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [showLockup, setShowLockup] = useState(false);
   const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mentalhealthstatus: '' });
 
+  const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
+
+  const [formData, setFormData] = useState({
+    sn: null,
+    sd_ref: '',
+    region: currentUser.region,
+    station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+    date: getTodayString(),
+    time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+    offence: '', 
+    customOffence: '',
+    narrative: '',
+    status: 'ACTIVE INVESTIGATION',
+    suspectDetails: [],
+    updateText: ''
+  });
+
   const handleOperationToggle = (mode) => {
     setOperation(mode);
-    setNotification(null); // Instantly clears any old success/error banners
+    setNotification(null);
     
     if (mode === 'new') {
-      // Wipes the form completely clean (Exact same logic as Disruptive OPS Statistics)
       setFormData({
         sn: null,
         sd_ref: '',
@@ -349,32 +365,25 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     }
   };
 
- const handleSmartExport = (scope, value) => {
-    // Swap localhost for the dynamic API_URL
+  // ✅ Clean, uniquely named function for this specific form
+  const populateUpdateCrimeForm = (caseData) => {
+    setFormData({ 
+      ...caseData, 
+      sd_ref: caseData.sdRef || caseData.sd_ref, 
+      offence: caseData.offence || 'Other',
+      customOffence: '',
+      suspectDetails: caseData.suspectDetails || [], 
+      updateText: '' 
+    });
+  };
+
+  const handleSmartExport = (scope, value) => {
     let url = `${API_URL}/api/v1/reports/export?timeframe=all`;
-    
     if (scope && value) {
         url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
     }
     window.open(url, '_blank');
-};
-
-  const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
-
-  const [formData, setFormData] = useState({
-    sn: null,
-    sd_ref: '',
-    region: currentUser.region,
-    station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
-    date: getTodayString(),
-    time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-    offence: '', 
-    customOffence: '',
-    narrative: '',
-    status: 'ACTIVE INVESTIGATION',
-    suspectDetails: [],
-    updateText: ''
-  });
+  };
 
   const filteredReports = useMemo(() => {
     return reports.filter(r => {
@@ -393,12 +402,9 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         const diffDays = Math.ceil(Math.abs(today - repDate) / (1000 * 60 * 60 * 24));
         if (diffDays > 7) return false;
       } else if (dateFilter === 'CUSTOM') {
-        // 🚨 NEW: Checks the start and end dates
         if (customStartDate && r.date < customStartDate) return false;
         if (customEndDate && r.date > customEndDate) return false;
       }
-      
-        
       return true;
     });
   }, [reports, filterRegion, filterStation, searchQuery, dateFilter, customStartDate, customEndDate]);
@@ -425,7 +431,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     };
   }, [filteredReports]);
 
-const handleInputChange = (e) => {
+  const handleInputChange = (e) => {
     const { name, value, type } = e.target;
     const autoCapitalize = (text) => {
       if (!text) return text;
@@ -444,17 +450,6 @@ const handleInputChange = (e) => {
     }
   };
 
-  const populateUpdateForm = (caseData) => {
-    setFormData({ 
-      ...caseData, 
-      sd_ref: caseData.sdRef || caseData.sd_ref, 
-      offence: caseData.offence || 'Other',
-      customOffence: '',
-      suspectDetails: [],
-      updateText: '' 
-    });
-  };
-
   const handleAddSuspect = () => {
     if (!newSuspect.name.trim()) return alert("Suspect name is required.");
     setFormData({
@@ -471,10 +466,9 @@ const handleInputChange = (e) => {
     });
   };
 
-const handleFormSubmit = async (e) => { // <-- Added 'async'
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
 
-    // 1. Grab the exact security token
     const token = localStorage.getItem('kmp_authToken');
     if (!token) {
         setNotification("Error: Security token missing. Please log out and log back in.");
@@ -510,8 +504,7 @@ const handleFormSubmit = async (e) => { // <-- Added 'async'
         suspectDetails: formData.suspectDetails
       };
       
-     try {
-        // 2. Direct fetch to ensure the token and data penetrate the backend perfectly
+      try {
         const response = await fetch(`${API_URL}/api/v1/reports`, {
           method: "POST",
           headers: { 
@@ -526,12 +519,10 @@ const handleFormSubmit = async (e) => { // <-- Added 'async'
             throw new Error(errData.detail || "Neon Database rejected the entry.");
         }
         
-        // 3. ONLY update the screen if the database confirms the save!
         const newReportLocal = { ...apiPayload };
         setReports([newReportLocal, ...reports]);
         setNotification(`Case SN ${newReportLocal.sn} (Ref: ${newReportLocal.sd_ref}) successfully registered!`);
 
-        // Smart Wipe
         setFormData({ 
           ...formData, 
           sd_ref: '', 
@@ -555,7 +546,7 @@ const handleFormSubmit = async (e) => { // <-- Added 'async'
         return;
       }
 
-     let updatedNarrative = formData.updateText 
+      let updatedNarrative = formData.updateText 
         ? `${formData.narrative}<br/><br/><strong>[UPDATE ${new Date().toLocaleString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '')}]:</strong><br/>${formData.updateText}` 
         : formData.narrative;
         
@@ -569,7 +560,7 @@ const handleFormSubmit = async (e) => { // <-- Added 'async'
       };
       delete updatedRecord.updateText;
       
-     try {
+      try {
         const response = await fetch(`${API_URL}/api/v1/reports/${formData.sn}`, {
           method: "PUT",
           headers: { 
@@ -738,7 +729,8 @@ const handleFormSubmit = async (e) => { // <-- Added 'async'
                       <div className="p-3 text-xs text-gray-500 text-center">No cases found matching your search.</div>
                     ) : (
                       availableUpdateCases.map(c => (
-                        <div key={c.sn} onClick={() => populateUpdateForm(c)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === c.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
+                        // ✅ Replaced the broken function call here!
+                        <div key={c.sn} onClick={() => populateUpdateCrimeForm(c)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === c.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
                           <span className={formData.sn === c.sn ? 'text-blue-200' : 'text-gray-400'}>SN: {c.sn}</span> | <span className={formData.sn === c.sn ? 'text-white' : 'font-bold text-blue-700'}>{c.sdRef || c.sd_ref}</span> | {c.station}
                         </div>
                       ))
@@ -750,7 +742,7 @@ const handleFormSubmit = async (e) => { // <-- Added 'async'
               <form onSubmit={handleFormSubmit} className="space-y-4">
                 {operation === 'update' && formData.sn && (
                    <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
-                     Currently Editing: SN {formData.sn}
+                      Currently Editing: SN {formData.sn}
                    </div>
                 )}
                 
@@ -925,7 +917,8 @@ const handleFormSubmit = async (e) => { // <-- Added 'async'
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredReports.map((report) => (
-                    <tr key={report.sn} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(report); }}>
+                    // ✅ Replaced the broken function call here!
+                    <tr key={report.sn} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateCrimeForm(report); }}>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">{report.sn}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-blue-700 align-top">{report.sdRef || report.sd_ref}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 align-top">{report.date}<br/><span className="text-xs text-gray-400">{report.time}</span></td>
@@ -3436,80 +3429,75 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     }
   };
 
-const handlePhotoUpload = async (e) => {
-  const file = e.target.files[0];
-  if (file) {
-    setAuthMessage("Uploading photo to secure S3 bucket...");
-    
-    // Create a controller to timeout the upload if it hangs
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second limit
-
-    const uploadData = new FormData();
-    uploadData.append("file", file);
-    uploadData.append("category", "profile"); 
-    uploadData.append("case_id", signupData.fnum || "REGISTRATION");
-    uploadData.append("narrative", "Profile Photo Upload");
-
-    try {
-      // ✅ Swapped authFetch for standard fetch + added API_URL
-      const response = await fetch(`${API_URL}/api/v1/investigation/upload/`, {
-        method: "POST",
-        body: uploadData,
-        signal: controller.signal 
-      });
-
-      clearTimeout(timeoutId); // Success: stop the timeout timer
-
-      // Safely handle the response without reloading the page
-      if (!response.ok) {
-        throw new Error("Upload requires authentication or backend is unavailable.");
-      }
-
-      const data = await response.json();
-      if (data.full_s3_url || data.cloud_storage_path) {
-        setSignupData({ 
-          ...signupData, 
-          profile_photo_path: data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}` 
-        });
-        setAuthMessage("Photo uploaded to S3 successfully!");
-      } else {
-        throw new Error("Invalid response format");
-      }
-    } catch (error) {
-      clearTimeout(timeoutId);
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setAuthMessage("Uploading profile photo to secure S3 bucket...");
       
-      if (error.name === 'AbortError') {
-        setAuthMessage("❌ Upload timed out. Please check your connection and try a smaller file.");
-        console.error("Upload timeout");
-      } else {
-        console.warn("Backend unreachable, falling back to local Blob URL for UI testing.", error);
-        const localUrl = URL.createObjectURL(file);
-        setSignupData({ ...signupData, profile_photo_path: localUrl });
-        setAuthMessage("Note: API offline or error occurred. Using temporary local preview.");
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+      const uploadData = new FormData();
+      uploadData.append("file", file);
+      uploadData.append("category", "user_profile"); 
+      uploadData.append("fnum", signupData.fnum || "PENDING_REGISTRATION");
+      uploadData.append("narrative", "Officer Profile Photo Signup");
+
+      try {
+        // 🚨 Corrected endpoint: Points to user profile route without trailing slash
+        const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, {
+          method: "POST",
+          body: uploadData,
+          signal: controller.signal 
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error("Profile photo upload failed on the server.");
+        }
+
+        const data = await response.json();
+        if (data.full_s3_url || data.cloud_storage_path) {
+          setSignupData({ 
+            ...signupData, 
+            profile_photo_path: data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}` 
+          });
+          setAuthMessage("Photo uploaded to S3 successfully!");
+        } else {
+          throw new Error("Invalid response format from server");
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+        
+        if (error.name === 'AbortError') {
+          setAuthMessage("❌ Upload timed out. Please check your connection and try a smaller file.");
+          console.error("Upload timeout");
+        } else {
+          console.warn("Backend profile endpoint unreachable, falling back to local Blob URL for UI testing.", error);
+          const localUrl = URL.createObjectURL(file);
+          setSignupData({ ...signupData, profile_photo_path: localUrl });
+          setAuthMessage("Note: API offline or error occurred. Using temporary local preview.");
+        }
       }
     }
-  }
-};
+  };
 
-const handleSignupSubmit = (e) => {
+  const handleSignupSubmit = (e) => {
     e.preventDefault();
 
-    // 1. Check if the user is already pending approval
     const isAlreadyPending = pendingUsers.some(u => u.fnum.toUpperCase() === signupData.fnum.toUpperCase());
     if (isAlreadyPending) {
       setAuthMessage("⚠️ Access Request Denied: Your Force Number is already in the queue awaiting Admin approval.");
       return;
     }
 
-    // 2. Check if the user is already an active, approved user
     const isAlreadyActive = activeUsers.some(u => u.fnum.toUpperCase() === signupData.fnum.toUpperCase());
     if (isAlreadyActive) {
       setAuthMessage("⚠️ Error: An account with this Force Number already exists. Please return to the login screen.");
       return;
     }
 
-    // 3. Proceed with determining role and submitting
     let derivedRole = 'USER';
     if (signupData.position === 'System Manager') derivedRole = 'SUPER_ADMIN';
     else if (POSITIONS.ADMIN.includes(signupData.position) || signupData.position.includes('Divisional Commander') || signupData.station === 'KMP HEADQUARTERS' || signupData.station === 'KMP Headquarters' || signupData.region === 'POLICE HEADQUARTERS') derivedRole = 'ADMIN';
@@ -3523,66 +3511,63 @@ const handleSignupSubmit = (e) => {
     setTimeout(() => setAuthMessage(null), 5000);
   };
 
-const handleLoginSubmit = async (e) => { 
-  e.preventDefault();
-  if (lockoutEnd) return;
+  const handleLoginSubmit = async (e) => { 
+    e.preventDefault();
+    if (lockoutEnd) return;
 
-  if (mode === 'login') {
-    try {
-      const formData = new URLSearchParams();
-      // .trim() removes any accidental hidden spaces you might have typed!
-      formData.append('username', fnum.trim()); 
-      formData.append('password', password.trim());
+    if (mode === 'login') {
+      try {
+        const formData = new URLSearchParams();
+        formData.append('username', fnum.trim()); 
+        formData.append('password', password.trim());
 
-      // 🚨 THE FIX: Use standard 'fetch' here instead of 'authFetch'
-      const response = await fetch(`${API_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: formData, 
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        localStorage.setItem('kmp_authToken', data.access_token);
-        onLogin({ 
-           fnum: data.fnum || 'A/2408', 
-           rank: data.rank || 'AIP',
-           name: data.name || 'Afedra Vincent',
-           sex: data.sex || 'MALE',
-           ipps: data.ipps || '950010',
-           region: data.region || 'KMP HEADQUARTERS',
-           station: data.station || 'KMP HEADQUARTERS',
-           email: data.email || 'afedravnct@gmail.com',
-           phone: data.phone || '0779302872',
-           role: data.role || 'SUPER_ADMIN',
-           profile_photo_path: data.profile_photo_path || ''
+        const response = await fetch(`${API_URL}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formData, 
         });
-      } else {
-        console.error("Login failed:", data.detail);
-        setPassword(''); 
-        // Now this will show the REAL error from Python!
-        setAuthMessage(data.detail || "Incorrect Force Number or password");
 
-        const newAttempts = attempts + 1;
-        setAttempts(newAttempts);
-        if (newAttempts >= 3) {
-          setLockoutEnd(Date.now() + 30000);
+        const data = await response.json();
+
+        if (response.ok) {
+          localStorage.setItem('kmp_authToken', data.access_token);
+          onLogin({ 
+             fnum: data.fnum || 'A/2408', 
+             rank: data.rank || 'AIP',
+             name: data.name || 'Afedra Vincent',
+             sex: data.sex || 'MALE',
+             ipps: data.ipps || '950010',
+             region: data.region || 'KMP HEADQUARTERS',
+             station: data.station || 'KMP HEADQUARTERS',
+             email: data.email || 'afedravnct@gmail.com',
+             phone: data.phone || '0779302872',
+             role: data.role || 'SUPER_ADMIN',
+             profile_photo_path: data.profile_photo_path || ''
+          });
+        } else {
+          console.error("Login failed:", data.detail);
+          setPassword(''); 
+          setAuthMessage(data.detail || "Incorrect Force Number or password");
+
+          const newAttempts = attempts + 1;
+          setAttempts(newAttempts);
+          if (newAttempts >= 3) {
+            setLockoutEnd(Date.now() + 30000);
+          }
         }
+      } catch (err) {
+        console.error("Network error during login:", err);
+        setPassword('');
+        setAuthMessage("Network error. Could not connect to the server.");
       }
-    } catch (err) {
-      console.error("Network error during login:", err);
-      setPassword('');
-      setAuthMessage("Network error. Could not connect to the server.");
+    } else if (mode === 'forgot') {
+      onForgot(fnum);
+      setMode('login');
+      setfnum('');
+      setAuthMessage("Account recovery requested. The Admin has been notified.");
+      setTimeout(() => setAuthMessage(null), 5000);
     }
-  } else if (mode === 'forgot') {
-    onForgot(fnum);
-    setMode('login');
-    setfnum('');
-    setAuthMessage("Account recovery requested. The Admin has been notified.");
-    setTimeout(() => setAuthMessage(null), 5000);
-  }
-};
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative">
@@ -3605,18 +3590,18 @@ const handleLoginSubmit = async (e) => {
             <>
               {authMessage && (
                 <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${authMessage.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
-               <span className="text-sm font-medium">
-                  {Array.isArray(authMessage) 
-                    ? authMessage.map((err, index) => (
-                        <div key={index}>
-                          {err.loc && err.loc.length > 1 ? `Error in ${err.loc[1]}: ` : ''} 
-                          {err.msg}
-                        </div>
-                      ))
-                    : typeof authMessage === 'object' && authMessage !== null
-                      ? JSON.stringify(authMessage)
-                      : authMessage}
-                </span>
+                 <span className="text-sm font-medium">
+                   {Array.isArray(authMessage) 
+                     ? authMessage.map((err, index) => (
+                         <div key={index}>
+                           {err.loc && err.loc.length > 1 ? `Error in ${err.loc[1]}: ` : ''} 
+                           {err.msg}
+                         </div>
+                       ))
+                     : typeof authMessage === 'object' && authMessage !== null
+                       ? JSON.stringify(authMessage)
+                       : authMessage}
+                 </span>
                 </div>
               )}
               {mode === 'signup' ? (
@@ -4484,3 +4469,4 @@ return (
     </DashboardLayout>
   );
 }
+// Triggering Vercel Rebuild

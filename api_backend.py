@@ -1094,6 +1094,36 @@ def get_admin_communications(
 # ==========================================
 # USER AUTHENTICATION & SIGNUP ROUTE
 # ==========================================
+@router.post("/api/v1/users/upload-profile")
+async def upload_profile_photo(
+    file: UploadFile = File(...),
+    fnum: str = Form("PENDING_REGISTRATION"),
+    category: str = Form("user_profile"),
+    narrative: str = Form("Officer Profile Photo")
+):
+    try:
+        # Generate a unique key for S3
+        file_extension = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+        s3_key = f"profiles/{fnum}_{int(time.time())}.{file_extension}"
+
+        # Upload directly to S3 bucket using boto3
+        s3_client.upload_fileobj(
+            file.file,
+            AWS_BUCKET_NAME,
+            s3_key,
+            ExtraArgs={"ContentType": file.content_type}
+        )
+
+        full_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
+        return {"full_s3_url": full_url, "cloud_storage_path": s3_key}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"S3 Upload failed: {str(e)}")
+Which option do you want to use?
+Option 1: Zero backend changes needed right now—just updates the fetch line in App.jsx.
+
+Option 2: Clean separation in Python so signup photos never mix with investigation case files.
+
 @app.post("/api/v1/auth/signup")
 def register_user(
     fnum: str = Form(...),
