@@ -327,7 +327,26 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
   const handleOperationToggle = (mode) => {
     setOperation(mode);
-    setUpdateSearch(''); // Clears the search bar automatically when you switch modes
+    setNotification(null); // Instantly clears any old success/error banners
+    
+    if (mode === 'new') {
+      // Wipes the form completely clean (Exact same logic as Disruptive OPS Statistics)
+      setFormData({
+        sn: null,
+        sd_ref: '',
+        region: currentUser.region,
+        station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+        date: getTodayString(),
+        time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+        offence: '', 
+        customOffence: '',
+        narrative: '',
+        status: 'ACTIVE INVESTIGATION',
+        suspectDetails: [],
+        updateText: ''
+      });
+      setUpdateSearch(''); 
+    }
   };
 
  const handleSmartExport = (scope, value) => {
@@ -4144,7 +4163,7 @@ export default function App() {
   const [isViewingHR, setIsViewingHR] = useState(false);
   const [isViewingConsolidated, setIsViewingConsolidated] = useState(false);
   const [consolidatedData, setConsolidatedData] = useState(null);
-  const [adminCommsData, setAdmin_Communication] = useState([]);  
+  const [adminCommsData, setAdminCommsData] = useState([]);  
 
   useEffect(() => {
     const checkClearance = () => {
@@ -4275,7 +4294,7 @@ const fetchData = async () => {
       setStats(dataStats);
       setStories(dataStories);
       setNominal_Rolls(dataNom);
-      setAdmin_Communication(dataComms);
+      setAdminCommsData(dataComms);
       setEstablishments(dataEst); 
       setNominal_Roll_archives(dataArchives); // 👈 THIS WAS MISSING
     }
@@ -4293,12 +4312,14 @@ const fetchData = async () => {
   }, [currentUser]); 
 
   const handleMasterExport = async (scope, value) => {
-    let url = `/api/v1/reports/export?timeframe=all`;
+    let url = `${API_URL}/api/v1/reports/export?timeframe=all`; // ✅ Fixed URL
     if (scope && value) {
         url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
     }
     try {
-        const response = await authFetch(url);
+        const response = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('kmp_authToken')}` }
+        });
         if (!response.ok) {
             if (response.status === 403) throw new Error("Clearance Denied");
             throw new Error("Export failed");
@@ -4308,7 +4329,6 @@ const fetchData = async () => {
         const link = document.createElement('a');
         link.href = downloadUrl;
         
-        // 👇 THE FIX: Changed .xlsx to .zip at the end of this line 👇
         link.download = `KMP_Master_Ledger_${value || "General"}_${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]}.zip`;
         
         document.body.appendChild(link);
@@ -4322,19 +4342,21 @@ const fetchData = async () => {
   };
 
 
-  const renderPage = () => {
+const renderPage = () => {
     switch (currentPage) {
-      case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} />;
+      case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} />; // ✅ Added Admin_Communication prop
       case 'reports': return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
       case 'statistics': return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
       case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
       case 'establishments': return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
       case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
-      case 'approvals': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} />;
+      case 'approvals': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} />;
       case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} />;
-      default: return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} />;
-      case 'Admin_Communication': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} Admin_Communication={Admin_Communication}/>;
-
+      
+      // ✅ MOVED: This MUST be above default!
+      case 'Admin_Communication': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} Admin_Communication={adminCommsData}/>;
+      
+      default: return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} />;
     }
   };
 

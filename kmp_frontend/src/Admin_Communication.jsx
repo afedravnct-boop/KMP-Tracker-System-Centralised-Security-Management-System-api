@@ -3,6 +3,8 @@ import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAle
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
 const AdminCommunication = ({ currentUser, users }) => {
   const [activeTab, setActiveTab] = useState('dispatch'); // 'dispatch' or 'inbox'
   const [notification, setNotification] = useState(null);
@@ -52,7 +54,7 @@ const AdminCommunication = ({ currentUser, users }) => {
 
     try {
       const token = localStorage.getItem('kmp_authToken');
-      const response = await fetch("http://127.0.0.1:8000/api/v1/communications", {
+      const response = await fetch(`${API_URL}/api/v1/communications`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -115,7 +117,7 @@ const AdminCommunication = ({ currentUser, users }) => {
       }
 
       // Build URL with parameters
-      let url = "http://127.0.0.1:8000/api/v1/Admin_Communication";
+      let url = `${API_URL}/api/v1/Admin_Communication`;
       const params = new URLSearchParams();
       if (start) params.append('start_date', start);
       if (end) params.append('end_date', end);
