@@ -1119,10 +1119,6 @@ async def upload_profile_photo(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"S3 Upload failed: {str(e)}")
-Which option do you want to use?
-Option 1: Zero backend changes needed right now—just updates the fetch line in App.jsx.
-
-Option 2: Clean separation in Python so signup photos never mix with investigation case files.
 
 @app.post("/api/v1/auth/signup")
 def register_user(
