@@ -1094,7 +1094,8 @@ def get_admin_communications(
 # ==========================================
 # USER AUTHENTICATION & SIGNUP ROUTE
 # ==========================================
-@router.post("/api/v1/users/upload-profile")
+
+@app.post("/api/v1/users/upload-profile")
 async def upload_profile_photo(
     file: UploadFile = File(...),
     fnum: str = Form("PENDING_REGISTRATION"),
@@ -1102,23 +1103,40 @@ async def upload_profile_photo(
     narrative: str = Form("Officer Profile Photo")
 ):
     try:
-        # Generate a unique key for S3
+        import uuid # Using uuid since it's already used elsewhere in your file
+        
+        # Generate a secure, unique key for S3
         file_extension = file.filename.split(".")[-1] if "." in file.filename else "jpg"
-        s3_key = f"profiles/{fnum}_{int(time.time())}.{file_extension}"
+        unique_id = uuid.uuid4().hex[:8]
+        clean_fnum = fnum.replace("/", "_")
+        s3_key = f"profile_photos/{clean_fnum}_{unique_id}.{file_extension}"
 
-        # Upload directly to S3 bucket using boto3
+        # Upload directly to S3 bucket using your existing BUCKET_NAME
         s3_client.upload_fileobj(
             file.file,
-            AWS_BUCKET_NAME,
+            BUCKET_NAME,
             s3_key,
-            ExtraArgs={"ContentType": file.content_type}
+            ExtraArgs={"ContentType": file.content_type, "ServerSideEncryption": "AES256"}
         )
 
-        full_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
-        return {"full_s3_url": full_url, "cloud_storage_path": s3_key}
+        # Build the exact URL format using os.getenv
+        full_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
+        
+        return {
+            "status": "success", 
+            "message": "Profile photo uploaded successfully!", 
+            "full_s3_url": full_url, 
+            "cloud_storage_path": s3_key
+        }
 
-    except Exception as e:
+    except ClientError as e:
+        print(f"❌ S3 Client Error: {e}")
         raise HTTPException(status_code=500, detail=f"S3 Upload failed: {str(e)}")
+    except Exception as e:
+        print(f"❌ General Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+    finally:
+        file.file.close()
 
 @app.post("/api/v1/auth/signup")
 def register_user(
