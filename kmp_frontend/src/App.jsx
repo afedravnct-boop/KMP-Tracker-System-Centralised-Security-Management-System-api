@@ -28,7 +28,6 @@ const REGIONAL_HIERARCHY = {
 
 const autoCapitalize = (text) => {
   if (!text) return text;
-  // Capitalizes start of input, after a full stop, or immediately after an HTML tag like <p>
   return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
     return separator + letter.toUpperCase();
   });
@@ -78,7 +77,6 @@ const downloadWithAuth = async (url, filename) => {
           throw new Error(errData.detail || `Server Error ${response.status}`);
       }
 
-      // Check if we actually got a file
       const blob = await response.blob();
       console.log("Blob received. Size:", blob.size, "bytes");
 
@@ -91,11 +89,9 @@ const downloadWithAuth = async (url, filename) => {
       link.href = downloadUrl;
       link.download = filename;
       
-      // Make sure the link is in the DOM before clicking
       document.body.appendChild(link);
       link.click();
       
-      // Cleanup
       link.remove();
       window.URL.revokeObjectURL(downloadUrl);
       
@@ -158,22 +154,19 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-
-const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewConsolidated, Admin_Communication }) => {
+const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewConsolidated, Admin_Communication: commsData }) => {
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
   const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role);
   
-  // Specific permission checks
   const canViewConsolidated = isAdmin || currentUser.permissions?.consolidated;
   const canExportData = isRPC || currentUser.permissions?.export_data;
 
-  // --- COMPLIANCE CHECK LOGIC ---
   const today = new Date().getDay();
   const isEndOfWeek = today === 5 || today === 6 || today === 0;
   const hasSubmittedThisWeek = false; 
   const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && !isAdmin;
 
-  const relevantComms = (Admin_Communication || []).filter(c => {
+  const relevantComms = (commsData || []).filter(c => {
     if (c.target_audience === 'ALL_USERS') return true;
     if (c.target_audience === 'ADMINS_ONLY' && isAdmin) return true;
     if (c.target_audience === 'RPC_ONLY' && isRPC) return true;
@@ -183,8 +176,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8 relative z-10 animate-in fade-in duration-300">
-      
-      {/* COMPLIANCE WARNING BANNER */}
       {showComplianceWarning && (
         <div className="bg-red-600 text-white font-extrabold p-4 rounded-xl shadow-lg flex flex-col md:flex-row items-center justify-between animate-pulse border-2 border-red-400">
           <div className="flex items-center text-sm mb-3 md:mb-0">
@@ -197,7 +188,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
         </div>
       )}
 
-      {/* HEADERS */}
       <div className="text-center flex flex-col items-center mt-4">
         <img src="/upf_badge.png" alt="UPF Logo" className="w-24 h-24 mb-1 object-contain drop-shadow-md" />
         <h1 className="text-3xl font-bold text-gray-900 tracking-wide">UGANDA POLICE FORCE</h1>
@@ -205,14 +195,12 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
         <h3 className="text-sm font-bold text-blue-600 mt-3 uppercase tracking-widest bg-blue-50 px-4 py-1 rounded-full border border-blue-200">Centralised Security Data Management System</h3>
       </div>
 
-      {/* 1. WELCOME BANNER */}
       <div className="w-full">
         <h3 className="text-center text-sm font-bold text-slate-600 bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
            Welcome, <span className="text-blue-700">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
         </h3>   
       </div>
 
-      {/* 2. ADMIN COMMUNICATION PANEL */}
       <div className="w-full">
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
           <div className="bg-slate-900 text-white px-4 py-3 flex justify-between items-center shrink-0">
@@ -257,7 +245,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
         </div>
       </div>
 
-      {/* 3. OPERATIONAL MENUS GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
           <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-300 group">
             <div className="w-14 h-14 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mr-4 group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0"><LayoutDashboard size={24} /></div>
@@ -365,7 +352,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     }
   };
 
-  // ✅ Clean, uniquely named function for this specific form
   const populateUpdateCrimeForm = (caseData) => {
     setFormData({ 
       ...caseData, 
@@ -433,14 +419,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
-    const autoCapitalize = (text) => {
-      if (!text) return text;
-      return text.replace(
-        /(^\s*[a-z]|[\.\!\?\)]\s+[a-z]|\n\s*(?:[0-9]+[\.\)]\s*|[\-\*]\s*)?[a-z])/g, 
-        match => match.toUpperCase()
-      );
-    };
-
     if (name === 'region') {
       setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] });
     } else if (name === 'narrative' || name === 'updateText' || name === 'customOffence') {
@@ -729,7 +707,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                       <div className="p-3 text-xs text-gray-500 text-center">No cases found matching your search.</div>
                     ) : (
                       availableUpdateCases.map(c => (
-                        // ✅ Replaced the broken function call here!
                         <div key={c.sn} onClick={() => populateUpdateCrimeForm(c)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === c.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
                           <span className={formData.sn === c.sn ? 'text-blue-200' : 'text-gray-400'}>SN: {c.sn}</span> | <span className={formData.sn === c.sn ? 'text-white' : 'font-bold text-blue-700'}>{c.sdRef || c.sd_ref}</span> | {c.station}
                         </div>
@@ -917,7 +894,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredReports.map((report) => (
-                    // ✅ Replaced the broken function call here!
                     <tr key={report.sn} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateCrimeForm(report); }}>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">{report.sn}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-blue-700 align-top">{report.sdRef || report.sd_ref}</td>
@@ -1124,39 +1100,35 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
         setNotification(`❌ Error: ${err.message}`);
       }
       
-} else if (operation === 'update') {
-      // 1. Ensure we actually have an ID selected
-      if (!formData.id) {
+    } else if (operation === 'update') {
+      if (!formData.sn) {
         setNotification("Error: Please select a record from the list to update first.");
-        setIsSubmitting(false);
         return;
       }
 
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
 
       try {
-        // 🚨 THE FIX: Notice the /${formData.id} dynamically added to the end of the URL
-        const response = await authFetch(`${API_URL}/api/v1/establishments/${formData.id}`, {
+        const response = await fetch(`${API_URL}/api/v1/stats/${formData.sn}`, {
           method: "PUT",
           headers: { 
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}` 
           },
           body: JSON.stringify(updatedRecord)
         });
 
         if (!response.ok) throw new Error("Failed to update record in database.");
 
-        const updatedEsts = establishments.map(e => e.id === formData.id ? updatedRecord : e);
-        setEstablishments(updatedEsts);
-        setNotification(`Establishment ID ${formData.id} successfully updated!`);
+        const updatedStats = stats.map(s => s.sn === formData.sn ? updatedRecord : s);
+        setStats(updatedStats);
+        setNotification(`Statistics SN ${formData.sn} successfully updated!`);
         
         handleOperationToggle('new');
 
       } catch (err) {
         console.error("Update Error:", err);
         setNotification("❌ Error: Could not update the record in the database.");
-      } finally {
-        setIsSubmitting(false);
       }
     }
   };
@@ -1212,7 +1184,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
               <form onSubmit={handleFormSubmit} className="space-y-5">
                 {operation === 'update' && formData.sn && (
                    <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
-                     Currently Editing Record SN: {formData.sn}
+                      Currently Editing Record SN: {formData.sn}
                    </div>
                 )}
                 
@@ -1496,7 +1468,6 @@ const handleFormSubmit = (e) => {
     e.preventDefault();
 
     if (operation === 'new') {
-      // 🚨 THE INTERCEPTOR: Prevent Identical Narratives (strips HTML tags to check pure text)
       const cleanNewText = formData.narrative.replace(/<[^>]*>?/gm, '').trim().toLowerCase();
       const isDuplicate = stories.some(s => 
         s.narrative.replace(/<[^>]*>?/gm, '').trim().toLowerCase() === cleanNewText
@@ -1791,10 +1762,8 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
   const [filterStation, setFilterStation] = useState('ALL STATIONS');
   const [updateSearch, setUpdateSearch] = useState('');
 
-  const [Admin_Communication, setAdmin_Communication] = useState([]);
   const [filterDivision, setFilterDivision] = useState('ALL DIVISIONS');
   
-  // FIX 1: Removed extra underscore from personnel_in_sub_station
   const [formData, setFormData] = useState({
     id: null,
     region: currentUser.region,
@@ -1837,18 +1806,17 @@ const handleInputChange = (e) => {
     const { name, value, type } = e.target;
     
     if (name === 'region') {
-      // Automatically reset division and station when region changes
       setFormData({ 
         ...formData, 
         region: value, 
-        division: REGIONAL_HIERARCHY[value][0], // Set to first available division
-        station: REGIONAL_HIERARCHY[value][0]   // Set to first available station
+        division: REGIONAL_HIERARCHY[value][0],
+        station: REGIONAL_HIERARCHY[value][0]   
       });
     } else if (name === 'division') {
       setFormData({ 
         ...formData, 
         division: value,
-        station: value // Usually station and division are linked in your logic
+        station: value 
       });
     } else {
       setFormData({ ...formData, [name]: type === 'number' ? parseInt(value) || 0 : value });
@@ -1866,7 +1834,7 @@ const handleInputChange = (e) => {
         station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
         personnel_in_station: 0,
         sub_station: '', 
-        personnel_in_sub_station: 0, // FIX: Underscore removed
+        personnel_in_sub_station: 0,
         post: '', 
         personnel_in_post: 0, 
         booths: 0, 
@@ -1880,10 +1848,13 @@ const handleInputChange = (e) => {
     }
   };
 
+  const populateUpdateForm = (data) => {
+    setFormData({ ...data });
+  };
+
 const handleFormSubmit = async (e) => {
     e.preventDefault();
 
-    // 1. Validation Block
     const requiredFields = ['region', 'division', 'station', 'location'];
     const isInvalid = requiredFields.some(field => !formData[field] || String(formData[field]).trim() === '');
 
@@ -1892,20 +1863,17 @@ const handleFormSubmit = async (e) => {
       return; 
     }
 
-    // 2. LOGICAL DUPLICATE CHECK
-    // This checks if a station with the same name/region exists in your current list
     const isDuplicate = establishments.some(e => 
       e.region === formData.region && 
       e.station === formData.station && 
       e.division === formData.division
     );
 
-    if (isDuplicate) {
+    if (isDuplicate && operation === 'new') {
       setNotification("Error: An entry for this station already exists.");
       return;
     }
 
-    // 3. Prevent Double-Clicking
     setIsSubmitting(true); 
 
     if (operation === 'new') {
@@ -1925,7 +1893,6 @@ const handleFormSubmit = async (e) => {
         setEstablishments([newEntry, ...establishments]);
         setNotification(`Establishment recorded for ${formData.station}!`);
         
-        // Reset form
         setFormData({ 
           ...formData, 
           division:'', station:'', personnel_in_station:0, sub_station: '', 
@@ -1938,10 +1905,39 @@ const handleFormSubmit = async (e) => {
         console.error("Cloud sync failed:", err);
         setNotification("Error: Server rejected the data. Please check connection.");
       } finally {
-        setIsSubmitting(false); // Unlock the button
+        setIsSubmitting(false);
       }
-    } 
-    // ... update logic ...
+    } else if (operation === 'update') {
+      if (!formData.id) {
+        setNotification("Error: Please select a record from the list to update first.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
+
+      try {
+        const response = await authFetch(`/api/v1/establishments/${formData.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updatedRecord)
+        });
+
+        if (!response.ok) throw new Error("Failed to update record in database.");
+
+        const updatedEsts = establishments.map(e => e.id === formData.id ? updatedRecord : e);
+        setEstablishments(updatedEsts);
+        setNotification(`Establishment ID ${formData.id} successfully updated!`);
+        
+        handleOperationToggle('new');
+
+      } catch (err) {
+        console.error("Update Error:", err);
+        setNotification("❌ Error: Could not update the record in the database.");
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
     
     setTimeout(() => setNotification(null), 4000);
   };
@@ -2014,7 +2010,6 @@ const handleFormSubmit = async (e) => {
                       </select>
                     </div>
                     
-                    {/* FIXED: The select dropdown now points to name="division" properly */}
                     <div className="col-span-2">
                       <label className="block text-xs font-bold text-gray-700 mb-1">DIVISION (Headquarter) *</label>
                       <select name="division" value={formData.division} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
@@ -2039,7 +2034,6 @@ const handleFormSubmit = async (e) => {
                   </div>  
                   <div className="col-span-2">
                     <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL IN SUB STATION</label>
-                    {/* FIX 3: name corrected to match Python database */}
                     <input type="number" name="personnel_in_sub_station" min="0" value={formData.personnel_in_sub_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
                   </div>
 
@@ -2076,7 +2070,7 @@ const handleFormSubmit = async (e) => {
                       <option value="UNDER MAINTENANCE">UNDER MAINTENANCE</option>
                       <option value="NON-OPERATIONAL">NON-OPERATIONAL</option>
                       <option value="DECOMMISSIONED">DECOMMISSIONED</option>
-                      <option value="TO BE COMMISSIONED">TO BE COMMISSIONED</option>    
+                      <option value="TO BE COMMISSIONED">TO BE COMMISSIONED</option>  
                     </select>
                   </div>
                   <div className="col-span-2 pb-8">
@@ -2155,7 +2149,6 @@ const handleFormSubmit = async (e) => {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredEstablishments.map((est) => (
                     <tr key={est.id} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(est); }}>
-                      {/* FIX 4: Changed est.Division to est.division so it renders! */}
                       <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-blue-800">{est.division}</td>
                       <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-blue-800">{est.station}</td>
                       <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold">{est.personnel_in_station}</td> 
@@ -2204,7 +2197,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   const [metricCategory, setMetricCategory] = useState('RANK'); 
   const [archiveReason, setArchiveReason] = useState('TRANSFERRED');
 
-  // FORM DATA INITIALIZED TO PERFECTLY MATCH THE PYTHON MODELS.PY CLASS
   const [formData, setFormData] = useState({
     sn: null, fnum: '', rank: '', name: '', sex: 'MALE', position: '',
     dob: '', doe: '', dopost: '', dopro: '', contact: '', educlevel: '',
@@ -2224,23 +2216,16 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 const filteredNominal_Roll_archives = useMemo(() => {
   if (!Array.isArray(Nominal_Roll_archives)) return [];
 
-  // 1. Determine if the user has "Godly" powers
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
 
   return Nominal_Roll_archives.filter(n => {
-    // 2. SUPER ADMIN bypass: They see everything regardless of filters
     if (isSuperAdmin) return true;
 
-    // 3. REGIONAL/STATION Filtering for standard users
-    // If the filter is set to 'ALL', we default to their own assigned area
     const regionToMatch = filterRegion !== 'ALL REGIONS' ? filterRegion : currentUser.region;
     const stationToMatch = filterStation !== 'ALL STATIONS' ? filterStation : currentUser.station;
 
-    // Strict matching for standard users
     if (n.region !== regionToMatch) return false;
     if (n.station !== stationToMatch) return false;
-    console.log("Current User Role:", currentUser?.role, "Region:", currentUser?.region);
-
     return true;
   });
 }, [Nominal_Roll_archives, filterRegion, filterStation, currentUser]);
@@ -2324,13 +2309,11 @@ const filteredNominal_Roll_archives = useMemo(() => {
   const populateUpdateForm = (data) => {
     setFormData({ 
       ...data,
-      // Force React to read the Force Number securely
       fnum: data.fnum || data.f_num 
     });
   };
 
   const handleArchivePersonnel = async () => {
-    // 1. FIXED: We only require the Force Number now!
     if (!formData.fnum) {
       alert("Missing Force Number. Cannot archive this record.");
       return;
@@ -2392,10 +2375,7 @@ const filteredNominal_Roll_archives = useMemo(() => {
       };
       
       setNominal_Roll_archives([archivedRecord, ...(Array.isArray(Nominal_Roll_archives) ? Nominal_Roll_archives : [])]);
-      
-      // 2. FIXED: Filter them out of the UI using fnum, not sn!
       setNominal_Rolls((Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => (n.fnum || n.f_num) !== formData.fnum));
-      
       setNotification(`Officer ${formData.name} archived successfully.`);
       handleOperationToggle('new');
       
@@ -2561,7 +2541,7 @@ const filteredNominal_Roll_archives = useMemo(() => {
                             <option value="RETIREMENT">Retirement</option>
                          </select>
                          <button type="button" onClick={handleArchivePersonnel} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-bold text-sm shadow transition border border-red-800">
-                            Move to Archive
+                           Move to Archive
                          </button>
                       </div>
                    </div>
@@ -2570,12 +2550,6 @@ const filteredNominal_Roll_archives = useMemo(() => {
                 {operation === 'update' && (formData.sn || formData.fnum) && (
                    <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
                      Currently Editing Record: {formData.fnum}
-                   </div>
-                )}
-
-                {operation === 'update' && formData.sn && (
-                   <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
-                     Currently Editing Record SN: {formData.sn}
                    </div>
                 )}
                 
@@ -2860,15 +2834,12 @@ const AdminApprovals = ({ currentUser }) => {
   const [activityLogs, setActivityLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
   
-  // State for real pending users from database
   const [realPendingUsers, setRealPendingUsers] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
 
-  // Derive role checks for regional commanders
   const isRPC = currentUser && currentUser.role === 'RPC';
   const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
 
-  // 👇 EXACTLY HERE: This is where that block lives! 👇
   useEffect(() => {
     if (activeTab === 'approvals') {
       setLoadingPending(true);
@@ -2891,14 +2862,11 @@ const AdminApprovals = ({ currentUser }) => {
         })
         .catch(err => { console.error(err); setLoadingRequests(false); });
 
-    // 🟢 THIS IS YOUR BLOCK 🟢
     } else if (activeTab === 'logs') {
       setLoadingLogs(true);
-      // Make sure this says /audit-logs
       authFetch("/api/v1/audit-logs")
         .then(res => res.json())
         .then(data => { 
-            // Safety wrapper to ensure it only sets an array
             setActivityLogs(Array.isArray(data) ? data : []); 
             setLoadingLogs(false); 
         })
@@ -2917,7 +2885,6 @@ const AdminApprovals = ({ currentUser }) => {
       throw new Error(errData.detail || "Failed to approve user.");
     }
 
-    // Remove the user from the UI list upon success
     setRealPendingUsers(realPendingUsers.filter(u => u.fnum !== fnum));
     alert(`Officer ${fnum} successfully authorized!`);
     
@@ -2926,50 +2893,6 @@ const AdminApprovals = ({ currentUser }) => {
     alert(`Authorization Failed: ${err.message}`);
   }
 };
-
-{/* TAB 3: SYSTEM Audit_Logs */}
-      {activeTab === 'logs' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-6xl mx-auto">
-           <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
-              <Activity className="w-5 h-5 mr-2 text-blue-400" /> System Audit Logs
-           </div>
-           <div className="overflow-x-auto">
-             <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Date & Time</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Event Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Target User</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status/Details</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {loadingLogs ? (
-                     <tr><td colSpan="4" className="p-8 text-center text-sm text-gray-500 font-bold animate-pulse">Fetching audit logs from database...</td></tr>
-                  ) : activityLogs.length === 0 ? (
-                    <tr><td colSpan="4" className="p-4 text-center text-sm text-gray-500">No security events found in the audit_logs table.</td></tr>
-                  ) : (
-                    activityLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">
-                          {log.created_at ? new Date(log.created_at).toLocaleString() : 'Unknown Time'}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-slate-700">{log.event_type}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-blue-600">{log.user_fnum || log.target_user}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          <span className={`mr-2 px-2 py-0.5 inline-flex text-[10px] leading-5 font-bold rounded-full ${log.status === 'SUCCESS' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                            {log.status}
-                          </span> 
-                          {log.details}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-        </div>
-      )}
 
 return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
@@ -2987,7 +2910,7 @@ return (
           HR Modification Requests ({activeTab === 'requests' ? modRequests.length : '?'})
         </button>
         <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-          Audit_Logs
+          Audit Logs
         </button>
       </div>
 
@@ -3097,7 +3020,6 @@ return (
         </div>
       )}
 
-      {/* TAB 3: SYSTEM Audit_Logs */}
       {activeTab === 'logs' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-6xl mx-auto">
            <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
@@ -3107,7 +3029,7 @@ return (
              <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Created_at</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Date & Time</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Event Type</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Target User</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status/Details</th>
@@ -3122,12 +3044,12 @@ return (
                     activityLogs.map((log) => (
                       <tr key={log.id} className="hover:bg-slate-50">
                         <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">
-                          {new Date(log.created_at).toLocaleString()}
+                          {log.created_at ? new Date(log.created_at).toLocaleString() : 'Unknown Time'}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-slate-700">{log.event_type}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-blue-600">{log.user_fnum}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-blue-600">{log.user_fnum || log.target_user}</td>
                         <td className="px-4 py-3 text-sm text-gray-600">
-                          <span className={`mr-2 px-2 py-0.5 inline-flex text-[10px] leading-5 font-bold rounded-full ${log.status === 'ALERT TRIGGERED' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                          <span className={`mr-2 px-2 py-0.5 inline-flex text-[10px] leading-5 font-bold rounded-full ${log.status === 'SUCCESS' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                             {log.status}
                           </span> 
                           {log.details}
@@ -3144,7 +3066,6 @@ return (
   );
 };
 
-    
 // ====================================================================
 // --- PROFILE UPDATE SYSTEM (COMMAND WORKFLOW ENABLED FOR ALL USERS) ---
 // ====================================================================
@@ -3243,7 +3164,6 @@ const AdminProfile = ({ currentUser, setCurrentUser }) => {
     }
   };
 
-  // Unified submission handler
   const handleProfileSave = (e) => {
      e.preventDefault();
      if (canAutoApprove) {
@@ -3293,7 +3213,6 @@ const AdminProfile = ({ currentUser, setCurrentUser }) => {
           {isEditing ? (
             <div className="space-y-6">
               
-              {/* HR ZONE (Dynamic Workflow) */}
               <div className={`p-6 rounded-xl border transition-colors duration-300 ${canAutoApprove ? 'bg-blue-50 border-blue-200' : isRequestMode ? 'bg-yellow-50 border-yellow-300' : 'bg-slate-100 border-slate-200'}`}>
                 <div className="flex justify-between items-center mb-4 border-b pb-2 border-slate-200/50">
                   <div className={`flex items-center text-xs font-extrabold uppercase tracking-wider ${canAutoApprove ? 'text-blue-700' : isRequestMode ? 'text-yellow-700' : 'text-slate-500'}`}>
@@ -3339,8 +3258,7 @@ const AdminProfile = ({ currentUser, setCurrentUser }) => {
                 </div>
               </div>
 
-              {/* EDITABLE PERSONAL ZONE (Always available via standard save) */}
-              <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+              <form onSubmit={handleProfileSave} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex items-center text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2">
                   <Edit size={14} className="mr-2" /> Editable Contact Data
                 </div>
@@ -3432,83 +3350,84 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   const handlePhotoUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      setAuthMessage("Uploading profile photo to secure S3 bucket...");
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const localPreviewUrl = URL.createObjectURL(file);
+      setSignupData(prev => ({ ...prev, profile_photo_path: localPreviewUrl }));
+      setAuthMessage("Uploading profile photo to S3 bucket...");
 
       const uploadData = new FormData();
       uploadData.append("file", file);
-      uploadData.append("category", "user_profile"); 
       uploadData.append("fnum", signupData.fnum || "PENDING_REGISTRATION");
-      uploadData.append("narrative", "Officer Profile Photo Signup");
+      uploadData.append("category", "user_profile");
 
       try {
-        // 🚨 Corrected endpoint: Points to user profile route without trailing slash
         const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, {
           method: "POST",
           body: uploadData,
-          signal: controller.signal 
         });
 
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          throw new Error("Profile photo upload failed on the server.");
-        }
+        if (!response.ok) throw new Error("Upload failed on server.");
 
         const data = await response.json();
-        if (data.full_s3_url || data.cloud_storage_path) {
-          setSignupData({ 
-            ...signupData, 
-            profile_photo_path: data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}` 
-          });
-          setAuthMessage("Photo uploaded to S3 successfully!");
-        } else {
-          throw new Error("Invalid response format from server");
-        }
+        const s3Url = data.full_s3_url || data.cloud_storage_path;
+
+        setSignupData(prev => ({ ...prev, profile_photo_path: s3Url }));
+        setAuthMessage("✅ Photo uploaded to S3 successfully!");
       } catch (error) {
-        clearTimeout(timeoutId);
-        
-        if (error.name === 'AbortError') {
-          setAuthMessage("❌ Upload timed out. Please check your connection and try a smaller file.");
-          console.error("Upload timeout");
-        } else {
-          console.warn("Backend profile endpoint unreachable, falling back to local Blob URL for UI testing.", error);
-          const localUrl = URL.createObjectURL(file);
-          setSignupData({ ...signupData, profile_photo_path: localUrl });
-          setAuthMessage("Note: API offline or error occurred. Using temporary local preview.");
-        }
+        console.error("Upload error:", error);
+        setAuthMessage("⚠️ S3 upload error. Temporary preview active.");
       }
     }
   };
 
-  const handleSignupSubmit = (e) => {
+  const handleSignupSubmit = async (e) => {
     e.preventDefault();
 
-    const isAlreadyPending = pendingUsers.some(u => u.fnum.toUpperCase() === signupData.fnum.toUpperCase());
-    if (isAlreadyPending) {
-      setAuthMessage("⚠️ Access Request Denied: Your Force Number is already in the queue awaiting Admin approval.");
+    if (!signupData.profile_photo_path) {
+      setAuthMessage("⚠️ Error: Profile photo upload is mandatory.");
       return;
     }
 
-    const isAlreadyActive = activeUsers.some(u => u.fnum.toUpperCase() === signupData.fnum.toUpperCase());
-    if (isAlreadyActive) {
-      setAuthMessage("⚠️ Error: An account with this Force Number already exists. Please return to the login screen.");
-      return;
+    setAuthMessage("Submitting authorization request...");
+
+    try {
+      const formData = new FormData();
+      formData.append("fnum", signupData.fnum);
+      formData.append("ipps", signupData.ipps);
+      formData.append("name", signupData.name);
+      formData.append("rank", signupData.rank);
+      formData.append("sex", signupData.sex);
+      formData.append("region", signupData.region);
+      formData.append("station", signupData.station);
+      formData.append("position", signupData.position);
+      formData.append("email", signupData.email);
+      formData.append("phone", signupData.phone);
+      formData.append("password", signupData.password);
+      
+      let derivedRole = 'USER';
+      if (signupData.position === 'System Manager') derivedRole = 'SUPER_ADMIN';
+      else if (POSITIONS.ADMIN.includes(signupData.position) || signupData.position.includes('Divisional Commander') || signupData.station === 'KMP HEADQUARTERS' || signupData.station === 'KMP Headquarters' || signupData.region === 'POLICE HEADQUARTERS') derivedRole = 'ADMIN';
+      else if (POSITIONS.RPC.includes(signupData.position) || signupData.position.includes(`${signupData.region} Commander`)) derivedRole = 'RPC';
+      
+      formData.append("role", derivedRole);
+
+      const response = await fetch(`${API_URL}/api/v1/auth/signup`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setAuthMessage("✅ Account Request Submitted! Awaiting Admin Approval.");
+        if (onSignup) onSignup({ ...signupData, role: derivedRole });
+        setMode('login');
+      } else {
+        setAuthMessage(`❌ Registration Failed: ${data.detail || "Server error"}`);
+      }
+    } catch (error) {
+      console.error("Signup network error:", error);
+      setAuthMessage("❌ Connection error. Could not reach server.");
     }
-
-    let derivedRole = 'USER';
-    if (signupData.position === 'System Manager') derivedRole = 'SUPER_ADMIN';
-    else if (POSITIONS.ADMIN.includes(signupData.position) || signupData.position.includes('Divisional Commander') || signupData.station === 'KMP HEADQUARTERS' || signupData.station === 'KMP Headquarters' || signupData.region === 'POLICE HEADQUARTERS') derivedRole = 'ADMIN';
-    else if (POSITIONS.RPC.includes(signupData.position) || signupData.position.includes(`${signupData.region} Commander`)) derivedRole = 'RPC';
-
-    const pendingUser = { ...signupData, role: derivedRole };
-    onSignup(pendingUser);
-    
-    setAuthMessage(`✅ Account Request Submitted! Pending Admin Approval.`);
-    setMode('login');
-    setTimeout(() => setAuthMessage(null), 5000);
   };
 
   const handleLoginSubmit = async (e) => { 
@@ -3532,17 +3451,17 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         if (response.ok) {
           localStorage.setItem('kmp_authToken', data.access_token);
           onLogin({ 
-             fnum: data.fnum || 'A/2408', 
-             rank: data.rank || 'AIP',
-             name: data.name || 'Afedra Vincent',
-             sex: data.sex || 'MALE',
-             ipps: data.ipps || '950010',
-             region: data.region || 'KMP HEADQUARTERS',
-             station: data.station || 'KMP HEADQUARTERS',
-             email: data.email || 'afedravnct@gmail.com',
-             phone: data.phone || '0779302872',
-             role: data.role || 'SUPER_ADMIN',
-             profile_photo_path: data.profile_photo_path || ''
+              fnum: data.fnum || 'A/2408', 
+              rank: data.rank || 'AIP',
+              name: data.name || 'Afedra Vincent',
+              sex: data.sex || 'MALE',
+              ipps: data.ipps || '950010',
+              region: data.region || 'KMP HEADQUARTERS',
+              station: data.station || 'KMP HEADQUARTERS',
+              email: data.email || 'afedravnct@gmail.com',
+              phone: data.phone || '0779302872',
+              role: data.role || 'SUPER_ADMIN',
+              profile_photo_path: data.profile_photo_path || ''
           });
         } else {
           console.error("Login failed:", data.detail);
@@ -3763,7 +3682,13 @@ const DashboardLayout = ({
   const [showOnline, setShowOnline] = useState(false);
   const [showAllUsers, setShowAllUsers] = useState(false);
   const [selectedUserDetail, setSelectedUserDetail] = useState(null);
-  const [lastViewedId, setLastViewedId] = usePersistentState('last_viewed_comm_id', 0);
+  
+  // Using standard useState here since usePersistentState might not be in scope for DashboardLayout directly
+  const [lastViewedId, setLastViewedId] = useState(() => {
+    const saved = localStorage.getItem('last_viewed_comm_id');
+    return saved ? JSON.parse(saved) : 0;
+  });
+
   const latestCommId = (Admin_Communication && Admin_Communication.length > 0) 
     ? Math.max(...Admin_Communication.map(c => c.id)) 
     : 0;
@@ -3773,7 +3698,7 @@ const DashboardLayout = ({
     { name: '🏠 Home Dashboard', id: 'home', icon: <Home size={20} /> },
     { name: '📋 Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> },
     { name: '📊 Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> },
-    { name: '⛓️‍💥 success_stories', id: 'success', icon: <Trophy size={20} /> },
+    { name: '⛓️‍💥 Success Stories', id: 'success', icon: <Trophy size={20} /> },
     { name: '🏢 Establishments', id: 'establishments', icon: <Building size={20} /> },
     { name: '👥 Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> },
     { 
@@ -3800,9 +3725,9 @@ const DashboardLayout = ({
     });
   };
 
-// ✅ PERFECT PLACEMENT: The Export Function sits safely inside the component
   const handleExportLogs = async () => {
     try {
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
       const response = await fetch(`${API_URL}/api/v1/activity-logs`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -3813,7 +3738,6 @@ const DashboardLayout = ({
       const logs = await response.json();
       const headers = ["ID", "Force Number", "Action", "Module", "Details", "Timestamp (EAT)"];
       
-      // ✅ MOVED: safeDetails is now correctly calculated inside the loop for each log
       const csvRows = logs.map(log => {
         const safeDetails = log.details ? log.details.replace(/"/g, '""') : "";
         return [
@@ -3863,7 +3787,13 @@ const DashboardLayout = ({
             {navItems.map((item) => (
               <button 
                 key={item.id} 
-                onClick={() => setCurrentPage(item.id)}
+                onClick={() => {
+                  setCurrentPage(item.id);
+                  if (item.id === 'Admin_Communication') {
+                    setLastViewedId(latestCommId);
+                    localStorage.setItem('last_viewed_comm_id', JSON.stringify(latestCommId));
+                  }
+                }}
                 className={`w-full flex items-center px-6 py-3 transition-colors text-left ${
                   currentPage === item.id ? 'bg-blue-600 border-l-4 border-yellow-400 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white border-l-4 border-transparent'
                 }`}
@@ -3875,50 +3805,49 @@ const DashboardLayout = ({
           </nav>
 
           {sidebarOpen && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && (
-            <div className="px-4 space-y-">
+            <div className="px-4 space-y-3">
               <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
                 <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
                 <button 
                   onClick={() => setCurrentPage('approvals')} 
-                  className={`w-full text-xs py-4 rounded transition font-medium ${currentPage === 'approvals' ? 'bg-green-600 text-red' : 'bg-slate-300 hover:bg-slate-600 text-slate-200'}`}
+                  className={`w-full text-xs py-4 rounded transition font-medium ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}
                 >
                   Manage Pending Users & Logs
                 </button>
                 
-                {/* ✅ NEW: Secure Super Admin Logs Download Button */}
                 {currentUser?.role === 'SUPER_ADMIN' && (
                   <button
                     onClick={handleExportLogs}
                     className="w-full mt-6 text-xs py-4 rounded transition font-bold bg-slate-900 hover:bg-slate-950 text-slate-300 border border-slate-700 flex items-center justify-center"
                   >
-                    <Download size={14} className="mr-2 text-blue-400"/> Export Audit_Logs
+                    <Download size={14} className="mr-2 text-blue-400"/> Export Audit Logs
                   </button>
                 )}
               </div>
 
               <div className="rounded-lg p-4 bg-slate-800">
-   <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
-      <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Connections (2)</span>
-      <span className="bg-slate-900 px-2 py-2 rounded-full text-xs"></span>
-   </button>
-   {showOnline && (
-     <div className="mt-4 space-y-2 border-t border-slate-700 pt-4">
-        <div onClick={() => inspectActiveUser("AIP System MGR")} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-50 cursor-pointer transition-all">
-          <span className="font-bold text-white block">AIP System MGR</span>
-          <span className="text-slate-400">KMP HEADQUARTERS</span>
-        </div>
-        <div onClick={() => inspectActiveUser("Standard Officer")} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between">
-          <div>
-            <span className="font-bold text-white block">Standard Officer</span>
-            <span className="text-slate-400">KAWEMPE</span>
-          </div>
-          {connectionUserProfiles["Standard Officer"]?.profile_photo_path && (
-            <img src={connectionUserProfiles["Standard Officer"].profile_photo_path} alt="" className="w-6 h-6 rounded-full border border-green-400 object-cover" onError={(e) => { e.target.style.display='none'; }} />
-          )}
-        </div>
-     </div>
-   )}
-</div>
+                <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
+                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Connections (2)</span>
+                  <span className="bg-slate-900 px-2 py-2 rounded-full text-xs"></span>
+                </button>
+                {showOnline && (
+                  <div className="mt-4 space-y-2 border-t border-slate-700 pt-4">
+                    <div onClick={() => inspectActiveUser("AIP System MGR")} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all">
+                      <span className="font-bold text-white block">AIP System MGR</span>
+                      <span className="text-slate-400">KMP HEADQUARTERS</span>
+                    </div>
+                    <div onClick={() => inspectActiveUser("Standard Officer")} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between">
+                      <div>
+                        <span className="font-bold text-white block">Standard Officer</span>
+                        <span className="text-slate-400">KAWEMPE</span>
+                      </div>
+                      {connectionUserProfiles["Standard Officer"]?.profile_photo_path && (
+                        <img src={connectionUserProfiles["Standard Officer"].profile_photo_path} alt="" className="w-6 h-6 rounded-full border border-green-400 object-cover" onError={(e) => { e.target.style.display='none'; }} />
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <div className="rounded-lg p-3 bg-slate-800 border border-slate-700">
                  <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400">
@@ -3950,7 +3879,6 @@ const DashboardLayout = ({
                 <div className="text-sm font-bold text-yellow-500 mb-3 flex items-center"><Shield size={16} className="mr-2"/> ⚙️ Reports & Ledgers</div>
                 
                 <div className="space-y-4">
-                  {/* --- HR SPLIT BUTTONS --- */}
                   <div>
                     <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1 block">HR & Establishments</span>
                     <div className="flex space-x-2">
@@ -3963,7 +3891,6 @@ const DashboardLayout = ({
                     </div>
                   </div>
                                     
-                  {/* --- CONSOLIDATED BUTTON --- */}
                   {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && (
                     <button 
                       onClick={onViewConsolidated}
@@ -3973,7 +3900,6 @@ const DashboardLayout = ({
                     </button>
                   )}
                 </div>
-
               </div>
             </div>
           )}
@@ -3985,7 +3911,7 @@ const DashboardLayout = ({
                {currentUser?.profile_photo_path ? (
                  <img src={currentUser.profile_photo_path} alt="" className="w-full h-full object-cover" onError={(e) => { e.target.style.display='none'; }} />
                ) : null}
-               {currentUser?.name?.charAt(0) || 'A'}
+               {!currentUser?.profile_photo_path && (currentUser?.name?.charAt(0) || 'A')}
              </div>
              {sidebarOpen && (
                <div className="ml-3">
@@ -4006,20 +3932,18 @@ const DashboardLayout = ({
           <img src="/upf_badge.png" alt="watermark" className="w-1/2 max-w-2xl grayscale object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
         </div>
         
-        {/* THIS LINE MAKES SURE YOUR PAGES OR LEDGERS RENDER CORRECTLY */}
-       {React.Children.map(children, child => 
+        {React.Children.map(children, child => 
           (React.isValidElement(child) && typeof child.type !== 'string') 
             ? React.cloneElement(child, { setSidebarOpen }) 
             : child
         )}  
       </main>
 
-      {/* UPGRADED: USER ACCESS MANAGEMENT MODAL */}
+      {/* USER ACCESS MANAGEMENT MODAL */}
       {selectedUserDetail && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden flex flex-col">
             
-            {/* 1. Modal Header */}
             <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
               <h3 className="font-bold flex items-center text-sm">
                 <Shield size={18} className="text-blue-400 mr-2" /> 
@@ -4030,11 +3954,12 @@ const DashboardLayout = ({
               </button>
             </div>
 
-            {/* 2. Modal Body */}
             <div className="p-6">
               <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-gray-100">
-                <div className="w-12 h-12 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-xl">
-                  {selectedUserDetail.name?.charAt(0) || 'U'}
+                <div className="w-12 h-12 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-xl overflow-hidden">
+                  {selectedUserDetail.profile_photo_path ? (
+                     <img src={selectedUserDetail.profile_photo_path} alt="" className="w-full h-full object-cover" />
+                  ) : (selectedUserDetail.name?.charAt(0) || 'U')}
                 </div>
                 <div>
                   <div className="font-extrabold text-slate-800 text-lg leading-tight">{selectedUserDetail.name}</div>
@@ -4044,74 +3969,77 @@ const DashboardLayout = ({
                 </div>
               </div>
 
-              <h4 className="text-xs font-bold text-slate-800 mb-3 uppercase tracking-wider">Component Admin Clearances</h4>
-              
-              <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
-                {/* CHECKBOX 1: Approvals & Audit_Logs */}
-                <label className="flex items-center space-x-3 cursor-pointer group">
-                  <input 
-                    type="checkbox" 
-                    className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-                    defaultChecked={String(selectedUserDetail.role || '').includes('ADMIN')}
-                    onChange={(e) => {
-                      const newRole = e.target.checked ? 'ADMIN' : 'USER';
-                      onUpdateUserRole(selectedUserDetail.fnum, newRole, selectedUserDetail.permissions || {});
-                    }}
-                  />
-                  <div className="flex-1">
-                    <div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">System Administrator</div>
-                    <div className="text-[10px] text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit_Logs.</div>
-                  </div>
-                </label>
+              {selectedUserDetail.isSystemUser && (
+                <>
+                  <h4 className="text-xs font-bold text-slate-800 mb-3 uppercase tracking-wider">Component Admin Clearances</h4>
+                  <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <label className="flex items-center space-x-3 cursor-pointer group">
+                      <input 
+                        type="checkbox" 
+                        className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                        defaultChecked={String(selectedUserDetail.role || '').includes('ADMIN')}
+                        onChange={(e) => {
+                          const newRole = e.target.checked ? 'ADMIN' : 'USER';
+                          onUpdateUserRole(selectedUserDetail.fnum, newRole, selectedUserDetail.permissions || {});
+                        }}
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">System Administrator</div>
+                        <div className="text-[10px] text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit_Logs.</div>
+                      </div>
+                    </label>
 
-{/* CHECKBOX 2: Consolidated Ledgers */}
-                <label className="flex items-center space-x-3 cursor-pointer group">
-                  <input 
-                    type="checkbox" 
-                    className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500"
-                    checked={Boolean(selectedUserDetail.permissions?.consolidated) || String(selectedUserDetail.role || '').includes('ADMIN')}
-                    disabled={String(selectedUserDetail.role || '').includes('ADMIN')}
-                    onChange={(e) => {
-                      const newPerms = { ...(selectedUserDetail.permissions || {}), consolidated: e.target.checked };
-                      setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms });
-                      onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms);
-                    }}
-                  />
-                  <div className="flex-1">
-                    <div className="text-sm font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">Consolidated Ledger Access</div>
-                    <div className="text-[10px] text-slate-500 font-medium">Allows viewing the cross-domain master Excel overlays.</div>
-                  </div>
-                </label>
+                    <label className="flex items-center space-x-3 cursor-pointer group">
+                      <input 
+                        type="checkbox" 
+                        className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500"
+                        checked={Boolean(selectedUserDetail.permissions?.consolidated) || String(selectedUserDetail.role || '').includes('ADMIN')}
+                        disabled={String(selectedUserDetail.role || '').includes('ADMIN')}
+                        onChange={(e) => {
+                          const newPerms = { ...(selectedUserDetail.permissions || {}), consolidated: e.target.checked };
+                          setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms });
+                          onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms);
+                        }}
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">Consolidated Ledger Access</div>
+                        <div className="text-[10px] text-slate-500 font-medium">Allows viewing the cross-domain master Excel overlays.</div>
+                      </div>
+                    </label>
 
-                {/* CHECKBOX 3: Master Export */}
-                <label className="flex items-center space-x-3 cursor-pointer group">
-                  <input 
-                    type="checkbox" 
-                    className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
-                    checked={Boolean(selectedUserDetail.permissions?.export_data) || selectedUserDetail.role === 'RPC' || String(selectedUserDetail.role || '').includes('ADMIN')}
-                    disabled={selectedUserDetail.role === 'RPC' || String(selectedUserDetail.role || '').includes('ADMIN')}
-                    onChange={(e) => {
-                      const newPerms = { ...(selectedUserDetail.permissions || {}), export_data: e.target.checked };
-                      setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms });
-                      onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms);
-                    }}
-                  />
-                  <div className="flex-1">
-                    <div className="text-sm font-bold text-slate-800 group-hover:text-purple-700 transition-colors">Database Export Privilege</div>
-                    <div className="text-[10px] text-slate-500 font-medium">Allows downloading raw .xlsx database files to local device.</div>
+                    <label className="flex items-center space-x-3 cursor-pointer group">
+                      <input 
+                        type="checkbox" 
+                        className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
+                        checked={Boolean(selectedUserDetail.permissions?.export_data) || selectedUserDetail.role === 'RPC' || String(selectedUserDetail.role || '').includes('ADMIN')}
+                        disabled={selectedUserDetail.role === 'RPC' || String(selectedUserDetail.role || '').includes('ADMIN')}
+                        onChange={(e) => {
+                          const newPerms = { ...(selectedUserDetail.permissions || {}), export_data: e.target.checked };
+                          setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms });
+                          onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms);
+                        }}
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm font-bold text-slate-800 group-hover:text-purple-700 transition-colors">Database Export Privilege</div>
+                        <div className="text-[10px] text-slate-500 font-medium">Allows downloading raw .xlsx database files to local device.</div>
+                      </div>
+                    </label>
                   </div>
-                </label>
-              </div>
+                </>
+              )}
             </div>
 
-            {/* 3. Modal Footer */}
             <div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center">
-              <button 
-                onClick={() => onRevokeUser(selectedUserDetail.fnum)} 
-                className="text-xs font-bold text-red-600 hover:text-red-800 transition-colors"
-              >
-                Revoke All Access
-              </button>
+              {selectedUserDetail.isSystemUser ? (
+                <button 
+                  onClick={() => onRevokeUser(selectedUserDetail.fnum)} 
+                  className="text-xs font-bold text-red-600 hover:text-red-800 transition-colors"
+                >
+                  Revoke All Access
+                </button>
+              ) : (
+                <div></div> // Empty div to keep the Save button aligned right
+              )}
               <button 
                 onClick={() => setSelectedUserDetail(null)} 
                 className="bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs py-2 px-6 rounded-lg shadow-sm transition-colors"
@@ -4128,7 +4056,10 @@ const DashboardLayout = ({
   );
 };  
 
-export default function App() {
+// ====================================================================
+// --- ROOT APP COMPONENT ---
+// ====================================================================
+const App = () => {
   const [currentUser, setCurrentUser] = usePersistentState('kmp_currentUser', null);
   const [currentPage, setCurrentPage] = usePersistentState('kmp_currentPage', 'home');
   const [isInitializing, setIsInitializing] = useState(true);
@@ -4175,29 +4106,12 @@ export default function App() {
     checkClearance();
   }, []);
 
-  if (currentUser && !currentUser.region) {
-    localStorage.removeItem('kmp_currentUser');
-    localStorage.removeItem('kmp_authToken');
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-        <h2 className="text-2xl font-bold text-red-600 mb-2">Ghost Session Detected</h2>
-        <p className="text-slate-600 mb-6">Corrupted local data is blocking the dashboard. Click below to wipe it.</p>
-        <button onClick={() => window.location.reload()} className="px-6 py-3 bg-blue-700 text-white font-bold rounded-lg shadow-md hover:bg-blue-800">
-          Force Clear & Restart App
-        </button>
-      </div>
-    );
-  }
-
-// ==========================================
   // 🛡️ TACTICAL AUTO-LOGOUT (15 MIN INACTIVITY)
-  // ==========================================
   useEffect(() => {
-    // Only arm the timer if an officer is actively logged in
     if (!currentUser) return;
 
     let inactivityTimer;
-    const INACTIVITY_LIMIT = 15 * 60 * 1000; // 15 minutes in milliseconds
+    const INACTIVITY_LIMIT = 15 * 60 * 1000;
 
     const executeAutoLogout = () => {
       console.log("Inactivity limit reached. Executing auto-logout.");
@@ -4212,16 +4126,10 @@ export default function App() {
       inactivityTimer = setTimeout(executeAutoLogout, INACTIVITY_LIMIT);
     };
 
-    // Array of physical triggers that prove the user is still at the terminal
     const activityEvents = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
-
-    // Attach sensors to the window
     activityEvents.forEach(event => window.addEventListener(event, resetTimer));
-
-    // Arm the initial timer
     resetTimer();
 
-    // Disarm sensors when component unmounts or user logs out
     return () => {
       clearTimeout(inactivityTimer);
       activityEvents.forEach(event => window.removeEventListener(event, resetTimer));
@@ -4239,65 +4147,58 @@ export default function App() {
     document.title = "Uganda Police Force - Secure Portal";
   }, []);
 
-useEffect(() => {
-    // 1. Guard Clause: Don't run if no user
+  useEffect(() => {
     if (!currentUser) return;
     
-    // 2. Abort Controller: Stops requests if component unmounts
     const controller = new AbortController();
     
-const fetchData = async () => {
-  const token = localStorage.getItem('kmp_authToken');
-  if (!token) return;
+    const fetchData = async () => {
+      const token = localStorage.getItem('kmp_authToken');
+      if (!token) return;
 
-  try {
-    // 1. ADDED the 7th fetch for nominal-roll-archive
-    const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives] = await Promise.all([
-      authFetch("/api/v1/reports", { signal: controller.signal }),
-      authFetch("/api/v1/stats", { signal: controller.signal }),
-      authFetch("/api/v1/stories", { signal: controller.signal }),
-      authFetch("/api/v1/nominal-roll", { signal: controller.signal }),
-      authFetch("/api/v1/Admin_Communication", { signal: controller.signal }),
-      authFetch("/api/v1/establishments", { signal: controller.signal }),
-      authFetch("/api/v1/nominal-roll-archive", { signal: controller.signal }) // 👈 NEW
-    ]);
+      try {
+        const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives] = await Promise.all([
+          authFetch("/api/v1/reports", { signal: controller.signal }),
+          authFetch("/api/v1/stats", { signal: controller.signal }),
+          authFetch("/api/v1/stories", { signal: controller.signal }),
+          authFetch("/api/v1/nominal-roll", { signal: controller.signal }),
+          authFetch("/api/v1/Admin_Communication", { signal: controller.signal }),
+          authFetch("/api/v1/establishments", { signal: controller.signal }),
+          authFetch("/api/v1/nominal-roll-archive", { signal: controller.signal })
+        ]);
 
-    // 2. Parse the 7th item
-    const [dataReports, dataStats, dataStories, dataNom, dataComms, dataEst, dataArchives] = await Promise.all([
-      resReports.ok ? resReports.json() : [],
-      resStats.ok ? resStats.json() : [],
-      resStories.ok ? resStories.json() : [],
-      resNom.ok ? resNom.json() : [],
-      resComms.ok ? resComms.json() : [],
-      resEst.ok ? resEst.json() : [],
-      resArchives.ok ? resArchives.json() : [] // 👈 NEW
-    ]);
+        const [dataReports, dataStats, dataStories, dataNom, dataComms, dataEst, dataArchives] = await Promise.all([
+          resReports.ok ? resReports.json() : [],
+          resStats.ok ? resStats.json() : [],
+          resStories.ok ? resStories.json() : [],
+          resNom.ok ? resNom.json() : [],
+          resComms.ok ? resComms.json() : [],
+          resEst.ok ? resEst.json() : [],
+          resArchives.ok ? resArchives.json() : []
+        ]);
 
-    // 3. Set the state for the archives!
-    if (!controller.signal.aborted) {
-      setReports(dataReports);
-      setStats(dataStats);
-      setStories(dataStories);
-      setNominal_Rolls(dataNom);
-      setAdminCommsData(dataComms);
-      setEstablishments(dataEst); 
-      setNominal_Roll_archives(dataArchives); // 👈 THIS WAS MISSING
-    }
-  } catch (err) {
-    if (err.name !== 'AbortError') {
-      console.warn("Sync failed:", err);
-    }
-  }
-};
-    
+        if (!controller.signal.aborted) {
+          setReports(dataReports);
+          setStats(dataStats);
+          setStories(dataStories);
+          setNominal_Rolls(dataNom);
+          setAdminCommsData(dataComms);
+          setEstablishments(dataEst); 
+          setNominal_Roll_archives(dataArchives);
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.warn("Sync failed:", err);
+        }
+      }
+    };
+        
     fetchData();
-
-    // Cleanup: This runs if the component disappears
     return () => controller.abort();
   }, [currentUser]); 
 
   const handleMasterExport = async (scope, value) => {
-    let url = `${API_URL}/api/v1/reports/export?timeframe=all`; // ✅ Fixed URL
+    let url = `${API_URL}/api/v1/reports/export?timeframe=all`; 
     if (scope && value) {
         url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
     }
@@ -4326,10 +4227,9 @@ const fetchData = async () => {
     }
   };
 
-
-const renderPage = () => {
+  const renderPage = () => {
     switch (currentPage) {
-      case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} />; // ✅ Added Admin_Communication prop
+      case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} />;
       case 'reports': return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
       case 'statistics': return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
       case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
@@ -4337,17 +4237,13 @@ const renderPage = () => {
       case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
       case 'approvals': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} />;
       case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} />;
-      
-      // ✅ MOVED: This MUST be above default!
       case 'Admin_Communication': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} Admin_Communication={adminCommsData}/>;
-      
       default: return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} />;
     }
   };
 
-const handleViewHRReport = async () => {
+  const handleViewHRReport = async () => {
     try {
-      // FIX 1: Pointing back to the correct URL that returns BOTH halves of the data
       const res = await authFetch("/api/v1/reports/establishments-json");
       
       if (!res.ok) {
@@ -4364,7 +4260,7 @@ const handleViewHRReport = async () => {
   };
 
   const handleViewConsolidated = async () => {
-      setIsViewingHR(false); // Close other view
+      setIsViewingHR(false);
       const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
       const lastWeek = new Date();
       lastWeek.setDate(lastWeek.getDate() - 7);
@@ -4373,7 +4269,6 @@ const handleViewHRReport = async () => {
       try {
           const response = await authFetch(`/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
           
-          // FIX 2: Check if backend crashed before trying to load a broken page
           if (!response.ok) throw new Error("Backend failed to compile ledger.");
 
           const data = await response.json();
@@ -4389,30 +4284,35 @@ const handleViewHRReport = async () => {
     return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
   }
 
+  if (currentUser && !currentUser.region) {
+    localStorage.removeItem('kmp_currentUser');
+    localStorage.removeItem('kmp_authToken');
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+        <h2 className="text-2xl font-bold text-red-600 mb-2">Ghost Session Detected</h2>
+        <p className="text-slate-600 mb-6">Corrupted local data is blocking the dashboard. Click below to wipe it.</p>
+        <button onClick={() => window.location.reload()} className="px-6 py-3 bg-blue-700 text-white font-bold rounded-lg shadow-md hover:bg-blue-800">
+          Force Clear & Restart App
+        </button>
+      </div>
+    );
+  }
+
   if (!currentUser) return <LoginScreen 
     onLogin={setCurrentUser} 
     onForgot={() => {}} 
     onSignup={(u) => setPendingUsers([...pendingUsers, u])} 
     pendingUsers={pendingUsers} 
     activeUsers={users} 
-/>;
-
-  const handleSmartExport = (scope, value) => {
-      let url = `/api/v1/reports/export?timeframe=all`;
-      if (scope && value) url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
-      downloadWithAuth(url, "Ops_Ledger.xlsx");
-  };
+  />;
 
   const handleGenerateHRReport = () => {
-    // Removed "hr-" from the URL so it perfectly matches api_backend.py
     downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
   };
 
   const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
-    // 1. Update React UI immediately
     setUsers(users.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: newPermissions } : u));
     
-    // 2. Save JSON permissions to PostgreSQL silently
     try {
       await authFetch(`/api/v1/users/${fnum}/access`, {
         method: "PUT",
@@ -4424,8 +4324,7 @@ const handleViewHRReport = async () => {
     }
   };
 
-
-return (
+  return (
     <DashboardLayout 
       currentUser={currentUser}
       currentPage={currentPage} 
@@ -4438,12 +4337,10 @@ return (
       onViewConsolidated={handleViewConsolidated} 
       users={users}
       onRevokeUser={(fnum) => { setUsers(users.filter(u => u.fnum !== fnum)); }}
-      
-      onUpdateUserRole={handleUpdateUserRole} // <-- It connects to the engine here!
+      onUpdateUserRole={handleUpdateUserRole}
+      Admin_Communication={adminCommsData}
     >
-{/* LAYER 1: Consolidated Ledger */}
       {isViewingConsolidated && (
-          
         <ConsolidatedLedger 
            data={consolidatedData} 
            reports={reports} 
@@ -4453,7 +4350,6 @@ return (
         />
       )}
 
-      {/* LAYER 2: HR & Establishments Ledger */}
       {isViewingHR && hrLedgerData && (
         <HrEstablishmentsLedger 
            data={hrLedgerData} 
@@ -4461,12 +4357,12 @@ return (
         />
       )}
 
-      {/* 3. BOTTOM LAYER: Standard Pages (Hidden via CSS instead of destroyed!) */}
       <div className={(isViewingConsolidated || isViewingHR) ? 'hidden' : 'block w-full h-full'}>
         {renderPage()}
       </div>
       
     </DashboardLayout>
   );
-}
-// Triggering Vercel Rebuild
+};
+
+export default App;

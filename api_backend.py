@@ -195,7 +195,8 @@ app.add_middleware(
         "http://localhost:5173", 
         "http://127.0.0.1:5173", 
         "https://kmp-tracker-system-centralised-secu.vercel.app", 
-        "https://kmp-tracker-system-centralised-security-management-adj4h23x4.vercel.app" # <-- Added the exact URL from your error!
+        "https://kmp-tracker-system-centralised-security-management-adj4h23x4.vercel.app",
+        "https://kmp-tracker-system-centralised-security-management-od0odfzxy.vercel.app" # <-- YOUR NEW URL IS ADDED HERE
     ],
     allow_credentials=True,
     allow_methods=["*"],
