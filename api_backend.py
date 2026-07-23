@@ -1156,38 +1156,20 @@ def register_user(
     division: Optional[str] = Form(None),
     role: str = Form("USER"), 
     
-    file: UploadFile = File(None), 
+    # ✅ CHANGED: We now expect the S3 URL string from the frontend, not a raw file!
+    profile_photo_path: str = Form(""), 
     db: Session = Depends(get_db)
 ):
-    import uuid 
     existing_user = db.query(models.Users).filter(models.Users.fnum == fnum).first()
     if existing_user:
          raise HTTPException(status_code=400, detail="User with this fnum already exists.")
          
-    if role != "SUPER_ADMIN" and (not file or not file.filename):
+    # ✅ Validation updated to check the string
+    if role != "SUPER_ADMIN" and not profile_photo_path:
         raise HTTPException(
             status_code=400, 
             detail="A profile photo is mandatory for non-admin users."
         )
-
-    photo_url = ""
-    if file and file.filename:
-        file_extension = file.filename.split('.')[-1]
-        unique_id = uuid.uuid4().hex[:8]
-        clean_fnum = fnum.replace("/", "_") 
-        s3_key = f"profile_photos/{clean_fnum}_{unique_id}.{file_extension}"
-
-        try:
-            s3_client.upload_fileobj(
-                file.file, BUCKET_NAME, s3_key,
-                ExtraArgs={"ContentType": file.content_type, "ServerSideEncryption": "AES256"}
-            )
-            photo_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
-        except ClientError as e:
-            print(f"❌ S3 Error: {e}")
-            raise HTTPException(status_code=500, detail="Profile photo upload failed.")
-        finally:
-            file.file.close()
 
     try:
         new_user = models.Users(
@@ -1204,7 +1186,7 @@ def register_user(
             phone=phone,
             hashed_password=security.get_password_hash(password) if hasattr(security, 'get_password_hash') else password,
             role=role,
-            photo_url=photo_url
+            photo_url=profile_photo_path # ✅ Saves the direct S3 URL to the database
         )
         db.add(new_user)
         db.commit()

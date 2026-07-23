@@ -3379,7 +3379,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     }
   };
 
-  const handleSignupSubmit = async (e) => {
+const handleSignupSubmit = async (e) => {
     e.preventDefault();
 
     if (!signupData.profile_photo_path) {
@@ -3409,6 +3409,9 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
       else if (POSITIONS.RPC.includes(signupData.position) || signupData.position.includes(`${signupData.region} Commander`)) derivedRole = 'RPC';
       
       formData.append("role", derivedRole);
+      
+      // ✅ THE FIX: We must pass the generated S3 photo URL to the backend!
+      formData.append("profile_photo_path", signupData.profile_photo_path);
 
       const response = await fetch(`${API_URL}/api/v1/auth/signup`, {
         method: 'POST',
