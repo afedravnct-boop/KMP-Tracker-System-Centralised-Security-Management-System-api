@@ -1156,7 +1156,7 @@ def register_user(
     division: Optional[str] = Form(None),
     role: str = Form("USER"), 
     
-    # ✅ CHANGED: We now expect the S3 URL string from the frontend, not a raw file!
+    # 1. We catch the S3 URL sent by the new frontend here
     profile_photo_path: str = Form(""), 
     db: Session = Depends(get_db)
 ):
@@ -1164,7 +1164,6 @@ def register_user(
     if existing_user:
          raise HTTPException(status_code=400, detail="User with this fnum already exists.")
          
-    # ✅ Validation updated to check the string
     if role != "SUPER_ADMIN" and not profile_photo_path:
         raise HTTPException(
             status_code=400, 
@@ -1186,7 +1185,8 @@ def register_user(
             phone=phone,
             hashed_password=security.get_password_hash(password) if hasattr(security, 'get_password_hash') else password,
             role=role,
-            photo_url=profile_photo_path # ✅ Saves the direct S3 URL to the database
+            # 2. EXACT FIX: We assign the frontend string to your original database column name
+            photo_url=profile_photo_path 
         )
         db.add(new_user)
         db.commit()
