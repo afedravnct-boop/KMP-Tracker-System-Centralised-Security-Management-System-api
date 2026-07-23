@@ -1194,6 +1194,36 @@ def register_user(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database write failed: {str(e)}")
 
+# ==========================================
+# ADMIN APPROVAL ROUTES
+# ==========================================
+
+@app.get("/api/v1/admin/pending-users")
+def get_pending_users(db: Session = Depends(get_db)):
+    """Fetches all registered officers awaiting Command approval."""
+    try:
+        # Queries the Users table for anyone where is_approved is False
+        pending = db.query(models.Users).filter(models.Users.is_approved == False).all()
+        return pending
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch pending users: {str(e)}")
+
+@app.patch("/api/v1/admin/approve-user/{fnum}")
+def approve_user(fnum: str, db: Session = Depends(get_db)):
+    """Switches an officer's is_approved status to True."""
+    user = db.query(models.Users).filter(models.Users.fnum == fnum).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="Officer not found in database.")
+    
+    try:
+        user.is_approved = True
+        db.commit()
+        return {"status": "success", "message": f"Officer {fnum} successfully authorized."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database update failed: {str(e)}")
+
 @app.patch("/api/v1/admin/approve-user/{target_fnum}")
 def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     target_user = db.query(models.Users).filter(models.Users.fnum == target_fnum, models.Users.is_approved == False).first()
