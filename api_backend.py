@@ -299,6 +299,16 @@ class EstablishmentCreate(BaseModel):
     comment: Optional[str] = ""
     last_updated_by: Optional[str] = ""
 
+class ProfileModRequest(BaseModel):
+    fnum: str
+    requested_name: Optional[str] = None
+    requested_rank: Optional[str] = None
+    requested_region: Optional[str] = None
+    requested_station: Optional[str] = None
+
+class ReviewAction(BaseModel):
+    status: str
+
 # ==========================================
 # 6. API ENDPOINTS
 # ==========================================
@@ -1249,6 +1259,128 @@ def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: 
     target_user.is_approved = True
     db.commit()
     return {"message": "User approved successfully."}
+
+# ==========================================
+# SYSTEM ROSTER ROUTE
+# ==========================================
+@app.get("/api/v1/users")
+def get_all_active_users(db: Session = Depends(get_db)):
+    """Fetches all approved users for the System Roster."""
+    try:
+        # Only return users who have been approved by Admin
+        users = db.query(models.Users).filter(models.Users.is_approved == True).all()
+        # Ensure we don't send hashed passwords to the frontend
+        return [
+            {
+                "fnum": u.fnum, "name": u.name, "rank": u.rank, 
+                "role": u.role, "station": u.station, "region": u.region,
+                "profile_photo_path": u.profile_photo_path
+            } for u in users
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/requests")
+def submit_modification_request(req: ProfileModRequest, db: Session = Depends(get_db)):
+    """Receives the POST request from the user profile."""
+    try:
+        new_req = models.Modification_Requests(
+            fnum=req.fnum,
+            requested_name=req.requested_name,
+            requested_rank=req.requested_rank,
+            requested_region=req.requested_region,
+            requested_station=req.requested_station,
+            status="PENDING"
+        )
+        db.add(new_req)
+        db.commit()
+        return {"status": "success", "message": "Request submitted."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/requests")
+def get_modification_requests(db: Session = Depends(get_db)):
+    """Feeds the pending requests to the Admin Dashboard."""
+    try:
+        return db.query(models.Modification_Requests).filter(models.Modification_Requests.status == "PENDING").all()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/v1/requests/{req_id}")
+def review_modification_request(req_id: int, action: ReviewAction, db: Session = Depends(get_db)):
+    """Allows the Super Admin to Approve or Reject the request."""
+    req = db.query(models.Modification_Requests).filter(models.Modification_Requests.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    try:
+        req.status = action.status
+        # If approved, automatically update the user's actual profile!
+        if action.status == "APPROVED":
+            user = db.query(models.Users).filter(models.Users.fnum == req.fnum).first()
+            if user:
+                if req.requested_name: user.name = req.requested_name
+                if req.requested_rank: user.rank = req.requested_rank
+                if req.requested_region: user.region = req.requested_region
+                if req.requested_station: user.station = req.requested_station
+        
+        db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# MASTER EXPORT - LOW MEMORY FIX
+# ==========================================
+@app.get("/api/v1/reports/export")
+def export_master_database(timeframe: str = "all", db: Session = Depends(get_db)):
+    """
+    Exports the entire database as a ZIP of CSVs. 
+    Uses yield_per(1000) to fetch 1,000 rows at a time, completely preventing 
+    the 512MB RAM exhaustion crash on Render.
+    """
+    temp_zip_path = tempfile.mktemp(suffix=".zip")
+    
+    try:
+        with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            
+            # 1. Export Crime Reports safely
+            crime_csv = tempfile.mktemp(suffix=".csv")
+            with open(crime_csv, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(["SN", "SD Ref", "Region", "Station", "Date", "Time", "Offence", "Status", "Suspects"])
+                # yield_per(1000) is the magic bullet that saves your server RAM
+                for row in db.query(models.Crime_Reports).yield_per(1000): 
+                    writer.writerow([row.sn, row.sd_ref, row.region, row.station, row.date, row.time, row.offence, row.status, row.suspects])
+            zipf.write(crime_csv, arcname="Crime_Registry.csv")
+            os.remove(crime_csv)
+
+            # 2. Export Nominal Roll safely
+            nom_csv = tempfile.mktemp(suffix=".csv")
+            with open(nom_csv, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(["F/NO", "Rank", "Name", "Sex", "Station", "Position", "Status"])
+                for row in db.query(models.Nominal_Roll).yield_per(1000):
+                    writer.writerow([row.fnum, row.rank, row.name, row.sex, row.station, row.position, row.status])
+            zipf.write(nom_csv, arcname="Nominal_Roll.csv")
+            os.remove(nom_csv)
+            
+            # 3. Export Establishments safely
+            est_csv = tempfile.mktemp(suffix=".csv")
+            with open(est_csv, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(["Division", "Station", "Personnel", "Status"])
+                for row in db.query(models.Establishments).yield_per(1000):
+                    writer.writerow([row.division, row.station, row.personnel_in_station, row.status])
+            zipf.write(est_csv, arcname="Establishments.csv")
+            os.remove(est_csv)
+
+        return FileResponse(temp_zip_path, media_type="application/zip", filename="KMP_Master_Ledger.zip")
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 @app.middleware("http")
 async def global_activity_tracker(request: Request, call_next):
