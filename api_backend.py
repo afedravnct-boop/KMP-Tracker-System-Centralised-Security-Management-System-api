@@ -1156,7 +1156,6 @@ def register_user(
     division: Optional[str] = Form(None),
     role: str = Form("USER"), 
     
-    # 1. We catch the S3 URL sent by the new frontend here
     profile_photo_path: str = Form(""), 
     db: Session = Depends(get_db)
 ):
@@ -1185,8 +1184,7 @@ def register_user(
             phone=phone,
             hashed_password=security.get_password_hash(password) if hasattr(security, 'get_password_hash') else password,
             role=role,
-            # 2. EXACT FIX: We assign the frontend string to your original database column name
-            photo_url=profile_photo_path 
+            profile_photo_path=profile_photo_path # <--- EXACT MATCH TO YOUR MODELS.PY
         )
         db.add(new_user)
         db.commit()
@@ -1195,21 +1193,6 @@ def register_user(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database write failed: {str(e)}")
-
-@app.get("/api/v1/admin/pending-users")
-def get_pending_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    query = db.query(models.Users).filter(models.Users.is_approved == False)
-
-    if current_user.role == "SUPER_ADMIN":
-        pass 
-    elif current_user.role in ["RPC", "ADMIN"]:
-        query = query.filter(models.Users.region == current_user.region)
-        if "Commander" in current_user.position and current_user.role != "RPC":
-            query = query.filter(models.Users.station == current_user.station)
-    else:
-        raise HTTPException(status_code=403, detail="Not authorized to view pending signups.")
-
-    return query.order_by(models.Users.created_at.desc()).all()
 
 @app.patch("/api/v1/admin/approve-user/{target_fnum}")
 def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
