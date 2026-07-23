@@ -1,4 +1,6 @@
 import io
+import csv
+import zipfile
 import os
 import gc
 import tempfile
@@ -1347,47 +1349,47 @@ def review_modification_request(req_id: int, action: ReviewAction, db: Session =
 @app.get("/api/v1/reports/export")
 def export_master_database(timeframe: str = "all", db: Session = Depends(get_db)):
     """
-    Exports the entire database as a ZIP of CSVs. 
-    Uses yield_per(1000) to fetch 1,000 rows at a time, completely preventing 
-    the 512MB RAM exhaustion crash on Render.
+    Exports the database as a ZIP directly from RAM.
+    Bypasses Render's file system restrictions and memory limits.
     """
-    temp_zip_path = tempfile.mktemp(suffix=".zip")
-    
     try:
-        with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # Create an in-memory byte buffer instead of a physical file
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zipf:
             
-            # 1. Export Crime Reports safely
-            crime_csv = tempfile.mktemp(suffix=".csv")
-            with open(crime_csv, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(["SN", "SD Ref", "Region", "Station", "Date", "Time", "Offence", "Status", "Suspects"])
-                # yield_per(1000) is the magic bullet that saves your server RAM
-                for row in db.query(models.Crime_Reports).yield_per(1000): 
-                    writer.writerow([row.sn, row.sd_ref, row.region, row.station, row.date, row.time, row.offence, row.status, row.suspects])
-            zipf.write(crime_csv, arcname="Crime_Registry.csv")
-            os.remove(crime_csv)
+            # 1. Crime Reports
+            crime_buffer = io.StringIO()
+            writer = csv.writer(crime_buffer)
+            writer.writerow(["SN", "SD Ref", "Region", "Station", "Date", "Time", "Offence", "Status", "Suspects"])
+            for row in db.query(models.Crime_Reports).yield_per(1000): 
+                writer.writerow([row.sn, row.sd_ref, row.region, row.station, row.date, row.time, row.offence, row.status, row.suspects])
+            zipf.writestr("Crime_Registry.csv", crime_buffer.getvalue())
 
-            # 2. Export Nominal Roll safely
-            nom_csv = tempfile.mktemp(suffix=".csv")
-            with open(nom_csv, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(["F/NO", "Rank", "Name", "Sex", "Station", "Position", "Status"])
-                for row in db.query(models.Nominal_Roll).yield_per(1000):
-                    writer.writerow([row.fnum, row.rank, row.name, row.sex, row.station, row.position, row.status])
-            zipf.write(nom_csv, arcname="Nominal_Roll.csv")
-            os.remove(nom_csv)
+            # 2. Nominal Roll
+            nom_buffer = io.StringIO()
+            writer = csv.writer(nom_buffer)
+            writer.writerow(["F/NO", "Rank", "Name", "Sex", "Station", "Position", "Status"])
+            for row in db.query(models.Nominal_Roll).yield_per(1000):
+                writer.writerow([row.fnum, row.rank, row.name, row.sex, row.station, row.position, row.status])
+            zipf.writestr("Nominal_Roll.csv", nom_buffer.getvalue())
             
-            # 3. Export Establishments safely
-            est_csv = tempfile.mktemp(suffix=".csv")
-            with open(est_csv, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(["Division", "Station", "Personnel", "Status"])
-                for row in db.query(models.Establishments).yield_per(1000):
-                    writer.writerow([row.division, row.station, row.personnel_in_station, row.status])
-            zipf.write(est_csv, arcname="Establishments.csv")
-            os.remove(est_csv)
+            # 3. Establishments
+            est_buffer = io.StringIO()
+            writer = csv.writer(est_buffer)
+            writer.writerow(["Division", "Station", "Personnel", "Status"])
+            for row in db.query(models.Establishments).yield_per(1000):
+                writer.writerow([row.division, row.station, row.personnel_in_station, row.status])
+            zipf.writestr("Establishments.csv", est_buffer.getvalue())
 
-        return FileResponse(temp_zip_path, media_type="application/zip", filename="KMP_Master_Ledger.zip")
+        # Reset buffer position to the beginning before streaming
+        zip_buffer.seek(0)
+        
+        return StreamingResponse(
+            iter([zip_buffer.getvalue()]), 
+            media_type="application/zip", 
+            headers={"Content-Disposition": "attachment; filename=KMP_Master_Ledger.zip"}
+        )
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")

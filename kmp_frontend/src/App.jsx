@@ -2840,6 +2840,25 @@ const AdminApprovals = ({ currentUser }) => {
   const isRPC = currentUser && currentUser.role === 'RPC';
   const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
 
+const handleReviewRequest = async (reqId, actionStatus) => {
+    try {
+      const response = await authFetch(`/api/v1/requests/${reqId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: actionStatus })
+      });
+      
+      if (!response.ok) throw new Error("Failed to process request");
+      
+      // Remove it from the UI queue
+      setModRequests(modRequests.filter(r => r.id !== reqId));
+      alert(`Request ${actionStatus.toLowerCase()} successfully!`);
+    } catch (err) {
+      console.error(err);
+      alert("Error processing the modification request.");
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'approvals') {
       setLoadingPending(true);
@@ -2893,6 +2912,25 @@ const AdminApprovals = ({ currentUser }) => {
     alert(`Authorization Failed: ${err.message}`);
   }
 };
+
+const handleReviewRequest = async (reqId, actionStatus) => {
+    try {
+      const response = await authFetch(`/api/v1/requests/${reqId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: actionStatus })
+      });
+      
+      if (!response.ok) throw new Error("Failed to process request");
+      
+      // Remove it from the UI queue
+      setModRequests(modRequests.filter(r => r.id !== reqId));
+      alert(`Request ${actionStatus.toLowerCase()} successfully!`);
+    } catch (err) {
+      console.error(err);
+      alert("Error processing the modification request.");
+    }
+  };
 
 return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
@@ -3721,11 +3759,13 @@ const DashboardLayout = ({
     setSelectedUserDetail({ name: alias, ...profile, isSystemUser: false });
   };
 
-  const inspectSystemUser = (userObj) => {
-    setSelectedUserDetail({
-      ...userObj,
-      isSystemUser: true 
-    });
+  const inspectSystemUser = (user) => {
+    // 1. Loads the full data into the modal
+    setSelectedUserDetail({ ...user, isSystemUser: true });
+    
+    // 2. Tells React to open the modal 
+    // (Replace setManageUserModalOpen with whatever state variable controls your modal visibility!)
+    setManageUserModalOpen(true); 
   };
 
   const handleExportLogs = async () => {
@@ -3828,24 +3868,23 @@ const DashboardLayout = ({
                 )}
               </div>
 
-              <div className="rounded-lg p-4 bg-slate-800">
+<div className="rounded-lg p-4 bg-slate-800">
                 <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
-                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Connections (2)</span>
+                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Connections (1)</span>
                   <span className="bg-slate-900 px-2 py-2 rounded-full text-xs"></span>
                 </button>
                 {showOnline && (
                   <div className="mt-4 space-y-2 border-t border-slate-700 pt-4">
-                    <div onClick={() => inspectActiveUser("AIP System MGR")} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all">
-                      <span className="font-bold text-white block">AIP System MGR</span>
-                      <span className="text-slate-400">KMP HEADQUARTERS</span>
-                    </div>
-                    <div onClick={() => inspectActiveUser("Standard Officer")} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between">
+                    {/* DYNAMICALLY RENDERS THE CURRENT USER */}
+                    <div onClick={() => inspectSystemUser(currentUser)} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between">
                       <div>
-                        <span className="font-bold text-white block">Standard Officer</span>
-                        <span className="text-slate-400">KAWEMPE</span>
+                        <span className="font-bold text-white block">{currentUser.name} (You)</span>
+                        <span className="text-slate-400">{currentUser.station}</span>
                       </div>
-                      {connectionUserProfiles["Standard Officer"]?.profile_photo_path && (
-                        <img src={connectionUserProfiles["Standard Officer"].profile_photo_path} alt="" className="w-6 h-6 rounded-full border border-green-400 object-cover" onError={(e) => { e.target.style.display='none'; }} />
+                      {currentUser.profile_photo_path ? (
+                        <img src={currentUser.profile_photo_path} alt="" className="w-6 h-6 rounded-full border border-green-400 object-cover" onError={(e) => { e.target.style.display='none'; }} />
+                      ) : (
+                        <div className="w-6 h-6 bg-green-600 rounded-full flex items-center justify-center text-white font-bold">{currentUser.name.charAt(0)}</div>
                       )}
                     </div>
                   </div>
@@ -3853,28 +3892,46 @@ const DashboardLayout = ({
               </div>
 
               <div className="rounded-lg p-3 bg-slate-800 border border-slate-700">
-                 <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400">
-                    <span className="flex items-center"><Users size={16} className="mr-2"/> 👥 System Roster</span>
-                    <span className="bg-slate-900 px-2 py-0.5 rounded-full text-xs text-white border border-slate-600">{users?.length || 0}</span>
-                 </button>
-                 {showAllUsers && (
-                   <div className="mt-3 space-y-2 border-t border-slate-700 pt-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
-                      {users?.map(u => (
-                         <div key={u.fnum} onClick={() => inspectSystemUser(u)} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-blue-500 cursor-pointer transition-all flex items-center justify-between group">
-                            <div>
-                              <span className="font-bold text-white block truncate w-32">{u.name}</span>
-                              <span className="text-slate-400 font-mono">{u.fnum}</span>
-                            </div>
-                            <div className="text-[9px] px-1.5 py-0.5 bg-slate-800 rounded text-slate-300 font-bold uppercase border border-slate-700 group-hover:bg-blue-900 group-hover:text-blue-100 transition-colors">
-                              {String(u.role || 'USER').replace('_ADMIN', '')}
-                            </div>
-                         </div>
-                      ))}
-                   </div>
-                 )}
+  <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400">
+     <span className="flex items-center"><Users size={16} className="mr-2"/> 👥 System Roster</span>
+     {/* This perfectly counts the exact number of approved users */}
+     <span className="bg-slate-900 px-2 py-0.5 rounded-full text-xs text-white border border-slate-600">{users?.length || 0}</span>
+  </button>
+  
+  {showAllUsers && (
+   <div className="mt-3 space-y-2 border-t border-slate-700 pt-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+      {users?.map(u => (
+         <div 
+           key={u.fnum} 
+           onClick={() => inspectSystemUser(u)} 
+           className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-blue-500 cursor-pointer transition-all flex items-center justify-between group"
+         >
+            <div className="flex items-center space-x-2">
+              
+              {/* THE FIX: Circular Profile Photo injected into the sidebar list */}
+              {u.profile_photo_path ? (
+                <img src={u.profile_photo_path} alt="" className="w-7 h-7 rounded-full object-cover border border-slate-600 group-hover:border-blue-400" onError={(e) => { e.target.style.display='none'; }} />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-[10px] border border-slate-600 group-hover:border-blue-400 group-hover:text-blue-300">
+                  {u.name?.charAt(0) || 'U'}
+                </div>
+              )}
+              
+              <div>
+                <span className="font-bold text-white block truncate w-28">{u.name}</span>
+                <span className="text-slate-400 font-mono text-[9px]">{u.fnum}</span>
               </div>
             </div>
-          )}
+
+            <div className="text-[9px] px-1.5 py-0.5 bg-slate-800 rounded text-slate-300 font-bold uppercase border border-slate-700 group-hover:bg-blue-900 group-hover:text-blue-100 transition-colors">
+              {String(u.role || 'USER').replace('_ADMIN', '')}
+            </div>
+         </div>
+      ))}
+   </div>
+  )}
+</div>
+)}
 
           {sidebarOpen && ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) && (
             <div className="px-4 mt-4 space-y-3">
@@ -3957,25 +4014,63 @@ const DashboardLayout = ({
               </button>
             </div>
 
-            <div className="p-6">
+<div className="p-6">
+              {/* 1. Header & Photo */}
               <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-gray-100">
-                <div className="w-12 h-12 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-xl overflow-hidden">
+                <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-2xl overflow-hidden shadow-sm border-2 border-blue-500">
                   {selectedUserDetail.profile_photo_path ? (
-                     <img src={selectedUserDetail.profile_photo_path} alt="" className="w-full h-full object-cover" />
+                     <img src={selectedUserDetail.profile_photo_path} alt="Profile" className="w-full h-full object-cover" />
                   ) : (selectedUserDetail.name?.charAt(0) || 'U')}
                 </div>
                 <div>
-                  <div className="font-extrabold text-slate-800 text-lg leading-tight">{selectedUserDetail.name}</div>
-                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  <div className="font-extrabold text-slate-800 text-xl leading-tight">{selectedUserDetail.name}</div>
+                  <div className="text-xs font-bold text-blue-600 uppercase tracking-wider mt-1">
                     {selectedUserDetail.fnum} • {selectedUserDetail.rank} • {selectedUserDetail.station}
                   </div>
                 </div>
               </div>
 
+              {/* 2. COMPREHENSIVE PROFILE GRID */}
+              <h4 className="text-xs font-bold text-slate-800 mb-3 uppercase tracking-wider">Comprehensive Profile</h4>
+              <div className="grid grid-cols-2 gap-4 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-inner">
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">IPPS Number</label>
+                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.ipps || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Official Title</label>
+                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.position || 'N/A'}</div>
+                </div>
+                <div className="col-span-2">
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Command Chain (Region / Division)</label>
+                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.region || 'N/A'} / {selectedUserDetail.division || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Email Contact</label>
+                  <div className="text-xs font-bold text-slate-800 break-words">{selectedUserDetail.email || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Phone Number</label>
+                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.phone || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Sex</label>
+                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.sex || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">System Role</label>
+                  <div className="text-xs font-extrabold text-blue-700">{selectedUserDetail.role || 'USER'}</div>
+                </div>
+              </div>
+
+              {/* 3. ACCESS CONTROLS (Only visible if managing a system user) */}
               {selectedUserDetail.isSystemUser && (
                 <>
-                  <h4 className="text-xs font-bold text-slate-800 mb-3 uppercase tracking-wider">Component Admin Clearances</h4>
-                  <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <h4 className="text-xs font-bold text-slate-800 mb-3 uppercase tracking-wider flex items-center">
+                    <Shield size={14} className="mr-2 text-red-500"/> Component Admin Clearances
+                  </h4>
+                  <div className="space-y-3 bg-white p-4 rounded-lg border border-red-100 shadow-sm">
+                    
                     <label className="flex items-center space-x-3 cursor-pointer group">
                       <input 
                         type="checkbox" 
@@ -3988,7 +4083,7 @@ const DashboardLayout = ({
                       />
                       <div className="flex-1">
                         <div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">System Administrator</div>
-                        <div className="text-[10px] text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit_Logs.</div>
+                        <div className="text-[10px] text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit Logs.</div>
                       </div>
                     </label>
 
@@ -4027,6 +4122,7 @@ const DashboardLayout = ({
                         <div className="text-[10px] text-slate-500 font-medium">Allows downloading raw .xlsx database files to local device.</div>
                       </div>
                     </label>
+
                   </div>
                 </>
               )}
@@ -4155,29 +4251,32 @@ const App = () => {
     
     const controller = new AbortController();
     
-    const fetchData = async () => {
+const fetchData = async () => {
       const token = localStorage.getItem('kmp_authToken');
       if (!token) return;
 
       try {
-        const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives] = await Promise.all([
+        // We added an 8th fetch here: /api/v1/users
+        const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives, resUsers] = await Promise.all([
           authFetch("/api/v1/reports", { signal: controller.signal }),
           authFetch("/api/v1/stats", { signal: controller.signal }),
           authFetch("/api/v1/stories", { signal: controller.signal }),
           authFetch("/api/v1/nominal-roll", { signal: controller.signal }),
           authFetch("/api/v1/Admin_Communication", { signal: controller.signal }),
           authFetch("/api/v1/establishments", { signal: controller.signal }),
-          authFetch("/api/v1/nominal-roll-archive", { signal: controller.signal })
+          authFetch("/api/v1/nominal-roll-archive", { signal: controller.signal }),
+          authFetch("/api/v1/users", { signal: controller.signal }) // <-- NEW
         ]);
 
-        const [dataReports, dataStats, dataStories, dataNom, dataComms, dataEst, dataArchives] = await Promise.all([
+        const [dataReports, dataStats, dataStories, dataNom, dataComms, dataEst, dataArchives, dataUsers] = await Promise.all([
           resReports.ok ? resReports.json() : [],
           resStats.ok ? resStats.json() : [],
           resStories.ok ? resStories.json() : [],
           resNom.ok ? resNom.json() : [],
           resComms.ok ? resComms.json() : [],
           resEst.ok ? resEst.json() : [],
-          resArchives.ok ? resArchives.json() : []
+          resArchives.ok ? resArchives.json() : [],
+          resUsers.ok ? resUsers.json() : [] // <-- NEW
         ]);
 
         if (!controller.signal.aborted) {
@@ -4188,6 +4287,7 @@ const App = () => {
           setAdminCommsData(dataComms);
           setEstablishments(dataEst); 
           setNominal_Roll_archives(dataArchives);
+          setUsers(dataUsers); // <-- THIS POPULATES YOUR SYSTEM ROSTER!
         }
       } catch (err) {
         if (err.name !== 'AbortError') {
