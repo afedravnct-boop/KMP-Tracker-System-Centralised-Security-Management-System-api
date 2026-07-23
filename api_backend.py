@@ -1265,16 +1265,26 @@ def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: 
 # ==========================================
 @app.get("/api/v1/users")
 def get_all_active_users(db: Session = Depends(get_db)):
-    """Fetches all approved users for the System Roster."""
+    """Fetches all approved users with full profile details for the System Roster."""
     try:
-        # Only return users who have been approved by Admin
         users = db.query(models.Users).filter(models.Users.is_approved == True).all()
-        # Ensure we don't send hashed passwords to the frontend
+        # Returns the comprehensive profile without exposing the hashed_password
         return [
             {
-                "fnum": u.fnum, "name": u.name, "rank": u.rank, 
-                "role": u.role, "station": u.station, "region": u.region,
-                "profile_photo_path": u.profile_photo_path
+                "fnum": u.fnum, 
+                "name": u.name, 
+                "rank": u.rank, 
+                "role": u.role, 
+                "station": u.station, 
+                "region": u.region,
+                "division": u.division,
+                "position": u.position,
+                "email": u.email,
+                "phone": u.phone,
+                "ipps": u.ipps,
+                "sex": u.sex,
+                "profile_photo_path": u.profile_photo_path,
+                "permissions": u.permissions
             } for u in users
         ]
     except Exception as e:
