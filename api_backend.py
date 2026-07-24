@@ -849,6 +849,9 @@ def get_communication_readers(comm_id: int, db: Session = Depends(get_db), curre
 # ==========================================
 # MASTER DATABASE EXPORT (4 LEDGERS)
 # ==========================================
+# ==========================================
+# MASTER DATABASE EXPORT (4 LEDGERS)
+# ==========================================
 @app.get("/api/v1/reports/export")
 def export_master_database_unified(
     timeframe: Optional[str] = "all",
@@ -858,11 +861,9 @@ def export_master_database_unified(
     authorized_user: models.Users = Depends(require_export_privilege)
 ):
     try:
-        # 1. Create in-memory buffers (Bypasses Render Hard Drive Limits completely)
         excel_buffer = io.BytesIO()
         zip_buffer = io.BytesIO()
 
-        # 2. Build the Excel file in RAM
         with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
             workbook = writer.book
 
@@ -875,10 +876,14 @@ def export_master_database_unified(
                 "SN": getattr(r, 'sn', ''), "SD Ref": getattr(r, 'sd_ref', getattr(r, 'sdRef', '')),
                 "Date": getattr(r, 'date', ''), "Time": getattr(r, 'time', ''), "Region": getattr(r, 'region', ''),
                 "Station": getattr(r, 'station', ''), "Offence": getattr(r, 'offence', ''), "Status": getattr(r, 'status', ''),
-                "Suspects": getattr(r, 'suspects', 0), "Narrative": strip_html_to_plain_text(getattr(r, 'narrative', '')) if 'strip_html_to_plain_text' in globals() else getattr(r, 'narrative', '')
+                "Suspects": getattr(r, 'suspects', 0), "Narrative": getattr(r, 'narrative', '')
             } for r in crime_data]
             df_crime = pd.DataFrame(crime_list) if crime_list else pd.DataFrame(columns=["SN", "SD Ref", "Date", "Time", "Region", "Station", "Offence", "Status", "Suspects", "Narrative"])
             df_crime.to_excel(writer, sheet_name="Crime Registry", index=False)
+            
+            # 🛡️ RESTORED: Formatting for Crime Registry
+            apply_custom_sheet_design(workbook, writer.sheets["Crime Registry"], df_crime, "Crime Registry", authorized_user)
+            
             del crime_data, crime_list, df_crime
             gc.collect()
 
@@ -895,6 +900,10 @@ def export_master_database_unified(
             } for s in stats_data]
             df_stats = pd.DataFrame(stats_list) if stats_list else pd.DataFrame(columns=["SN", "Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"])
             df_stats.to_excel(writer, sheet_name="OPS Statistics", index=False)
+            
+            # 🛡️ RESTORED: Formatting for OPS Statistics
+            apply_custom_sheet_design(workbook, writer.sheets["OPS Statistics"], df_stats, "OPS Statistics", authorized_user)
+            
             del stats_data, stats_list, df_stats
             gc.collect()
 
@@ -906,10 +915,14 @@ def export_master_database_unified(
             stories_list = [{
                 "SN": getattr(s, 'sn', ''), "Date": getattr(s, 'date', ''), "Time": getattr(s, 'time', ''),
                 "Region": getattr(s, 'region', ''), "Station": getattr(s, 'station', ''), "Status": getattr(s, 'status', ''),
-                "Narrative": strip_html_to_plain_text(getattr(s, 'narrative', '')) if 'strip_html_to_plain_text' in globals() else getattr(s, 'narrative', '')
+                "Narrative": getattr(s, 'narrative', '')
             } for s in stories_data]
             df_stories = pd.DataFrame(stories_list) if stories_list else pd.DataFrame(columns=["SN", "Date", "Time", "Region", "Station", "Status", "Narrative"])
             df_stories.to_excel(writer, sheet_name="Success Stories", index=False)
+            
+            # 🛡️ RESTORED: Formatting for Success Stories
+            apply_custom_sheet_design(workbook, writer.sheets["Success Stories"], df_stories, "Success Stories", authorized_user)
+            
             del stories_data, stories_list, df_stories
             gc.collect()
 
@@ -932,10 +945,13 @@ def export_master_database_unified(
             } for n in roll_data]
             df_roll = pd.DataFrame(roll_list) if roll_list else pd.DataFrame(columns=["SN", "Force Number", "Rank", "Name", "Sex", "Position", "DOB", "DOE", "DO POST", "DO PRO", "Contact", "Educ Level", "IPPS", "TIN", "NIN", "Home Dist", "Tribe", "Acc No", "Bank Branch", "Station", "District", "Region", "Section", "Directorate", "Status"])
             df_roll.to_excel(writer, sheet_name="Nominal Roll", index=False)
+            
+            # 🛡️ RESTORED: Formatting for Nominal Roll
+            apply_custom_sheet_design(workbook, writer.sheets["Nominal Roll"], df_roll, "Nominal Roll", authorized_user)
+            
             del roll_data, roll_list, df_roll
             gc.collect()
 
-            # Forensic stamping
             workbook.set_properties({
                 'title': 'KMP Master Database - RESTRICTED',
                 'author': f'{authorized_user.rank} {authorized_user.name}',
@@ -943,16 +959,13 @@ def export_master_database_unified(
                 'comments': f'FORENSIC TRACE: Downloaded by {authorized_user.fnum} on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
             })
 
-        # 3. Encrypt and ZIP the RAM buffer directly
         zip_password = authorized_user.fnum.encode('utf-8')
         with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
             zf.writestr(f"KMP_Master_Database_{authorized_user.fnum}.xlsx", excel_buffer.getvalue())
 
-        # Reset buffer for streaming
         zip_buffer.seek(0)
         
-        # 4. Stream directly to the user (Bypasses the hard drive!)
         return StreamingResponse(
             zip_buffer, 
             media_type="application/zip", 
@@ -969,11 +982,9 @@ def export_establishments(
     authorized_user: models.Users = Depends(require_export_privilege)
 ):
     try:
-        # 1. Create in-memory buffers instead of physical files
         excel_buffer = io.BytesIO()
         zip_buffer = io.BytesIO()
 
-        # 2. Build the Excel file in RAM
         with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
             workbook = writer.book
 
@@ -982,6 +993,8 @@ def export_establishments(
             hr_list = [{"Force Number": getattr(h, 'f_num', getattr(h, 'fnum', '')), "Name": getattr(h, 'name', ''), "Rank": getattr(h, 'rank', ''), "Sex": getattr(h, 'sex', ''), "Region": getattr(h, 'region', ''), "Station": getattr(h, 'station', ''), "Position": getattr(h, 'position', ''), "Status": getattr(h, 'status', '')} for h in hr_data]
             df_hr = pd.DataFrame(hr_list) if hr_list else pd.DataFrame(columns=["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status"])
             df_hr.to_excel(writer, sheet_name="Nominal Roll", index=False)
+            
+            # 🛡️ RESTORED: Formatting for Nominal Roll
             apply_custom_sheet_design(workbook, writer.sheets["Nominal Roll"], df_hr, "Nominal Roll", authorized_user)
             
             del hr_data, hr_list, df_hr
@@ -996,15 +1009,17 @@ def export_establishments(
                 "Post": getattr(e, 'post', ''), "Personnel (Post)": getattr(e, 'personnel_in_post', 0) or 0,
                 "Booths": getattr(e, 'booths', 0) or 0, "Personnel (Booth)": getattr(e, 'personnel_in_booth', 0) or 0,
                 "Installed By": getattr(e, 'installed_by', ''), "Location": getattr(e, 'location', ''),
-                "Status": getattr(e, 'status', ''), "Comment": strip_html_to_plain_text(getattr(e, 'comment', '')),
-                "Last Updated By": getattr(e, 'last_updated_by', ''), "Created At": getattr(e, 'created_at', '').strftime("%Y-%m-%d %H:%M") if getattr(e, 'created_at', None) else ''
+                "Status": getattr(e, 'status', ''), "Comment": getattr(e, 'comment', ''),
+                "Last Updated By": getattr(e, 'last_updated_by', '')
             } for e in est_data]
             df_est = pd.DataFrame(est_list) if est_list else pd.DataFrame(columns=[
                 "ID", "Region", "Division", "Station", "Personnel (Station)", "Sub-Station", 
                 "Personnel (Sub-Stn)", "Post", "Personnel (Post)", "Booths", "Personnel (Booth)", 
-                "Installed By", "Location", "Status", "Comment", "Last Updated By", "Created At"
+                "Installed By", "Location", "Status", "Comment", "Last Updated By"
             ])
             df_est.to_excel(writer, sheet_name="establishments", index=False)
+            
+            # 🛡️ RESTORED: Formatting for Establishments
             apply_custom_sheet_design(workbook, writer.sheets["establishments"], df_est, "establishments", authorized_user)
             
             del est_data, est_list, df_est
@@ -1014,34 +1029,19 @@ def export_establishments(
                 'title': 'KMP HR & establishments - RESTRICTED',
                 'author': f'{authorized_user.rank} {authorized_user.name}',
                 'manager': authorized_user.fnum,
-                'company': 'Uganda Police Force (KMP)',
                 'comments': f'FORENSIC TRACE: Downloaded by {authorized_user.fnum} on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
             })
-            workbook.set_custom_property('Forensic_FNUM', authorized_user.fnum)
 
-        # 3. Encrypt and ZIP the RAM buffer
         zip_password = authorized_user.fnum.encode('utf-8')
         with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
-            # Write the raw memory bytes of the Excel file into the ZIP archive
             zf.writestr(f"KMP_HR_establishments_{authorized_user.fnum}.xlsx", excel_buffer.getvalue())
 
-        # 4. Reset the ZIP buffer to the beginning so it can be streamed
         zip_buffer.seek(0)
-        
-        # 5. Log the export securely
-        if hasattr(models, 'AuditLog'):
-            audit_entry = models.AuditLog(
-                event_type="DATA_EXPORT", target_user="SYSTEM", status="SUCCESS",
-                details="AES-Encrypted HR & establishments ZIP Downloaded (RAM Stream)", user_fnum=authorized_user.fnum
-            )
-            db.add(audit_entry)
-            db.commit()
 
-        # 6. Stream directly to the user (Bypasses the hard drive entirely!)
         return StreamingResponse(
             zip_buffer, 
-            media_type="application/zip", 
+            media_type='application/zip',
             headers={"Content-Disposition": f"attachment; filename=KMP_HR_Ledger_{authorized_user.fnum}.zip"}
         )
         
