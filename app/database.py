@@ -17,7 +17,6 @@ if not SQLALCHEMY_DATABASE_URL or not LOGS_DATABASE_URL:
 
 # 2. Main Engine & Session
 engine = create_engine(
-# ... keep the rest of your file exactly the same ...
     SQLALCHEMY_DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=300,
