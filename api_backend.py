@@ -1178,10 +1178,13 @@ def get_admin_communications(
     query = db.query(models.Admin_Communication)
 
     if current_user.role != "SUPER_ADMIN":
+        # 🛡️ THE FIX: Allow both "ALL" and "ALL_USERS" through the firewall
         visibility_conditions = [
             models.Admin_Communication.target_audience == "ALL",
+            models.Admin_Communication.target_audience == "ALL_USERS",
             models.Admin_Communication.sender_fnum == current_user.fnum
         ]
+        
         if current_user.role == "ADMIN":
             visibility_conditions.append(models.Admin_Communication.target_audience == "ADMINS_ONLY")
         if current_user.role == "RPC":
