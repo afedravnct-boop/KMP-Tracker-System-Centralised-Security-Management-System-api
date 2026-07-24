@@ -846,9 +846,11 @@ def get_communication_readers(comm_id: int, db: Session = Depends(get_db), curre
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ==========================================
+# MASTER DATABASE EXPORT (4 LEDGERS)
+# ==========================================
 @app.get("/api/v1/reports/export")
-def export_master_excel(
-    background_tasks: BackgroundTasks, # <-- Added to clean up files after download
+def export_master_database_unified(
     timeframe: Optional[str] = "all",
     scope: Optional[str] = None, 
     value: Optional[str] = None, 
@@ -856,33 +858,35 @@ def export_master_excel(
     authorized_user: models.Users = Depends(require_export_privilege)
 ):
     try:
-        # 1. Create temporary files on Render's physical disk (Saves RAM)
-        temp_dir = tempfile.mkdtemp()
-        excel_path = os.path.join(temp_dir, f"temp_master_{authorized_user.fnum}.xlsx")
-        zip_path = os.path.join(temp_dir, f"KMP_Master_Database_{authorized_user.fnum}.zip")
+        # 1. Create in-memory buffers (Bypasses Render Hard Drive Limits completely)
+        excel_buffer = io.BytesIO()
+        zip_buffer = io.BytesIO()
 
-        with pd.ExcelWriter(excel_path, engine='xlsxwriter') as writer:
+        # 2. Build the Excel file in RAM
+        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
             workbook = writer.book
 
-            # --- PROCESS CRIME DATA ---
-            # yield_per(1000) prevents the database from dumping all rows into RAM at once
-            crime_data = db.query(models.Crime_Reports).yield_per(1000)
+            # --- TAB 1: CRIME REGISTRY ---
+            crime_query = db.query(models.Crime_Reports)
+            if scope == "station" and value and value != "all":
+                crime_query = crime_query.filter(models.Crime_Reports.station == value)
+            crime_data = crime_query.yield_per(1000)
             crime_list = [{
                 "SN": getattr(r, 'sn', ''), "SD Ref": getattr(r, 'sd_ref', getattr(r, 'sdRef', '')),
                 "Date": getattr(r, 'date', ''), "Time": getattr(r, 'time', ''), "Region": getattr(r, 'region', ''),
                 "Station": getattr(r, 'station', ''), "Offence": getattr(r, 'offence', ''), "Status": getattr(r, 'status', ''),
-                "Suspects": getattr(r, 'suspects', 0), "Narrative": strip_html_to_plain_text(getattr(r, 'narrative', ''))
+                "Suspects": getattr(r, 'suspects', 0), "Narrative": strip_html_to_plain_text(getattr(r, 'narrative', '')) if 'strip_html_to_plain_text' in globals() else getattr(r, 'narrative', '')
             } for r in crime_data]
             df_crime = pd.DataFrame(crime_list) if crime_list else pd.DataFrame(columns=["SN", "SD Ref", "Date", "Time", "Region", "Station", "Offence", "Status", "Suspects", "Narrative"])
             df_crime.to_excel(writer, sheet_name="Crime Registry", index=False)
-            apply_custom_sheet_design(workbook, writer.sheets["Crime Registry"], df_crime, "Crime Registry", authorized_user)
-            
-            # 🧹 FREE RAM INSTANTLY before moving to the next table
             del crime_data, crime_list, df_crime
-            gc.collect() 
+            gc.collect()
 
-            # --- PROCESS OPS STATISTICS ---
-            stats_data = db.query(models.Operational_Statistics).yield_per(1000)
+            # --- TAB 2: OPS STATISTICS ---
+            stats_query = db.query(models.Operational_Statistics)
+            if scope == "station" and value and value != "all":
+                stats_query = stats_query.filter(models.Operational_Statistics.station == value)
+            stats_data = stats_query.yield_per(1000)
             stats_list = [{
                 "SN": getattr(s, 'sn', ''), "Date": getattr(s, 'date', ''), "Region": getattr(s, 'region', ''),
                 "Station": getattr(s, 'station', ''), "Arrested": getattr(s, 'arrested', 0), "Given Bond": getattr(s, 'given_bond', 0),
@@ -891,27 +895,29 @@ def export_master_excel(
             } for s in stats_data]
             df_stats = pd.DataFrame(stats_list) if stats_list else pd.DataFrame(columns=["SN", "Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"])
             df_stats.to_excel(writer, sheet_name="OPS Statistics", index=False)
-            apply_custom_sheet_design(workbook, writer.sheets["OPS Statistics"], df_stats, "OPS Statistics", authorized_user)
-            
             del stats_data, stats_list, df_stats
             gc.collect()
 
-            # --- PROCESS SUCCESS STORIES ---
-            stories_data = db.query(models.Success_Stories).yield_per(1000)
+            # --- TAB 3: SUCCESS STORIES ---
+            stories_query = db.query(models.Success_Stories)
+            if scope == "station" and value and value != "all":
+                stories_query = stories_query.filter(models.Success_Stories.station == value)
+            stories_data = stories_query.yield_per(1000)
             stories_list = [{
                 "SN": getattr(s, 'sn', ''), "Date": getattr(s, 'date', ''), "Time": getattr(s, 'time', ''),
                 "Region": getattr(s, 'region', ''), "Station": getattr(s, 'station', ''), "Status": getattr(s, 'status', ''),
-                "Narrative": strip_html_to_plain_text(getattr(s, 'narrative', ''))
+                "Narrative": strip_html_to_plain_text(getattr(s, 'narrative', '')) if 'strip_html_to_plain_text' in globals() else getattr(s, 'narrative', '')
             } for s in stories_data]
             df_stories = pd.DataFrame(stories_list) if stories_list else pd.DataFrame(columns=["SN", "Date", "Time", "Region", "Station", "Status", "Narrative"])
             df_stories.to_excel(writer, sheet_name="Success Stories", index=False)
-            apply_custom_sheet_design(workbook, writer.sheets["Success Stories"], df_stories, "Success Stories", authorized_user)
-            
             del stories_data, stories_list, df_stories
             gc.collect()
 
-            # --- PROCESS NOMINAL ROLL ---
-            roll_data = db.query(models.Nominal_Roll).yield_per(1000)
+            # --- TAB 4: NOMINAL ROLL ---
+            roll_query = db.query(models.Nominal_Roll)
+            if scope == "station" and value and value != "all":
+                roll_query = roll_query.filter(models.Nominal_Roll.station == value)
+            roll_data = roll_query.yield_per(1000)
             roll_list = [{
                 "SN": getattr(n, 'sn', ''), "Force Number": getattr(n, 'fnum', getattr(n, 'f_num', '')),
                 "Rank": getattr(n, 'rank', ''), "Name": getattr(n, 'name', ''), "Sex": getattr(n, 'sex', ''),
@@ -926,70 +932,49 @@ def export_master_excel(
             } for n in roll_data]
             df_roll = pd.DataFrame(roll_list) if roll_list else pd.DataFrame(columns=["SN", "Force Number", "Rank", "Name", "Sex", "Position", "DOB", "DOE", "DO POST", "DO PRO", "Contact", "Educ Level", "IPPS", "TIN", "NIN", "Home Dist", "Tribe", "Acc No", "Bank Branch", "Station", "District", "Region", "Section", "Directorate", "Status"])
             df_roll.to_excel(writer, sheet_name="Nominal Roll", index=False)
-            apply_custom_sheet_design(workbook, writer.sheets["Nominal Roll"], df_roll, "Nominal Roll", authorized_user)
-            
             del roll_data, roll_list, df_roll
             gc.collect()
 
+            # Forensic stamping
             workbook.set_properties({
                 'title': 'KMP Master Database - RESTRICTED',
                 'author': f'{authorized_user.rank} {authorized_user.name}',
                 'manager': authorized_user.fnum,
-                'company': 'Uganda Police Force (KMP)',
                 'comments': f'FORENSIC TRACE: Downloaded by {authorized_user.fnum} on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
             })
 
-        # 2. Write AES Zip directly to physical disk
+        # 3. Encrypt and ZIP the RAM buffer directly
         zip_password = authorized_user.fnum.encode('utf-8')
-        with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+        with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
-            zf.write(excel_path, f"KMP_Master_Database_{authorized_user.fnum}.xlsx")
+            zf.writestr(f"KMP_Master_Database_{authorized_user.fnum}.xlsx", excel_buffer.getvalue())
 
-        # Clean up the raw excel file immediately for security
-        os.remove(excel_path)
+        # Reset buffer for streaming
+        zip_buffer.seek(0)
         
-        if hasattr(models, 'Audit_Logs'):
-            audit_entry = models.Audit_Logs(
-                event_type="MASTER_DATA_EXPORT", target_user="SYSTEM", status="SUCCESS",
-                details="AES-Encrypted Master Database ZIP Downloaded (4 Sheets)", user_fnum=authorized_user.fnum
-            )
-            db.add(audit_entry)
-            db.commit()
-
-        # 3. Schedule final cleanup after the user finishes downloading
-        def cleanup_temp_files(path_to_delete: str, dir_to_delete: str):
-            try:
-                if os.path.exists(path_to_delete): os.remove(path_to_delete)
-                if os.path.exists(dir_to_delete): os.rmdir(dir_to_delete)
-            except Exception:
-                pass
-
-        background_tasks.add_task(cleanup_temp_files, zip_path, temp_dir)
-
-        # 4. Stream the file directly from disk to the browser
-        return FileResponse(
-            path=zip_path,
-            filename=f"KMP_Master_Database_{authorized_user.fnum}.zip",
-            media_type='application/zip'
+        # 4. Stream directly to the user (Bypasses the hard drive!)
+        return StreamingResponse(
+            zip_buffer, 
+            media_type="application/zip", 
+            headers={"Content-Disposition": f"attachment; filename=KMP_Master_Database_{authorized_user.fnum}.zip"}
         )
         
     except Exception as e:
-        print(f"Export Error: {e}")
+        print(f"Master Export Error: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate secure Master Database file.")
-
 
 @app.get("/api/v1/export/establishments")
 def export_establishments(
-    background_tasks: BackgroundTasks, 
     db: Session = Depends(get_db), 
     authorized_user: models.Users = Depends(require_export_privilege)
 ):
     try:
-        temp_dir = tempfile.mkdtemp()
-        excel_path = os.path.join(temp_dir, f"temp_est_{authorized_user.fnum}.xlsx")
-        zip_path = os.path.join(temp_dir, f"KMP_HR_Ledger_{authorized_user.fnum}.zip")
+        # 1. Create in-memory buffers instead of physical files
+        excel_buffer = io.BytesIO()
+        zip_buffer = io.BytesIO()
 
-        with pd.ExcelWriter(excel_path, engine='xlsxwriter') as writer:
+        # 2. Build the Excel file in RAM
+        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
             workbook = writer.book
 
             # Process HR Data
@@ -1034,34 +1019,30 @@ def export_establishments(
             })
             workbook.set_custom_property('Forensic_FNUM', authorized_user.fnum)
 
+        # 3. Encrypt and ZIP the RAM buffer
         zip_password = authorized_user.fnum.encode('utf-8')
-        with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+        with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
-            zf.write(excel_path, f"KMP_HR_establishments_{authorized_user.fnum}.xlsx")
+            # Write the raw memory bytes of the Excel file into the ZIP archive
+            zf.writestr(f"KMP_HR_establishments_{authorized_user.fnum}.xlsx", excel_buffer.getvalue())
 
-        os.remove(excel_path)
+        # 4. Reset the ZIP buffer to the beginning so it can be streamed
+        zip_buffer.seek(0)
         
+        # 5. Log the export securely
         if hasattr(models, 'AuditLog'):
             audit_entry = models.AuditLog(
                 event_type="DATA_EXPORT", target_user="SYSTEM", status="SUCCESS",
-                details="AES-Encrypted HR & establishments ZIP Downloaded", user_fnum=authorized_user.fnum
+                details="AES-Encrypted HR & establishments ZIP Downloaded (RAM Stream)", user_fnum=authorized_user.fnum
             )
             db.add(audit_entry)
             db.commit()
 
-        def cleanup_temp_files(path_to_delete: str, dir_to_delete: str):
-            try:
-                if os.path.exists(path_to_delete): os.remove(path_to_delete)
-                if os.path.exists(dir_to_delete): os.rmdir(dir_to_delete)
-            except Exception:
-                pass
-
-        background_tasks.add_task(cleanup_temp_files, zip_path, temp_dir)
-
-        return FileResponse(
-            path=zip_path,
-            filename=f"KMP_HR_Ledger_{authorized_user.fnum}.zip",
-            media_type='application/zip'
+        # 6. Stream directly to the user (Bypasses the hard drive entirely!)
+        return StreamingResponse(
+            zip_buffer, 
+            media_type="application/zip", 
+            headers={"Content-Disposition": f"attachment; filename=KMP_HR_Ledger_{authorized_user.fnum}.zip"}
         )
         
     except Exception as e:
