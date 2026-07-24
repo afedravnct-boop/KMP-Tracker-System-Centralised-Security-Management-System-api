@@ -1237,6 +1237,9 @@ def get_message_readers(comm_id: int, db: Session = Depends(get_db), current_use
         })
     return results
 
+# ==========================================
+# 1. FETCH DISPATCHES (WITH OPTIMIZED READ CHECKS)
+# ==========================================
 @app.get("/api/v1/Admin_Communication")
 def get_admin_communications(
     start_date: Optional[str] = None,
@@ -1247,13 +1250,12 @@ def get_admin_communications(
     query = db.query(models.Admin_Communication)
 
     if current_user.role != "SUPER_ADMIN":
-        # 🛡️ THE FIX: Allow both "ALL" and "ALL_USERS" through the firewall
+        # 🛡️ Allows both "ALL" and "ALL_USERS" through the firewall
         visibility_conditions = [
             models.Admin_Communication.target_audience == "ALL",
             models.Admin_Communication.target_audience == "ALL_USERS",
             models.Admin_Communication.sender_fnum == current_user.fnum
         ]
-        
         if current_user.role == "ADMIN":
             visibility_conditions.append(models.Admin_Communication.target_audience == "ADMINS_ONLY")
         if current_user.role == "RPC":
@@ -1274,19 +1276,18 @@ def get_admin_communications(
 
     comms = query.order_by(models.Admin_Communication.created_at.desc()).all()
     
+    # OPTIMIZATION: Fetch all read receipts for this user in ONE query, not a loop!
+    read_records = db.query(models.Communication_Reads.comm_id).filter(
+        models.Communication_Reads.fnum == current_user.fnum
+    ).all()
+    read_comm_ids = {r[0] for r in read_records} # Convert to a lightning-fast set
+    
     eat_tz = pytz.timezone("Africa/Kampala")
     clean_comms = []
     
     for c in comms:
-        # Check if the current user has already acknowledged this message
-        is_read = False
-        if hasattr(models, 'Communication_Reads'):
-            read_record = db.query(models.Communication_Reads).filter(
-                models.Communication_Reads.comm_id == c.id,
-                models.Communication_Reads.fnum == current_user.fnum
-            ).first()
-            if read_record:
-                is_read = True
+        # Instantly check if this comm_id is in the user's read history
+        is_read = c.id in read_comm_ids
 
         local_time = c.created_at
         if local_time:
@@ -1307,10 +1308,77 @@ def get_admin_communications(
             "subject": c.subject,
             "message": c.message,
             "created_at": formatted_time,
-            "acknowledged": is_read # Passes the read status to React
+            "acknowledged": is_read
         })
 
     return clean_comms
+
+# ==========================================
+# 2. SAVE THE READ RECEIPT TO NEON DB
+# ==========================================
+@app.post("/api/v1/communications/{comm_id}/acknowledge")
+def acknowledge_communication(comm_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        existing_read = db.query(models.Communication_Reads).filter(
+            models.Communication_Reads.comm_id == comm_id,
+            models.Communication_Reads.fnum == current_user.fnum
+        ).first()
+
+        if not existing_read:
+            new_read = models.Communication_Reads(
+                comm_id=comm_id,
+                fnum=current_user.fnum
+                # read_at is automatically handled by server_default=func.now() in Neon
+            )
+            db.add(new_read)
+            db.commit()
+            
+        return {"status": "success", "message": "Receipt safely logged in database"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# 3. ADMIN LEDGER FETCH (READ RECEIPTS)
+# ==========================================
+@app.get("/api/v1/communications/{comm_id}/readers")
+def get_communication_readers(comm_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    if current_user.role not in ["ADMIN", "SUPER_ADMIN"]:
+        raise HTTPException(status_code=403, detail="Clearance Denied")
+    
+    try:
+        readers = db.query(
+            models.Communication_Reads.read_at,
+            models.Users.name,
+            models.Users.fnum
+        ).join(
+            models.Users, models.Communication_Reads.fnum == models.Users.fnum
+        ).filter(
+            models.Communication_Reads.comm_id == comm_id
+        ).order_by(models.Communication_Reads.read_at.desc()).all()
+
+        eat_tz = pytz.timezone("Africa/Kampala")
+        results = []
+        
+        for r in readers:
+            local_time = r.read_at
+            if local_time:
+                if local_time.tzinfo is None:
+                    local_time = pytz.utc.localize(local_time)
+                local_time = local_time.astimezone(eat_tz)
+                formatted_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                formatted_time = "Unknown Time"
+                
+            results.append({
+                "name": r.name,
+                "fnum": r.fnum,
+                "read_at": formatted_time
+            })
+            
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
 # USER AUTHENTICATION & SIGNUP ROUTE

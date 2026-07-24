@@ -266,12 +266,16 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
             {relevantComms.length === 0 ? (
               <div className="p-6 text-center text-xs font-bold text-slate-400 uppercase">No active directives at this time.</div>
             ) : (
-              <div className="divide-y divide-slate-200">
+<div className="divide-y divide-slate-200">
                 {relevantComms.map((comm) => (
-                  <div key={comm.id} className={`p-4 transition-colors hover:bg-slate-100 ${
-                    comm.message_type === 'CRITICAL_ALERT' ? 'border-l-4 border-l-red-500 bg-red-50/20' : 
-                    comm.message_type === 'ASSIGNMENT' ? 'border-l-4 border-l-yellow-500 bg-yellow-50/20' : 
-                    'border-l-4 border-l-blue-500 bg-blue-50/20'
+                  <div key={comm.id} className={`p-4 transition-all duration-500 ${
+                    comm.acknowledged 
+                      ? 'bg-gray-50 border-l-4 border-l-gray-300 opacity-70 grayscale-[30%]' // 🛡️ THE FIX: Dimmed and greyed out if read
+                      : `hover:bg-slate-100 ${ // Brightly highlighted if unread
+                          comm.message_type === 'CRITICAL_ALERT' ? 'border-l-4 border-l-red-500 bg-red-50/40' : 
+                          comm.message_type === 'ASSIGNMENT' ? 'border-l-4 border-l-yellow-500 bg-yellow-50/40' : 
+                          'border-l-4 border-l-blue-500 bg-blue-50/40'
+                        }`
                   }`}>
                     
                     {/* CLICKABLE HEADER TO EXPAND/COLLAPSE */}
