@@ -269,3 +269,14 @@ class Admin_Communication(Base):
     message = Column(Text)
     status = Column(String, default="ACTIVE")
     created_at = Column(DateTime, default=get_eat_time)
+
+# ==========================================
+# 10. COMMUNICATION READ RECEIPTS
+# ==========================================
+class Communication_Reads(Base):
+    __tablename__ = "communication_reads"
+
+    id = Column(Integer, primary_key=True, index=True)
+    comm_id = Column(Integer, index=True)
+    fnum = Column(String, index=True)
+    read_at = Column(DateTime(timezone=True), server_default=func.now())

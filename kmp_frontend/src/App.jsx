@@ -154,7 +154,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewConsolidated, Admin_Communication: commsData }) => {
+const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewConsolidated, Admin_Communication: commsData, onAcknowledgeComm }) => {
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
   const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role);
   
@@ -166,8 +166,37 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
   const hasSubmittedThisWeek = false; 
   const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && !isAdmin;
 
+  // New State for Admin Receipts Modal
+  const [viewingReceiptsFor, setViewingReceiptsFor] = useState(null);
+  const [receiptsData, setReceiptsData] = useState([]);
+  const [loadingReceipts, setLoadingReceipts] = useState(false);
+
+  // 🛡️ NEW: Track which message is currently expanded
+  const [expandedComm, setExpandedComm] = useState(null);
+
+  const fetchReceipts = async (commId) => {
+    setViewingReceiptsFor(commId);
+    setLoadingReceipts(true);
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const res = await fetch(`${API_URL}/api/v1/communications/${commId}/readers`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if(res.ok) {
+        const data = await res.json();
+        setReceiptsData(data);
+      }
+    } catch(e) {
+      console.error(e);
+    } finally {
+      setLoadingReceipts(false);
+    }
+  };
+
   const relevantComms = (commsData || []).filter(c => {
     if (c.target_audience === 'ALL_USERS') return true;
+    if (c.target_audience === 'ALL') return true; // Account for legacy code
     if (c.target_audience === 'ADMINS_ONLY' && isAdmin) return true;
     if (c.target_audience === 'RPC_ONLY' && isRPC) return true;
     if (c.target_audience === 'SPECIFIC_REGION' && c.target_region === currentUser.region) return true;
@@ -176,6 +205,38 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8 relative z-10 animate-in fade-in duration-300">
+      
+      {/* Receipts Modal for Admins */}
+      {viewingReceiptsFor && (
+        <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-300">
+                <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+                   <h3 className="font-bold flex items-center text-sm"><CheckCircle size={16} className="mr-2 text-green-400"/> Acknowledgment Receipts</h3>
+                   <button onClick={() => setViewingReceiptsFor(null)} className="hover:bg-slate-700 p-1 rounded"><X size={18}/></button>
+                </div>
+                <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar bg-slate-50">
+                   {loadingReceipts ? (
+                      <p className="text-xs text-center text-gray-500 font-bold animate-pulse py-4">Fetching secure ledgers...</p>
+                   ) : receiptsData.length === 0 ? (
+                      <p className="text-xs text-center text-gray-500 font-medium py-4">No officers have acknowledged this dispatch yet.</p>
+                   ) : (
+                       <div className="space-y-2">
+                          {receiptsData.map((r, i) => (
+                             <div key={i} className="flex justify-between items-center text-xs p-3 bg-white rounded border border-green-100 shadow-sm">
+                                <div>
+                                    <span className="font-extrabold text-slate-800 block">{r.name}</span>
+                                    <span className="font-mono text-[9px] text-gray-400">{r.fnum}</span>
+                                </div>
+                                <span className="text-[10px] text-green-600 font-bold bg-green-50 px-2 py-1 rounded">Read: {r.read_at}</span>
+                             </div>
+                          ))}
+                       </div>
+                   )}
+                </div>
+            </div>
+        </div>
+      )}
+
       {showComplianceWarning && (
         <div className="bg-red-600 text-white font-extrabold p-4 rounded-xl shadow-lg flex flex-col md:flex-row items-center justify-between animate-pulse border-2 border-red-400">
           <div className="flex items-center text-sm mb-3 md:mb-0">
@@ -196,39 +257,73 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
       </div>
 
       <div className="w-full">
-        <h3 className="text-center text-sm font-bold text-slate-600 bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-           Welcome, <span className="text-blue-700">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
-        </h3>   
-      </div>
-
-      <div className="w-full">
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
           <div className="bg-slate-900 text-white px-4 py-3 flex justify-between items-center shrink-0">
             <h3 className="font-bold text-sm flex items-center tracking-wider"><Bell size={16} className="mr-2 text-yellow-400 animate-pulse"/> Administrative Communication</h3>
           </div>
           
-          <div className="p-0 overflow-y-auto max-h-[300px] custom-scrollbar bg-slate-50 flex-1">
+          <div className="p-0 overflow-y-auto max-h-[350px] custom-scrollbar bg-slate-50 flex-1">
             {relevantComms.length === 0 ? (
               <div className="p-6 text-center text-xs font-bold text-slate-400 uppercase">No active directives at this time.</div>
             ) : (
               <div className="divide-y divide-slate-200">
                 {relevantComms.map((comm) => (
-                  <div key={comm.id} className={`p-4 transition-colors hover:bg-white ${
-                    comm.message_type === 'CRITICAL_ALERT' ? 'border-l-4 border-l-red-500 bg-red-50/30' : 
-                    comm.message_type === 'ASSIGNMENT' ? 'border-l-4 border-l-yellow-500 bg-yellow-50/30' : 
-                    'border-l-4 border-l-blue-500 bg-blue-50/30'
+                  <div key={comm.id} className={`p-4 transition-colors hover:bg-slate-100 ${
+                    comm.message_type === 'CRITICAL_ALERT' ? 'border-l-4 border-l-red-500 bg-red-50/20' : 
+                    comm.message_type === 'ASSIGNMENT' ? 'border-l-4 border-l-yellow-500 bg-yellow-50/20' : 
+                    'border-l-4 border-l-blue-500 bg-blue-50/20'
                   }`}>
-                    <div className="flex justify-between items-start mb-1">
-                      <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-sm uppercase tracking-wider ${
-                        comm.message_type === 'CRITICAL_ALERT' ? 'bg-red-100 text-red-700' : 
-                        comm.message_type === 'ASSIGNMENT' ? 'bg-yellow-100 text-yellow-700' : 
-                        'bg-blue-100 text-blue-700'
-                      }`}>{comm.message_type.replace('_', ' ')}</span>
-                      <span className="text-[10px] font-bold text-slate-400">{new Date(comm.created_at).toLocaleDateString()}</span>
+                    
+                    {/* CLICKABLE HEADER TO EXPAND/COLLAPSE */}
+                    <div 
+                      className="cursor-pointer" 
+                      onClick={() => setExpandedComm(expandedComm === comm.id ? null : comm.id)}
+                    >
+                        <div className="flex justify-between items-start mb-1">
+                          <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-sm uppercase tracking-wider ${
+                            comm.message_type === 'CRITICAL_ALERT' ? 'bg-red-100 text-red-700' : 
+                            comm.message_type === 'ASSIGNMENT' ? 'bg-yellow-100 text-yellow-700' : 
+                            'bg-blue-100 text-blue-700'
+                          }`}>{comm.message_type.replace('_', ' ')}</span>
+                          <span className="text-[10px] font-bold text-slate-400">{comm.created_at}</span>
+                        </div>
+                        <div className="flex justify-between items-center mt-2">
+                           <h4 className="text-sm font-extrabold text-slate-800 leading-tight">{comm.subject}</h4>
+                           <span className={`text-[9px] font-bold px-2 py-1 rounded ml-2 whitespace-nowrap transition-colors ${
+                              expandedComm === comm.id ? 'bg-slate-200 text-slate-600' : 'bg-blue-100 text-blue-700'
+                           }`}>
+                              {expandedComm === comm.id ? 'Close' : 'Read Dispatch'}
+                           </span>
+                        </div>
                     </div>
-                    <h4 className="text-sm font-extrabold text-slate-800 leading-tight mb-2 mt-2">{comm.subject}</h4>
-                    <div className="text-xs text-slate-600 font-medium line-clamp-3 ql-editor p-0" dangerouslySetInnerHTML={{ __html: comm.message }} />
-                    <div className="mt-3 text-[9px] font-bold text-slate-400 uppercase">Dispatched by: {comm.sender_name}</div>
+                    
+                    {/* ONLY RENDER MESSAGE AND BUTTON IF EXPANDED */}
+                    {expandedComm === comm.id && (
+                        <div className="mt-3 pt-3 border-t border-slate-200 animate-in fade-in slide-in-from-top-2">
+                            <div className="text-xs text-slate-600 font-medium ql-editor p-0" dangerouslySetInnerHTML={{ __html: comm.message }} />
+                            
+                            <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center">
+                                <div className="text-[9px] font-bold text-slate-400 uppercase">
+                                  Dispatched by: {comm.sender_name}
+                                  {isAdmin && (
+                                      <button onClick={() => fetchReceipts(comm.id)} className="ml-3 text-blue-600 hover:text-blue-800 underline">
+                                          View Receipts
+                                      </button>
+                                  )}
+                                </div>
+                                
+                                {comm.acknowledged ? (
+                                    <span className="text-[10px] font-extrabold text-green-600 flex items-center bg-green-50 px-2 py-1 rounded border border-green-200">
+                                       <CheckCircle size={12} className="mr-1"/> Acknowledged
+                                    </span>
+                                ) : (
+                                    <button onClick={() => onAcknowledgeComm(comm.id)} className="text-[10px] bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded font-bold shadow-sm transition flex items-center">
+                                        Acknowledge Receipt
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -310,13 +405,15 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [customEndDate, setCustomEndDate] = useState('');
 
   const [showLockup, setShowLockup] = useState(false);
-  const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mentalhealthstatus: '' });
+  const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mental_health_status: '' });
 
   const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
 
   const [formData, setFormData] = useState({
     sn: null,
     sd_ref: '',
+    ref_type: 'SD Ref:', // PERFECTED CASING AND COLON
+    ref_number: '',
     region: currentUser.region,
     station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
     date: getTodayString(),
@@ -337,6 +434,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       setFormData({
         sn: null,
         sd_ref: '',
+        ref_type: 'SD Ref:',
+        ref_number: '',
         region: currentUser.region,
         station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
         date: getTodayString(),
@@ -364,6 +463,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   };
 
   const handleSmartExport = (scope, value) => {
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
     let url = `${API_URL}/api/v1/reports/export?timeframe=all`;
     if (scope && value) {
         url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
@@ -448,19 +548,24 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     e.preventDefault();
 
     const token = localStorage.getItem('kmp_authToken');
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
     if (!token) {
         setNotification("Error: Security token missing. Please log out and log back in.");
         return;
     }
     
     if (operation === 'new') {
+      // PRESERVES PREFIX CASING (SD Ref:) BUT UPPERCASES THE NUMBER
+      const final_sd_ref = `${formData.ref_type} ${formData.ref_number.toUpperCase()}`.trim();
+
       const isDuplicate = reports.some(r => 
-        (r.sd_ref || r.sdRef || '').trim().toLowerCase() === formData.sd_ref.trim().toLowerCase() || 
+        (r.sd_ref || r.sdRef || '').trim().toLowerCase() === final_sd_ref.toLowerCase() || 
         r.narrative.trim().toLowerCase() === formData.narrative.trim().toLowerCase()
       );
 
       if (isDuplicate) {
-        setNotification("Error: This SD Reference or identical report narrative has already been entered into the system.");
+        setNotification("Error: This Reference or identical report narrative has already been entered into the system.");
         return;
       }
 
@@ -469,7 +574,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       
       const apiPayload = {
         sn: exactNextSN,
-        sd_ref: formData.sd_ref, 
+        sd_ref: final_sd_ref, 
         region: formData.region,
         station: formData.station,
         date: formData.date,
@@ -504,6 +609,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         setFormData({ 
           ...formData, 
           sd_ref: '', 
+          ref_type: 'SD Ref:', 
+          ref_number: '', 
           time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs', 
           offence: '', 
           customOffence: '', 
@@ -537,6 +644,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         suspectDetails: formData.suspectDetails
       };
       delete updatedRecord.updateText;
+      delete updatedRecord.ref_type; 
+      delete updatedRecord.ref_number;
       
       try {
         const response = await fetch(`${API_URL}/api/v1/reports/${formData.sn}`, {
@@ -701,7 +810,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               {operation === 'update' && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Case to Update</label>
-                  <input type="text" placeholder="Search by SD Ref, SN, or Narrative..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
+                  <input type="text" placeholder="Search by Reference, SN, or Narrative..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
                   <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
                     {availableUpdateCases.length === 0 ? (
                       <div className="p-3 text-xs text-gray-500 text-center">No cases found matching your search.</div>
@@ -725,8 +834,35 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
-                    <label className="block text-xs font-bold text-gray-700 mb-1">SD/GEF/DEF Reference *</label>
-                    <input type="text" name="sd_ref" value={formData.sd_ref} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500 font-bold text-blue-700 disabled:bg-gray-100 disabled:text-gray-500" placeholder="e.g. SD 04/27/06/2026" />
+                    <label className="block text-xs font-bold text-gray-700 mb-1">File Reference Prefix & Number *</label>
+                    {operation === 'update' ? (
+                      <input type="text" name="sd_ref" value={formData.sd_ref} disabled required className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 font-bold text-blue-700 bg-gray-100 disabled:text-gray-500" />
+                    ) : (
+                      <div className="flex shadow-sm rounded-md w-full">
+                        <select 
+                          name="ref_type" 
+                          value={formData.ref_type || 'SD Ref:'} 
+                          onChange={handleInputChange} 
+                          className="bg-gray-100 border border-gray-300 text-gray-800 text-sm rounded-l-md px-3 py-2 font-bold focus:ring-blue-500 outline-none cursor-pointer"
+                        >
+                          <option value="SD Ref:">SD Ref:</option>
+                          <option value="CRB:">CRB:</option>
+                          <option value="DEF:">DEF:</option>
+                          <option value="GEF:">GEF:</option>
+                          <option value="TAR:">TAR:</option>
+                          <option value="CID:">CID:</option>
+                        </select>
+                        <input 
+                          type="text" 
+                          name="ref_number" 
+                          value={formData.ref_number || ''} 
+                          onChange={handleInputChange} 
+                          required 
+                          className="flex-1 text-sm border-gray-300 border-y border-r rounded-r-md p-2 focus:ring-blue-500 font-bold text-blue-700 uppercase outline-none" 
+                          placeholder="e.g. 04/27/06/2026" 
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -855,7 +991,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input type="text" placeholder="Search SD Ref, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
+              <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
             </div>
             <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white">
               {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && <option value="ALL REGIONS">ALL REGIONS</option>}
@@ -884,7 +1020,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                 <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-16">SN</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">SD REF</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">REFERENCE</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Date & Time</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-25">Region/Post</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-1/2 max-w-[800px]">Incident Narrative</th>
@@ -2913,24 +3049,6 @@ const handleReviewRequest = async (reqId, actionStatus) => {
   }
 };
 
-const handleReviewRequest = async (reqId, actionStatus) => {
-    try {
-      const response = await authFetch(`/api/v1/requests/${reqId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: actionStatus })
-      });
-      
-      if (!response.ok) throw new Error("Failed to process request");
-      
-      // Remove it from the UI queue
-      setModRequests(modRequests.filter(r => r.id !== reqId));
-      alert(`Request ${actionStatus.toLowerCase()} successfully!`);
-    } catch (err) {
-      console.error(err);
-      alert("Error processing the modification request.");
-    }
-  };
 
 return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
@@ -3129,7 +3247,7 @@ const AdminProfile = ({ currentUser, setCurrentUser }) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleRequestSubmit = async (e) => {
+const handleRequestSubmit = async (e) => {
     if (e) e.preventDefault();
     setNotification("⏳ Sending official request to Command...");
 
@@ -3146,7 +3264,11 @@ const AdminProfile = ({ currentUser, setCurrentUser }) => {
         })
       });
 
-      if (!response.ok) throw new Error("Failed to send request.");
+      // 🛡️ Extracts the exact rejection reason from Python
+      if (!response.ok) {
+         const errData = await response.json().catch(() => ({}));
+         throw new Error(errData.detail || "Failed to send request.");
+      }
       
       setNotification("✅ Request successfully logged for Command review.");
       setIsRequestMode(false);
@@ -3163,7 +3285,8 @@ const AdminProfile = ({ currentUser, setCurrentUser }) => {
 
     } catch (err) {
       console.error(err);
-      setNotification("❌ Error: Failed to contact Command.");
+      // Displays the "already pending" message to the user!
+      setNotification(`❌ Error: ${err.message}`);
     }
   };
 
@@ -3742,12 +3865,16 @@ const DashboardLayout = ({
     { name: '⛓️‍💥 Success Stories', id: 'success', icon: <Trophy size={20} /> },
     { name: '🏢 Establishments', id: 'establishments', icon: <Building size={20} /> },
     { name: '👥 Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> },
-    { 
-      name: '📢 Admin Dispatch', 
-      id: 'Admin_Communication', 
-      icon: <Bell size={20} className={hasUnread ? 'animate-pulse text-yellow-400' : ''} /> 
-    },
   ];
+
+  // 🛡️ THE FIX: Only inject 'Admin Dispatch' into the sidebar if the user has Command Clearance!
+  if (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)) {
+     navItems.push({ 
+       name: '📢 Admin Dispatch', 
+       id: 'Admin_Communication', 
+       icon: <Bell size={20} className={hasUnread ? 'animate-pulse text-yellow-400' : ''} /> 
+     });
+  }
 
   const connectionUserProfiles = {
     "AIP System MGR": { fnum: 'A/2408', rank: 'AIP', ipps: '950010', position: 'System Manager', region: 'KMP HEADQUARTERS', station: 'KMP HEADQUARTERS', email: 'afedravnct@gmail.com', phone: '0779302872', profile_photo_path: '' },
@@ -3760,36 +3887,43 @@ const DashboardLayout = ({
   };
 
   const inspectSystemUser = (user) => {
-    // 1. Loads the full data into the modal
     setSelectedUserDetail({ ...user, isSystemUser: true });
-    
-    // 2. Tells React to open the modal 
-    // (Replace setManageUserModalOpen with whatever state variable controls your modal visibility!)
-    setManageUserModalOpen(true); 
   };
 
-  const handleExportLogs = async () => {
+const handleExportLogs = async () => {
     try {
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
-      const response = await fetch(`${API_URL}/api/v1/activity-logs`, {
+      
+      const response = await fetch(`${API_URL}/api/v1/audit-logs`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (!response.ok) throw new Error("Security Clearance Denied");
 
       const logs = await response.json();
-      const headers = ["ID", "Force Number", "Action", "Module", "Details", "Timestamp (EAT)"];
+      
+      // EXACLY ALIGNED WITH NEON/SQLALCHEMY AUDIT_LOGS COLUMNS
+      const headers = [
+        "ID", 
+        "Event Type", 
+        "Target User", 
+        "Status", 
+        "Details", 
+        "Created At", 
+        "User FNUM"
+      ];
       
       const csvRows = logs.map(log => {
         const safeDetails = log.details ? log.details.replace(/"/g, '""') : "";
         return [
           log.id, 
-          log.fnum, 
-          log.action, 
-          log.module, 
+          log.event_type || "N/A", 
+          log.target_user || "N/A",
+          log.status || "N/A",
           `"${safeDetails}"`, 
-          log.created_at
+          log.created_at || "Unknown Time",
+          log.user_fnum || "SYSTEM"
         ];
       });
 
@@ -3798,7 +3932,7 @@ const DashboardLayout = ({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.setAttribute("href", url);
-      link.setAttribute("download", `KMP_Audit_Logs_${new Date().toISOString().split('T')[0]}.csv`);
+      link.setAttribute("download", `KMP_Command_Audit_Logs_${new Date().toISOString().split('T')[0]}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -3847,7 +3981,7 @@ const DashboardLayout = ({
             ))}
           </nav>
 
-          {sidebarOpen && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && (
+{sidebarOpen && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && (
             <div className="px-4 space-y-3">
               <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
                 <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
@@ -3868,7 +4002,7 @@ const DashboardLayout = ({
                 )}
               </div>
 
-<div className="rounded-lg p-4 bg-slate-800">
+              <div className="rounded-lg p-4 bg-slate-800">
                 <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
                   <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Connections (1)</span>
                   <span className="bg-slate-900 px-2 py-2 rounded-full text-xs"></span>
@@ -3892,46 +4026,44 @@ const DashboardLayout = ({
               </div>
 
               <div className="rounded-lg p-3 bg-slate-800 border border-slate-700">
-  <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400">
-     <span className="flex items-center"><Users size={16} className="mr-2"/> 👥 System Roster</span>
-     {/* This perfectly counts the exact number of approved users */}
-     <span className="bg-slate-900 px-2 py-0.5 rounded-full text-xs text-white border border-slate-600">{users?.length || 0}</span>
-  </button>
-  
-  {showAllUsers && (
-   <div className="mt-3 space-y-2 border-t border-slate-700 pt-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
-      {users?.map(u => (
-         <div 
-           key={u.fnum} 
-           onClick={() => inspectSystemUser(u)} 
-           className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-blue-500 cursor-pointer transition-all flex items-center justify-between group"
-         >
-            <div className="flex items-center space-x-2">
-              
-              {/* THE FIX: Circular Profile Photo injected into the sidebar list */}
-              {u.profile_photo_path ? (
-                <img src={u.profile_photo_path} alt="" className="w-7 h-7 rounded-full object-cover border border-slate-600 group-hover:border-blue-400" onError={(e) => { e.target.style.display='none'; }} />
-              ) : (
-                <div className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-[10px] border border-slate-600 group-hover:border-blue-400 group-hover:text-blue-300">
-                  {u.name?.charAt(0) || 'U'}
-                </div>
-              )}
-              
-              <div>
-                <span className="font-bold text-white block truncate w-28">{u.name}</span>
-                <span className="text-slate-400 font-mono text-[9px]">{u.fnum}</span>
-              </div>
-            </div>
+                <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400">
+                  <span className="flex items-center"><Users size={16} className="mr-2"/> 👥 System Roster</span>
+                  <span className="bg-slate-900 px-2 py-0.5 rounded-full text-xs text-white border border-slate-600">{users?.length || 0}</span>
+                </button>
+                
+                {showAllUsers && (
+                 <div className="mt-3 space-y-2 border-t border-slate-700 pt-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                    {users?.map(u => (
+                       <div 
+                         key={u.fnum} 
+                         onClick={() => inspectSystemUser(u)} 
+                         className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-blue-500 cursor-pointer transition-all flex items-center justify-between group"
+                       >
+                          <div className="flex items-center space-x-2">
+                            {u.profile_photo_path ? (
+                              <img src={u.profile_photo_path} alt="" className="w-7 h-7 rounded-full object-cover border border-slate-600 group-hover:border-blue-400" onError={(e) => { e.target.style.display='none'; }} />
+                            ) : (
+                              <div className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-[10px] border border-slate-600 group-hover:border-blue-400 group-hover:text-blue-300">
+                                {u.name?.charAt(0) || 'U'}
+                              </div>
+                            )}
+                            
+                            <div>
+                              <span className="font-bold text-white block truncate w-28">{u.name}</span>
+                              <span className="text-slate-400 font-mono text-[9px]">{u.fnum}</span>
+                            </div>
+                          </div>
 
-            <div className="text-[9px] px-1.5 py-0.5 bg-slate-800 rounded text-slate-300 font-bold uppercase border border-slate-700 group-hover:bg-blue-900 group-hover:text-blue-100 transition-colors">
-              {String(u.role || 'USER').replace('_ADMIN', '')}
-            </div>
-         </div>
-      ))}
-   </div>
-  )}
-</div>
-)}
+                          <div className="text-[9px] px-1.5 py-0.5 bg-slate-800 rounded text-slate-300 font-bold uppercase border border-slate-700 group-hover:bg-blue-900 group-hover:text-blue-100 transition-colors">
+                            {String(u.role || 'USER').replace('_ADMIN', '')}
+                          </div>
+                       </div>
+                    ))}
+                 </div>
+                )}
+              </div>
+            </div> 
+          )}
 
           {sidebarOpen && ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) && (
             <div className="px-4 mt-4 space-y-3">
@@ -4330,18 +4462,36 @@ const fetchData = async () => {
     }
   };
 
+  const handleAcknowledgeComm = async (commId) => {
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const response = await fetch(`${API_URL}/api/v1/communications/${commId}/acknowledge`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        // Instantly update the UI so the user sees the green checkmark
+        setAdminCommsData(prevData => prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c));
+      }
+    } catch (err) {
+      console.error("Failed to acknowledge receipt", err);
+    }
+  };
+
   const renderPage = () => {
     switch (currentPage) {
-      case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} />;
+      case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
       case 'reports': return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
       case 'statistics': return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
       case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
       case 'establishments': return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
       case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
-      case 'approvals': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} />;
+      case 'approvals': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
       case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} />;
-      case 'Admin_Communication': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} Admin_Communication={adminCommsData}/>;
-      default: return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} />;
+      case 'Admin_Communication': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm}/>;
+      default: return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
     }
   };
 

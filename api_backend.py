@@ -35,6 +35,7 @@ from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 import boto3
 from botocore.exceptions import ClientError
+from sqlalchemy import and_, or_
 
 # Internal Imports
 from app import models, database
@@ -776,6 +777,74 @@ def apply_custom_sheet_design(workbook, worksheet, df, sheet_name, user):
     for col_num, value in enumerate(df.columns.values):
         worksheet.write(0, col_num, value, header_format)
         worksheet.set_column(col_num, col_num, 18)
+
+@app.post("/api/v1/communications/{comm_id}/acknowledge")
+def acknowledge_communication(comm_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        # Check if the officer already acknowledged it to prevent duplicates
+        existing_read = db.query(models.Communication_Reads).filter(
+            models.Communication_Reads.comm_id == comm_id,
+            models.Communication_Reads.fnum == current_user.fnum
+        ).first()
+
+        if not existing_read:
+            new_read = models.Communication_Reads(
+                comm_id=comm_id,
+                fnum=current_user.fnum,
+                read_at=datetime.utcnow() 
+            )
+            db.add(new_read)
+            db.commit()
+            
+        return {"status": "success", "message": "Receipt acknowledged"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# 2. ROUTE FOR ADMINS TO VIEW THE RECEIPTS
+# ==========================================
+@app.get("/api/v1/communications/{comm_id}/readers")
+def get_communication_readers(comm_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    # Block non-admins from viewing the ledger
+    if current_user.role not in ["ADMIN", "SUPER_ADMIN"]:
+        raise HTTPException(status_code=403, detail="Clearance Denied")
+    
+    try:
+        # Join the Communication_Reads table with the Users table to get their real names
+        readers = db.query(
+            models.Communication_Reads.read_at,
+            models.Users.name,
+            models.Users.fnum
+        ).join(
+            models.Users, models.Communication_Reads.fnum == models.Users.fnum
+        ).filter(
+            models.Communication_Reads.comm_id == comm_id
+        ).all()
+
+        eat_tz = pytz.timezone("Africa/Kampala")
+        results = []
+        
+        for r in readers:
+            # Convert UTC database time to East Africa Time for the UI
+            local_time = r.read_at
+            if local_time:
+                if local_time.tzinfo is None:
+                    local_time = pytz.utc.localize(local_time)
+                local_time = local_time.astimezone(eat_tz)
+                formatted_time = local_time.strftime("%Y-%m-%d %H:%M")
+            else:
+                formatted_time = "Unknown Time"
+                
+            results.append({
+                "name": r.name,
+                "fnum": r.fnum,
+                "read_at": formatted_time
+            })
+            
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/reports/export")
 def export_master_excel(
