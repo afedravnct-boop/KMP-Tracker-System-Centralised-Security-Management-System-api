@@ -62,24 +62,27 @@ conf = ConnectionConfig(
     MAIL_SSL_TLS=False
 )
 
-def record_activity(db: Session, fnum: str, action: str, details: str):
+def record_activity(fnum: str, action: str, details: str):
+    db_logs = SessionLogsLocal()
     try:
         if hasattr(models, 'Activity_Logs'):
-            # --- FORCE EAST AFRICA TIME ---
-            eat_tz = pytz.timezone("Africa/Kampala")
+            eat_tz = pytz.timezone("Africa/Nairobi")
             uganda_time = datetime.now(eat_tz).replace(tzinfo=None)
 
             new_activity = models.Activity_Logs( 
                 fnum=fnum,
                 action=action,
+                module="SYSTEM_ACTION",
                 details=details,
-                timestamp=uganda_time # Replaced utcnow()
+                created_at=uganda_time 
             )
-            db.add(new_activity)
-            db.commit()
+            db_logs.add(new_activity)
+            db_logs.commit()
     except Exception as e:
         print(f"Failed to record activity: {e}")
-        db.rollback()
+        db_logs.rollback()
+    finally:
+        db_logs.close()
 
 def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, changes: dict, remarks: str = ""):
     try:
@@ -87,11 +90,14 @@ def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, chang
             [f"{k}: {v[0]} -> {v[1]}" for k, v in changes.items()]
         ) + f" | Remarks: {remarks}"
         
-        new_audit = models.AuditLog(
-            timestamp=datetime.utcnow(),
+        # FIXED: Mapped precisely to models.Audit_Logs columns
+        new_audit = models.Audit_Logs(
+            event_type=action,
+            target_user=target_identifier,
+            status="SUCCESS",
+            details=formatted_details,
             user_fnum=fnum,
-            action=action,
-            details=formatted_details
+            created_at=datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
         )
         db.add(new_audit)
         db.commit()
@@ -619,15 +625,78 @@ def create_story(data: dict, db: Session = Depends(get_db), current_user: models
 def create_report(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         data.pop('sn', None) 
-        data.pop('suspectDetails', None) 
+        # Safely extract the suspect array before saving the main report
+        suspects_data = data.pop('suspectDetails', []) 
+        
         new_record = models.Crime_Reports(**data)
         new_record.last_updated_by = current_user.fnum
         db.add(new_record)
+        db.flush() # This assigns the SN to the report BEFORE we commit!
+        
+        # Loop through the array and lock them into the suspect_lockup table
+        for s in suspects_data:
+            new_suspect = models.Suspect_Lockup(
+                sd_ref=new_record.sn, # Ties the suspect to the Crime Report SN
+                name=s.get('name'),
+                sex=s.get('sex'),
+                age=str(s.get('age')) if s.get('age') else None,
+                tribe=s.get('tribe'),
+                residence=s.get('residence'),
+                contact=s.get('contact'),
+                mental_health_status=s.get('mental_health_status')
+            )
+            db.add(new_suspect)
+
         db.commit()
         return {"status": "success"}
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Duplicate SD Reference for this station.")
+        raise HTTPException(status_code=400, detail="Duplicate Reference for this station.")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# THE MISSING CRIME REPORT UPDATE ROUTE
+# ==========================================
+@app.put("/api/v1/reports/{sn}")
+def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        existing_report = db.query(models.Crime_Reports).filter(models.Crime_Reports.sn == sn).first()
+        if not existing_report:
+            raise HTTPException(status_code=404, detail="Crime Report not found")
+
+        suspects_data = data.pop('suspectDetails', [])
+        data.pop('sn', None)
+        
+        # Update the main report details
+        for key, value in data.items():
+            if hasattr(existing_report, key):
+                setattr(existing_report, key, value)
+                
+        existing_report.last_updated_by = current_user.fnum
+        
+        # Pull existing suspects so we don't create duplicates when updating
+        existing_lockups = db.query(models.Suspect_Lockup).filter(models.Suspect_Lockup.sd_ref == sn).all()
+        existing_names = [lockup.name for lockup in existing_lockups]
+        
+        # Add any newly appended suspects to the lockup table
+        for s in suspects_data:
+            if s.get('name') not in existing_names:
+                new_suspect = models.Suspect_Lockup(
+                    sd_ref=sn,
+                    name=s.get('name'),
+                    sex=s.get('sex'),
+                    age=str(s.get('age')) if s.get('age') else None,
+                    tribe=s.get('tribe'),
+                    residence=s.get('residence'),
+                    contact=s.get('contact'),
+                    mental_health_status=s.get('mental_health_status')
+                )
+                db.add(new_suspect)
+
+        db.commit()
+        return {"status": "success"}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -691,6 +760,23 @@ async def create_admin_communication(comm: Admin_CommunicationCreate, db: Sessio
     return {"status": "success", "id": db_comm.id}
 
 # =====================================================================
+def strip_html_to_plain_text(text):
+    if not text: return ""
+    text = str(text)
+    text = re.sub(r'<br\s*/?>', '\n', text)
+    text = re.sub(r'<[^>]+>', '', text)
+    return html.unescape(text)
+
+def apply_custom_sheet_design(workbook, worksheet, df, sheet_name, user):
+    # Applies the dark blue UPF forensic header styling
+    header_format = workbook.add_format({
+        'bold': True, 'valign': 'vcenter',
+        'fg_color': '#0B2447', 'font_color': 'white', 'border': 1
+    })
+    for col_num, value in enumerate(df.columns.values):
+        worksheet.write(0, col_num, value, header_format)
+        worksheet.set_column(col_num, col_num, 18)
+
 @app.get("/api/v1/reports/export")
 def export_master_excel(
     background_tasks: BackgroundTasks, # <-- Added to clean up files after download
@@ -984,38 +1070,37 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
     return clean_results
 
 @app.get("/api/v1/activity-logs")
-def get_activity_logs(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    if current_user.role != "SUPER_ADMIN":
-        raise HTTPException(
-            status_code=403, 
-            detail="SECURITY CLEARANCE DENIED: You do not have authorization to view or export system audit_logs."
-        )
-
-    logs = db.query(models.Activity_Logs).order_by(models.Activity_Logs.created_at.desc()).limit(1000).all()
-    
-    eat_tz = pytz.timezone("Africa/Kampala")
-    clean_logs = []
-    
-    for log in logs:
-        local_time = log.created_at
-        if local_time:
-            if local_time.tzinfo is None:
-                local_time = pytz.utc.localize(local_time)
-            local_time = local_time.astimezone(eat_tz)
-            formatted_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            formatted_time = "Unknown Time"
-            
-        clean_logs.append({
-            "id": log.id,
-            "fnum": log.fnum,
-            "action": log.action,
-            "module": log.module,
-            "details": log.details,
-            "created_at": formatted_time
-        })
+def get_activity_logs(current_user = Depends(require_admin)):
+    # FIXED: Now securely fetching from the Neon Logs DB Branch
+    db_logs = SessionLogsLocal()
+    try:
+        logs = db_logs.query(models.Activity_Logs).order_by(models.Activity_Logs.created_at.desc()).limit(1000).all()
         
-    return clean_logs
+        eat_tz = pytz.timezone("Africa/Nairobi")
+        clean_logs = []
+        
+        for log in logs:
+            local_time = log.created_at
+            if local_time:
+                if local_time.tzinfo is None:
+                    local_time = pytz.utc.localize(local_time)
+                local_time = local_time.astimezone(eat_tz)
+                formatted_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                formatted_time = "Unknown Time"
+                
+            clean_logs.append({
+                "id": log.id,
+                "fnum": log.fnum,
+                "action": log.action,
+                "module": log.module,
+                "details": log.details,
+                "created_at": formatted_time
+            })
+            
+        return clean_logs
+    finally:
+        db_logs.close()
 
 # ==========================================
 # COMMAND COMMUNICATION ROUTE (SMART INBOX)
@@ -1040,12 +1125,55 @@ def create_admin_communication(comm: Admin_CommunicationCreate, db: Session = De
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/v1/communications/{comm_id}/acknowledge")
+def acknowledge_message(comm_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    """Records the exact moment an officer acknowledges a dispatch."""
+    if not hasattr(models, 'Communication_Reads'):
+        return {"status": "error", "detail": "Read receipts table not initialized."}
+        
+    existing = db.query(models.Communication_Reads).filter(
+        models.Communication_Reads.comm_id == comm_id,
+        models.Communication_Reads.fnum == current_user.fnum
+    ).first()
+    
+    if not existing:
+        eat_tz = pytz.timezone("Africa/Kampala")
+        uganda_time = datetime.now(eat_tz).replace(tzinfo=None)
+        
+        new_read = models.Communication_Reads(
+            comm_id=comm_id,
+            fnum=current_user.fnum,
+            read_at=uganda_time
+        )
+        db.add(new_read)
+        db.commit()
+    return {"status": "success"}
+
+@app.get("/api/v1/communications/{comm_id}/readers")
+def get_message_readers(comm_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
+    """Allows Admins to see exactly who read a specific dispatch."""
+    if not hasattr(models, 'Communication_Reads'):
+        return []
+        
+    readers = db.query(models.Communication_Reads).filter(models.Communication_Reads.comm_id == comm_id).all()
+    
+    results = []
+    for r in readers:
+        user = db.query(models.Users).filter(models.Users.fnum == r.fnum).first()
+        name = user.name if user else "Unknown Officer"
+        results.append({
+            "fnum": r.fnum, 
+            "name": name, 
+            "read_at": r.read_at.strftime("%Y-%m-%d %H:%M:%S") if r.read_at else "Unknown Time"
+        })
+    return results
+
 @app.get("/api/v1/Admin_Communication")
 def get_admin_communications(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: models.Users = Depends(get_current_user)
 ):
     query = db.query(models.Admin_Communication)
 
@@ -1054,10 +1182,8 @@ def get_admin_communications(
             models.Admin_Communication.target_audience == "ALL",
             models.Admin_Communication.sender_fnum == current_user.fnum
         ]
-        
         if current_user.role == "ADMIN":
             visibility_conditions.append(models.Admin_Communication.target_audience == "ADMINS_ONLY")
-            
         if current_user.role == "RPC":
             visibility_conditions.append(models.Admin_Communication.target_audience == "RPC_ONLY")
             
@@ -1067,7 +1193,6 @@ def get_admin_communications(
                 models.Admin_Communication.target_region == current_user.region
             )
         )
-
         query = query.filter(or_(*visibility_conditions))
 
     if start_date:
@@ -1081,6 +1206,16 @@ def get_admin_communications(
     clean_comms = []
     
     for c in comms:
+        # Check if the current user has already acknowledged this message
+        is_read = False
+        if hasattr(models, 'Communication_Reads'):
+            read_record = db.query(models.Communication_Reads).filter(
+                models.Communication_Reads.comm_id == c.id,
+                models.Communication_Reads.fnum == current_user.fnum
+            ).first()
+            if read_record:
+                is_read = True
+
         local_time = c.created_at
         if local_time:
             if local_time.tzinfo is None:
@@ -1099,7 +1234,8 @@ def get_admin_communications(
             "message_type": c.message_type,
             "subject": c.subject,
             "message": c.message,
-            "created_at": formatted_time
+            "created_at": formatted_time,
+            "acknowledged": is_read # Passes the read status to React
         })
 
     return clean_comms
@@ -1295,6 +1431,19 @@ def get_all_active_users(db: Session = Depends(get_db)):
 @app.post("/api/v1/requests")
 def submit_modification_request(req: ProfileModRequest, db: Session = Depends(get_db)):
     """Receives the POST request from the user profile."""
+    
+    # 🛡️ SECURITY FIX: Prevent duplicate pending requests
+    existing_request = db.query(models.Modification_Requests).filter(
+        models.Modification_Requests.fnum == req.fnum,
+        models.Modification_Requests.status == "PENDING"
+    ).first()
+    
+    if existing_request:
+        raise HTTPException(
+            status_code=400, 
+            detail="You already have a modification request pending Command approval. Please wait for it to be reviewed."
+        )
+
     try:
         new_req = models.Modification_Requests(
             fnum=req.fnum,
@@ -1342,57 +1491,6 @@ def review_modification_request(req_id: int, action: ReviewAction, db: Session =
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-
-# ==========================================
-# MASTER EXPORT - LOW MEMORY FIX
-# ==========================================
-@app.get("/api/v1/reports/export")
-def export_master_database(timeframe: str = "all", db: Session = Depends(get_db)):
-    """
-    Exports the database as a ZIP directly from RAM.
-    Bypasses Render's file system restrictions and memory limits.
-    """
-    try:
-        # Create an in-memory byte buffer instead of a physical file
-        zip_buffer = io.BytesIO()
-        
-        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zipf:
-            
-            # 1. Crime Reports
-            crime_buffer = io.StringIO()
-            writer = csv.writer(crime_buffer)
-            writer.writerow(["SN", "SD Ref", "Region", "Station", "Date", "Time", "Offence", "Status", "Suspects"])
-            for row in db.query(models.Crime_Reports).yield_per(1000): 
-                writer.writerow([row.sn, row.sd_ref, row.region, row.station, row.date, row.time, row.offence, row.status, row.suspects])
-            zipf.writestr("Crime_Registry.csv", crime_buffer.getvalue())
-
-            # 2. Nominal Roll
-            nom_buffer = io.StringIO()
-            writer = csv.writer(nom_buffer)
-            writer.writerow(["F/NO", "Rank", "Name", "Sex", "Station", "Position", "Status"])
-            for row in db.query(models.Nominal_Roll).yield_per(1000):
-                writer.writerow([row.fnum, row.rank, row.name, row.sex, row.station, row.position, row.status])
-            zipf.writestr("Nominal_Roll.csv", nom_buffer.getvalue())
-            
-            # 3. Establishments
-            est_buffer = io.StringIO()
-            writer = csv.writer(est_buffer)
-            writer.writerow(["Division", "Station", "Personnel", "Status"])
-            for row in db.query(models.Establishments).yield_per(1000):
-                writer.writerow([row.division, row.station, row.personnel_in_station, row.status])
-            zipf.writestr("Establishments.csv", est_buffer.getvalue())
-
-        # Reset buffer position to the beginning before streaming
-        zip_buffer.seek(0)
-        
-        return StreamingResponse(
-            iter([zip_buffer.getvalue()]), 
-            media_type="application/zip", 
-            headers={"Content-Disposition": "attachment; filename=KMP_Master_Ledger.zip"}
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 @app.middleware("http")
 async def global_activity_tracker(request: Request, call_next):
