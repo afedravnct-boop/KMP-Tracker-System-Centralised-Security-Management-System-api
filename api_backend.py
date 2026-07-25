@@ -16,7 +16,7 @@ import pyzipper
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Optional, List
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request, Body
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
@@ -35,7 +35,7 @@ from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 import boto3
 from botocore.exceptions import ClientError
-from sqlalchemy import and_, or_
+from database import get_db, get_logs_db, engine
 
 # Internal Imports
 from app import models, database
@@ -205,7 +205,7 @@ app.add_middleware(
         "http://127.0.0.1:5173", 
         "https://kmp-tracker-system-centralised-secu.vercel.app", 
         "https://kmp-tracker-system-centralised-security-management-adj4h23x4.vercel.app",
-        "https://kmp-tracker-system-centralised-security-management-od0odfzxy.vercel.app" # <-- YOUR NEW URL IS ADDED HERE
+        "https://kmp-tracker-system-centralised-security-management-od0odfzxy.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -244,10 +244,6 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
 @app.post("/api/auth/refresh")
 def refresh_session_token(current_user = Depends(get_current_user)):
-    """
-    Accepts a valid token, verifies the user via get_current_user, 
-    and issues a fresh 30-minute token.
-    """
     access_token_expires = timedelta(minutes=30)
     
     new_access_token = create_access_token(
@@ -258,7 +254,6 @@ def refresh_session_token(current_user = Depends(get_current_user)):
     return {"access_token": new_access_token, "token_type": "bearer"}
 
 def require_admin(current_user: models.Users = Depends(get_current_user)):
-    # 1. Safely convert to uppercase and strip hidden spaces
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     
     if user_role not in ["ADMIN", "SUPER_ADMIN"]:
@@ -266,7 +261,6 @@ def require_admin(current_user: models.Users = Depends(get_current_user)):
     return current_user
 
 def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
-    # 1. Safely convert to uppercase and strip hidden spaces
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     perms = current_user.permissions or {}
     
@@ -376,8 +370,14 @@ def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depend
 @app.get("/api/v1/reports")
 def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     query = db.query(models.Crime_Reports)
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN"] and not (current_user.permissions or {}).get("view_all_reports", False):
+    
+    # 🛡️ GEOGRAPHICAL READ FIREWALL
+    if current_user.role == "SUPER_ADMIN" or (current_user.permissions or {}).get("view_all_reports", False):
+        pass # Unrestricted access
+    elif current_user.role in ["ADMIN", "RPC"]:
         query = query.filter(models.Crime_Reports.region == current_user.region)
+    else:
+        query = query.filter(models.Crime_Reports.station == current_user.station)
         
     reports = query.order_by(models.Crime_Reports.sn.desc()).all()
     return [{
@@ -390,7 +390,14 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
 @app.get("/api/v1/reports/establishments-json")
 def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        hr_records = db.query(models.Nominal_Roll).all()
+        # 🛡️ GEOGRAPHICAL READ FIREWALL applied to Nominal Roll
+        hr_query = db.query(models.Nominal_Roll)
+        if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
+            hr_query = hr_query.filter(models.Nominal_Roll.station == current_user.station)
+        elif current_user.role in ["ADMIN", "RPC"]:
+            hr_query = hr_query.filter(models.Nominal_Roll.region == current_user.region)
+            
+        hr_records = hr_query.all()
         hr_list = []
         grouped_hr = {}
         
@@ -424,7 +431,14 @@ def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.User
                 "dir": key[5] or "-", "section": key[6] or "-", "sub_total": count
             })
 
-        est_records = db.query(models.Establishments).all()
+        # 🛡️ GEOGRAPHICAL READ FIREWALL applied to Establishments
+        est_query = db.query(models.Establishments)
+        if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
+            est_query = est_query.filter(models.Establishments.station == current_user.station)
+        elif current_user.role in ["ADMIN", "RPC"]:
+            est_query = est_query.filter(models.Establishments.region == current_user.region)
+            
+        est_records = est_query.all()
         est_list = []
         for e in est_records:
             pers_stn = getattr(e, 'personnel_in_station', 0) or 0
@@ -487,29 +501,56 @@ async def upload_file(
 @app.get("/api/v1/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     query = db.query(models.Nominal_Roll)
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN"] and not (current_user.permissions or {}).get("view_all_nominal", False):
+    
+    # 🛡️ GEOGRAPHICAL READ FIREWALL
+    if current_user.role == "SUPER_ADMIN" or (current_user.permissions or {}).get("view_all_nominal", False):
+        pass
+    elif current_user.role in ["ADMIN", "RPC"]:
         query = query.filter(models.Nominal_Roll.region == current_user.region)
+    else:
+        query = query.filter(models.Nominal_Roll.station == current_user.station)
+        
     return query.order_by(models.Nominal_Roll.sn.desc()).all()
 
 @app.get("/api/v1/stats")
 def get_stats(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     query = db.query(models.Operational_Statistics)
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN"]:
+    
+    # 🛡️ GEOGRAPHICAL READ FIREWALL
+    if current_user.role == "SUPER_ADMIN":
+        pass
+    elif current_user.role in ["ADMIN", "RPC"]:
         query = query.filter(models.Operational_Statistics.region == current_user.region)
+    else:
+        query = query.filter(models.Operational_Statistics.station == current_user.station)
+        
     return query.order_by(models.Operational_Statistics.sn.desc()).all()
 
 @app.get("/api/v1/stories")
 def get_stories(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     query = db.query(models.Success_Stories)
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN"]:
+    
+    # 🛡️ GEOGRAPHICAL READ FIREWALL
+    if current_user.role == "SUPER_ADMIN":
+        pass
+    elif current_user.role in ["ADMIN", "RPC"]:
         query = query.filter(models.Success_Stories.region == current_user.region)
+    else:
+        query = query.filter(models.Success_Stories.station == current_user.station)
+        
     return query.order_by(models.Success_Stories.sn.desc()).all()
 
 @app.get("/api/v1/reports/hr-establishments-json")
 def get_hr_establishments(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     query = db.query(models.Establishments)
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN"]:
+    
+    # 🛡️ GEOGRAPHICAL READ FIREWALL
+    if current_user.role == "SUPER_ADMIN":
+        pass
+    elif current_user.role in ["ADMIN", "RPC"]:
         query = query.filter(models.Establishments.region == current_user.region)
+    else:
+        query = query.filter(models.Establishments.station == current_user.station)
         
     raw_establishments = query.order_by(models.Establishments.sn.desc()).all()
     clean_results = []
@@ -529,7 +570,7 @@ def get_all_requests(db: Session = Depends(get_db)):
 
 @app.get("/api/v1/audit-logs")
 def get_system_audit_logs(
-    db: Session = Depends(get_db), # 🛡️ RIGIDLY POINTED AT SQLALCHEMY_DATABASE_URL (Main DB)
+    db: Session = Depends(get_db), 
     current_user: models.Users = Depends(get_current_user)
 ):
     """Fetches records strictly from the audit_logs table in the main database for the UI."""
@@ -562,15 +603,31 @@ def get_system_audit_logs(
 # SAFETY POST ENDPOINTS
 # ==========================================
 @app.get("/api/v1/establishments")
-def get_all_establishments(db: Session = Depends(get_db)):
+def get_all_establishments(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     """Fetches all establishments to populate the frontend ledger"""
-    return db.query(models.Establishments).order_by(models.Establishments.id.desc()).all()
+    query = db.query(models.Establishments)
+    
+    # 🛡️ GEOGRAPHICAL READ FIREWALL
+    if current_user.role == "SUPER_ADMIN":
+        pass
+    elif current_user.role in ["ADMIN", "RPC"]:
+        query = query.filter(models.Establishments.region == current_user.region)
+    else:
+        query = query.filter(models.Establishments.station == current_user.station)
+        
+    return query.order_by(models.Establishments.id.desc()).all()
 
 @app.post("/api/v1/establishments")
 def create_establishment(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         data.pop('sn', None) 
         
+        # 🛡️ STRICT DATA HARDWIRING OVERRIDE
+        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
+            data["region"] = current_user.region
+            data["division"] = current_user.division
+            data["station"] = current_user.station
+            
         new_est = models.Establishments(**data)
         new_est.last_updated_by = current_user.fnum
         db.add(new_est)
@@ -589,6 +646,12 @@ def update_establishment(sn: int, est_update: dict, db: Session = Depends(get_db
         raise HTTPException(status_code=404, detail="Establishment not found.")
 
     est_update.pop('sn', None) 
+    
+    # 🛡️ PREVENT UNAUTHORIZED STATION MOVEMENT DURING UPDATE
+    if current_user.role not in ["SUPER_ADMIN", "RPC"]:
+        est_update.pop("region", None)
+        est_update.pop("division", None)
+        est_update.pop("station", None)
 
     for key, value in est_update.items():
         if hasattr(existing_est, key):
@@ -602,6 +665,12 @@ def update_establishment(sn: int, est_update: dict, db: Session = Depends(get_db
 def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         data.pop('sn', None) 
+        
+        # 🛡️ STRICT DATA HARDWIRING OVERRIDE
+        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
+            data["region"] = current_user.region
+            data["station"] = current_user.station
+            
         clean_data = {}
         for k, v in data.items():
             if v == "":
@@ -639,6 +708,12 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
 def create_story(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         data.pop('sn', None) 
+        
+        # 🛡️ STRICT DATA HARDWIRING OVERRIDE
+        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
+            data["region"] = current_user.region
+            data["station"] = current_user.station
+            
         new_record = models.Success_Stories(**data)
         new_record.last_updated_by = current_user.fnum
         db.add(new_record)
@@ -654,6 +729,12 @@ def create_story(data: dict, db: Session = Depends(get_db), current_user: models
 def create_report(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         data.pop('sn', None) 
+        
+        # 🛡️ STRICT DATA HARDWIRING OVERRIDE
+        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
+            data["region"] = current_user.region
+            data["station"] = current_user.station
+            
         # Safely extract the suspect array before saving the main report
         suspects_data = data.pop('suspectDetails', []) 
         
@@ -685,9 +766,6 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-# ==========================================
-# THE MISSING CRIME REPORT UPDATE ROUTE
-# ==========================================
 @app.put("/api/v1/reports/{sn}")
 def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
@@ -697,6 +775,11 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
 
         suspects_data = data.pop('suspectDetails', [])
         data.pop('sn', None)
+        
+        # 🛡️ PREVENT UNAUTHORIZED STATION MOVEMENT DURING UPDATE
+        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
+            data.pop("region", None)
+            data.pop("station", None)
         
         # Update the main report details
         for key, value in data.items():
@@ -734,6 +817,12 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
 def create_stat(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         data.pop('sn', None) 
+        
+        # 🛡️ STRICT DATA HARDWIRING OVERRIDE
+        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
+            data["region"] = current_user.region
+            data["station"] = current_user.station
+            
         new_record = models.Operational_Statistics(**data)
         new_record.last_updated_by = current_user.fnum
         db.add(new_record)
@@ -919,12 +1008,12 @@ def export_master_database_unified(
                 crime_query = crime_query.filter(models.Crime_Reports.station == value)
             crime_data = crime_query.yield_per(1000)
             crime_list = [{
-                "SN": getattr(r, 'id', getattr(r, 'sn', '')), # 🛡️ FIX: Pulls actual Database ID
+                "SN": getattr(r, 'id', getattr(r, 'sn', '')), 
                 "SD Ref": getattr(r, 'sd_ref', getattr(r, 'sdRef', '')),
                 "Date": getattr(r, 'date', ''), "Time": getattr(r, 'time', ''), "Region": getattr(r, 'region', ''),
                 "Station": getattr(r, 'station', ''), "Offence": getattr(r, 'offence', ''), "Status": getattr(r, 'status', ''),
                 "Suspects": getattr(r, 'suspects', 0), 
-                "Narrative": strip_html_to_plain_text(getattr(r, 'narrative', '')) # 🛡️ FIX: Strips HTML tags
+                "Narrative": strip_html_to_plain_text(getattr(r, 'narrative', '')) 
             } for r in crime_data]
             df_crime = pd.DataFrame(crime_list) if crime_list else pd.DataFrame(columns=["SN", "SD Ref", "Date", "Time", "Region", "Station", "Offence", "Status", "Suspects", "Narrative"])
             df_crime.to_excel(writer, sheet_name="Crime Registry", index=False)
@@ -938,7 +1027,7 @@ def export_master_database_unified(
                 stats_query = stats_query.filter(models.Operational_Statistics.station == value)
             stats_data = stats_query.yield_per(1000)
             stats_list = [{
-                "SN": getattr(s, 'id', getattr(s, 'sn', '')), # 🛡️ FIX: Pulls actual Database ID
+                "SN": getattr(s, 'id', getattr(s, 'sn', '')), 
                 "Date": getattr(s, 'date', ''), "Region": getattr(s, 'region', ''),
                 "Station": getattr(s, 'station', ''), "Arrested": getattr(s, 'arrested', 0), "Given Bond": getattr(s, 'given_bond', 0),
                 "Cautioned": getattr(s, 'cautioned', 0), "Pending Court": getattr(s, 'pending_court', 0), "Taken To Court": getattr(s, 'taken_to_court', 0),
@@ -956,10 +1045,10 @@ def export_master_database_unified(
                 stories_query = stories_query.filter(models.Success_Stories.station == value)
             stories_data = stories_query.yield_per(1000)
             stories_list = [{
-                "SN": getattr(s, 'id', getattr(s, 'sn', '')), # 🛡️ FIX: Pulls actual Database ID
+                "SN": getattr(s, 'id', getattr(s, 'sn', '')), 
                 "Date": getattr(s, 'date', ''), "Time": getattr(s, 'time', ''),
                 "Region": getattr(s, 'region', ''), "Station": getattr(s, 'station', ''), "Status": getattr(s, 'status', ''),
-                "Narrative": strip_html_to_plain_text(getattr(s, 'narrative', '')) # 🛡️ FIX: Strips HTML tags
+                "Narrative": strip_html_to_plain_text(getattr(s, 'narrative', '')) 
             } for s in stories_data]
             df_stories = pd.DataFrame(stories_list) if stories_list else pd.DataFrame(columns=["SN", "Date", "Time", "Region", "Station", "Status", "Narrative"])
             df_stories.to_excel(writer, sheet_name="Success Stories", index=False)
@@ -973,7 +1062,7 @@ def export_master_database_unified(
                 roll_query = roll_query.filter(models.Nominal_Roll.station == value)
             roll_data = roll_query.yield_per(1000)
             roll_list = [{
-                "SN": getattr(n, 'id', getattr(n, 'sn', '')), # 🛡️ FIX: Pulls actual Database ID
+                "SN": getattr(n, 'id', getattr(n, 'sn', '')), 
                 "Force Number": getattr(n, 'fnum', getattr(n, 'f_num', '')),
                 "Rank": getattr(n, 'rank', ''), "Name": getattr(n, 'name', ''), "Sex": getattr(n, 'sex', ''),
                 "Position": getattr(n, 'position', ''), "DOB": getattr(n, 'dob', ''), "DOE": getattr(n, 'doe', ''),
@@ -1029,7 +1118,7 @@ def export_establishments(
             # Process HR Data
             hr_data = db.query(models.Nominal_Roll).yield_per(1000)
             hr_list = [{
-                "SN": getattr(h, 'id', getattr(h, 'sn', '')), # 🛡️ FIX: Pulls actual Database ID
+                "SN": getattr(h, 'id', getattr(h, 'sn', '')), 
                 "Force Number": getattr(h, 'f_num', getattr(h, 'fnum', '')), 
                 "Name": getattr(h, 'name', ''), "Rank": getattr(h, 'rank', ''), "Sex": getattr(h, 'sex', ''), 
                 "Region": getattr(h, 'region', ''), "Station": getattr(h, 'station', ''), "Position": getattr(h, 'position', ''), "Status": getattr(h, 'status', '')
@@ -1043,7 +1132,7 @@ def export_establishments(
             # Process Establishments Data
             est_data = db.query(models.Establishments).yield_per(1000)
             est_list = [{
-                "SN": getattr(e, 'id', getattr(e, 'sn', '')), # 🛡️ FIX: Pulls actual Database ID
+                "SN": getattr(e, 'id', getattr(e, 'sn', '')), 
                 "Region": getattr(e, 'region', ''), "Division": getattr(e, 'division', ''),
                 "Station": getattr(e, 'station', ''), "Personnel (Station)": getattr(e, 'personnel_in_station', 0) or 0,
                 "Sub-Station": getattr(e, 'sub_station', ''), "Personnel (Sub-Stn)": getattr(e, 'personnel_in_sub_station', 0) or 0,
@@ -1051,7 +1140,7 @@ def export_establishments(
                 "Booths": getattr(e, 'booths', 0) or 0, "Personnel (Booth)": getattr(e, 'personnel_in_booth', 0) or 0,
                 "Installed By": getattr(e, 'installed_by', ''), "Location": getattr(e, 'location', ''),
                 "Status": getattr(e, 'status', ''), 
-                "Comment": strip_html_to_plain_text(getattr(e, 'comment', '')), # 🛡️ FIX: Strips HTML tags
+                "Comment": strip_html_to_plain_text(getattr(e, 'comment', '')), 
                 "Last Updated By": getattr(e, 'last_updated_by', '')
             } for e in est_data]
             df_est = pd.DataFrame(est_list) if est_list else pd.DataFrame(columns=[
@@ -1157,7 +1246,7 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
 
 @app.get("/api/v1/activity-logs")
 def get_system_activity_logs(
-    db: Session = Depends(get_activity_logs_db), # 🛡️ PULLS FROM BRANCH DATABASE
+    db: Session = Depends(get_logs_db), # 🛡️ PULLS FROM BRANCH DATABASE
     current_user: models.Users = Depends(get_current_user)
 ):
     """Fetches records strictly from the activity_logs table in the dedicated logs branch."""
@@ -1698,97 +1787,109 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/v1/requests")
-def submit_modification_request(req: ProfileModRequest, db: Session = Depends(get_db)):
-    """Receives the POST request from the user profile."""
-    
-    # 🛡️ SECURITY FIX: Prevent duplicate pending requests
-    existing_request = db.query(models.Modification_Requests).filter(
-        models.Modification_Requests.fnum == req.fnum,
-        models.Modification_Requests.status == "PENDING"
+# ==========================================
+# PASSWORD RESET WORKFLOW
+# ==========================================
+@app.post("/api/v1/auth/request-reset")
+def request_password_reset(fnum: str = Form(...), db: Session = Depends(get_db)):
+    # 1. Verify the user actually exists
+    user = db.query(models.Users).filter(models.Users.fnum == fnum).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Officer Force Number not found.")
+
+    # 2. Check if a request is already pending to prevent spam
+    existing_req = db.query(models.Password_Resets).filter(
+        models.Password_Resets.fnum == fnum,
+        models.Password_Resets.status == "Pending"
     ).first()
+    if existing_req:
+        return {"status": "success", "message": "Request already in queue."}
+
+    # 3. Create the request
+    new_req = models.Password_Resets(
+        fnum=user.fnum,
+        status="Pending"
+    )
+    db.add(new_req)
+    db.commit()
+    return {"status": "success", "message": "Password reset requested. Contact your commanding officer."}
+
+
+@app.get("/api/v1/admin/reset-requests")
+def get_password_reset_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
+    # Join with the Users table to pull in the name, rank, station, and region for the UI
+    requests_query = db.query(
+        models.Password_Resets.id,
+        models.Password_Resets.fnum,
+        models.Password_Resets.created_at,
+        models.Users.name,
+        models.Users.rank,
+        models.Users.station,
+        models.Users.region
+    ).join(
+        models.Users, models.Password_Resets.fnum == models.Users.fnum
+    ).filter(models.Password_Resets.status == "Pending")
     
-    if existing_request:
-        raise HTTPException(
-            status_code=400, 
-            detail="You already have a modification request pending Command approval. Please wait for it to be reviewed."
-        )
+    # RPCs and DPCs can only see requests from their jurisdiction
+    if current_user.role != "SUPER_ADMIN":
+        requests_query = requests_query.filter(models.Users.region == current_user.region)
+        if "Commander" in current_user.position and current_user.role != "RPC":
+            requests_query = requests_query.filter(models.Users.station == current_user.station)
 
-    try:
-        new_req = models.Modification_Requests(
-            fnum=req.fnum,
-            requested_name=req.requested_name,
-            requested_rank=req.requested_rank,
-            requested_region=req.requested_region,
-            requested_station=req.requested_station,
-            status="PENDING"
-        )
-        db.add(new_req)
-        db.commit()
-        return {"status": "success", "message": "Request submitted."}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+    requests = requests_query.order_by(models.Password_Resets.created_at.desc()).all()
+    
+    # Format the dates for the frontend
+    eat_tz = pytz.timezone("Africa/Kampala")
+    results = []
+    for r in requests:
+        local_time = r.created_at
+        if local_time:
+            if local_time.tzinfo is None:
+                local_time = pytz.utc.localize(local_time)
+            local_time = local_time.astimezone(eat_tz)
+            formatted_time = local_time.strftime("%Y-%m-%d %H:%M")
+        else:
+            formatted_time = "Unknown Time"
+            
+        results.append({
+            "id": r.id, "fnum": r.fnum, "name": r.name, "rank": r.rank, 
+            "station": r.station, "region": r.region, "request_date": formatted_time
+        })
+    return results
 
-@app.get("/api/v1/requests")
-def get_modification_requests(db: Session = Depends(get_db)):
-    """Feeds the pending requests to the Admin Dashboard."""
-    try:
-        return db.query(models.Modification_Requests).filter(models.Modification_Requests.status == "PENDING").all()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-@app.patch("/api/v1/requests/{req_id}")
-def review_modification_request(req_id: int, action: ReviewAction, db: Session = Depends(get_db)):
-    """Allows the Super Admin to Approve or Reject the request."""
-    req = db.query(models.Modification_Requests).filter(models.Modification_Requests.id == req_id).first()
+@app.post("/api/v1/admin/execute-reset/{req_id}")
+def execute_password_reset(req_id: int, action: str = Form(...), db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
+    req = db.query(models.Password_Resets).filter(models.Password_Resets.id == req_id).first()
     if not req:
-        raise HTTPException(status_code=404, detail="Request not found")
-    
-    try:
-        req.status = action.status
-        # If approved, automatically update the user's actual profile!
-        if action.status == "APPROVED":
-            user = db.query(models.Users).filter(models.Users.fnum == req.fnum).first()
-            if user:
-                if req.requested_name: user.name = req.requested_name
-                if req.requested_rank: user.rank = req.requested_rank
-                if req.requested_region: user.region = req.requested_region
-                if req.requested_station: user.station = req.requested_station
-        
+        raise HTTPException(status_code=404, detail="Request not found.")
+
+    if action == "REJECT":
+        req.status = "REJECTED"
         db.commit()
-        return {"status": "success"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "success", "message": "Request rejected."}
 
-@app.middleware("http")
-async def global_activity_tracker(request: Request, call_next):
-    response = await call_next(request)
+    if action == "APPROVE":
+        user = db.query(models.Users).filter(models.Users.fnum == req.fnum).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User no longer exists.")
+        
+        # Issue a standard default password (e.g., 'UPF1234')
+        new_password = "UPF" + req.fnum.replace("/", "")[-4:] 
+        if hasattr(security, 'get_password_hash'):
+            user.hashed_password = security.get_password_hash(new_password)
+        else:
+            user.hashed_password = new_password
+            
+        req.status = "APPROVED"
+        
+        if hasattr(models, 'AuditLog'):
+            log_semantic_audit(db, current_user.fnum, "PASSWORD_RESET", req.fnum, {"password": ("Old", "Reset via Admin")}, f"Temporary key issued: {new_password}")
+            
+        db.commit()
+        return {"status": "success", "new_password": new_password}
 
-    if request.method in ["POST", "PUT", "DELETE"]:
-        db_logs = SessionLogsLocal()
-        try:
-            user_fnum = request.headers.get("X-User-FNum", "SYSTEM")
-            
-            # --- FORCE EAST AFRICA TIME ---
-            eat_tz = pytz.timezone("Africa/Kampala")
-            uganda_time = datetime.now(eat_tz).replace(tzinfo=None)
-            
-            new_activity = models.Activity_Logs( 
-                fnum=user_fnum,
-                action=f"{request.method} {request.url.path}",
-                module="AUTO_SYSTEM_LOG",
-                details=f"Status: {response.status_code}",
-                created_at=uganda_time  # Explicitly save EAT to the database
-            )
-            db_logs.add(new_activity)
-            db_logs.commit()
-        except Exception as e:
-            print(f"Logging Failed: {e}")
-            db_logs.rollback()
-        finally:
-            db_logs.close()
+
 
     return response
 
