@@ -522,8 +522,10 @@ def get_hr_establishments(db: Session = Depends(get_db), current_user: models.Us
 
 @app.get("/api/v1/requests")
 def get_all_requests(db: Session = Depends(get_db)):
-    """Fetches all HR Modification/Profile Requests for the Admin panel"""
-    return db.query(models.Modification_Requests).order_by(models.Modification_Requests.id.desc()).all()
+    """Fetches ONLY PENDING HR Modification/Profile Requests for the Admin panel"""
+    return db.query(models.Modification_Requests).filter(
+        models.Modification_Requests.status == "PENDING"
+    ).order_by(models.Modification_Requests.id.desc()).all()
 
 @app.get("/api/v1/audit-logs")
 def get_audit_logs(db: Session = Depends(get_db)):
@@ -761,13 +763,34 @@ async def create_admin_communication(comm: Admin_CommunicationCreate, db: Sessio
     return {"status": "success", "id": db_comm.id}
 
 # =====================================================================
-def strip_html_to_plain_text(text):
-    if not text: return ""
-    text = str(text)
-    text = re.sub(r'<br\s*/?>', '\n', text)
-    text = re.sub(r'<[^>]+>', '', text)
-    return html.unescape(text)
+import re
+import html
 
+def strip_html_to_plain_text(text):
+    if not text: 
+        return ""
+    
+    text = str(text)
+    
+    # 1. Convert explicit breaks to newlines
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+    
+    # 2. Convert closing paragraphs/divs to newlines to prevent words from jamming together
+    text = re.sub(r'</p>|</div>', '\n', text, flags=re.IGNORECASE)
+    
+    # 3. Convert list items to actual bullet points
+    text = re.sub(r'<li>', '\n• ', text, flags=re.IGNORECASE)
+    
+    # 4. Strip all remaining HTML tags (like <b>, <i>, <ul>, etc.)
+    text = re.sub(r'<[^>]+>', '', text)
+    
+    # 5. Unescape HTML entities (converts &nbsp; to a space, &amp; to &)
+    text = html.unescape(text)
+    
+    # 6. Clean up any excessive blank lines created by the process
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    return text.strip()
 def apply_custom_sheet_design(workbook, worksheet, df, sheet_name, user):
     # Applies the dark blue UPF forensic header styling
     header_format = workbook.add_format({
@@ -849,9 +872,6 @@ def get_communication_readers(comm_id: int, db: Session = Depends(get_db), curre
 # ==========================================
 # MASTER DATABASE EXPORT (4 LEDGERS)
 # ==========================================
-# ==========================================
-# MASTER DATABASE EXPORT (4 LEDGERS)
-# ==========================================
 @app.get("/api/v1/reports/export")
 def export_master_database_unified(
     timeframe: Optional[str] = "all",
@@ -873,17 +893,16 @@ def export_master_database_unified(
                 crime_query = crime_query.filter(models.Crime_Reports.station == value)
             crime_data = crime_query.yield_per(1000)
             crime_list = [{
-                "SN": getattr(r, 'sn', ''), "SD Ref": getattr(r, 'sd_ref', getattr(r, 'sdRef', '')),
+                "SN": getattr(r, 'id', getattr(r, 'sn', '')), # 🛡️ FIX: Pulls actual Database ID
+                "SD Ref": getattr(r, 'sd_ref', getattr(r, 'sdRef', '')),
                 "Date": getattr(r, 'date', ''), "Time": getattr(r, 'time', ''), "Region": getattr(r, 'region', ''),
                 "Station": getattr(r, 'station', ''), "Offence": getattr(r, 'offence', ''), "Status": getattr(r, 'status', ''),
-                "Suspects": getattr(r, 'suspects', 0), "Narrative": getattr(r, 'narrative', '')
+                "Suspects": getattr(r, 'suspects', 0), 
+                "Narrative": strip_html_to_plain_text(getattr(r, 'narrative', '')) # 🛡️ FIX: Strips HTML tags
             } for r in crime_data]
             df_crime = pd.DataFrame(crime_list) if crime_list else pd.DataFrame(columns=["SN", "SD Ref", "Date", "Time", "Region", "Station", "Offence", "Status", "Suspects", "Narrative"])
             df_crime.to_excel(writer, sheet_name="Crime Registry", index=False)
-            
-            # 🛡️ RESTORED: Formatting for Crime Registry
             apply_custom_sheet_design(workbook, writer.sheets["Crime Registry"], df_crime, "Crime Registry", authorized_user)
-            
             del crime_data, crime_list, df_crime
             gc.collect()
 
@@ -893,17 +912,15 @@ def export_master_database_unified(
                 stats_query = stats_query.filter(models.Operational_Statistics.station == value)
             stats_data = stats_query.yield_per(1000)
             stats_list = [{
-                "SN": getattr(s, 'sn', ''), "Date": getattr(s, 'date', ''), "Region": getattr(s, 'region', ''),
+                "SN": getattr(s, 'id', getattr(s, 'sn', '')), # 🛡️ FIX: Pulls actual Database ID
+                "Date": getattr(s, 'date', ''), "Region": getattr(s, 'region', ''),
                 "Station": getattr(s, 'station', ''), "Arrested": getattr(s, 'arrested', 0), "Given Bond": getattr(s, 'given_bond', 0),
                 "Cautioned": getattr(s, 'cautioned', 0), "Pending Court": getattr(s, 'pending_court', 0), "Taken To Court": getattr(s, 'taken_to_court', 0),
                 "Released": getattr(s, 'released', 0), "Remanded": getattr(s, 'remanded', 0), "Convicted": getattr(s, 'convicted', 0)
             } for s in stats_data]
             df_stats = pd.DataFrame(stats_list) if stats_list else pd.DataFrame(columns=["SN", "Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"])
             df_stats.to_excel(writer, sheet_name="OPS Statistics", index=False)
-            
-            # 🛡️ RESTORED: Formatting for OPS Statistics
             apply_custom_sheet_design(workbook, writer.sheets["OPS Statistics"], df_stats, "OPS Statistics", authorized_user)
-            
             del stats_data, stats_list, df_stats
             gc.collect()
 
@@ -913,16 +930,14 @@ def export_master_database_unified(
                 stories_query = stories_query.filter(models.Success_Stories.station == value)
             stories_data = stories_query.yield_per(1000)
             stories_list = [{
-                "SN": getattr(s, 'sn', ''), "Date": getattr(s, 'date', ''), "Time": getattr(s, 'time', ''),
+                "SN": getattr(s, 'id', getattr(s, 'sn', '')), # 🛡️ FIX: Pulls actual Database ID
+                "Date": getattr(s, 'date', ''), "Time": getattr(s, 'time', ''),
                 "Region": getattr(s, 'region', ''), "Station": getattr(s, 'station', ''), "Status": getattr(s, 'status', ''),
-                "Narrative": getattr(s, 'narrative', '')
+                "Narrative": strip_html_to_plain_text(getattr(s, 'narrative', '')) # 🛡️ FIX: Strips HTML tags
             } for s in stories_data]
             df_stories = pd.DataFrame(stories_list) if stories_list else pd.DataFrame(columns=["SN", "Date", "Time", "Region", "Station", "Status", "Narrative"])
             df_stories.to_excel(writer, sheet_name="Success Stories", index=False)
-            
-            # 🛡️ RESTORED: Formatting for Success Stories
             apply_custom_sheet_design(workbook, writer.sheets["Success Stories"], df_stories, "Success Stories", authorized_user)
-            
             del stories_data, stories_list, df_stories
             gc.collect()
 
@@ -932,7 +947,8 @@ def export_master_database_unified(
                 roll_query = roll_query.filter(models.Nominal_Roll.station == value)
             roll_data = roll_query.yield_per(1000)
             roll_list = [{
-                "SN": getattr(n, 'sn', ''), "Force Number": getattr(n, 'fnum', getattr(n, 'f_num', '')),
+                "SN": getattr(n, 'id', getattr(n, 'sn', '')), # 🛡️ FIX: Pulls actual Database ID
+                "Force Number": getattr(n, 'fnum', getattr(n, 'f_num', '')),
                 "Rank": getattr(n, 'rank', ''), "Name": getattr(n, 'name', ''), "Sex": getattr(n, 'sex', ''),
                 "Position": getattr(n, 'position', ''), "DOB": getattr(n, 'dob', ''), "DOE": getattr(n, 'doe', ''),
                 "DO POST": getattr(n, 'dopost', getattr(n, 'do_post', '')), "DO PRO": getattr(n, 'dopro', getattr(n, 'do_pro', '')),
@@ -945,10 +961,7 @@ def export_master_database_unified(
             } for n in roll_data]
             df_roll = pd.DataFrame(roll_list) if roll_list else pd.DataFrame(columns=["SN", "Force Number", "Rank", "Name", "Sex", "Position", "DOB", "DOE", "DO POST", "DO PRO", "Contact", "Educ Level", "IPPS", "TIN", "NIN", "Home Dist", "Tribe", "Acc No", "Bank Branch", "Station", "District", "Region", "Section", "Directorate", "Status"])
             df_roll.to_excel(writer, sheet_name="Nominal Roll", index=False)
-            
-            # 🛡️ RESTORED: Formatting for Nominal Roll
             apply_custom_sheet_design(workbook, writer.sheets["Nominal Roll"], df_roll, "Nominal Roll", authorized_user)
-            
             del roll_data, roll_list, df_roll
             gc.collect()
 
@@ -956,7 +969,7 @@ def export_master_database_unified(
                 'title': 'KMP Master Database - RESTRICTED',
                 'author': f'{authorized_user.rank} {authorized_user.name}',
                 'manager': authorized_user.fnum,
-                'comments': f'FORENSIC TRACE: Downloaded by {authorized_user.fnum} on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
+                'comments': f'FORENSIC TRACE: Downloaded by {authorized_user.fnum}'
             })
 
         zip_password = authorized_user.fnum.encode('utf-8')
@@ -971,7 +984,6 @@ def export_master_database_unified(
             media_type="application/zip", 
             headers={"Content-Disposition": f"attachment; filename=KMP_Master_Database_{authorized_user.fnum}.zip"}
         )
-        
     except Exception as e:
         print(f"Master Export Error: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate secure Master Database file.")
@@ -990,46 +1002,45 @@ def export_establishments(
 
             # Process HR Data
             hr_data = db.query(models.Nominal_Roll).yield_per(1000)
-            hr_list = [{"Force Number": getattr(h, 'f_num', getattr(h, 'fnum', '')), "Name": getattr(h, 'name', ''), "Rank": getattr(h, 'rank', ''), "Sex": getattr(h, 'sex', ''), "Region": getattr(h, 'region', ''), "Station": getattr(h, 'station', ''), "Position": getattr(h, 'position', ''), "Status": getattr(h, 'status', '')} for h in hr_data]
-            df_hr = pd.DataFrame(hr_list) if hr_list else pd.DataFrame(columns=["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status"])
+            hr_list = [{
+                "SN": getattr(h, 'id', getattr(h, 'sn', '')), # 🛡️ FIX: Pulls actual Database ID
+                "Force Number": getattr(h, 'f_num', getattr(h, 'fnum', '')), 
+                "Name": getattr(h, 'name', ''), "Rank": getattr(h, 'rank', ''), "Sex": getattr(h, 'sex', ''), 
+                "Region": getattr(h, 'region', ''), "Station": getattr(h, 'station', ''), "Position": getattr(h, 'position', ''), "Status": getattr(h, 'status', '')
+            } for h in hr_data]
+            df_hr = pd.DataFrame(hr_list) if hr_list else pd.DataFrame(columns=["SN", "Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status"])
             df_hr.to_excel(writer, sheet_name="Nominal Roll", index=False)
-            
-            # 🛡️ RESTORED: Formatting for Nominal Roll
             apply_custom_sheet_design(workbook, writer.sheets["Nominal Roll"], df_hr, "Nominal Roll", authorized_user)
-            
             del hr_data, hr_list, df_hr
             gc.collect()
 
             # Process Establishments Data
             est_data = db.query(models.Establishments).yield_per(1000)
             est_list = [{
-                "ID": getattr(e, 'id', ''), "Region": getattr(e, 'region', ''), "Division": getattr(e, 'division', ''),
+                "SN": getattr(e, 'id', getattr(e, 'sn', '')), # 🛡️ FIX: Pulls actual Database ID
+                "Region": getattr(e, 'region', ''), "Division": getattr(e, 'division', ''),
                 "Station": getattr(e, 'station', ''), "Personnel (Station)": getattr(e, 'personnel_in_station', 0) or 0,
                 "Sub-Station": getattr(e, 'sub_station', ''), "Personnel (Sub-Stn)": getattr(e, 'personnel_in_sub_station', 0) or 0,
                 "Post": getattr(e, 'post', ''), "Personnel (Post)": getattr(e, 'personnel_in_post', 0) or 0,
                 "Booths": getattr(e, 'booths', 0) or 0, "Personnel (Booth)": getattr(e, 'personnel_in_booth', 0) or 0,
                 "Installed By": getattr(e, 'installed_by', ''), "Location": getattr(e, 'location', ''),
-                "Status": getattr(e, 'status', ''), "Comment": getattr(e, 'comment', ''),
+                "Status": getattr(e, 'status', ''), 
+                "Comment": strip_html_to_plain_text(getattr(e, 'comment', '')), # 🛡️ FIX: Strips HTML tags
                 "Last Updated By": getattr(e, 'last_updated_by', '')
             } for e in est_data]
             df_est = pd.DataFrame(est_list) if est_list else pd.DataFrame(columns=[
-                "ID", "Region", "Division", "Station", "Personnel (Station)", "Sub-Station", 
+                "SN", "Region", "Division", "Station", "Personnel (Station)", "Sub-Station", 
                 "Personnel (Sub-Stn)", "Post", "Personnel (Post)", "Booths", "Personnel (Booth)", 
                 "Installed By", "Location", "Status", "Comment", "Last Updated By"
             ])
             df_est.to_excel(writer, sheet_name="establishments", index=False)
-            
-            # 🛡️ RESTORED: Formatting for Establishments
             apply_custom_sheet_design(workbook, writer.sheets["establishments"], df_est, "establishments", authorized_user)
-            
             del est_data, est_list, df_est
             gc.collect()
             
             workbook.set_properties({
                 'title': 'KMP HR & establishments - RESTRICTED',
-                'author': f'{authorized_user.rank} {authorized_user.name}',
-                'manager': authorized_user.fnum,
-                'comments': f'FORENSIC TRACE: Downloaded by {authorized_user.fnum} on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
+                'author': f'{authorized_user.rank} {authorized_user.name}'
             })
 
         zip_password = authorized_user.fnum.encode('utf-8')
@@ -1044,7 +1055,6 @@ def export_establishments(
             media_type='application/zip',
             headers={"Content-Disposition": f"attachment; filename=KMP_HR_Ledger_{authorized_user.fnum}.zip"}
         )
-        
     except Exception as e:
         print(f"HR Export Error: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate secure HR Excel file.")
@@ -1462,6 +1472,98 @@ def register_user(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database write failed: {str(e)}")
+
+# ==========================================
+# PASSWORD RESET WORKFLOW
+# ==========================================
+@app.post("/api/v1/auth/request-reset")
+def request_password_reset(fnum: str = Form(...), db: Session = Depends(get_db)):
+    # 1. Verify the user actually exists
+    user = db.query(models.Users).filter(models.Users.fnum == fnum).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Officer Force Number not found.")
+
+    # 2. Check if a request is already pending to prevent spam
+    existing_req = db.query(models.Password_Reset_Requests).filter(
+        models.Password_Reset_Requests.fnum == fnum,
+        models.Password_Reset_Requests.status == "PENDING"
+    ).first()
+    if existing_req:
+        return {"status": "success", "message": "Request already in queue."}
+
+    # 3. Create the request
+    new_req = models.Password_Reset_Requests(
+        fnum=user.fnum,
+        name=user.name,
+        rank=user.rank,
+        station=user.station,
+        region=user.region
+    )
+    db.add(new_req)
+    db.commit()
+    return {"status": "success", "message": "Password reset requested. Contact your commanding officer."}
+
+@app.get("/api/v1/admin/reset-requests")
+def get_password_reset_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
+    query = db.query(models.Password_Reset_Requests).filter(models.Password_Reset_Requests.status == "PENDING")
+    
+    # RPCs and DPCs can only see requests from their jurisdiction
+    if current_user.role != "SUPER_ADMIN":
+        query = query.filter(models.Password_Reset_Requests.region == current_user.region)
+        if "Commander" in current_user.position and current_user.role != "RPC":
+            query = query.filter(models.Password_Reset_Requests.station == current_user.station)
+
+    requests = query.order_by(models.Password_Reset_Requests.request_date.desc()).all()
+    
+    # Format the dates for the frontend
+    eat_tz = pytz.timezone("Africa/Kampala")
+    results = []
+    for r in requests:
+        local_time = r.request_date
+        if local_time:
+            if local_time.tzinfo is None:
+                local_time = pytz.utc.localize(local_time)
+            local_time = local_time.astimezone(eat_tz)
+            formatted_time = local_time.strftime("%Y-%m-%d %H:%M")
+        else:
+            formatted_time = "Unknown Time"
+            
+        results.append({
+            "id": r.id, "fnum": r.fnum, "name": r.name, "rank": r.rank, 
+            "station": r.station, "region": r.region, "request_date": formatted_time
+        })
+    return results
+
+@app.post("/api/v1/admin/execute-reset/{req_id}")
+def execute_password_reset(req_id: int, action: str = Form(...), db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
+    req = db.query(models.Password_Reset_Requests).filter(models.Password_Reset_Requests.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found.")
+
+    if action == "REJECT":
+        req.status = "REJECTED"
+        db.commit()
+        return {"status": "success", "message": "Request rejected."}
+
+    if action == "APPROVE":
+        user = db.query(models.Users).filter(models.Users.fnum == req.fnum).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User no longer exists.")
+        
+        # Issue a standard default password (e.g., 'UPF1234')
+        new_password = "UPF" + req.fnum.replace("/", "")[-4:] # Example: UPFA2408
+        if hasattr(security, 'get_password_hash'):
+            user.hashed_password = security.get_password_hash(new_password)
+        else:
+            user.hashed_password = new_password
+            
+        req.status = "APPROVED"
+        
+        if hasattr(models, 'AuditLog'):
+            log_semantic_audit(db, current_user.fnum, "PASSWORD_RESET", req.fnum, {"password": ("Old", "Reset via Admin")}, f"Temporary key issued: {new_password}")
+            
+        db.commit()
+        return {"status": "success", "new_password": new_password}
 
 # ==========================================
 # ADMIN APPROVAL ROUTES
