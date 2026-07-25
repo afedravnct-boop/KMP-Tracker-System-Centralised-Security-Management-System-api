@@ -3382,7 +3382,7 @@ const AdminProfile = ({ currentUser, setCurrentUser }) => {
     setNotification("Saving profile details...");
 
     try {
-      const response = await authFetch("/api/v1/users/me", {
+      const response = await authFetch("/api/v1/auth/me", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData)

@@ -238,3 +238,16 @@ class LogResponse(BaseModel):
     timestamp: datetime
     
     model_config = ConfigDict(from_attributes=True)
+
+from typing import Optional
+from pydantic import BaseModel
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    rank: Optional[str] = None
+    region: Optional[str] = None
+    station: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    profile_photo_path: Optional[str] = None
+    password: Optional[str] = None

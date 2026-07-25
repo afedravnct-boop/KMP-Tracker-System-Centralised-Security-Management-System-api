@@ -118,3 +118,35 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None:
         raise credentials_exception
     return user
+
+@router.put("/me")
+def update_profile(
+    update_data: schemas.UserUpdate, 
+    current_user: models.Users = Depends(get_current_user), 
+    db: Session = Depends(database.get_db)
+):
+    # 1. Update standard text fields if they were provided
+    if update_data.name:
+        current_user.name = update_data.name
+    if update_data.rank:
+        current_user.rank = update_data.rank
+    if update_data.region:
+        current_user.region = update_data.region
+    if update_data.station:
+        current_user.station = update_data.station
+    if update_data.email:
+        current_user.email = update_data.email
+    if update_data.phone:
+        current_user.phone = update_data.phone
+    if update_data.profile_photo_path:
+        current_user.profile_photo_path = update_data.profile_photo_path
+
+    # 2. Only update the password if a new one was actually typed in
+    if update_data.password and len(update_data.password.strip()) > 0:
+        current_user.hashed_password = security.get_password_hash(update_data.password)
+
+    # 3. Save changes to the Neon database
+    db.commit()
+    db.refresh(current_user)
+    
+    return {"message": "Profile successfully updated"}
