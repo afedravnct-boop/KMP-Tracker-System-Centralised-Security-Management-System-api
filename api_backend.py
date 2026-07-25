@@ -38,7 +38,8 @@ from botocore.exceptions import ClientError
 
 # Internal Imports
 from app import models, database
-from app.database import engine, logs_engine, get_db, get_logs_db, SessionLocalfrom app.core import security
+from app.database import engine, logs_engine, get_db, get_logs_db, SessionLocal
+from app.core import security
 from auth import router as auth_router, get_current_user
 
 # ==========================================
