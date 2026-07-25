@@ -1157,7 +1157,7 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
 
 @app.get("/api/v1/activity-logs")
 def get_system_activity_logs(
-    db: Session = Depends(get_logs_db), # 🛡️ PULLS FROM BRANCH DATABASE
+    db: Session = Depends(get_activity_logs_db), # 🛡️ PULLS FROM BRANCH DATABASE
     current_user: models.Users = Depends(get_current_user)
 ):
     """Fetches records strictly from the activity_logs table in the dedicated logs branch."""
