@@ -69,8 +69,13 @@ function usePersistentState(key, initialValue) {
 
 const downloadWithAuth = async (url, filename) => {
     try {
-      console.log("Starting secure download:", url);
-      const response = await authFetch(url);
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
+      
+      console.log("Starting secure download:", fullUrl);
+      const response = await fetch(fullUrl, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('kmp_authToken')}` }
+      });
       
       if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
@@ -86,20 +91,24 @@ const downloadWithAuth = async (url, filename) => {
 
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
+      link.style.display = 'none';
       link.href = downloadUrl;
       link.download = filename;
       
       document.body.appendChild(link);
       link.click();
       
-      link.remove();
-      window.URL.revokeObjectURL(downloadUrl);
+      // 🛡️ THE FIX: Wait 2 seconds before destroying the link so the browser can catch it!
+      setTimeout(() => {
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(downloadUrl);
+      }, 2000);
       
     } catch (error) {
       console.error("Download Error:", error);
       alert(`Export Failed: ${error.message}`); 
     }
-  };
+};
 
 const MetricCard = ({ title, value, colorClass = "text-slate-800" }) => (
   <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-center items-center text-center transition-transform hover:scale-105">
@@ -166,12 +175,9 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
   const hasSubmittedThisWeek = false; 
   const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && !isAdmin;
 
-  // New State for Admin Receipts Modal
   const [viewingReceiptsFor, setViewingReceiptsFor] = useState(null);
   const [receiptsData, setReceiptsData] = useState([]);
   const [loadingReceipts, setLoadingReceipts] = useState(false);
-
-  // 🛡️ NEW: Track which message is currently expanded
   const [expandedComm, setExpandedComm] = useState(null);
 
   const fetchReceipts = async (commId) => {
@@ -183,20 +189,12 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
       const res = await fetch(`${API_URL}/api/v1/communications/${commId}/readers`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if(res.ok) {
-        const data = await res.json();
-        setReceiptsData(data);
-      }
-    } catch(e) {
-      console.error(e);
-    } finally {
-      setLoadingReceipts(false);
-    }
+      if(res.ok) setReceiptsData(await res.json());
+    } catch(e) { console.error(e); } finally { setLoadingReceipts(false); }
   };
 
   const relevantComms = (commsData || []).filter(c => {
-    if (c.target_audience === 'ALL_USERS') return true;
-    if (c.target_audience === 'ALL') return true; // Account for legacy code
+    if (c.target_audience === 'ALL_USERS' || c.target_audience === 'ALL') return true;
     if (c.target_audience === 'ADMINS_ONLY' && isAdmin) return true;
     if (c.target_audience === 'RPC_ONLY' && isRPC) return true;
     if (c.target_audience === 'SPECIFIC_REGION' && c.target_region === currentUser.region) return true;
@@ -205,8 +203,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8 relative z-10 animate-in fade-in duration-300">
-      
-      {/* Receipts Modal for Admins */}
       {viewingReceiptsFor && (
         <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4">
             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-300">
@@ -216,17 +212,14 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
                 </div>
                 <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar bg-slate-50">
                    {loadingReceipts ? (
-                      <p className="text-xs text-center text-gray-500 font-bold animate-pulse py-4">Fetching secure ledgers...</p>
+                      <p className="text-xs text-center text-gray-500 font-bold animate-pulse py-4">Fetching ledgers...</p>
                    ) : receiptsData.length === 0 ? (
                       <p className="text-xs text-center text-gray-500 font-medium py-4">No officers have acknowledged this dispatch yet.</p>
                    ) : (
                        <div className="space-y-2">
                           {receiptsData.map((r, i) => (
-                             <div key={i} className="flex justify-between items-center text-xs p-3 bg-white rounded border border-green-100 shadow-sm">
-                                <div>
-                                    <span className="font-extrabold text-slate-800 block">{r.name}</span>
-                                    <span className="font-mono text-[9px] text-gray-400">{r.fnum}</span>
-                                </div>
+                             <div key={i} className="flex justify-between items-center text-xs p-3 bg-white rounded shadow-sm">
+                                <div><span className="font-extrabold text-slate-800 block">{r.name}</span><span className="font-mono text-[9px] text-gray-400">{r.fnum}</span></div>
                                 <span className="text-[10px] text-green-600 font-bold bg-green-50 px-2 py-1 rounded">Read: {r.read_at}</span>
                              </div>
                           ))}
@@ -257,6 +250,12 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
       </div>
 
       <div className="w-full">
+        <h3 className="text-center text-sm font-bold text-slate-600 bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+           Welcome, <span className="text-blue-700">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
+        </h3>   
+      </div>
+
+      <div className="w-full">
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
           <div className="bg-slate-900 text-white px-4 py-3 flex justify-between items-center shrink-0">
             <h3 className="font-bold text-sm flex items-center tracking-wider"><Bell size={16} className="mr-2 text-yellow-400 animate-pulse"/> Administrative Communication</h3>
@@ -264,58 +263,59 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
           
           <div className="p-0 overflow-y-auto max-h-[350px] custom-scrollbar bg-slate-50 flex-1">
             {relevantComms.length === 0 ? (
-              <div className="p-6 text-center text-xs font-bold text-slate-400 uppercase">No active directives at this time.</div>
+              <div className="p-6 text-center text-xs font-bold text-slate-400 uppercase">No active directives.</div>
             ) : (
-<div className="divide-y divide-slate-200">
+              <div className="divide-y divide-slate-200">
                 {relevantComms.map((comm) => (
                   <div key={comm.id} className={`p-4 transition-all duration-500 ${
                     comm.acknowledged 
-                      ? 'bg-gray-50 border-l-4 border-l-gray-300 opacity-70 grayscale-[30%]' // 🛡️ THE FIX: Dimmed and greyed out if read
-                      : `hover:bg-slate-100 ${ // Brightly highlighted if unread
+                      ? 'bg-gray-50 border-l-4 border-l-gray-300 opacity-70 grayscale-[30%]' 
+                      : `hover:bg-slate-100 ${ 
                           comm.message_type === 'CRITICAL_ALERT' ? 'border-l-4 border-l-red-500 bg-red-50/40' : 
                           comm.message_type === 'ASSIGNMENT' ? 'border-l-4 border-l-yellow-500 bg-yellow-50/40' : 
                           'border-l-4 border-l-blue-500 bg-blue-50/40'
                         }`
                   }`}>
                     
-                    {/* CLICKABLE HEADER TO EXPAND/COLLAPSE */}
-                    <div 
-                      className="cursor-pointer" 
-                      onClick={() => setExpandedComm(expandedComm === comm.id ? null : comm.id)}
-                    >
+                    <div className="cursor-pointer" onClick={() => setExpandedComm(expandedComm === comm.id ? null : comm.id)}>
                         <div className="flex justify-between items-start mb-1">
-                          <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-sm uppercase tracking-wider ${
-                            comm.message_type === 'CRITICAL_ALERT' ? 'bg-red-100 text-red-700' : 
-                            comm.message_type === 'ASSIGNMENT' ? 'bg-yellow-100 text-yellow-700' : 
-                            'bg-blue-100 text-blue-700'
-                          }`}>{comm.message_type.replace('_', ' ')}</span>
+                          <div className="flex items-center space-x-2">
+                            <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-sm uppercase tracking-wider ${
+                              comm.message_type === 'CRITICAL_ALERT' ? 'bg-red-100 text-red-700' : 
+                              comm.message_type === 'ASSIGNMENT' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'
+                            }`}>{comm.message_type.replace('_', ' ')}</span>
+                            
+                            {comm.acknowledged && (
+                              <span className="text-[9px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded border border-green-200 flex items-center">
+                                <CheckCircle size={10} className="mr-1"/> READ
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[10px] font-bold text-slate-400">{comm.created_at}</span>
                         </div>
                         <div className="flex justify-between items-center mt-2">
-                           <h4 className="text-sm font-extrabold text-slate-800 leading-tight">{comm.subject}</h4>
+                           <h4 className={`text-sm leading-tight ${
+                             comm.acknowledged 
+                               ? 'font-medium text-slate-500 line-through decoration-slate-400' 
+                               : 'font-extrabold text-slate-900'
+                           }`}>
+                             {comm.subject}
+                           </h4>
                            <span className={`text-[9px] font-bold px-2 py-1 rounded ml-2 whitespace-nowrap transition-colors ${
                               expandedComm === comm.id ? 'bg-slate-200 text-slate-600' : 'bg-blue-100 text-blue-700'
-                           }`}>
-                              {expandedComm === comm.id ? 'Close' : 'Read Dispatch'}
-                           </span>
+                           }`}>{expandedComm === comm.id ? 'Close' : 'Read Dispatch'}</span>
                         </div>
                     </div>
                     
-                    {/* ONLY RENDER MESSAGE AND BUTTON IF EXPANDED */}
                     {expandedComm === comm.id && (
                         <div className="mt-3 pt-3 border-t border-slate-200 animate-in fade-in slide-in-from-top-2">
-                            <div className="text-xs text-slate-600 font-medium ql-editor p-0" dangerouslySetInnerHTML={{ __html: comm.message }} />
+                            <div className={`text-xs font-medium ql-editor p-0 ${comm.acknowledged ? 'text-slate-500' : 'text-slate-700'}`} dangerouslySetInnerHTML={{ __html: comm.message }} />
                             
                             <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center">
                                 <div className="text-[9px] font-bold text-slate-400 uppercase">
                                   Dispatched by: {comm.sender_name}
-                                  {isAdmin && (
-                                      <button onClick={() => fetchReceipts(comm.id)} className="ml-3 text-blue-600 hover:text-blue-800 underline">
-                                          View Receipts
-                                      </button>
-                                  )}
+                                  {isAdmin && <button onClick={() => fetchReceipts(comm.id)} className="ml-3 text-blue-600 hover:text-blue-800 underline">View Receipts</button>}
                                 </div>
-                                
                                 {comm.acknowledged ? (
                                     <span className="text-[10px] font-extrabold text-green-600 flex items-center bg-green-50 px-2 py-1 rounded border border-green-200">
                                        <CheckCircle size={12} className="mr-1"/> Acknowledged
@@ -333,7 +333,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
               </div>
             )}
           </div>
-
           {isAdmin && (
              <div className="bg-white p-1 border-t border-slate-200 shrink-0">
                <button onClick={() => setCurrentPage('Admin_Communication')} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-3 rounded-lg transition-colors flex items-center justify-center">
@@ -836,7 +835,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                    </div>
                 )}
                 
-                <div className="grid grid-cols-2 gap-4">
+<div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <label className="block text-xs font-bold text-gray-700 mb-1">File Reference Prefix & Number *</label>
                     {operation === 'update' ? (
@@ -870,11 +869,13 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+<div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
-                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
+                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={currentUser.role !== 'SUPER_ADMIN' || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                      {operation === 'update' ? (
+                        <option value={formData.region}>{formData.region}</option>
+                      ) : currentUser.role === 'SUPER_ADMIN' ? (
                         Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
                       ) : (
                         <option value={currentUser.region}>{currentUser.region}</option>
@@ -883,8 +884,14 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                      {(REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                      {operation === 'update' ? (
+                        <option value={formData.station}>{formData.station}</option>
+                      ) : ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+                        (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)
+                      ) : (
+                        <option value={currentUser.station}>{currentUser.station}</option>
+                      )}
                     </select>
                   </div>
                 </div>
@@ -2138,26 +2145,29 @@ const handleFormSubmit = async (e) => {
                 )}
                 
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
-                      <select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                        {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
-                          Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
-                        ) : (
-                          <option value={currentUser.region}>{currentUser.region}</option>
-                        )}
-                      </select>
-                    </div>
-                    
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">DIVISION (Headquarter) *</label>
-                      <select name="division" value={formData.division} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                        {formData.region && REGIONAL_HIERARCHY[formData.region] ? REGIONAL_HIERARCHY[formData.region].map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value="">Select Region First</option>}
-                      </select>
-                    </div>
-                  </div>
-                </div>
+<div className="grid grid-cols-2 gap-4">
+  <div className="col-span-2">
+    <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
+    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
+        Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
+      ) : (
+        <option value={currentUser.region}>{currentUser.region}</option>
+      )}
+    </select>
+  </div>
+  
+  <div className="col-span-2">
+    <label className="block text-xs font-bold text-gray-700 mb-1">DIVISION (Headquarter) *</label>
+    <select name="division" value={formData.division} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+      {['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+        formData.region && REGIONAL_HIERARCHY[formData.region] ? REGIONAL_HIERARCHY[formData.region].map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value="">Select Region First</option>
+      ) : (
+        <option value={currentUser.station || currentUser.division}>{currentUser.station || currentUser.division}</option>
+      )}
+    </select>
+  </div>
+</div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
@@ -2731,36 +2741,40 @@ const filteredNominal_Roll_archives = useMemo(() => {
 
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
                   <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">2. Service & Placement</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">REGION *</label>
-                      <select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white">
-                        {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">DUTY STATION *</label>
-                      <select name="station" value={formData.station} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white">
-                        {REGIONAL_HIERARCHY[formData.region].map(stat => <option key={stat} value={stat}>{stat}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">POSITION *</label>
-                      <input type="text" name="position" value={formData.position} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">DISTRICT</label>
-                      <input type="text" name="district" value={formData.district} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">SECTION</label>
-                      <input type="text" name="section" value={formData.section} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">DIR (Directorate)</label>
-                      <input type="text" name="dir" value={formData.dir} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                  </div>
+<div className="grid grid-cols-2 gap-3">
+  <div>
+    <label className="block text-[10px] font-bold text-gray-700 mb-1">REGION *</label>
+    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">
+      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
+    </select>
+  </div>
+  <div>
+    <label className="block text-[10px] font-bold text-gray-700 mb-1">DUTY STATION *</label>
+    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">
+      {['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+        (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)
+      ) : (
+        <option value={currentUser.station}>{currentUser.station}</option>
+      )}
+    </select>
+  </div>
+  <div>
+    <label className="block text-[10px] font-bold text-gray-700 mb-1">POSITION *</label>
+    <input type="text" name="position" value={formData.position} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
+  </div>
+  <div>
+    <label className="block text-[10px] font-bold text-gray-700 mb-1">DISTRICT</label>
+    <input type="text" name="district" value={formData.district} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
+  </div>
+  <div>
+    <label className="block text-[10px] font-bold text-gray-700 mb-1">SECTION</label>
+    <input type="text" name="section" value={formData.section} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
+  </div>
+  <div>
+    <label className="block text-[10px] font-bold text-gray-700 mb-1">DIR (Directorate)</label>
+    <input type="text" name="dir" value={formData.dir} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
+  </div>
+</div>
                 </div>
 
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
@@ -2971,16 +2985,44 @@ const AdminApprovals = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState('approvals');
   const [modRequests, setModRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
-  const [activityLogs, setActivityLogs] = useState([]);
+  const [audit_logs, setaudit_logs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
   
   const [realPendingUsers, setRealPendingUsers] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
 
+  const [resetRequests, setResetRequests] = useState([]);
+  const [loadingResets, setLoadingResets] = useState(false);
+
   const isRPC = currentUser && currentUser.role === 'RPC';
   const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
 
-const handleReviewRequest = async (reqId, actionStatus) => {
+} else if (activeTab === 'logs') {
+      setLoadingLogs(true);
+      authFetch("/api/v1/audit-logs")
+        .then(res => res.json())
+        .then(data => { 
+            // Changed setActivityLogs to setaudit_logs here!
+            setaudit_logs(Array.isArray(data) ? data : []); 
+            setLoadingLogs(false); 
+        })
+        .catch(err => { console.error(err); setLoadingLogs(false); });
+    }
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || "Failed to approve user.");
+      }
+
+      setRealPendingUsers(realPendingUsers.filter(u => u.fnum !== fnum));
+      alert(`Officer ${fnum} successfully authorized!`);
+    } catch (err) {
+      console.error(err);
+      alert(`Authorization Failed: ${err.message}`);
+    }
+  };
+
+  const handleReviewRequest = async (reqId, actionStatus) => {
     try {
       const response = await authFetch(`/api/v1/requests/${reqId}`, {
         method: "PATCH",
@@ -2990,7 +3032,6 @@ const handleReviewRequest = async (reqId, actionStatus) => {
       
       if (!response.ok) throw new Error("Failed to process request");
       
-      // Remove it from the UI queue
       setModRequests(modRequests.filter(r => r.id !== reqId));
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
@@ -2999,67 +3040,38 @@ const handleReviewRequest = async (reqId, actionStatus) => {
     }
   };
 
-  useEffect(() => {
-    if (activeTab === 'approvals') {
-      setLoadingPending(true);
-      authFetch("/api/v1/admin/pending-users")
-        .then(res => res.json())
-        .then(data => { setRealPendingUsers(Array.isArray(data) ? data : []); setLoadingPending(false); })
-        .catch(err => { console.error(err); setLoadingPending(false); });
-    } else if (activeTab === 'requests') {
-      setLoadingRequests(true);
-      authFetch("/api/v1/requests")
-        .then(res => res.json())
-        .then(data => { 
-            const filteredData = Array.isArray(data) ? data.filter(req => {
-                if (isSystemAdmin) return true;
-                if (isRPC) return req.requested_region === currentUser.region;
-                return false;
-            }) : [];
-            setModRequests(filteredData); 
-            setLoadingRequests(false); 
-        })
-        .catch(err => { console.error(err); setLoadingRequests(false); });
-
-    } else if (activeTab === 'logs') {
-      setLoadingLogs(true);
-      authFetch("/api/v1/audit-logs")
-        .then(res => res.json())
-        .then(data => { 
-            setActivityLogs(Array.isArray(data) ? data : []); 
-            setLoadingLogs(false); 
-        })
-        .catch(err => { console.error(err); setLoadingLogs(false); });
+  const handleResetAction = async (reqId, actionStr) => {
+    try {
+      const formData = new URLSearchParams();
+      formData.append('action', actionStr);
+      
+      const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
+        method: "POST",
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData
+      });
+      
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail);
+      
+      setResetRequests(resetRequests.filter(r => r.id !== reqId));
+      
+      if (actionStr === "APPROVE") {
+         alert(`Password successfully reset! Give the officer this temporary key: ${data.new_password}`);
+      } else {
+         alert("Request rejected.");
+      }
+    } catch (err) {
+      alert(`Error: ${err.message}`);
     }
-  }, [activeTab, currentUser, isRPC, isSystemAdmin]);
+  };
 
-  const handleApproveUser = async (fnum) => {
-  try {
-    const response = await authFetch(`/api/v1/admin/approve-user/${encodeURIComponent(fnum)}`, {
-      method: "PATCH"
-    });
-
-    if (!response.ok) {
-      const errData = await response.json();
-      throw new Error(errData.detail || "Failed to approve user.");
-    }
-
-    setRealPendingUsers(realPendingUsers.filter(u => u.fnum !== fnum));
-    alert(`Officer ${fnum} successfully authorized!`);
-    
-  } catch (err) {
-    console.error(err);
-    alert(`Authorization Failed: ${err.message}`);
-  }
-};
-
-
-return (
+  return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
       <div className="text-center mb-8 flex flex-col items-center">
         <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain" />
         <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Access & Command Approvals</h1>
-        <h3 className="text-lg text-gray-500 mt-2 font-medium">Review pending officer signups, HR transfers, and Audit_Logs.</h3>
+        <h3 className="text-lg text-gray-500 mt-2 font-medium">Review pending officer signups, HR transfers, and Audit Logs.</h3>
       </div>
 
       <div className="flex space-x-2 border-b border-gray-200 mb-6 bg-white/50 backdrop-blur rounded-t-xl px-4 pt-4 overflow-x-auto custom-scrollbar">
@@ -3072,18 +3084,17 @@ return (
         <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
           Audit Logs
         </button>
+        <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          Password Resets ({activeTab === 'resets' ? resetRequests.length : '?'})
+        </button>
       </div>
 
       {activeTab === 'approvals' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-6xl mx-auto">
           {loadingPending ? (
-            <div className="p-8 text-center text-gray-500 font-medium animate-pulse">
-              Syncing with Command Database...
-            </div>
+            <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Syncing with Command Database...</div>
           ) : realPendingUsers.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 font-medium">
-              No active unapproved access requests pending in queue.
-            </div>
+            <div className="p-8 text-center text-gray-500 font-medium">No active unapproved access requests pending in queue.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -3180,48 +3191,85 @@ return (
         </div>
       )}
 
-      {activeTab === 'logs' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-6xl mx-auto">
-           <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
-              <Activity className="w-5 h-5 mr-2 text-blue-400" /> System Events Ledger
-           </div>
-           <div className="overflow-x-auto">
-             <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Date & Time</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Event Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Target User</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status/Details</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+<tbody className="bg-white divide-y divide-gray-200">
                   {loadingLogs ? (
-                     <tr><td colSpan="4" className="p-8 text-center text-sm text-gray-500 font-bold animate-pulse">Decrypting server logs...</td></tr>
-                  ) : activityLogs.length === 0 ? (
-                    <tr><td colSpan="4" className="p-4 text-center text-sm text-gray-500">No recent security events logged.</td></tr>
+                     <tr><td colSpan="5" className="p-8 text-center text-sm text-gray-500 font-bold animate-pulse">Decrypting server logs...</td></tr>
+                  ) : audit_logs.length === 0 ? (
+                    <tr><td colSpan="5" className="p-4 text-center text-sm text-gray-500">No recent security events logged in main database.</td></tr>
                   ) : (
-                    activityLogs.map((log) => (
+                    audit_logs.map((log) => (
                       <tr key={log.id} className="hover:bg-slate-50">
                         <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">
                           {log.created_at ? new Date(log.created_at).toLocaleString() : 'Unknown Time'}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-slate-700">{log.event_type}</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-blue-600">{log.user_fnum || log.target_user}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-extrabold text-blue-700">
+                          {log.user_fnum}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm">
+                          <span className="font-extrabold text-slate-800 uppercase text-xs">{log.event_type}</span>
+                        </td>
+                         <td className="px-4 py-3 text-sm text-gray-600 font-medium">
+                          {log.target_user || 'N/A'}
+                        </td>
                         <td className="px-4 py-3 text-sm text-gray-600">
-                          <span className={`mr-2 px-2 py-0.5 inline-flex text-[10px] leading-5 font-bold rounded-full ${log.status === 'SUCCESS' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                            {log.status}
-                          </span> 
                           {log.details}
                         </td>
                       </tr>
                     ))
                   )}
                 </tbody>
+
+      {activeTab === 'resets' && (
+        <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden max-w-6xl mx-auto">
+          <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
+            <Lock className="w-5 h-5 mr-2 text-red-400" /> Authorized Password Recovery
+          </div>
+          {loadingResets ? (
+            <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Scanning jurisdiction for requests...</div>
+          ) : resetRequests.length === 0 ? (
+            <div className="p-8 text-center text-gray-500 font-medium">No pending password reset requests in your command.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Date Requested</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Officer Details</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Station / Division</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Command Action</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {resetRequests.map((req) => (
+                    <tr key={req.id} className="hover:bg-red-50/50">
+                      <td className="px-4 py-3 whitespace-nowrap text-xs font-bold text-gray-500">{req.request_date}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="text-sm font-extrabold text-blue-700">{req.name}</div>
+                        <div className="text-xs font-bold text-slate-500">{req.fnum} | {req.rank}</div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                        <div className="font-bold">{req.station}</div>
+                        <div className="text-xs text-gray-500">{req.region}</div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm">
+                        <div className="flex space-x-2">
+                          <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
+                            <Unlock size={14} className="mr-1" /> Authorize Reset
+                          </button>
+                          <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
+                            <X size={14} className="mr-1" /> Reject
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
               </table>
             </div>
+          )}
         </div>
       )}
+
     </div>
   );
 };
@@ -3251,7 +3299,37 @@ const AdminProfile = ({ currentUser, setCurrentUser }) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-const handleRequestSubmit = async (e) => {
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setNotification("⏳ Uploading new profile photo to secure S3 bucket...");
+      const uploadData = new FormData();
+      uploadData.append("file", file);
+      uploadData.append("fnum", currentUser.fnum);
+      uploadData.append("category", "user_profile");
+
+      try {
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+        const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, {
+          method: "POST",
+          body: uploadData,
+        });
+
+        if (!response.ok) throw new Error("Upload failed on server.");
+
+        const data = await response.json();
+        const s3Url = data.full_s3_url || data.cloud_storage_path;
+
+        setFormData(prev => ({ ...prev, profile_photo_path: s3Url }));
+        setNotification("✅ Photo uploaded to S3 successfully! Don't forget to save changes.");
+      } catch (error) {
+        console.error("Upload error:", error);
+        setNotification("❌ S3 upload error. Please try again.");
+      }
+    }
+  };
+
+  const handleRequestSubmit = async (e) => {
     if (e) e.preventDefault();
     setNotification("⏳ Sending official request to Command...");
 
@@ -3268,7 +3346,6 @@ const handleRequestSubmit = async (e) => {
         })
       });
 
-      // 🛡️ Extracts the exact rejection reason from Python
       if (!response.ok) {
          const errData = await response.json().catch(() => ({}));
          throw new Error(errData.detail || "Failed to send request.");
@@ -3289,7 +3366,6 @@ const handleRequestSubmit = async (e) => {
 
     } catch (err) {
       console.error(err);
-      // Displays the "already pending" message to the user!
       setNotification(`❌ Error: ${err.message}`);
     }
   };
@@ -3336,7 +3412,7 @@ const handleRequestSubmit = async (e) => {
      } else {
          handleRequestSubmit(e);
      }
-  }
+  };
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6 mt-10 relative z-10 animate-in fade-in duration-300">
@@ -3345,11 +3421,18 @@ const handleRequestSubmit = async (e) => {
           <div className="flex items-center z-10">
             <div className="relative group">
               {formData.profile_photo_path ? (
-                <img src={formData.profile_photo_path} alt="" className="w-24 h-24 rounded-full object-cover shadow-2xl border-4 border-slate-700 bg-white" onError={(e) => { e.target.style.display='none'; }} />
+                <img src={formData.profile_photo_path} alt="" className={`w-24 h-24 rounded-full object-cover shadow-2xl border-4 border-slate-700 bg-white ${isEditing ? 'opacity-80' : ''}`} onError={(e) => { e.target.style.display='none'; }} />
               ) : (
                 <div className="w-24 h-24 bg-blue-600 rounded-full flex items-center justify-center text-white font-extrabold text-4xl shadow-2xl border-4 border-slate-700">
                   {currentUser.name?.charAt(0) || 'A'}
                 </div>
+              )}
+              
+              {isEditing && (
+                <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full cursor-pointer shadow-lg border-2 border-slate-800 transition-colors transform hover:scale-110">
+                  <Camera size={16} />
+                  <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                </label>
               )}
             </div>
             <div className="ml-6 text-white">
@@ -3423,9 +3506,9 @@ const handleRequestSubmit = async (e) => {
                 </div>
               </div>
 
-              <form onSubmit={handleProfileSave} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+              <form onSubmit={handleProfileSave} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
                 <div className="flex items-center text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2">
-                  <Edit size={14} className="mr-2" /> Editable Contact Data
+                  <Edit size={14} className="mr-2" /> Editable Contact Data & Photo
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -3439,10 +3522,11 @@ const handleRequestSubmit = async (e) => {
                 </div>
                 <div className="flex justify-end pt-4 mt-2 border-t border-gray-100">
                   <button type="submit" className="bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-6 rounded-lg shadow-md transition-colors flex items-center text-sm">
-                    💾 Save Contact Details
+                    💾 Save All Profile Changes
                   </button>
                 </div>
               </form>
+
             </div>
           ) : (
              <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
@@ -3647,15 +3731,31 @@ const handleSignupSubmit = async (e) => {
         setPassword('');
         setAuthMessage("Network error. Could not connect to the server.");
       }
-    } else if (mode === 'forgot') {
-      onForgot(fnum);
-      setMode('login');
-      setfnum('');
-      setAuthMessage("Account recovery requested. The Admin has been notified.");
-      setTimeout(() => setAuthMessage(null), 5000);
+} else if (mode === 'forgot') {
+      try {
+        const formData = new URLSearchParams();
+        formData.append('fnum', fnum.trim());
+
+        const response = await fetch(`${API_URL}/api/v1/auth/request-reset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formData
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          setMode('login');
+          setfnum('');
+          setAuthMessage("✅ " + (data.message || "Account recovery requested. The Admin has been notified."));
+        } else {
+          setAuthMessage(`❌ ${data.detail || "Failed to submit request."}`);
+        }
+      } catch (err) {
+        setAuthMessage("❌ Network error. Could not connect to the server.");
+      }
     }
   };
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative">
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
@@ -3907,15 +4007,8 @@ const handleExportLogs = async () => {
 
       const logs = await response.json();
       
-      // EXACLY ALIGNED WITH NEON/SQLALCHEMY AUDIT_LOGS COLUMNS
       const headers = [
-        "ID", 
-        "Event Type", 
-        "Target User", 
-        "Status", 
-        "Details", 
-        "Created At", 
-        "User FNUM"
+        "ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"
       ];
       
       const csvRows = logs.map(log => {
@@ -3935,11 +4028,17 @@ const handleExportLogs = async () => {
       const blob = new Blob(['\uFEFF', csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
+      link.style.display = 'none';
       link.setAttribute("href", url);
       link.setAttribute("download", `KMP_Command_Audit_Logs_${new Date().toISOString().split('T')[0]}.csv`);
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
+      
+      // 🛡️ THE FIX: 2 Second Delay
+      setTimeout(() => {
+         document.body.removeChild(link);
+         window.URL.revokeObjectURL(url);
+      }, 2000);
       
     } catch (error) {
       console.error("Download failed:", error);
@@ -3985,7 +4084,7 @@ const handleExportLogs = async () => {
             ))}
           </nav>
 
-{sidebarOpen && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && (
+{sidebarOpen && ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) && (
             <div className="px-4 space-y-3">
               <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
                 <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
@@ -4136,11 +4235,12 @@ const handleExportLogs = async () => {
       </main>
 
       {/* USER ACCESS MANAGEMENT MODAL */}
-      {selectedUserDetail && (
+{selectedUserDetail && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden flex flex-col">
+          
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-y-auto max-h-[95vh] custom-scrollbar flex flex-col">
             
-            <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+            <div className="bg-slate-900 text-white p-4 flex justify-between items-center shrink-0">
               <h3 className="font-bold flex items-center text-sm">
                 <Shield size={18} className="text-blue-400 mr-2" /> 
                 ACCESS CLEARANCE MATRIX
@@ -4149,7 +4249,6 @@ const handleExportLogs = async () => {
                 <X size={20} />
               </button>
             </div>
-
 <div className="p-6">
               {/* 1. Header & Photo */}
               <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-gray-100">
@@ -4202,8 +4301,9 @@ const handleExportLogs = async () => {
               {/* 3. ACCESS CONTROLS (Only visible if managing a system user) */}
               {selectedUserDetail.isSystemUser && (
                 <>
-                  <h4 className="text-xs font-bold text-slate-800 mb-3 uppercase tracking-wider flex items-center">
-                    <Shield size={14} className="mr-2 text-red-500"/> Component Admin Clearances
+<h4 className="font-extrabold text-sm text-gray-900 border-b pb-2 flex items-center mb-4 mt-6">
+                    <Shield size={16} className="mr-2 text-red-600"/> 
+                    Component Admin Clearances
                   </h4>
                   <div className="space-y-3 bg-white p-4 rounded-lg border border-red-100 shadow-sm">
                     
@@ -4259,34 +4359,55 @@ const handleExportLogs = async () => {
                       </div>
                     </label>
 
+                    <label className="flex items-center space-x-3 cursor-pointer group">
+                      <input 
+                        type="checkbox" 
+                        className="w-4 h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500"
+                        checked={Boolean(selectedUserDetail.permissions?.view_global_roster) || ['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)}
+                        disabled={['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)}
+                        onChange={(e) => {
+                          const newPerms = { ...(selectedUserDetail.permissions || {}), view_global_roster: e.target.checked };
+                          setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms });
+                          onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms);
+                        }}
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm font-bold text-slate-800 group-hover:text-orange-700 transition-colors">Global Roster Visibility</div>
+                        <div className="text-[10px] text-slate-500 font-medium">Allows viewing personnel from ALL regions in the System Roster.</div>
+                      </div>
+                    </label>
+
                   </div>
                 </>
               )}
             </div>
 
-            <div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center">
-              {selectedUserDetail.isSystemUser ? (
-                <button 
-                  onClick={() => onRevokeUser(selectedUserDetail.fnum)} 
-                  className="text-xs font-bold text-red-600 hover:text-red-800 transition-colors"
-                >
-                  Revoke All Access
-                </button>
-              ) : (
-                <div></div> // Empty div to keep the Save button aligned right
-              )}
+            <div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center rounded-b-xl shrink-0">
               <button 
                 onClick={() => setSelectedUserDetail(null)} 
-                className="bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs py-2 px-6 rounded-lg shadow-sm transition-colors"
+                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center border border-gray-300"
               >
-                Save & Close
+                <X size={14} className="mr-1"/> Close Profile
               </button>
+              
+              {selectedUserDetail.isSystemUser && (
+                <button 
+                  onClick={() => {
+                     if (window.confirm(`Are you absolutely sure you want to revoke all system access for ${selectedUserDetail.name}?`)) {
+                        onRevokeUser(selectedUserDetail.fnum);
+                        setSelectedUserDetail(null);
+                     }
+                  }} 
+                  className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm"
+                >
+                  Revoke Access
+                </button>
+              )}
             </div>
             
           </div>
         </div>
       )}
-
     </div>
   );
 };  
@@ -4436,7 +4557,8 @@ const fetchData = async () => {
     return () => controller.abort();
   }, [currentUser]); 
 
-  const handleMasterExport = async (scope, value) => {
+const handleMasterExport = async (scope, value) => {
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
     let url = `${API_URL}/api/v1/reports/export?timeframe=all`; 
     if (scope && value) {
         url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
@@ -4452,14 +4574,19 @@ const fetchData = async () => {
         const blob = await response.blob();
         const downloadUrl = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
+        link.style.display = 'none';
         link.href = downloadUrl;
         
         link.download = `KMP_Master_Ledger_${value || "General"}_${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]}.zip`;
         
         document.body.appendChild(link);
         link.click();
-        link.remove();
-        window.URL.revokeObjectURL(downloadUrl);
+        
+        // 🛡️ THE FIX: 2 Second Delay
+        setTimeout(() => {
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(downloadUrl);
+        }, 2000);
     } catch (err) {
         console.error("Export Error:", err);
         alert(err.message === "Clearance Denied" ? "Access Denied: You require Export Clearance." : "Failed to download export file.");
@@ -4492,7 +4619,7 @@ const fetchData = async () => {
       case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
       case 'establishments': return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
       case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
-      case 'approvals': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+      case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
       case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} />;
       case 'Admin_Communication': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm}/>;
       default: return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;

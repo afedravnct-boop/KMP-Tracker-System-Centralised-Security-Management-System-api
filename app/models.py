@@ -280,3 +280,11 @@ class Communication_Reads(Base):
     comm_id = Column(Integer, index=True)
     fnum = Column(String, index=True)
     read_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Password_Resets(Base):
+    __tablename__ = "password_resets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    fnum = Column(String, nullable=False)
+    status = Column(String, default="Pending") # Can be Pending, Approved, or Denied
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
