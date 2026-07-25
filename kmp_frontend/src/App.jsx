@@ -771,6 +771,9 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
             <option value="ALL TIME">ALL TIME</option>
             <option value="TODAY">TODAY ONLY</option>
             <option value="LAST 7 DAYS">LAST 7 DAYS</option>
+            <option value="LAST 30 DAYS">LAST 30 DAYS</option>
+            <option value="LAST 90 DAYS">LAST 90 DAYS</option>
+            <option value="LAST 120 DAYS">LAST 120 DAYS</option>
           </select>
         </div>
         <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
@@ -1303,6 +1306,23 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                 </button>
               </div>
 
+<div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
+                <div className="absolute top-4 right-4 z-10">
+                  <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none">
+                    <option value="ALL TIME">ALL TIME</option>
+                    <option value="TODAY">TODAY ONLY</option>
+                    <option value="LAST 7 DAYS">LAST 7 DAYS</option>
+                    <option value="LAST 30 DAYS">LAST 30 DAYS</option>
+                    <option value="LAST 90 DAYS">LAST 90 DAYS</option>
+                    <option value="LAST 120 DAYS">LAST 120 DAYS</option>
+                  </select>
+                </div>
+                <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                  {/* If you plan to add metric cards here later, they go inside this div */}
+                </div> {/* 🟢 ADD THIS MISSING DIV */}
+              </div> {/* 🟢 ADD THIS MISSING DIV */}
+
               {notification && (
                 <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
                   {notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500" />}
@@ -1358,7 +1378,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                       <input type="date" name="date" value={formData.date} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm border bg-white p-2 disabled:bg-gray-100 disabled:text-gray-500" />
                     </div>
                   </div>
-                </div>
+                </div> {/* 🟢 YOU ARE LIKELY MISSING THIS DIV! ADD IT HERE. */}
 
                 <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
                   <h4 className="text-sm font-bold text-blue-900 border-b border-blue-200 pb-2 mb-4 flex items-center">
@@ -1498,7 +1518,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
     </div>
   );
 };
-
+  
 // ====================================================================
 // --- PAGE 3: OPERATIONAL SUCCESS STORIES ---
 // ====================================================================
@@ -1508,6 +1528,8 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
   const [filterStation, setFilterStation] = useState('ALL STATIONS');
   const [notification, setNotification] = useState(null);
   const [updateSearch, setUpdateSearch] = useState('');
+  // ADDED: Missing state for the date filter dropdown
+  const [dateFilter, setDateFilter] = useState('ALL TIME');
 
   const safeStories = Array.isArray(stories) ? stories : [];
 
@@ -1611,7 +1633,7 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
     setFormData({ ...storyData, updateText: '' });
   };
 
-const handleFormSubmit = (e) => {
+  const handleFormSubmit = (e) => {
     e.preventDefault();
 
     if (operation === 'new') {
@@ -1686,8 +1708,7 @@ const handleFormSubmit = (e) => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          
-     <div className="p-5 space-y-6">
+            <div className="p-5 space-y-6">
               <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
                 <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-yellow-600' : 'text-gray-600 hover:text-gray-900'}`}>
                   <PlusCircle className="w-4 h-4 inline mr-1" /> Register New
@@ -1695,9 +1716,22 @@ const handleFormSubmit = (e) => {
                 <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-green shadow text-white-600' : 'text-gray-600 hover:text-gray-900'}`}>
                   <Edit className="w-4 h-4 inline mr-1" /> Update Existing
                 </button>
+
+                <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
+                  <div className="absolute top-4 right-4 z-10">
+                    <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none">
+                      <option value="ALL TIME">ALL TIME</option>
+                      <option value="TODAY">TODAY ONLY</option>
+                      <option value="LAST 7 DAYS">LAST 7 DAYS</option>
+                      <option value="LAST 30 DAYS">LAST 30 DAYS</option>
+                      <option value="LAST 90 DAYS">LAST 90 DAYS</option>
+                      <option value="LAST 120 DAYS">LAST 120 DAYS</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
-               {notification && (
+              {notification && (
                 <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
                   {notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500" />}
                   <span className="text-sm font-medium">{notification}</span>
@@ -1897,6 +1931,7 @@ const handleFormSubmit = (e) => {
     </div>
   );
 };
+
 
 // ====================================================================
 // --- PAGE 4: ESTABLISHMENTS PER REGION ---
@@ -2223,38 +2258,38 @@ const handleFormSubmit = async (e) => {
                       <option value="TO BE COMMISSIONED">TO BE COMMISSIONED</option>  
                     </select>
                   </div>
-                  <div className="col-span-2 pb-8">
-                    <label className="block text-xs font-bold text-gray-700 mb-1">COMMENT ON STATUS</label>
-                    <ReactQuill 
-                      theme="snow" 
-                      value={formData.comment || ''} 
-                      onChange={(content) => setFormData({ ...formData, comment: autoCapitalize(content) })}
-                      className="bg-white rounded-md"
-                      modules={{
-                        toolbar: [
-                          ['bold', 'italic', 'underline'],
-                          [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                          ['clean']
-                        ]
-                      }}
-                    />
+<div className="col-span-2 pb-8">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">COMMENT ON STATUS</label>
+                      <ReactQuill 
+                        theme="snow" 
+                        value={formData.comment || ''} 
+                        onChange={(content) => setFormData({ ...formData, comment: autoCapitalize(content) })}
+                        className="bg-white rounded-md"
+                        modules={{
+                          toolbar: [
+                            ['bold', 'italic', 'underline'],
+                            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                            ['clean']
+                          ]
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
 
                 <button 
-  type="submit" 
-  disabled={isSubmitting}
-  className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center disabled:bg-gray-400"
->
-  {isSubmitting ? 'Processing...' : (operation === 'new' ? '💾 Log New Establishment' : '💾 Save Updates')}
-               </button>
+                  type="submit" 
+                  disabled={isSubmitting}
+                  className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center disabled:bg-gray-400"
+                >
+                  {isSubmitting ? 'Processing...' : (operation === 'new' ? '💾 Log New Establishment' : '💾 Save Updates')}
+                </button>
               </form>
             </div>
           </div>
         </div>
         
-        <div className="lg:col-span-8 space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
+        <div className="lg:col-span-8 space-y-4">          <div className="flex flex-col sm:flex-row gap-3">
              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); setFilterDivision('ALL DIVISIONS'); }} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white">
                 {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && <option value="ALL REGIONS">ALL REGIONS</option>}
                 {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
@@ -2997,23 +3032,26 @@ const AdminApprovals = ({ currentUser }) => {
   const isRPC = currentUser && currentUser.role === 'RPC';
   const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
 
-} else if (activeTab === 'logs') {
+  useEffect(() => {
+    if (activeTab === 'logs') {
       setLoadingLogs(true);
       authFetch("/api/v1/audit-logs")
         .then(res => res.json())
         .then(data => { 
-            // Changed setActivityLogs to setaudit_logs here!
             setaudit_logs(Array.isArray(data) ? data : []); 
             setLoadingLogs(false); 
         })
         .catch(err => { console.error(err); setLoadingLogs(false); });
     }
+  }, [activeTab]);
 
+  const handleApproveUser = async (fnum) => {
+    try {
+      const response = await authFetch(`/api/v1/approve/${fnum}`, { method: "POST" });
       if (!response.ok) {
         const errData = await response.json();
         throw new Error(errData.detail || "Failed to approve user.");
       }
-
       setRealPendingUsers(realPendingUsers.filter(u => u.fnum !== fnum));
       alert(`Officer ${fnum} successfully authorized!`);
     } catch (err) {
@@ -3135,92 +3173,61 @@ const AdminApprovals = ({ currentUser }) => {
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'requests' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
-            <Shield className="w-5 h-5 mr-2 text-yellow-400" /> Pending Command Authorization Hub
+</table>
           </div>
-          {loadingRequests ? (
-            <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Syncing with Central Database...</div>
-          ) : modRequests.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 font-medium">No pending modification requests in the ledger.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Req ID</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Officer File No.</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Requested Modifications</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Command Action</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {modRequests.map((req) => (
-                    <tr key={req.id} className="hover:bg-yellow-50/50">
-                      <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-gray-500">#{req.id}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm font-extrabold text-blue-700">{req.fnum}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700 space-y-1">
-                        {req.requested_name && <div><span className="font-bold text-xs uppercase text-gray-400">Name:</span> <span className="font-medium">{req.requested_name}</span></div>}
-                        {req.requested_rank && <div><span className="font-bold text-xs uppercase text-gray-400">Rank:</span> <span className="font-medium bg-blue-100 text-blue-800 px-1 rounded">{req.requested_rank}</span></div>}
-                        {req.requested_region && <div><span className="font-bold text-xs uppercase text-gray-400">Region:</span> <span className="font-medium">{req.requested_region}</span></div>}
-                        {req.requested_station && <div><span className="font-bold text-xs uppercase text-gray-400">Station:</span> <span className="font-medium bg-yellow-100 text-yellow-800 px-1 rounded">{req.requested_station}</span></div>}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm">
-                        <div className="flex space-x-2">
-                          <button onClick={() => handleReviewRequest(req.id, "APPROVED")} className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
-                            <CheckCircle size={14} className="mr-1" /> Approve
-                          </button>
-                          <button onClick={() => handleReviewRequest(req.id, "REJECTED")} className="bg-red-100 hover:bg-red-200 text-red-700 border border-red-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
-                            <X size={14} className="mr-1" /> Reject
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        )}
+      </div>
+    )}
+
+    {activeTab === 'logs' && (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-6xl mx-auto">
+        <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
+          <Shield className="w-5 h-5 mr-2 text-blue-400" /> System Audit Logs
         </div>
-      )}
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Timestamp</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">User FNUM</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Event</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Target</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Details</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {loadingLogs ? (
+                 <tr><td colSpan="5" className="p-8 text-center text-sm text-gray-500 font-bold animate-pulse">Decrypting server logs...</td></tr>
+              ) : audit_logs.length === 0 ? (
+                <tr><td colSpan="5" className="p-4 text-center text-sm text-gray-500">No recent security events logged in main database.</td></tr>
+              ) : (
+                audit_logs.map((log) => (
+                  <tr key={log.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">
+                      {log.created_at ? new Date(log.created_at).toLocaleString() : 'Unknown Time'}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm font-extrabold text-blue-700">
+                      {log.user_fnum}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm">
+                      <span className="font-extrabold text-slate-800 uppercase text-xs">{log.event_type}</span>
+                    </td>
+                     <td className="px-4 py-3 text-sm text-gray-600 font-medium">
+                      {log.target_user || 'N/A'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {log.details}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )}
 
-<tbody className="bg-white divide-y divide-gray-200">
-                  {loadingLogs ? (
-                     <tr><td colSpan="5" className="p-8 text-center text-sm text-gray-500 font-bold animate-pulse">Decrypting server logs...</td></tr>
-                  ) : audit_logs.length === 0 ? (
-                    <tr><td colSpan="5" className="p-4 text-center text-sm text-gray-500">No recent security events logged in main database.</td></tr>
-                  ) : (
-                    audit_logs.map((log) => (
-                      <tr key={log.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">
-                          {log.created_at ? new Date(log.created_at).toLocaleString() : 'Unknown Time'}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-extrabold text-blue-700">
-                          {log.user_fnum}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm">
-                          <span className="font-extrabold text-slate-800 uppercase text-xs">{log.event_type}</span>
-                        </td>
-                         <td className="px-4 py-3 text-sm text-gray-600 font-medium">
-                          {log.target_user || 'N/A'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          {log.details}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-
-      {activeTab === 'resets' && (
-        <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden max-w-6xl mx-auto">
+    {activeTab === 'resets' && (        <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden max-w-6xl mx-auto">
           <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
             <Lock className="w-5 h-5 mr-2 text-red-400" /> Authorized Password Recovery
           </div>
