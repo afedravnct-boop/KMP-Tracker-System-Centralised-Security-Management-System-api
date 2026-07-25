@@ -528,9 +528,35 @@ def get_all_requests(db: Session = Depends(get_db)):
     ).order_by(models.Modification_Requests.id.desc()).all()
 
 @app.get("/api/v1/audit-logs")
-def get_audit_logs(db: Session = Depends(get_db)):
-    """Fetches the system security & audit_logs"""
-    return db.query(models.Audit_Logs).order_by(models.Audit_Logs.id.desc()).all()
+def get_system_audit_logs(
+    db: Session = Depends(get_db), # 🛡️ RIGIDLY POINTED AT SQLALCHEMY_DATABASE_URL (Main DB)
+    current_user: models.Users = Depends(get_current_user)
+):
+    """Fetches records strictly from the audit_logs table in the main database for the UI."""
+    try:
+        # Check authorization
+        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
+            raise HTTPException(status_code=403, detail="Unauthorized access to system logs.")
+
+        # Ensure your models.py uses the correct model class (likely associated with main Base)
+        logs = db.query(models.Audit_Logs).order_by(models.Audit_Logs.id.desc()).limit(100).all()
+        
+        # Maps the data back to the schema that the current UI expects (User FNUM, Event Type, Details)
+        # Note: getattr ensures it doesn't crash if these columns aren't all present in main DB yet
+        return [
+            {
+                "id": log.id,
+                "created_at": log.created_at.isoformat() if log.created_at else None,
+                "event_type": getattr(log, 'event_type', None), 
+                "user_fnum": getattr(log, 'user_fnum', None),
+                "target_user": getattr(log, 'target_user', None),
+                "status": getattr(log, 'status', None),
+                "details": getattr(log, 'details', None)
+            } for log in logs
+        ]
+    except Exception as e:
+        print(f"Audit Log Fetch Error: {str(e)}") 
+        raise HTTPException(status_code=500, detail="Failed to fetch audit logs.")
 
 # ==========================================
 # SAFETY POST ENDPOINTS
@@ -1130,37 +1156,32 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
     return clean_results
 
 @app.get("/api/v1/activity-logs")
-def get_activity_logs(current_user = Depends(require_admin)):
-    # FIXED: Now securely fetching from the Neon Logs DB Branch
-    db_logs = SessionLogsLocal()
+def get_system_activity_logs(
+    db: Session = Depends(get_logs_db), # 🛡️ PULLS FROM BRANCH DATABASE
+    current_user: models.Users = Depends(get_current_user)
+):
+    """Fetches records strictly from the activity_logs table in the dedicated logs branch."""
     try:
-        logs = db_logs.query(models.Activity_Logs).order_by(models.Activity_Logs.created_at.desc()).limit(1000).all()
+        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
+            raise HTTPException(status_code=403, detail="Unauthorized access.")
+
+        # Queries Activity_Logs from the branch
+        logs = db.query(models.Activity_Logs).order_by(models.Activity_Logs.id.desc()).limit(100).all()
         
-        eat_tz = pytz.timezone("Africa/Nairobi")
-        clean_logs = []
-        
-        for log in logs:
-            local_time = log.created_at
-            if local_time:
-                if local_time.tzinfo is None:
-                    local_time = pytz.utc.localize(local_time)
-                local_time = local_time.astimezone(eat_tz)
-                formatted_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
-            else:
-                formatted_time = "Unknown Time"
-                
-            clean_logs.append({
+        # Maps exactly to your branch schema
+        return [
+            {
                 "id": log.id,
+                "created_at": log.created_at.isoformat() if log.created_at else None,
                 "fnum": log.fnum,
                 "action": log.action,
                 "module": log.module,
-                "details": log.details,
-                "created_at": formatted_time
-            })
-            
-        return clean_logs
-    finally:
-        db_logs.close()
+                "details": log.details
+            } for log in logs
+        ]
+    except Exception as e:
+        print(f"Activity Log Fetch Error: {str(e)}") 
+        raise HTTPException(status_code=500, detail="Failed to fetch activity logs.")
 
 # ==========================================
 # COMMAND COMMUNICATION ROUTE (SMART INBOX)
@@ -1625,11 +1646,37 @@ def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: 
 # SYSTEM ROSTER ROUTE
 # ==========================================
 @app.get("/api/v1/users")
-def get_all_active_users(db: Session = Depends(get_db)):
-    """Fetches all approved users with full profile details for the System Roster."""
+def get_all_active_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    """Fetches approved users, dynamically filtered by command hierarchy and explicit permissions."""
     try:
-        users = db.query(models.Users).filter(models.Users.is_approved == True).all()
-        # Returns the comprehensive profile without exposing the hashed_password
+        query = db.query(models.Users).filter(models.Users.is_approved == True)
+        
+        perms = current_user.permissions or {}
+        
+        # 1. Global Viewers: Super Admins, Explicit Permission, or Top-Level Command HQ
+        is_global = (
+            current_user.role == "SUPER_ADMIN" or 
+            perms.get("view_global_roster", False) or
+            current_user.region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
+            current_user.station in ["KMP HEADQUARTERS", "KMP Headquarters", "NAGURU"]
+        )
+        
+        if not is_global:
+            # 2. Regional Viewers: RPCs, Explicit Permission, or Deputy Commanders
+            is_regional = (
+                current_user.role == "RPC" or 
+                perms.get("view_regional_roster", False) or 
+                "Deputy" in (current_user.position or "")
+            )
+            
+            if is_regional:
+                query = query.filter(models.Users.region == current_user.region)
+            else:
+                # 3. Station Viewers: Standard DPCs and Admins
+                query = query.filter(models.Users.station == current_user.station)
+                
+        users = query.all()
+        
         return [
             {
                 "fnum": u.fnum, 
