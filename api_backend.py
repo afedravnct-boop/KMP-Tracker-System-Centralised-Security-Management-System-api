@@ -1874,7 +1874,7 @@ def execute_password_reset(req_id: int, action: str = Form(...), db: Session = D
         if not user:
             raise HTTPException(status_code=404, detail="User no longer exists.")
         
-        # Issue a standard default password (e.g., 'UPF1234')
+        # Issue a standard default password
         new_password = "UPF" + req.fnum.replace("/", "")[-4:] 
         if hasattr(security, 'get_password_hash'):
             user.hashed_password = security.get_password_hash(new_password)
@@ -1888,8 +1888,6 @@ def execute_password_reset(req_id: int, action: str = Form(...), db: Session = D
             
         db.commit()
         return {"status": "success", "new_password": new_password}
-
-
 
     return response
 
