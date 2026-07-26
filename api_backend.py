@@ -1082,7 +1082,6 @@ workbook.set_properties({
             'comments': f'FORENSIC TRACE: Downloaded by {authorized_user.fnum}'
         })
 
-# (Around line 737 in api_backend.py)
         zip_password = authorized_user.fnum.encode('utf-8')
         with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
@@ -1097,7 +1096,7 @@ workbook.set_properties({
                 action="MASTER_DATA_EXPORT",
                 target_identifier="SYSTEM",
                 changes={},
-                remarks=f"AES-Encrypted Master Database ZIP Downloaded"
+                remarks="AES-Encrypted Master Database ZIP Downloaded"
             )
         
         return StreamingResponse(
@@ -1105,11 +1104,10 @@ workbook.set_properties({
             media_type="application/zip", 
             headers={"Content-Disposition": f"attachment; filename=KMP_Master_Database_{authorized_user.fnum}.zip"}
         ) 
+
     except Exception as e:
         print(f"Export Error: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate secure Master Database file.")
-
-@app.get("/api/v1/export/establishments")
 
 @app.get("/api/v1/export/establishments")
 def export_establishments(
