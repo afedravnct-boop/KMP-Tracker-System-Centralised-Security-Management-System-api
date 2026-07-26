@@ -3458,7 +3458,7 @@ const AdminProfile = ({ currentUser, setCurrentUser }) => {
     }
   };
 
-  const handleSubmit = async (e) => {
+const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     setNotification("⏳ Verifying profile data with HR Nominal Roll...");
 
@@ -3466,7 +3466,8 @@ const AdminProfile = ({ currentUser, setCurrentUser }) => {
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
       
-      const response = await fetch(`${API_URL}/api/auth/me`, {
+      // 🟢 CHANGED THE URL HERE TO MATCH THE NEW BACKEND ROUTE
+      const response = await fetch(`${API_URL}/api/v1/users/profile/update`, {
         method: "PUT",
         headers: { 
             "Content-Type": "application/json",
@@ -4627,7 +4628,7 @@ const App = () => {
     };
 
     checkClearance();
-  }, []);
+  }, [setCurrentUser]);
 
   // 🛡️ TACTICAL AUTO-LOGOUT (15 MIN INACTIVITY)
   useEffect(() => {
@@ -4675,12 +4676,11 @@ const App = () => {
     
     const controller = new AbortController();
     
-const fetchData = async () => {
+    const fetchData = async () => {
       const token = localStorage.getItem('kmp_authToken');
       if (!token) return;
 
       try {
-        // We added an 8th fetch here: /api/v1/users
         const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives, resUsers] = await Promise.all([
           authFetch("/api/v1/reports", { signal: controller.signal }),
           authFetch("/api/v1/stats", { signal: controller.signal }),
@@ -4689,7 +4689,7 @@ const fetchData = async () => {
           authFetch("/api/v1/Admin_Communication", { signal: controller.signal }),
           authFetch("/api/v1/establishments", { signal: controller.signal }),
           authFetch("/api/v1/nominal-roll-archive", { signal: controller.signal }),
-          authFetch("/api/v1/users", { signal: controller.signal }) // <-- NEW
+          authFetch("/api/v1/users", { signal: controller.signal })
         ]);
 
         const [dataReports, dataStats, dataStories, dataNom, dataComms, dataEst, dataArchives, dataUsers] = await Promise.all([
@@ -4700,7 +4700,7 @@ const fetchData = async () => {
           resComms.ok ? resComms.json() : [],
           resEst.ok ? resEst.json() : [],
           resArchives.ok ? resArchives.json() : [],
-          resUsers.ok ? resUsers.json() : [] // <-- NEW
+          resUsers.ok ? resUsers.json() : [] 
         ]);
 
         if (!controller.signal.aborted) {
@@ -4711,7 +4711,7 @@ const fetchData = async () => {
           setAdminCommsData(dataComms);
           setEstablishments(dataEst); 
           setNominal_Roll_archives(dataArchives);
-          setUsers(dataUsers); // <-- THIS POPULATES YOUR SYSTEM ROSTER!
+          setUsers(dataUsers);
         }
       } catch (err) {
         if (err.name !== 'AbortError') {
@@ -4724,7 +4724,7 @@ const fetchData = async () => {
     return () => controller.abort();
   }, [currentUser]); 
 
-const handleMasterExport = async (scope, value) => {
+  const handleMasterExport = async (scope, value) => {
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
     let url = `${API_URL}/api/v1/reports/export?timeframe=all`; 
     if (scope && value) {
@@ -4749,7 +4749,6 @@ const handleMasterExport = async (scope, value) => {
         document.body.appendChild(link);
         link.click();
         
-        // 🛡️ THE FIX: 2 Second Delay
         setTimeout(() => {
             document.body.removeChild(link);
             window.URL.revokeObjectURL(downloadUrl);
@@ -4770,7 +4769,6 @@ const handleMasterExport = async (scope, value) => {
       });
       
       if (response.ok) {
-        // Instantly update the UI so the user sees the green checkmark
         setAdminCommsData(prevData => prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c));
       }
     } catch (err) {
@@ -4778,18 +4776,24 @@ const handleMasterExport = async (scope, value) => {
     }
   };
 
+  const handlePageChange = (pageId) => {
+    setCurrentPage(pageId);          
+    setIsViewingConsolidated(false); 
+    setIsViewingHR(false);           
+  };
+
   const renderPage = () => {
     switch (currentPage) {
-      case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+      case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
       case 'reports': return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
       case 'statistics': return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
       case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
       case 'establishments': return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
       case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
-      case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
-      case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} />;
-      case 'Admin_Communication': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm}/>;
-      default: return <HomeDashboard currentUser={currentUser} setCurrentPage={setCurrentPage} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+      case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+      case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} Nominal_Rolls={Nominal_Rolls} />;
+      case 'Admin_Communication': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm}/>;
+      default: return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
     }
   };
 
@@ -4849,8 +4853,21 @@ const handleMasterExport = async (scope, value) => {
     );
   }
 
-  if (!currentUser) return <LoginScreen 
-    onLogin={setCurrentUser} 
+ if (!currentUser) return <LoginScreen 
+    onLogin={(user) => {
+      // 🟢 INSTANTLY RESET TO HOME PAGE UPON SUCCESSFUL LOGIN
+      localStorage.removeItem('kmp_currentPage'); 
+      setCurrentPage('home'); 
+      setCurrentUser(user);
+
+      // 🟢 SILENTLY TRIGGER THE AUDIT LOG FOR TODAY'S DATE
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      fetch(`${API_URL}/api/v1/system/log-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fnum: user.fnum })
+      }).catch(e => console.error(e));
+    }} 
     onForgot={() => {}} 
     onSignup={(u) => setPendingUsers([...pendingUsers, u])} 
     pendingUsers={pendingUsers} 
@@ -4860,14 +4877,6 @@ const handleMasterExport = async (scope, value) => {
   const handleGenerateHRReport = () => {
     downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
   };
-
-  const handlePageChange = (pageId) => {
-    setCurrentPage(pageId);          // Changes the actual page
-    setIsViewingConsolidated(false); // Removes the Consolidated overlay
-    setIsViewingHR(false);           // Removes the HR overlay
-  };
-
-  const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
 
   const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
     setUsers(users.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: newPermissions } : u));
@@ -4888,14 +4897,14 @@ const handleMasterExport = async (scope, value) => {
       currentUser={currentUser}
       currentPage={currentPage} 
       setCurrentPage={handlePageChange} 
-      onLogout={() => { localStorage.removeItem('kmp_authToken'); setCurrentUser(null); }}
-      onGenerateOpsReport={() => handleMasterExport("station", currentUser.station)}
-      onViewOpsReport={() => {}} 
-      onGenerateHRReport={handleGenerateHRReport}
-      onViewHRReport={handleViewHRReport} 
-      onViewConsolidated={handleViewConsolidated} 
-      users={users}
-      onRevokeUser={(fnum) => { setUsers(users.filter(u => u.fnum !== fnum)); }}
+      onLogout={() => { 
+        // 🟢 WIPE THE PAGE MEMORY WHEN THEY LOG OUT
+        localStorage.removeItem('kmp_authToken'); 
+        localStorage.removeItem('kmp_currentUser'); 
+        localStorage.removeItem('kmp_currentPage'); 
+        setCurrentUser(null); 
+        setCurrentPage('home');
+      }}
       onUpdateUserRole={handleUpdateUserRole}
       Admin_Communication={adminCommsData}
     >

@@ -108,14 +108,8 @@ def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, chang
         print(f"Audit Log Failed: {e}")
         db.rollback()
 
-# Secure connection logic
-LOGS_DATABASE_URL = os.getenv("LOGS_DATABASE_URL")
+from app.database import LogsSessionLocal as SessionLogsLocal
 
-# Create a dedicated engine for your logs
-logs_engine = create_engine(LOGS_DATABASE_URL)
-SessionLogsLocal = sessionmaker(bind=logs_engine)
-
-# Function to record in your new table
 def log_activity_to_remote_db(fnum, action, module, details):
     db_logs = SessionLogsLocal()
     try:
@@ -1702,7 +1696,6 @@ def get_password_reset_requests(db: Session = Depends(get_db), current_user: mod
     return results
 
 # 🟢 THE SMART PROFILE UPDATE ENDPOINT & PROMOTION ENGINE
-@app.put("/api/auth/me")
 def update_user_profile(
     data: dict, 
     db: Session = Depends(get_db), 
@@ -1782,6 +1775,22 @@ def update_user_profile(
             )
 
     return response_data
+
+class SessionLogRequest(BaseModel):
+    fnum: str
+
+@app.post("/api/v1/system/log-session")
+def log_user_session(req: SessionLogRequest, db: Session = Depends(get_db)):
+    if hasattr(models, 'Audit_Logs'):
+        log_semantic_audit(
+            db=db, 
+            fnum=req.fnum, 
+            action="OFFICER_AUTHENTICATION", 
+            target_identifier="SYSTEM", 
+            changes={}, 
+            remarks="Secure session initiated via Dashboard Gateway"
+        )
+    return {"status": "success"}
 
 @app.post("/api/v1/admin/execute-reset/{req_id}")
 def execute_password_reset(req_id: int, action: str = Form(...), db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
