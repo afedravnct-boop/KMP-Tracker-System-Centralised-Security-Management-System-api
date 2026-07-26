@@ -35,7 +35,7 @@ from app import models, database
 from app.database import engine, get_db, get_logs_db
 from app.database import LogsSessionLocal as SessionLogsLocal
 from app.core import security
-from auth import router as auth_router, create_access_token
+from auth import router as auth_router, get_current_user
 
 # ==========================================
 # 0. LOAD ENVIRONMENT VARIABLES & CONFIG
@@ -241,7 +241,7 @@ if not scheduler.running:
 @app.post("/api/auth/refresh")
 def refresh_session_token(current_user = Depends(get_current_user)):
     access_token_expires = timedelta(minutes=30)
-    new_access_token = create_access_token(
+    new_access_token = security.create_access_token(
         data={"sub": current_user.fnum}, 
         expires_delta=access_token_expires
     )
@@ -356,7 +356,7 @@ def update_user_profile(data: dict, db: Session = Depends(get_db), current_user:
     
     if fnum_changing:
         access_token_expires = timedelta(minutes=300) 
-        new_token = create_access_token(data={"sub": new_fnum}, expires_delta=access_token_expires)
+        new_token = security.create_access_token(data={"sub": new_fnum}, expires_delta=access_token_expires)
         response_data["new_token"] = new_token
         
         if hasattr(models, 'Audit_Logs'):
