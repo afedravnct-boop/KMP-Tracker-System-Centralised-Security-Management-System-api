@@ -38,6 +38,7 @@ from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 import boto3
 from botocore.exceptions import ClientError
+local_time = datetime.utcnow() + timedelta(hours=3)
 
 # Internal Imports
 from app import models, database
@@ -499,10 +500,8 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     query = db.query(models.Nominal_Roll)
     
     # 🛡️ GEOGRAPHICAL READ FIREWALL
-    if current_user.role == "SUPER_ADMIN" or (current_user.permissions or {}).get("view_all_nominal", False):
-        pass
-    elif current_user.role in ["ADMIN", "RPC"]:
-        query = query.filter(models.Nominal_Roll.region == current_user.region)
+    if current_user.role in ["ADMIN", "SUPER_ADMIN", "RPC"]:
+        pass # 🟢 Command staff completely bypass geographical locks
     else:
         query = query.filter(models.Nominal_Roll.station == current_user.station)
         
@@ -1076,20 +1075,13 @@ def export_master_database_unified(
             del roll_data, roll_list, df_roll
             gc.collect()
 
-            workbook.set_properties({
-                'title': 'KMP Master Database - RESTRICTED',
-                'author': f'{authorized_user.rank} {authorized_user.name}',
-                'manager': authorized_user.fnum,
-                'comments': f'FORENSIC TRACE: Downloaded by {authorized_user.fnum}'
-            })
+workbook.set_properties({
+            'title': 'KMP Master Database - RESTRICTED',
+            'author': f'{authorized_user.rank} {authorized_user.name}',
+            'manager': authorized_user.fnum,
+            'comments': f'FORENSIC TRACE: Downloaded by {authorized_user.fnum}'
+        })
 
-        zip_password = authorized_user.fnum.encode('utf-8')
-        with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
-            zf.setpassword(zip_password)
-            zf.writestr(f"KMP_Master_Database_{authorized_user.fnum}.xlsx", excel_buffer.getvalue())
-
-        zip_buffer.seek(0)
-        
         zip_password = authorized_user.fnum.encode('utf-8')
         with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
@@ -1113,15 +1105,7 @@ def export_master_database_unified(
             media_type="application/zip", 
             headers={"Content-Disposition": f"attachment; filename=KMP_Master_Database_{authorized_user.fnum}.zip"}
         ) 
-
-        return StreamingResponse(
-            zip_buffer, 
-            media_type="application/zip", 
-            headers={"Content-Disposition": f"attachment; filename=KMP_Master_Database_{authorized_user.fnum}.zip"}
-        )
     except Exception as e:
-        print(f"Master Export Error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate secure Master Database file.")
 
 @app.get("/api/v1/export/establishments")
 def export_establishments(
@@ -1696,6 +1680,8 @@ def get_password_reset_requests(db: Session = Depends(get_db), current_user: mod
     return results
 
 # 🟢 THE SMART PROFILE UPDATE ENDPOINT & PROMOTION ENGINE
+@app.put("/api/v1/users/profile/update")
+@app.post("/api/v1/users/profile/update")
 def update_user_profile(
     data: dict, 
     db: Session = Depends(get_db), 
