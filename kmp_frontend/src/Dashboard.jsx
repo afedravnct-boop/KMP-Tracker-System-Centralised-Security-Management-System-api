@@ -1,15 +1,17 @@
 import React from 'react';
 import './index.css';
+import { Eye } from 'lucide-react';
 
 export default function Dashboard({ 
   user, 
   onLogout, 
-  activeTab,      // 🚨 NEW: App.jsx now controls this!
-  setActiveTab,   // 🚨 NEW: App.jsx now controls this!
+  activeTab,       // 🚨 NEW: App.jsx now controls this!
+  setActiveTab,    // 🚨 NEW: App.jsx now controls this!
   onViewHRReport,
   onGenerateHRReport,
   onViewOpsReport,
   onGenerateOpsReport,
+  onViewConsolidated, // 🟢 ADDED THIS PROP
   children 
 }) {
   return (
@@ -45,6 +47,13 @@ export default function Dashboard({
           {/* REPORTS SECTION */}
           <div style={{ marginTop: "25px", borderTop: "1px solid rgba(255,255,255,0.2)", paddingTop: "15px" }}>
             <p className="nav-label">📥 Reports & Ledgers:</p>
+            
+            {/* 🟢 ADDED THE CONSOLIDATED ENTRIES BUTTON HERE */}
+            <button onClick={onViewConsolidated} className="flex items-center justify-center bg-slate-800 hover:bg-slate-700 w-full px-4 py-3 rounded mb-3 text-white text-sm font-bold border border-slate-600 transition-all">
+               <Eye size={20} className="mr-3" />
+               Consolidated Entries
+            </button>
+
             <div className="flex space-x-2 mb-3">
               <button onClick={onViewHRReport} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2 px-2 rounded w-1/2">
                 View HR

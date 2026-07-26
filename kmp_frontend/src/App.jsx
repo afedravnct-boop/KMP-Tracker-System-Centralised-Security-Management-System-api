@@ -163,10 +163,12 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewConsolidated, Admin_Communication: commsData, onAcknowledgeComm }) => {
+const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewConsolidated, Admin_Communication, onAcknowledgeComm }) => {
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
   const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role);
   
+  const commsData = Admin_Communication || [];
+
   const canViewConsolidated = isAdmin || currentUser.permissions?.consolidated;
   const canExportData = isRPC || currentUser.permissions?.export_data;
 
@@ -4630,57 +4632,18 @@ const App = () => {
     checkClearance();
   }, [setCurrentUser]);
 
-  // 🛡️ TACTICAL AUTO-LOGOUT (15 MIN INACTIVITY)
-  useEffect(() => {
-    if (!currentUser) return;
-
-    let inactivityTimer;
-    const INACTIVITY_LIMIT = 15 * 60 * 1000;
-
-    const executeAutoLogout = () => {
-      console.log("Inactivity limit reached. Executing auto-logout.");
-      localStorage.removeItem('kmp_authToken');
-      localStorage.removeItem('kmp_currentUser');
-      setCurrentUser(null);
-      alert("Session expired due to inactivity. Please log in again.");
-    };
-
-    const resetTimer = () => {
-      clearTimeout(inactivityTimer);
-      inactivityTimer = setTimeout(executeAutoLogout, INACTIVITY_LIMIT);
-    };
-
-    const activityEvents = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
-    activityEvents.forEach(event => window.addEventListener(event, resetTimer));
-    resetTimer();
-
-    return () => {
-      clearTimeout(inactivityTimer);
-      activityEvents.forEach(event => window.removeEventListener(event, resetTimer));
-    };
-  }, [currentUser, setCurrentUser]);
-
-  useEffect(() => {
-    let link = document.querySelector("link[rel~='icon']");
-    if (!link) {
-      link = document.createElement('link');
-      link.rel = 'icon';
-      document.head.appendChild(link);
-    }
-    link.href = '/upf_badge.png';
-    document.title = "Uganda Police Force - Secure Portal";
-  }, []);
-
-  useEffect(() => {
-    if (!currentUser) return;
+useEffect(() => {
+    // 🟢 The ?.fnum prevents the infinite rendering loop
+    if (!currentUser?.fnum) return; 
     
     const controller = new AbortController();
     
-    const fetchData = async () => {
+    const fetchAllData = async () => {
       const token = localStorage.getItem('kmp_authToken');
       if (!token) return;
 
       try {
+        // 🟢 Restored your stable, original Promise.all structure
         const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives, resUsers] = await Promise.all([
           authFetch("/api/v1/reports", { signal: controller.signal }),
           authFetch("/api/v1/stats", { signal: controller.signal }),
@@ -4692,37 +4655,26 @@ const App = () => {
           authFetch("/api/v1/users", { signal: controller.signal })
         ]);
 
-        const [dataReports, dataStats, dataStories, dataNom, dataComms, dataEst, dataArchives, dataUsers] = await Promise.all([
-          resReports.ok ? resReports.json() : [],
-          resStats.ok ? resStats.json() : [],
-          resStories.ok ? resStories.json() : [],
-          resNom.ok ? resNom.json() : [],
-          resComms.ok ? resComms.json() : [],
-          resEst.ok ? resEst.json() : [],
-          resArchives.ok ? resArchives.json() : [],
-          resUsers.ok ? resUsers.json() : [] 
-        ]);
-
         if (!controller.signal.aborted) {
-          setReports(dataReports);
-          setStats(dataStats);
-          setStories(dataStories);
-          setNominal_Rolls(dataNom);
-          setAdminCommsData(dataComms);
-          setEstablishments(dataEst); 
-          setNominal_Roll_archives(dataArchives);
-          setUsers(dataUsers);
+          if (resReports.ok) setReports(await resReports.json());
+          if (resStats.ok) setStats(await resStats.json());
+          if (resStories.ok) setStories(await resStories.json());
+          if (resNom.ok) setNominal_Rolls(await resNom.json());
+          if (resComms.ok) setAdminCommsData(await resComms.json());
+          if (resEst.ok) setEstablishments(await resEst.json());
+          if (resArchives.ok) setNominal_Roll_archives(await resArchives.json());
+          if (resUsers.ok) setUsers(await resUsers.json());
         }
       } catch (err) {
         if (err.name !== 'AbortError') {
-          console.warn("Sync failed:", err);
+          console.error("Data sync failed:", err);
         }
       }
     };
         
-    fetchData();
+    fetchAllData();
     return () => controller.abort();
-  }, [currentUser]); 
+  }, [currentUser?.fnum]); 
 
   const handleMasterExport = async (scope, value) => {
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -4782,18 +4734,28 @@ const App = () => {
     setIsViewingHR(false);           
   };
 
-  const renderPage = () => {
+const renderPage = () => {
     switch (currentPage) {
-      case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
-      case 'reports': return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
-      case 'statistics': return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
-      case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
-      case 'establishments': return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
-      case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
-      case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
-      case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} Nominal_Rolls={Nominal_Rolls} />;
-      case 'Admin_Communication': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm}/>;
-      default: return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+      case 'home': 
+        return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+      case 'reports': 
+        return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
+      case 'statistics': 
+        return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
+      case 'success': 
+        return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
+      case 'establishments': 
+        return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
+      case 'nominal-roll': 
+        return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
+      case 'approvals': 
+        return ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+      case 'profile': 
+        return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} Nominal_Rolls={Nominal_Rolls} />;
+      case 'Admin_Communication': 
+        return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm}/>;
+      default: 
+        return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} Admin_Communication={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
     }
   };
 
@@ -4907,6 +4869,9 @@ const App = () => {
       }}
       onUpdateUserRole={handleUpdateUserRole}
       Admin_Communication={adminCommsData}
+      onViewConsolidated={handleViewConsolidated}
+      onViewHRReport={handleViewHRReport}
+      onGenerateHRReport={handleGenerateHRReport}
     >
       {isViewingConsolidated && (
         <ConsolidatedLedger 
