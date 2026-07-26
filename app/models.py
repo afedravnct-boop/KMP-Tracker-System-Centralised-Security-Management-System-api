@@ -223,7 +223,8 @@ class Modification_Requests(Base):
     __tablename__ = "modification_requests"
     __table_args__ = {'extend_existing': True} 
     id = Column(Integer, primary_key=True, index=True)
-    fnum = Column(String, index=True) 
+    # 🟢 ADDED FOREIGN KEY CASCADE
+    fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True) 
     requested_rank = Column(String, nullable=True)
     requested_name = Column(String, nullable=True)
     requested_region = Column(String, nullable=True)
@@ -233,7 +234,6 @@ class Modification_Requests(Base):
     reviewed_by = Column(String, nullable=True) 
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
 
-# Fixed class name to match api_backend.py (models.Audit_Logs)
 class Audit_Logs(Base):
     __tablename__ = "audit_logs"
     __table_args__ = {'extend_existing': True} 
@@ -243,16 +243,8 @@ class Audit_Logs(Base):
     status = Column(String) 
     details = Column(String)
     created_at = Column(DateTime, default=get_eat_time)
-    user_fnum = Column(String, index=True)
-
-class Activity_Logs(LogsBase):
-    __tablename__ = "activity_logs"
-    id = Column(Integer, primary_key=True, index=True)
-    fnum = Column(String, index=True)
-    action = Column(String)
-    module = Column(String)
-    details = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=get_eat_time)
+    # 🟢 ADDED FOREIGN KEY CASCADE
+    user_fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
 
 # ==========================================
 # 9. ADMIN COMMUNICATION
@@ -260,7 +252,8 @@ class Activity_Logs(LogsBase):
 class Admin_Communication(Base):
     __tablename__ = "Admin_Communication"
     id = Column(Integer, primary_key=True, index=True)
-    sender_fnum = Column(String, index=True)
+    # 🟢 ADDED FOREIGN KEY CASCADE
+    sender_fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
     sender_name = Column(String)
     target_audience = Column(String, index=True)
     target_region = Column(String, index=True, nullable=True)
@@ -278,13 +271,15 @@ class Communication_Reads(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     comm_id = Column(Integer, index=True)
-    fnum = Column(String, index=True)
+    # 🟢 ADDED FOREIGN KEY CASCADE
+    fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
     read_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class Password_Resets(Base):
     __tablename__ = "password_resets"
 
     id = Column(Integer, primary_key=True, index=True)
-    fnum = Column(String, nullable=False)
-    status = Column(String, default="Pending") # Can be Pending, Approved, or Denied
+    # 🟢 ADDED FOREIGN KEY CASCADE
+    fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), nullable=False)
+    status = Column(String, default="Pending") 
     created_at = Column(DateTime(timezone=True), server_default=func.now())

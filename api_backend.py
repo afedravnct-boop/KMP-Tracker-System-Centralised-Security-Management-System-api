@@ -14,6 +14,9 @@ import uvicorn
 import asyncio
 import pyzipper
 import pandas as pd
+import re
+from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import timedelta
 from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request, Body
@@ -1093,6 +1096,30 @@ def export_master_database_unified(
 
         zip_buffer.seek(0)
         
+        zip_password = authorized_user.fnum.encode('utf-8')
+        with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(zip_password)
+            zf.writestr(f"KMP_Master_Database_{authorized_user.fnum}.xlsx", excel_buffer.getvalue())
+
+        zip_buffer.seek(0)
+        
+        # 🟢 ADD THIS MISSING LOG TRIGGER HERE
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(
+                db=db,
+                fnum=authorized_user.fnum,
+                action="MASTER_DATA_EXPORT",
+                target_identifier="SYSTEM",
+                changes={},
+                remarks=f"AES-Encrypted Master Database ZIP Downloaded"
+            )
+        
+        return StreamingResponse(
+            zip_buffer, 
+            media_type="application/zip", 
+            headers={"Content-Disposition": f"attachment; filename=KMP_Master_Database_{authorized_user.fnum}.zip"}
+        ) 
+
         return StreamingResponse(
             zip_buffer, 
             media_type="application/zip", 
@@ -1163,6 +1190,30 @@ def export_establishments(
             zf.writestr(f"KMP_HR_establishments_{authorized_user.fnum}.xlsx", excel_buffer.getvalue())
 
         zip_buffer.seek(0)
+
+        zip_password = authorized_user.fnum.encode('utf-8')
+        with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(zip_password)
+            zf.writestr(f"KMP_HR_establishments_{authorized_user.fnum}.xlsx", excel_buffer.getvalue())
+
+        zip_buffer.seek(0)
+
+        # 🟢 ADD THIS MISSING LOG TRIGGER HERE
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(
+                db=db,
+                fnum=authorized_user.fnum,
+                action="HR_DATA_EXPORT",
+                target_identifier="SYSTEM",
+                changes={},
+                remarks="AES-Encrypted HR & Establishments ZIP Downloaded"
+            )
+
+        return StreamingResponse(
+            zip_buffer, 
+            media_type='application/zip',
+            headers={"Content-Disposition": f"attachment; filename=KMP_HR_Ledger_{authorized_user.fnum}.zip"}
+        )
 
         return StreamingResponse(
             zip_buffer, 
@@ -1547,16 +1598,23 @@ def register_user(
     profile_photo_path: str = Form(""), 
     db: Session = Depends(get_db)
 ):
+    # 1. ENFORCE STRICT 10-DIGIT CONTACT NUMBER
+    if not re.match(r'^\d{10}$', phone):
+        raise HTTPException(status_code=400, detail="Contact number must be exactly 10 digits (e.g., 0772123456).")
+
+    # 2. CHECK FOR DUPLICATE ACCOUNTS
     existing_user = db.query(models.Users).filter(models.Users.fnum == fnum).first()
     if existing_user:
          raise HTTPException(status_code=400, detail="User with this fnum already exists.")
          
+    # 3. ENFORCE PHOTO UPLOAD FOR NON-ADMINS
     if role != "SUPER_ADMIN" and not profile_photo_path:
         raise HTTPException(
             status_code=400, 
             detail="A profile photo is mandatory for non-admin users."
         )
 
+    # 4. SAVE NEW USER TO DATABASE
     try:
         new_user = models.Users(
             fnum=fnum,
@@ -1572,7 +1630,7 @@ def register_user(
             phone=phone,
             hashed_password=security.get_password_hash(password) if hasattr(security, 'get_password_hash') else password,
             role=role,
-            profile_photo_path=profile_photo_path # <--- EXACT MATCH TO YOUR MODELS.PY
+            profile_photo_path=profile_photo_path
         )
         db.add(new_user)
         db.commit()
@@ -1642,6 +1700,88 @@ def get_password_reset_requests(db: Session = Depends(get_db), current_user: mod
             "station": r.station, "region": r.region, "request_date": formatted_time
         })
     return results
+
+# 🟢 THE SMART PROFILE UPDATE ENDPOINT & PROMOTION ENGINE
+@app.put("/api/auth/me")
+def update_user_profile(
+    data: dict, 
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
+    new_fnum = data.get("fnum", "").strip().upper()
+    old_fnum = current_user.fnum.strip().upper()
+    
+    fnum_changing = new_fnum and new_fnum != old_fnum
+
+    if fnum_changing:
+        # 1. ENFORCE ALPHANUMERIC RULE FOR PROMOTIONS
+        if not re.search(r'[A-Za-z]', new_fnum):
+            raise HTTPException(status_code=400, detail="Officer File Numbers must be alphanumeric (e.g., A/2408).")
+        
+        # 2. CHECK FOR COLLISIONS
+        existing_user = db.query(models.Users).filter(models.Users.fnum == new_fnum).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="This File Number is already actively registered to another system account.")
+
+        # 3. LIVE HR VERIFICATION (MASTER NOMINAL ROLL)
+        hr_verification = db.query(models.Nominal_Roll).filter(
+            or_(models.Nominal_Roll.fnum == new_fnum, models.Nominal_Roll.f_num == new_fnum),
+            models.Nominal_Roll.rank == data.get("rank"),
+            models.Nominal_Roll.station == data.get("station")
+        ).first()
+
+        if not hr_verification:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"Verification Failed: Human Resources has not registered {data.get('rank')} {new_fnum} at {data.get('station')} in the Master Nominal Roll. Please contact HR to update the ledger first."
+            )
+
+    # 4. APPLY APPROVED UPDATES
+    for key, value in data.items():
+        if hasattr(current_user, key) and key not in ['id', 'hashed_password', 'is_approved', 'permissions', 'role']:
+            setattr(current_user, key, value)
+            
+    try:
+        # 🛡️ SAFETY FALLBACK: If Neon DB hasn't fully applied the physical CASCADE constraints, 
+        # this ensures no data is orphaned by manually updating the relationships.
+        if fnum_changing:
+            db.query(models.Communication_Reads).filter(models.Communication_Reads.fnum == old_fnum).update({"fnum": new_fnum})
+            db.query(models.Password_Resets).filter(models.Password_Resets.fnum == old_fnum).update({"fnum": new_fnum})
+            db.query(models.Audit_Logs).filter(models.Audit_Logs.user_fnum == old_fnum).update({"user_fnum": new_fnum})
+            db.query(models.Admin_Communication).filter(models.Admin_Communication.sender_fnum == old_fnum).update({"sender_fnum": new_fnum})
+            db.query(models.Modification_Requests).filter(models.Modification_Requests.fnum == old_fnum).update({"fnum": new_fnum})
+            
+        db.commit()
+        db.refresh(current_user)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database cascade failed: {str(e)}")
+
+    # 5. GENERATE A NEW TOKEN IF THE FNUM CHANGED (To prevent session crash)
+    response_data = {"status": "success", "message": "Profile updated successfully."}
+    
+    if fnum_changing:
+        from datetime import timedelta
+        # Import your token creator (adjust if your import path differs)
+        from auth import create_access_token 
+        
+        access_token_expires = timedelta(minutes=300) 
+        new_token = create_access_token(
+            data={"sub": new_fnum}, expires_delta=access_token_expires
+        )
+        response_data["new_token"] = new_token
+        
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(
+                db=db, 
+                fnum=new_fnum, 
+                action="PROFILE_PROMOTION", 
+                target_identifier=old_fnum, 
+                changes={"fnum": (old_fnum, new_fnum)}, 
+                remarks="Verified against Live Nominal Roll"
+            )
+
+    return response_data
 
 @app.post("/api/v1/admin/execute-reset/{req_id}")
 def execute_password_reset(req_id: int, action: str = Form(...), db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
