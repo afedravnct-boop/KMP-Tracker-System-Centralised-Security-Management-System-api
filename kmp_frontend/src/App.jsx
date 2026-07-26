@@ -4878,13 +4878,18 @@ const renderPage = () => {
     downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
   };
 
-  const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
+const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
     setUsers(users.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: newPermissions } : u));
     
     try {
-      await authFetch(`/api/v1/users/${fnum}/access`, {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      await fetch(`${API_URL}/api/v1/users/${fnum}/access`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}` 
+        },
         body: JSON.stringify({ role: newRole, permissions: newPermissions })
       });
     } catch (err) {
@@ -4896,7 +4901,8 @@ const renderPage = () => {
     if (!window.confirm(`Are you sure you want to revoke access for ${fnum}?`)) return;
     try {
       const token = localStorage.getItem('kmp_authToken');
-      await authFetch(`/api/v1/users/${fnum}/revoke`, {
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      await fetch(`${API_URL}/api/v1/users/${fnum}/revoke`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${token}` }
       });
@@ -4919,8 +4925,8 @@ const renderPage = () => {
         setCurrentPage('home');
       }}
       onUpdateUserRole={handleUpdateUserRole}
-      onRevokeUser={handleRevokeUser} /* 🟢 RESTORED: Revoke Function */
-      users={users} /* 🟢 RESTORED: Roster Array */
+      onRevokeUser={handleRevokeUser}
+      users={users}
       Admin_Communication={adminCommsData}
       onViewConsolidated={handleViewConsolidated}
       onViewHRReport={handleViewHRReport}
@@ -4949,3 +4955,6 @@ const renderPage = () => {
       
     </DashboardLayout>
   );
+};
+
+export default App;
