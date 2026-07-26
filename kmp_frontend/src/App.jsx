@@ -3629,7 +3629,8 @@ const handleSubmit = async (e) => {
                 </div>
               </div>
 
-              <form onSubmit={handleProfileSave} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+{/* 🟢 CHANGED: onSubmit={handleSubmit} restores direct saving for contact info */}
+              <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
                 <div className="flex items-center text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2">
                   <Edit size={14} className="mr-2" /> Editable Contact Data & Photo
                 </div>
@@ -4126,6 +4127,43 @@ const DashboardLayout = ({
     const saved = localStorage.getItem('last_viewed_comm_id');
     return saved ? JSON.parse(saved) : 0;
   });
+
+  // 🟢 INDEPENDENT BACKGROUND IDLE TIMER
+  useEffect(() => {
+    // Set idle timeout duration (e.g., 30 minutes = 30 * 60 * 1000)
+    const IDLE_TIMEOUT_MS = 30 * 60 * 1000; 
+    let lastActivityTime = Date.now();
+
+    // Reset the clock on any user activity
+    const updateActivity = () => {
+      lastActivityTime = Date.now();
+    };
+
+    // Attach activity listeners
+    window.addEventListener('mousemove', updateActivity);
+    window.addEventListener('keypress', updateActivity);
+    window.addEventListener('click', updateActivity);
+    window.addEventListener('scroll', updateActivity);
+
+    // The heartbeat: Checks the clock every 10 seconds WITHOUT needing a click
+    const idleCheckInterval = setInterval(() => {
+      if (Date.now() - lastActivityTime >= IDLE_TIMEOUT_MS) {
+        alert("Session Expired: You have been logged out due to inactivity.");
+        onLogout(); // Automatically triggers your secure logout function
+      }
+    }, 10000);
+
+    // Cleanup listeners when component unmounts
+    return () => {
+      window.removeEventListener('mousemove', updateActivity);
+      window.removeEventListener('keypress', updateActivity);
+      window.removeEventListener('click', updateActivity);
+      window.removeEventListener('scroll', updateActivity);
+      clearInterval(idleCheckInterval);
+    };
+  }, [onLogout]);
+
+  // ... the rest of your DashboardLayout code continues here
 
   const latestCommId = (Admin_Communication && Admin_Communication.length > 0) 
     ? Math.max(...Admin_Communication.map(c => c.id)) 
@@ -4854,13 +4892,26 @@ const renderPage = () => {
     }
   };
 
+  const handleRevokeUser = async (fnum) => {
+    if (!window.confirm(`Are you sure you want to revoke access for ${fnum}?`)) return;
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      await authFetch(`/api/v1/users/${fnum}/revoke`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      setUsers(users.filter(u => u.fnum !== fnum));
+    } catch (err) {
+      console.error("Failed to revoke user:", err);
+    }
+  };
+
   return (
     <DashboardLayout 
       currentUser={currentUser}
       currentPage={currentPage} 
       setCurrentPage={handlePageChange} 
       onLogout={() => { 
-        // 🟢 WIPE THE PAGE MEMORY WHEN THEY LOG OUT
         localStorage.removeItem('kmp_authToken'); 
         localStorage.removeItem('kmp_currentUser'); 
         localStorage.removeItem('kmp_currentPage'); 
@@ -4868,6 +4919,8 @@ const renderPage = () => {
         setCurrentPage('home');
       }}
       onUpdateUserRole={handleUpdateUserRole}
+      onRevokeUser={handleRevokeUser} /* 🟢 RESTORED: Revoke Function */
+      users={users} /* 🟢 RESTORED: Roster Array */
       Admin_Communication={adminCommsData}
       onViewConsolidated={handleViewConsolidated}
       onViewHRReport={handleViewHRReport}
@@ -4896,6 +4949,3 @@ const renderPage = () => {
       
     </DashboardLayout>
   );
-};
-
-export default App;
