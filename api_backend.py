@@ -1098,39 +1098,69 @@ def get_communication_readers(comm_id: int, db: Session = Depends(get_db), curre
 # ==========================================
 @app.get("/api/v1/reports/consolidated-ledger")
 def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    perms = current_user.permissions or {}
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN"] and not perms.get("consolidated", False):
-        raise HTTPException(status_code=403, detail="Clearance Denied")
-        
-    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    try:
+        # 1. Safely handle permissions (whether it is an object or a string)
+        perms = current_user.permissions
+        if isinstance(perms, str):
+            import json
+            try:
+                perms = json.loads(perms)
+            except:
+                perms = {}
+        if not isinstance(perms, dict):
+            perms = {}
 
-    crime_data = db.query(
-        models.Crime_Reports.region, models.Crime_Reports.offence, 
-        func.count(models.Crime_Reports.sn).label("cases"), 
-        func.sum(models.Crime_Reports.suspects).label("suspects")
-    ).filter(and_(models.Crime_Reports.date >= start_str, models.Crime_Reports.date < end_str))\
-     .group_by(models.Crime_Reports.region, models.Crime_Reports.offence).all()
+        # 2. Check Security Clearance
+        is_admin = current_user.role in ["ADMIN", "SUPER_ADMIN"]
+        has_perm = perms.get("consolidated", False)
 
-    ops_data = db.query(
-        models.Operational_Statistics.region, 
-        func.sum(models.Operational_Statistics.arrested).label("arrested")
-    ).filter(and_(models.Operational_Statistics.date >= start_str, models.Operational_Statistics.date < end_str))\
-     .group_by(models.Operational_Statistics.region).all()
+        if not is_admin and not has_perm:
+            raise HTTPException(status_code=403, detail="Clearance Denied: You do not have access to the Consolidated Ledger.")
 
-    story_data = db.query(
-        models.Success_Stories.region, 
-        func.count(models.Success_Stories.sn).label("count")
-    ).filter(and_(models.Success_Stories.date >= start_str, models.Success_Stories.date < end_str))\
-     .group_by(models.Success_Stories.region).all()
+        # 3. Parse Dates
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
 
-    result = []
-    for r in crime_data:
-        result.append({"region": r[0], "offence": r[1], "cases": r[2], "suspects": r[3] or 0})
-    for o in ops_data:
-        result.append({"region": o[0], "offence": "DISRUPTIVE OPS", "cases": 0, "suspects": o[1] or 0})
-    for s in story_data:
-        result.append({"region": s[0], "offence": "SUCCESS STORIES", "cases": s[1], "suspects": 0})
-    return result
+        start_str = start_dt.strftime("%Y-%m-%d")
+        end_str = end_dt.strftime("%Y-%m-%d")
+
+        # 4. Database Queries
+        crime_data = db.query(
+            models.Crime_Reports.region, models.Crime_Reports.offence,
+            func.count(models.Crime_Reports.sn).label("cases"),
+            func.sum(models.Crime_Reports.suspects).label("suspects")
+        ).filter(and_(models.Crime_Reports.date >= start_str, models.Crime_Reports.date < end_str))\
+         .group_by(models.Crime_Reports.region, models.Crime_Reports.offence).all()
+
+        ops_data = db.query(
+            models.Operational_Statistics.region,
+            func.sum(models.Operational_Statistics.arrested).label("arrested")
+        ).filter(and_(models.Operational_Statistics.date >= start_str, models.Operational_Statistics.date < end_str))\
+         .group_by(models.Operational_Statistics.region).all()
+
+        story_data = db.query(
+            models.Success_Stories.region,
+            func.count(models.Success_Stories.sn).label("count")
+        ).filter(and_(models.Success_Stories.date >= start_str, models.Success_Stories.date < end_str))\
+         .group_by(models.Success_Stories.region).all()
+
+        # 5. Build Result
+        result = []
+        for r in crime_data:
+            result.append({"region": r[0], "offence": r[1], "cases": r[2], "suspects": r[3] or 0})
+        for o in ops_data:
+            result.append({"region": o[0], "offence": "DISRUPTIVE OPS", "cases": 0, "suspects": o[1] or 0})
+        for s in story_data:
+            result.append({"region": s[0], "offence": "SUCCESS STORIES", "cases": s[1], "suspects": 0})
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Catching the crash here PREVENTS the "Fake CORS Error" bug!
+        print(f"Ledger Crash: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database Ledger Error: {str(e)}")
 
 @app.get("/api/v1/reports/establishments-json")
 @app.get("/api/v1/reports/hr-establishments-json")
@@ -1478,16 +1508,17 @@ def log_user_session(req: SessionLogRequest, db: Session = Depends(get_db)):
 @app.get("/api/v1/requests")
 def get_all_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     """Fetches pending profile update requests with geographical filtering."""
-    query = db.query(models.Modification_Requests).filter(models.Modification_Requests.status == "PENDING")
+query = db.query(models.Modification_Requests).join(
+        models.Users, models.Modification_Requests.fnum == models.Users.fnum
+    ).filter(models.Modification_Requests.status == "PENDING")
     
     # 🛡️ Geographical Firewall
     if current_user.role != "SUPER_ADMIN":
         if current_user.role == "RPC":
-            query = query.filter(models.Modification_Requests.region == current_user.region)
+            query = query.filter(models.Users.region == current_user.region)
         elif "Commander" in (current_user.position or ""):
-            query = query.filter(models.Modification_Requests.station == current_user.station)
+            query = query.filter(models.Users.station == current_user.station)
         else:
-            # Regular officers shouldn't see the admin request queue
             raise HTTPException(status_code=403, detail="Clearance Denied")
             
     requests = query.order_by(models.Modification_Requests.id.desc()).all()
@@ -1520,8 +1551,6 @@ def create_modification_request(data: dict, db: Session = Depends(get_db), curre
             requested_rank=data.get("requested_rank"),
             requested_region=data.get("requested_region"),
             requested_station=data.get("requested_station"),
-            region=current_user.region, # Lock it to their current region for the RPC to see
-            station=current_user.station, # Lock it to their current station for the DPC to see
             status="PENDING"
         )
         db.add(new_req)
