@@ -244,7 +244,11 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
       )}
 
       <div className="text-center flex flex-col items-center mt-4">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-24 h-24 mb-1 object-contain drop-shadow-md" />
+        <img 
+  src="/upf_badge.png" 
+  alt="UPF Logo" 
+  className="w-24 h-24 mb-1 object-contain drop-shadow-md contrast-200 brightness-75" 
+/>
         <h1 className="text-3xl font-bold text-gray-900 tracking-wide">UGANDA POLICE FORCE</h1>
         <h2 className="text-lg font-bold text-slate-600 mt-1 uppercase tracking-wide">KAMPALA METROPOLITAN POLICE HEADQUARTERS</h2>
         <h3 className="text-sm font-bold text-blue-600 mt-3 uppercase tracking-widest bg-blue-50 px-4 py-1 rounded-full border border-blue-200">Centralised Security Data Management System</h3>
@@ -761,7 +765,12 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       )}
 
       <div className="text-center mb-8 flex flex-col items-center">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
+        <img 
+  src="/upf_badge.png" 
+  alt="UPF Logo" 
+  className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+  onError={(e) => { e.target.style.display = 'none'; }} 
+/>
         <h1 className="text-4xl text-red-500 mt-1 font-bold">Crime/Incident Registry</h1>
         <h2 className="text-xl text-red-300 mt-1 font-medium">Centralised Crime/Incident Compilation</h2>
       </div>
@@ -1312,7 +1321,11 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
   return (
     <div className="p-3 sm:p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
       <div className="text-center mb-8 flex flex-col items-center">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain" />
+        <img 
+  src="/upf_badge.png" 
+  alt="UPF Logo" 
+  className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+/>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-700 tracking-tight">Disruptive OPS Statistics</h1>
         <h3 className="text-sm sm:text-lg text-blue-700 mt-2 font-medium">Weekly Numerical Aggregates</h3>
       </div>
@@ -1748,7 +1761,12 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
   return (
     <div className="p-3 sm:p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
       <div className="text-center mb-8 flex flex-col items-center">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
+        <img 
+  src="/upf_badge.png" 
+  alt="UPF Logo" 
+  className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+  onError={(e) => { e.target.style.display = 'none'; }} 
+/>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-700 tracking-tight">Operational Success Stories</h1>
         <h3 className="text-sm sm:text-lg text-amber-500 mt-2 font-medium">Highlighting UPF Anti-Crime Milestones</h3>
       </div>
@@ -2178,7 +2196,12 @@ const handleFormSubmit = async (e) => {
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
       <div className="text-center mb-8 flex flex-col items-center">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
+        <img 
+  src="/upf_badge.png" 
+  alt="UPF Logo" 
+  className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+  onError={(e) => { e.target.style.display = 'none'; }} 
+/>
         <h1 className="text-3xl font-extrabold text-gray-700 tracking-tight">Regional Establishments</h1>
         <h3 className="text-lg text-green-500 mt-2 font-medium">Divisions, Stations, Posts, Booths and Man-power Strength</h3>
       </div>
@@ -2696,7 +2719,12 @@ const filteredNominal_Roll_archives = useMemo(() => {
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
       <div className="text-center mb-8 flex flex-col items-center">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain" onError={(e) => { e.target.style.display = 'none'; }}/>
+        <img 
+  src="/upf_badge.png" 
+  alt="UPF Logo" 
+  className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+  onError={(e) => { e.target.style.display = 'none'; }} 
+/>
         <h1 className="text-3xl font-extrabold text-gray-700 tracking-tight">Master Nominal Roll</h1>
         <h3 className="text-lg text-indigo-500 mt-2 font-medium">Man-Power Auditing & Deployment Registry</h3>
       </div>
@@ -3172,7 +3200,11 @@ const AdminApprovals = ({ currentUser }) => {
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
       <div className="text-center mb-8 flex flex-col items-center">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain" />
+        <img 
+  src="/upf_badge.png" 
+  alt="UPF Logo" 
+  className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+/>
         <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Access & Command Approvals</h1>
         <h3 className="text-lg text-gray-500 mt-2 font-medium">Review pending officer signups, HR transfers, and Audit Logs.</h3>
       </div>
@@ -4036,7 +4068,12 @@ onLogin({
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative">
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
         <div className="bg-slate-900 p-6 text-center relative">
-          <img src="/upf_badge.png" alt="UPF Logo" className="w-24 h-24 mx-auto mb-4 object-contain" onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
+          <img 
+  src="/upf_badge.png" 
+  alt="UPF Logo" 
+  className="w-24 h-24 mx-auto mb-4 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+  onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} 
+/>
           <h1 className="text-2xl font-extrabold text-white tracking-wide">Uganda Police Force</h1>
           <h2 className="text-lg font-bold text-blue-400 mt-1">Kampala Metropolitan Police Headquarters</h2>
           <h3 className="text-sm font-medium text-slate-400 mt-2 uppercase tracking-widest">Centralised Security Data Management System Access Portal</h3>
@@ -4348,9 +4385,19 @@ const DashboardLayout = ({
   // 🛡️ THE FIX: Only inject 'Admin Dispatch' into the sidebar if the user has Command Clearance!
   if (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)) {
      navItems.push({ 
-       name: '📢 Admin Dispatch', 
+       name: '📢📧 Admin Dispatch', 
        id: 'Admin_Communication', 
-       icon: <Bell size={20} className={hasUnread ? 'animate-pulse text-yellow-400' : ''} /> 
+       icon: (
+         <div className="relative flex items-center justify-center">
+           <Bell size={20} />
+           {hasUnread && (
+             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping" />
+           )}
+           {hasUnread && (
+             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e]" />
+           )}
+         </div>
+       ) 
      });
   }
 
@@ -4426,7 +4473,12 @@ const handleExportLogs = async () => {
         <div className="p-4 flex items-center justify-between border-b border-slate-500">
           {sidebarOpen && (
             <div className="flex items-center">
-              <img src="/upf_badge.png" alt="UPF Logo" className="w-4 h-4 mr-0.5 object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
+              <img 
+  src="/upf_badge.png" 
+  alt="UPF Logo" 
+  className="w-4 h-4 mr-0.5 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+  onError={(e) => { e.target.style.display = 'none'; }} 
+/>
               <span className="font-bold text-0.5g tracking-wider">KMP TRACKER SYSTEM</span>
             </div>
           )}
@@ -4453,7 +4505,14 @@ const handleExportLogs = async () => {
                 }`}
               >
                 <div className="min-w-[24px]">{item.icon}</div>
-                {sidebarOpen && <span className="ml-3 font-medium text-sm">{item.name}</span>}
+                {sidebarOpen && (
+                  <span className={`ml-3 font-medium text-sm flex items-center justify-between flex-1 ${item.id === 'Admin_Communication' && hasUnread ? 'text-green-200 font-extrabold animate-pulse' : ''}`}>
+                    {item.name}
+                    {item.id === 'Admin_Communication' && hasUnread && (
+                      <span className="text-[9px] bg-green-200/20 text-green-200 border border-green-200 px-1.5 py-0.5 rounded uppercase tracking-wider">New</span>
+                    )}
+                  </span>
+                )}
               </button>
             ))}
           </nav>
@@ -4461,7 +4520,7 @@ const handleExportLogs = async () => {
 {sidebarOpen && ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) && (
             <div className="px-4 space-y-3">
               <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
-                <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
+                <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access, Modifications & Approvals</div>
                 <button 
                   onClick={() => setCurrentPage('approvals')} 
                   className={`w-full text-xs py-4 rounded transition font-medium ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}
@@ -4605,7 +4664,12 @@ const handleExportLogs = async () => {
 
       <main className="flex-1 overflow-y-auto bg-gray-50 w-full relative">
         <div className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.03]">
-          <img src="/upf_badge.png" alt="watermark" className="w-1/2 max-w-2xl grayscale object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
+          <img 
+  src="/upf_badge.png" 
+  alt="watermark" 
+  className="w-1/2 max-w-2xl grayscale object-contain contrast-200 brightness-75 drop-shadow-sm" 
+  onError={(e) => { e.target.style.display = 'none'; }} 
+/>
         </div>
         
         {React.Children.map(children, child => 

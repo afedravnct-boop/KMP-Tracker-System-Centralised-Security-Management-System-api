@@ -44,7 +44,7 @@ from auth import router as auth_router, get_current_user
 # ==========================================
 load_dotenv()
 
-app = FastAPI(title="KMP Tracker Central API")
+app = FastAPI(title="KMP Centralised Security Data Management System")
 
 conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
