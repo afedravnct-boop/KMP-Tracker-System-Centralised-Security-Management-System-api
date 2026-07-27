@@ -1500,15 +1500,13 @@ def log_user_session(req: SessionLogRequest, db: Session = Depends(get_db)):
     return {"status": "success"}
 
 # ==========================================
-# 13. ENTRY POINT
-# ==========================================
-# ==========================================
 # 14. MODIFICATION REQUESTS (PROFILE UPDATES)
 # ==========================================
 @app.get("/api/v1/requests")
 def get_all_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     """Fetches pending profile update requests with geographical filtering."""
-query = db.query(models.Modification_Requests).join(
+    
+    query = db.query(models.Modification_Requests).join(
         models.Users, models.Modification_Requests.fnum == models.Users.fnum
     ).filter(models.Modification_Requests.status == "PENDING")
     
