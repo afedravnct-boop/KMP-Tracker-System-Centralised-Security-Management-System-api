@@ -425,7 +425,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
-const [filterRegion, setFilterRegion] = useState((['SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL REGIONS' : currentUser.region);
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [filterStation, setFilterStation] = useState(
   ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) 
     ? 'ALL STATIONS' 
@@ -1171,7 +1171,6 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
-const [filterRegion, setFilterRegion] = useState((['SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL REGIONS' : currentUser.region);
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [filterStation, setFilterStation] = useState(
   ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) 
@@ -1627,7 +1626,6 @@ const [filterRegion, setFilterRegion] = useState((['SUPER_ADMIN'].includes(curre
 // ====================================================================
 const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
-const [filterRegion, setFilterRegion] = useState((['SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL REGIONS' : currentUser.region);
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [filterStation, setFilterStation] = useState(
   ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) 
@@ -2095,7 +2093,6 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-const [filterRegion, setFilterRegion] = useState((['SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL REGIONS' : currentUser.region);
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [filterStation, setFilterStation] = useState('ALL STATIONS');
   const [updateSearch, setUpdateSearch] = useState('');
@@ -2538,7 +2535,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
-const [filterRegion, setFilterRegion] = useState((['SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL REGIONS' : currentUser.region);
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [filterStation, setFilterStation] = useState(
   ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) 
