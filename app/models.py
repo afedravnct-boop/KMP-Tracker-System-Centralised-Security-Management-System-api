@@ -248,6 +248,15 @@ class Audit_Logs(Base):
     # 🟢 ADDED FOREIGN KEY CASCADE
     user_fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
 
+class ActivityLogs(Base):
+    __tablename__ = "activity_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    fnum = Column(String, index=True)
+    name = Column(String)
+    action = Column(String)
+    page_accessed = Column(String)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
 # ==========================================
 # 9. ADMIN COMMUNICATION
 # ==========================================

@@ -16,7 +16,7 @@ import boto3
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
@@ -28,6 +28,8 @@ from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # Internal Imports
@@ -67,6 +69,7 @@ BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 # ==========================================
 models.Base.metadata.create_all(bind=engine)
 
+models.Base.metadata.create_all(bind=SessionLogsLocal().get_bind())
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
@@ -776,13 +779,19 @@ def create_establishment(data: dict, db: Session = Depends(get_db), current_user
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.put("/api/v1/establishments/{sn}")
-def update_establishment(sn: int, est_update: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    existing_est = db.query(models.Establishments).filter(models.Establishments.sn == sn).first()
+@app.put("/api/v1/establishments/{est_id}")
+def update_establishment(est_id: int, est_update: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    # Safely handle both 'id' and 'sn' depending on your exact model setup
+    existing_est = db.query(models.Establishments).filter(
+        (models.Establishments.id == est_id) if hasattr(models.Establishments, 'id') else (models.Establishments.sn == est_id)
+    ).first()
+    
     if not existing_est:
         raise HTTPException(status_code=404, detail="Establishment not found.")
 
     est_update.pop('sn', None) 
+    est_update.pop('id', None) 
+    
     if current_user.role not in ["SUPER_ADMIN", "RPC"]:
         est_update.pop("region", None)
         est_update.pop("division", None)
@@ -931,7 +940,7 @@ async def upload_file(
 # 10. COMMUNICATIONS
 # ==========================================
 @app.post("/api/v1/communications")
-def create_admin_communication(comm: Admin_CommunicationCreate, db: Session = Depends(get_db)):
+def create_admin_communication(comm: Admin_CommunicationCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     try:
         db_comm = models.Admin_Communication(
             sender_fnum=comm.sender_fnum, sender_name=comm.sender_name,
@@ -963,13 +972,16 @@ def create_admin_communication(comm: Admin_CommunicationCreate, db: Session = De
                     <p style="font-size: 10px; color: gray;">Automated dispatch from KMP Tracker.</p>
                 </div>
                 """
-                asyncio.create_task(send_command_briefing(emails, comm.subject, html_body))
+                # Safely execute the async email in the background
+                def send_email_sync():
+                    asyncio.run(send_command_briefing(emails, comm.subject, html_body))
+                
+                background_tasks.add_task(send_email_sync)
 
         return {"status": "success", "id": db_comm.id}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/api/v1/Admin_Communication")
 def get_admin_communications(
     start_date: Optional[str] = None, end_date: Optional[str] = None,
@@ -1085,12 +1097,12 @@ def get_communication_readers(comm_id: int, db: Session = Depends(get_db), curre
 # 11. EXPORTS & REPORTING
 # ==========================================
 @app.get("/api/v1/reports/consolidated-ledger")
-def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depends(get_db), admin: models.Users = Depends(require_admin)):
+def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    perms = current_user.permissions or {}
+    if current_user.role not in ["ADMIN", "SUPER_ADMIN"] and not perms.get("consolidated", False):
+        raise HTTPException(status_code=403, detail="Clearance Denied")
+        
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-    end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
-    
-    start_str = start_dt.strftime("%Y-%m-%d")
-    end_str = end_dt.strftime("%Y-%m-%d")
 
     crime_data = db.query(
         models.Crime_Reports.region, models.Crime_Reports.offence, 
@@ -1408,6 +1420,46 @@ def get_system_activity_logs(db: Session = Depends(get_logs_db), current_user: m
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to fetch activity logs.")
 
+@app.post("/api/v1/activity-logs")
+def create_system_activity_log(data: dict, db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        # Dynamically find the model name you used
+        model_target = getattr(models, 'Activity_Logs', getattr(models, 'activity_logs', None))
+        if not model_target:
+            return {"status": "error", "detail": "Model not found"}
+            
+        new_activity = model_target(
+            fnum=current_user.fnum,
+            name=current_user.name,
+            action=data.get("action", "ACCESSED MODULE"),
+            page_accessed=data.get("page_accessed", "UNKNOWN"),
+            timestamp=datetime.now(pytz.utc)
+        )
+        db.add(new_activity)
+        db.commit()
+        return {"status": "logged in branch"}
+    except Exception as e:
+        db.rollback()
+        return {"status": "error"}
+
+@app.post("/api/v1/audit-logs")
+def create_audit_log(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        new_log = models.AuditLogs(
+            user_fnum=current_user.fnum,
+            event_type=data.get("event_type", "PAGE_ACCESS"),
+            target_user=data.get("target_user", "SYSTEM"),
+            details=data.get("details", "Performed system action"),
+            status="SUCCESS"
+        )
+        db.add(new_log)
+        db.commit()
+        return {"status": "logged"}
+    except Exception as e:
+        db.rollback()
+        # Fail silently so it doesn't crash the user's app if the log fails
+        return {"status": "error"}
+
 @app.post("/api/v1/system/log-session")
 def log_user_session(req: SessionLogRequest, db: Session = Depends(get_db)):
     if hasattr(models, 'Audit_Logs'):
@@ -1420,5 +1472,64 @@ def log_user_session(req: SessionLogRequest, db: Session = Depends(get_db)):
 # ==========================================
 # 13. ENTRY POINT
 # ==========================================
+# ==========================================
+# 14. MODIFICATION REQUESTS (PROFILE UPDATES)
+# ==========================================
+@app.get("/api/v1/requests")
+def get_all_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    """Fetches pending profile update requests with geographical filtering."""
+    query = db.query(models.Modification_Requests).filter(models.Modification_Requests.status == "PENDING")
+    
+    # 🛡️ Geographical Firewall
+    if current_user.role != "SUPER_ADMIN":
+        if current_user.role == "RPC":
+            query = query.filter(models.Modification_Requests.region == current_user.region)
+        elif "Commander" in (current_user.position or ""):
+            query = query.filter(models.Modification_Requests.station == current_user.station)
+        else:
+            # Regular officers shouldn't see the admin request queue
+            raise HTTPException(status_code=403, detail="Clearance Denied")
+            
+    requests = query.order_by(models.Modification_Requests.id.desc()).all()
+    results = []
+    
+    for r in requests:
+        officer = db.query(models.Users).filter(models.Users.fnum == r.fnum).first()
+        if officer:
+            results.append({
+                "id": r.id,
+                "fnum": r.fnum,
+                "current_name": officer.name,
+                "requested_name": r.requested_name,
+                "current_rank": officer.rank,
+                "requested_rank": r.requested_rank,
+                "current_region": officer.region,
+                "requested_region": r.requested_region,
+                "current_station": officer.station,
+                "requested_station": r.requested_station,
+                "status": r.status
+            })
+    return results
+
+@app.post("/api/v1/requests")
+def create_modification_request(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        new_req = models.Modification_Requests(
+            fnum=current_user.fnum,
+            requested_name=data.get("requested_name"),
+            requested_rank=data.get("requested_rank"),
+            requested_region=data.get("requested_region"),
+            requested_station=data.get("requested_station"),
+            region=current_user.region, # Lock it to their current region for the RPC to see
+            station=current_user.station, # Lock it to their current station for the DPC to see
+            status="PENDING"
+        )
+        db.add(new_req)
+        db.commit()
+        return {"status": "success", "message": "Profile modification request sent to Command."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     uvicorn.run("api_backend:app", host="0.0.0.0", port=8000, reload=True)

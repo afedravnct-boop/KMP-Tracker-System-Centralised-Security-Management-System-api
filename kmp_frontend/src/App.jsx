@@ -163,8 +163,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewConsolidated, Admin_Communication, onAcknowledgeComm }) => {
-  const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
+const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewConsolidated, adminCommsData, onAcknowledgeComm }) => {  const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
   const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role);
   
   const commsData = Admin_Communication || [];
@@ -401,7 +400,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [notification, setNotification] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? 'ALL REGIONS' : currentUser.region);
-  const [filterStation, setFilterStation] = useState('ALL STATIONS');
+  const [filterStation, setFilterStation] = useState(['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? 'ALL STATIONS'  
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   const [updateSearch, setUpdateSearch] = useState('');
@@ -1007,18 +1006,16 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
               <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
             </div>
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white">
-              {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && <option value="ALL REGIONS">ALL REGIONS</option>}
-              {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
-                Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
-              ) : (
-                <option value={currentUser.region}>{currentUser.region}</option>
-              )}
-            </select>
-            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white">
-              <option value="ALL STATIONS">ALL STATIONS</option>
-              {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
-            </select>
+            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+                  <>
+                    <option value="ALL STATIONS">ALL STATIONS</option>
+                    {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                  </>
+                ) : (
+                  <option value={currentUser.station}>{currentUser.station}</option>
+                )}
+              
           </div>
 
           <ExpandableTableCard 
@@ -1114,7 +1111,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
   const [notification, setNotification] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? 'ALL REGIONS' : currentUser.region);
-  const [filterStation, setFilterStation] = useState('ALL STATIONS');
+  const [filterStation, setFilterStation] = useState(['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? 'ALL STATIONS'  
   const [updateSearch, setUpdateSearch] = useState('');
   
   const [dateFilter, setDateFilter] = useState('ALL TIME');
@@ -1463,27 +1460,17 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
         
         <div className="lg:col-span-8 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-             <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white w-full sm:w-auto">
-                {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && <option value="ALL REGIONS">ALL REGIONS</option>}
-                {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
-                  Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
+             <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white w-full sm:w-auto disabled:bg-gray-100 disabled:text-gray-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+                  <>
+                    <option value="ALL STATIONS">ALL STATIONS</option>
+                    {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                  </>
                 ) : (
-                  <option value={currentUser.region}>{currentUser.region}</option>
+                  <option value={currentUser.station}>{currentUser.station}</option>
                 )}
-              </select>
-              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white w-full sm:w-auto">
-                <option value="ALL STATIONS">ALL STATIONS</option>
-                {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
-              </select>
+                            
               
-              <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white outline-none w-full sm:w-auto">
-                <option value="ALL TIME">ALL TIME</option>
-                <option value="TODAY">TODAY ONLY</option>
-                <option value="LAST 7 DAYS">LAST 7 DAYS</option>
-                <option value="LAST 30 DAYS">LAST 30 DAYS</option>
-                <option value="LAST 90 DAYS">LAST 90 DAYS</option>
-                <option value="LAST 120 DAYS">LAST 120 DAYS</option>
-              </select>
           </div>
 
           <ExpandableTableCard 
@@ -1559,7 +1546,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
 const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [filterRegion, setFilterRegion] = useState(['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? 'ALL REGIONS' : currentUser.region);
-  const [filterStation, setFilterStation] = useState('ALL STATIONS');
+  const [filterStation, setFilterStation] = useState(['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? 'ALL STATIONS'   
   const [notification, setNotification] = useState(null);
   const [updateSearch, setUpdateSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
@@ -1919,19 +1906,17 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
         <div className="lg:col-span-7 space-y-4">
           {/* Responsive filter row mirroring the Crime Registry setup */}
           <div className="flex flex-col sm:flex-row gap-3">
-             <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white w-full sm:w-auto">
-                {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && <option value="ALL REGIONS">ALL REGIONS</option>}
-                {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
-                  Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
+             <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white w-full sm:w-auto disabled:bg-gray-100 disabled:text-gray-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+                  <>
+                    <option value="ALL STATIONS">ALL STATIONS</option>
+                    {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                  </>
                 ) : (
-                  <option value={currentUser.region}>{currentUser.region}</option>
+                  <option value={currentUser.station}>{currentUser.station}</option>
                 )}
               </select>
-              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white w-full sm:w-auto">
-                <option value="ALL STATIONS">ALL STATIONS</option>
-                {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
-              </select>
-              
+                            
               {/* Visible, functional Date Filter Dropdown */}
               <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white outline-none w-full sm:w-auto">
                 <option value="ALL TIME">ALL TIME</option>
@@ -2249,13 +2234,16 @@ const handleFormSubmit = async (e) => {
 <div className="grid grid-cols-2 gap-4">
   <div className="col-span-2">
     <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
-    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
-        Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
-      ) : (
-        <option value={currentUser.region}>{currentUser.region}</option>
-      )}
-    </select>
+    <select value={filterDivision} onChange={(e) => setFilterDivision(e.target.value)} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+                  <>
+                    <option value="ALL DIVISIONS">ALL DIVISIONS</option>
+                    {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(div => <option key={div} value={div}>{div}</option>)}
+                  </>
+                ) : (
+                  <option value={currentUser.division || currentUser.station}>{currentUser.division || currentUser.station}</option>
+                )}
+              </select>
   </div>
   
   <div className="col-span-2">
@@ -2441,7 +2429,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   const [notification, setNotification] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? 'ALL REGIONS' : currentUser.region);
-  const [filterStation, setFilterStation] = useState('ALL STATIONS');
+  const [filterStation, setFilterStation] = useState(['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? 'ALL STATIONS'  
   const [updateSearch, setUpdateSearch] = useState('');
 
   const [viewMode, setViewMode] = useState('active'); 
@@ -2948,18 +2936,17 @@ const filteredNominal_Roll_archives = useMemo(() => {
         
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-             <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white">
-               {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && <option value="ALL REGIONS">ALL REGIONS</option>}
-               {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
-                 Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
-               ) : (
-                 <option value={currentUser.region}>{currentUser.region}</option>
-               )}
-             </select>
-             <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white">
-               <option value="ALL STATIONS">ALL STATIONS</option>
-               {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)}
-             </select>
+             <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+                  <>
+                    <option value="ALL STATIONS">ALL STATIONS</option>
+                    {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                  </>
+                ) : (
+                  <option value={currentUser.station}>{currentUser.station}</option>
+                )}
+              </select>
+             
           </div>
 
           {viewMode === 'metrics' ? (
@@ -3088,6 +3075,8 @@ const AdminApprovals = ({ currentUser }) => {
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [audit_logs, setaudit_logs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
+  const [activity_logs, setActivity_logs] = useState([]);
+  const [loadingActivity, setLoadingActivity] = useState(false);
   
   const [realPendingUsers, setRealPendingUsers] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
@@ -3108,6 +3097,16 @@ const AdminApprovals = ({ currentUser }) => {
             setLoadingLogs(false); 
         })
         .catch(err => { console.error(err); setLoadingLogs(false); });
+    }
+    if (activeTab === 'requests') {
+      setLoadingRequests(true);
+      authFetch("/api/v1/requests")
+        .then(res => res.json())
+        .then(data => {
+            setModRequests(Array.isArray(data) ? data : []);
+            setLoadingRequests(false);
+        })
+        .catch(err => { console.error(err); setLoadingRequests(false); });
     }
   }, [activeTab]);
 
@@ -3244,6 +3243,57 @@ const AdminApprovals = ({ currentUser }) => {
         )}
       </div>
     )}
+
+    {activeTab === 'requests' && (
+        <div className="bg-white rounded-xl shadow-sm border border-yellow-200 overflow-hidden max-w-6xl mx-auto">
+          <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
+            <Shield className="w-5 h-5 mr-2 text-yellow-400" /> HR Modification Requests
+          </div>
+          {loadingRequests ? (
+            <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Loading pending modifications...</div>
+          ) : modRequests.length === 0 ? (
+            <div className="p-8 text-center text-gray-500 font-medium">No pending profile modification requests.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Officer</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Requested Changes</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {modRequests.map((req) => (
+                    <tr key={req.id} className="hover:bg-yellow-50/50">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="font-extrabold text-blue-700">{req.current_name}</div>
+                        <div className="text-xs font-bold text-slate-500">{req.fnum} | {req.current_rank}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {req.requested_name && req.requested_name !== req.current_name && <div className="text-xs"><span className="font-bold text-slate-400">Name:</span> <span className="text-red-500 line-through mr-1">{req.current_name}</span> ➡️ <span className="text-green-600 font-bold">{req.requested_name}</span></div>}
+                        {req.requested_rank && req.requested_rank !== req.current_rank && <div className="text-xs"><span className="font-bold text-slate-400">Rank:</span> <span className="text-red-500 line-through mr-1">{req.current_rank}</span> ➡️ <span className="text-green-600 font-bold">{req.requested_rank}</span></div>}
+                        {req.requested_station && req.requested_station !== req.current_station && <div className="text-xs"><span className="font-bold text-slate-400">Station:</span> <span className="text-red-500 line-through mr-1">{req.current_station}</span> ➡️ <span className="text-green-600 font-bold">{req.requested_station}</span></div>}
+                        {req.requested_region && req.requested_region !== req.current_region && <div className="text-xs"><span className="font-bold text-slate-400">Region:</span> <span className="text-red-500 line-through mr-1">{req.current_region}</span> ➡️ <span className="text-green-600 font-bold">{req.requested_region}</span></div>}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm">
+                        <div className="flex space-x-2">
+                          <button onClick={() => handleReviewRequest(req.id, "APPROVED")} className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
+                            <CheckCircle size={14} className="mr-1" /> Approve
+                          </button>
+                          <button onClick={() => handleReviewRequest(req.id, "REJECTED")} className="bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
+                            <X size={14} className="mr-1" /> Reject
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
     {activeTab === 'logs' && (
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-6xl mx-auto">
@@ -3514,6 +3564,58 @@ const handleSubmit = async (e) => {
     }
   };
 
+  // 🟢 STRICT SECURITY LOCK: Contact Form Submission
+  const handleContactSubmit = async (e) => {
+    if (e) e.preventDefault();
+    setNotification("⏳ Saving contact details...");
+
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const token = localStorage.getItem('kmp_authToken');
+      
+      // 🛡️ THE FIX: Force all HR fields back to the verified currentUser state.
+      // This prevents users from smuggling Name/Rank changes through the contact form.
+      const securePayload = {
+        fnum: currentUser.fnum,
+        name: currentUser.name,
+        rank: currentUser.rank,
+        region: currentUser.region,
+        station: currentUser.station,
+        email: formData.email,
+        phone: formData.phone,
+        profile_photo_path: formData.profile_photo_path
+      };
+
+      const response = await fetch(`${API_URL}/api/v1/users/profile/update`, {
+        method: "PUT",
+        headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify(securePayload)
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) throw new Error(data.detail || "Failed to update database.");
+
+      // Only update the React state with the safe contact fields
+      setCurrentUser({
+        ...currentUser,
+        email: formData.email,
+        phone: formData.phone,
+        profile_photo_path: formData.profile_photo_path
+      });
+
+      setNotification("✅ Contact info and photo successfully updated!");
+      setTimeout(() => setNotification(null), 4000);
+
+    } catch (err) {
+      console.error(err);
+      setNotification(`❌ ${err.message}`);
+    }
+  };
+
   const handleProfileSave = (e) => {
      e.preventDefault();
 
@@ -3630,7 +3732,7 @@ const handleSubmit = async (e) => {
               </div>
 
 {/* 🟢 CHANGED: onSubmit={handleSubmit} restores direct saving for contact info */}
-              <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+              <form onSubmit={handleContactSubmit} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
                 <div className="flex items-center text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2">
                   <Edit size={14} className="mr-2" /> Editable Contact Data & Photo
                 </div>
@@ -4201,7 +4303,30 @@ const DashboardLayout = ({
     };
   }, [onLogout]);
 
-  // ... the rest of your DashboardLayout code continues here
+  // 🟢 AUTOMATIC PAGE ACCESS TRACKER (AUDIT LOGGING)
+  useEffect(() => {
+    if (!currentUser?.fnum || !currentPage) return;
+    
+    const token = localStorage.getItem('kmp_authToken');
+    if (!token) return;
+
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+    
+    // Silently send the footprint to the database
+    fetch(`${API_URL}/api/v1/audit-logs`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        event_type: 'MODULE_ACCESS',
+        target_user: 'SYSTEM',
+        details: `Officer ${currentUser.name} accessed the ${currentPage.toUpperCase()} module.`
+      })
+    }).catch(e => console.warn("Audit log silent fail"));
+    
+  }, [currentPage, currentUser?.fnum]); // This triggers EVERY time the page changes!
 
   const latestCommId = (Admin_Communication && Admin_Communication.length > 0) 
     ? Math.max(...Admin_Communication.map(c => c.id)) 
@@ -4454,7 +4579,7 @@ const handleExportLogs = async () => {
         </div>
 
         <div className="p-4 border-t border-slate-700 bg-slate-950">
-          <div className="flex items-center mb-4 px-2 cursor-pointer hover:bg-slate-800 p-2 rounded transition-colors" onClick={() => setCurrentPage('profile')}>
+          <div className="flex items-center mb-4 px-2 cursor-pointer hover:bg-slate-800 p-2 rounded transition-colors" onClick={() => setSelectedUserDetail({ ...currentUser, isSystemUser: false })}>
              <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm shadow overflow-hidden">
                {currentUser?.profile_photo_path ? (
                  <img src={currentUser.profile_photo_path} alt="" className="w-full h-full object-cover" onError={(e) => { e.target.style.display='none'; }} />
