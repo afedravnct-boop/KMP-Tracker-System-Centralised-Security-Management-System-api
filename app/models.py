@@ -4,6 +4,7 @@ from sqlalchemy.orm import relationship
 from app.database import Base, LogsBase
 from datetime import datetime
 from datetime import datetime, timedelta
+from sqlalchemy import Column, DateTime
 import pytz
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -215,6 +216,7 @@ class Users(Base):
     profile_photo_path = Column(String, nullable=True)
     created_at = Column(DateTime, default=get_eat_time)
     permissions = Column(JSON, default={})
+    last_active_at = Column(DateTime, nullable=True)
 
 # ==========================================
 # 8. SYSTEM AUDIT & ACTIVITY LOGS

@@ -4122,11 +4122,49 @@ const DashboardLayout = ({
   const [showAllUsers, setShowAllUsers] = useState(false);
   const [selectedUserDetail, setSelectedUserDetail] = useState(null);
   
-  // Using standard useState here since usePersistentState might not be in scope for DashboardLayout directly
   const [lastViewedId, setLastViewedId] = useState(() => {
     const saved = localStorage.getItem('last_viewed_comm_id');
     return saved ? JSON.parse(saved) : 0;
   });
+
+  // 🟢 LIVE DATABASE HEARTBEAT & ONLINE ROSTER SYNC
+  const [realOnlineUsers, setRealOnlineUsers] = useState([]);
+
+  useEffect(() => {
+    const token = localStorage.getItem('kmp_authToken');
+    if (!token) return;
+
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
+    const syncHeartbeat = async () => {
+      try {
+        // 1. Send the ping to keep this user alive in the DB
+        await fetch(`${API_URL}/api/v1/users/heartbeat`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        // 2. Fetch the live list of active officers
+        const response = await fetch(`${API_URL}/api/v1/users/online`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (response.ok) {
+          setRealOnlineUsers(await response.json());
+        }
+      } catch (err) {
+        console.warn("Heartbeat sync paused, retrying next minute...");
+      }
+    };
+
+    // Fire immediately upon mounting the dashboard
+    syncHeartbeat();
+
+    // Loop exactly every 60 seconds (60000ms)
+    const heartbeatInterval = setInterval(syncHeartbeat, 60000);
+
+    return () => clearInterval(heartbeatInterval);
+  }, []);
 
   // 🟢 INDEPENDENT BACKGROUND IDLE TIMER
   useEffect(() => {
@@ -4315,23 +4353,30 @@ const handleExportLogs = async () => {
 
               <div className="rounded-lg p-4 bg-slate-800">
                 <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
-                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Connections (1)</span>
+                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Connections ({realOnlineUsers.length})</span>
                   <span className="bg-slate-900 px-2 py-2 rounded-full text-xs"></span>
                 </button>
+                
                 {showOnline && (
-                  <div className="mt-4 space-y-2 border-t border-slate-700 pt-4">
-                    {/* DYNAMICALLY RENDERS THE CURRENT USER */}
-                    <div onClick={() => inspectSystemUser(currentUser)} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between">
-                      <div>
-                        <span className="font-bold text-white block">{currentUser.name} (You)</span>
-                        <span className="text-slate-400">{currentUser.station}</span>
+                  <div className="mt-4 space-y-2 border-t border-slate-700 pt-4 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                    {/* DYNAMICALLY RENDERS ALL LIVE USERS */}
+                    {realOnlineUsers.map((user) => (
+                      <div key={user.fnum} onClick={() => inspectSystemUser(user)} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between group">
+                        <div className="flex items-center space-x-3">
+                          {user.profile_photo_path ? (
+                            <img src={user.profile_photo_path} alt="" className="w-7 h-7 rounded-full border border-green-400 object-cover shadow-sm group-hover:border-green-300 transition-colors" onError={(e) => { e.target.style.display='none'; }} />
+                          ) : (
+                            <div className="w-7 h-7 bg-green-600 rounded-full flex items-center justify-center text-white font-bold shadow-sm">{user.name?.charAt(0) || 'U'}</div>
+                          )}
+                          <div>
+                            <span className="font-bold text-white block truncate w-32">{user.name} {user.fnum === currentUser.fnum ? '(You)' : ''}</span>
+                            <span className="text-slate-400 text-[9px] uppercase tracking-wider">{user.station}</span>
+                          </div>
+                        </div>
+                        {/* Pulsing Green Dot */}
+                        <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e] animate-pulse"></div>
                       </div>
-                      {currentUser.profile_photo_path ? (
-                        <img src={currentUser.profile_photo_path} alt="" className="w-6 h-6 rounded-full border border-green-400 object-cover" onError={(e) => { e.target.style.display='none'; }} />
-                      ) : (
-                        <div className="w-6 h-6 bg-green-600 rounded-full flex items-center justify-center text-white font-bold">{currentUser.name.charAt(0)}</div>
-                      )}
-                    </div>
+                    ))}
                   </div>
                 )}
               </div>
