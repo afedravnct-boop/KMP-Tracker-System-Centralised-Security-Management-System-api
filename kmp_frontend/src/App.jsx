@@ -165,7 +165,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
 
 const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewConsolidated, adminCommsData, onAcknowledgeComm }) => {
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
-  const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role);
+  const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role);
   
   const commsData = adminCommsData || [];
 
@@ -425,9 +425,9 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [filterStation, setFilterStation] = useState(
-  ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) 
+  ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) 
     ? 'ALL STATIONS' 
     : currentUser?.station || ''
 );  
@@ -921,10 +921,10 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
                       {operation === 'update' ? (
                         <option value={formData.station}>{formData.station}</option>
-                      ) : ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+                      ) : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
                         (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)
                       ) : (
                         <option value={currentUser.station}>{currentUser.station}</option>
@@ -1041,9 +1041,14 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
               <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
             </div>
-            {/* 1. REGION FILTER (Super Admin / Global Only) */}
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto">
-              {(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) ? (
+{/* 1. REGION FILTER (Enabled ONLY for Super Admin) */}
+            <select 
+              value={filterRegion} 
+              onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
+              disabled={currentUser.role !== 'SUPER_ADMIN'} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+            >
+              {currentUser.role === 'SUPER_ADMIN' ? (
                 <>
                   <option value="ALL REGIONS">ALL REGIONS</option>
                   {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
@@ -1053,29 +1058,21 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               )}
             </select>
 
-            {/* 2. STATION FILTER (RPC / Super Admin) */}
-{/* 1. REGION FILTER (Super Admin / Global Only) */}
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto">
-              {(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) ? (
+            {/* 2. STATION FILTER (Enabled ONLY for Super Admin and RPC) */}
+            <select 
+              value={filterStation} 
+              onChange={(e) => setFilterStation(e.target.value)} 
+              disabled={!['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+            >
+              {['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
                 <>
-                  <option value="ALL REGIONS">ALL REGIONS</option>
-                  {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
+                  <option value="ALL STATIONS">ALL STATIONS</option>
+                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
                 </>
               ) : (
-                <option value={currentUser.region}>{currentUser.region}</option>
+                <option value={currentUser.station}>{currentUser.station}</option>
               )}
-            </select>
-
-            {/* 2. STATION FILTER (RPC / Super Admin) */}
-            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white w-full sm:w-auto disabled:bg-gray-100 disabled:text-gray-500">
-                {(['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? (
-                  <>
-                    <option value="ALL STATIONS">ALL STATIONS</option>
-                    {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
-                  </>
-                ) : (
-                  <option value={currentUser.station}>{currentUser.station}</option>
-                )}
             </select>    
           </div>
 
@@ -1171,9 +1168,9 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [filterStation, setFilterStation] = useState(
-  ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) 
+  ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) 
     ? 'ALL STATIONS' 
     : currentUser?.station || ''
 );  
@@ -1454,10 +1451,10 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Station / Division *</label>
-                      <select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                      <select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
                         {operation === 'update' ? (
                           <option value={formData.station}>{formData.station}</option>
-                        ) : ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+                        ) : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
                           (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)
                         ) : (
                           <option value={currentUser.station}>{currentUser.station}</option>
@@ -1529,9 +1526,14 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
         
         <div className="lg:col-span-8 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-             {/* 1. REGION FILTER (Super Admin / Global Only) */}
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto">
-              {(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) ? (
+{/* 1. REGION FILTER (Enabled ONLY for Super Admin) */}
+            <select 
+              value={filterRegion} 
+              onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
+              disabled={currentUser.role !== 'SUPER_ADMIN'} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+            >
+              {currentUser.role === 'SUPER_ADMIN' ? (
                 <>
                   <option value="ALL REGIONS">ALL REGIONS</option>
                   {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
@@ -1541,16 +1543,21 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
               )}
             </select>
 
-            {/* 2. STATION FILTER (RPC / Super Admin) */}
-            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white w-full sm:w-auto disabled:bg-gray-100 disabled:text-gray-500">
-                {(['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? (
-                  <>
-                    <option value="ALL STATIONS">ALL STATIONS</option>
-                    {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
-                  </>
-                ) : (
-                  <option value={currentUser.station}>{currentUser.station}</option>
-                )}
+            {/* 2. STATION FILTER (Enabled ONLY for Super Admin and RPC) */}
+            <select 
+              value={filterStation} 
+              onChange={(e) => setFilterStation(e.target.value)} 
+              disabled={!['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+            >
+              {['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
+                <>
+                  <option value="ALL STATIONS">ALL STATIONS</option>
+                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                </>
+              ) : (
+                <option value={currentUser.station}>{currentUser.station}</option>
+              )}
             </select>    
           </div>
 
@@ -1626,9 +1633,9 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
 // ====================================================================
 const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [filterStation, setFilterStation] = useState(
-  ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) 
+  ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) 
     ? 'ALL STATIONS' 
     : currentUser?.station || ''
 );   
@@ -1901,10 +1908,10 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange}disabled={!(['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                    <select name="station" value={formData.station} onChange={handleInputChange}disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
                       {operation === 'update' ? (
                         <option value={formData.station}>{formData.station}</option>
-                      ) : ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+                      ) : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
                         (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)
                       ) : (
                         <option value={currentUser.station}>{currentUser.station}</option>
@@ -1996,9 +2003,14 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
         <div className="lg:col-span-7 space-y-4">
           {/* Responsive filter row mirroring the Crime Registry setup */}
           <div className="flex flex-col sm:flex-row gap-3">
-{/* 1. REGION FILTER (Super Admin / Global Only) */}
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto">
-              {(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) ? (
+{/* 1. REGION FILTER (Enabled ONLY for Super Admin) */}
+            <select 
+              value={filterRegion} 
+              onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
+              disabled={currentUser.role !== 'SUPER_ADMIN'} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+            >
+              {currentUser.role === 'SUPER_ADMIN' ? (
                 <>
                   <option value="ALL REGIONS">ALL REGIONS</option>
                   {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
@@ -2008,16 +2020,21 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
               )}
             </select>
 
-            {/* 2. STATION FILTER (RPC / Super Admin) */}
-            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white w-full sm:w-auto disabled:bg-gray-100 disabled:text-gray-500">
-                {(['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? (
-                  <>
-                    <option value="ALL STATIONS">ALL STATIONS</option>
-                    {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
-                  </>
-                ) : (
-                  <option value={currentUser.station}>{currentUser.station}</option>
-                )}
+            {/* 2. STATION FILTER (Enabled ONLY for Super Admin and RPC) */}
+            <select 
+              value={filterStation} 
+              onChange={(e) => setFilterStation(e.target.value)} 
+              disabled={!['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+            >
+              {['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
+                <>
+                  <option value="ALL STATIONS">ALL STATIONS</option>
+                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                </>
+              ) : (
+                <option value={currentUser.station}>{currentUser.station}</option>
+              )}
             </select>                            
               {/* Visible, functional Date Filter Dropdown */}
               <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white outline-none w-full sm:w-auto">
@@ -2093,7 +2110,7 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [filterStation, setFilterStation] = useState('ALL STATIONS');
   const [updateSearch, setUpdateSearch] = useState('');
 
@@ -2341,8 +2358,8 @@ const handleFormSubmit = async (e) => {
 <div className="grid grid-cols-2 gap-4">
   <div className="col-span-2">
     <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
-    <select value={filterDivision} onChange={(e) => setFilterDivision(e.target.value)} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500">
-                {['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+    <select value={filterDivision} onChange={(e) => setFilterDivision(e.target.value)} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
                   <>
                     <option value="ALL DIVISIONS">ALL DIVISIONS</option>
                     {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(div => <option key={div} value={div}>{div}</option>)}
@@ -2355,8 +2372,8 @@ const handleFormSubmit = async (e) => {
   
   <div className="col-span-2">
     <label className="block text-xs font-bold text-gray-700 mb-1">DIVISION (Headquarter) *</label>
-    <select name="division" value={formData.division} onChange={handleInputChange} disabled={!(['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-      {['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+    <select name="division" value={formData.division} onChange={handleInputChange} disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+      {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
         formData.region && REGIONAL_HIERARCHY[formData.region] ? REGIONAL_HIERARCHY[formData.region].map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value="">Select Region First</option>
       ) : (
         <option value={currentUser.station || currentUser.division}>{currentUser.station || currentUser.division}</option>
@@ -2451,18 +2468,39 @@ const handleFormSubmit = async (e) => {
         </div>
         
         <div className="lg:col-span-8 space-y-4">          <div className="flex flex-col sm:flex-row gap-3">
-             <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); setFilterDivision('ALL DIVISIONS'); }} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white">
-                {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && <option value="ALL REGIONS">ALL REGIONS</option>}
-                {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
-                  Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
-                ) : (
-                  <option value={currentUser.region}>{currentUser.region}</option>
-                )}
-              </select>
-              <select value={filterDivision} onChange={(e) => setFilterDivision(e.target.value)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white">
-                <option value="ALL DIVISIONS">ALL DIVISIONS</option>
-                {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].map(div => <option key={div} value={div}>{div}</option>)}
-              </select>
+             {/* 1. REGION FILTER (Enabled ONLY for Super Admin) */}
+            <select 
+              value={filterRegion} 
+              onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
+              disabled={currentUser.role !== 'SUPER_ADMIN'} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+            >
+              {currentUser.role === 'SUPER_ADMIN' ? (
+                <>
+                  <option value="ALL REGIONS">ALL REGIONS</option>
+                  {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
+                </>
+              ) : (
+                <option value={currentUser.region}>{currentUser.region}</option>
+              )}
+            </select>
+
+            {/* 2. STATION FILTER (Enabled ONLY for Super Admin and RPC) */}
+            <select 
+              value={filterStation} 
+              onChange={(e) => setFilterStation(e.target.value)} 
+              disabled={!['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+            >
+              {['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
+                <>
+                  <option value="ALL STATIONS">ALL STATIONS</option>
+                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                </>
+              ) : (
+                <option value={currentUser.station}>{currentUser.station}</option>
+              )}
+            </select>
           </div>
 
           <ExpandableTableCard 
@@ -2535,9 +2573,9 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [filterStation, setFilterStation] = useState(
-  ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) 
+  ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) 
     ? 'ALL STATIONS' 
     : currentUser?.station || ''
 );  
@@ -2955,8 +2993,8 @@ const filteredNominal_Roll_archives = useMemo(() => {
   </div>
   <div>
     <label className="block text-[10px] font-bold text-gray-700 mb-1">DUTY STATION *</label>
-    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">
-      {['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? (
+    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">
+      {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
         (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)
       ) : (
         <option value={currentUser.station}>{currentUser.station}</option>
@@ -3052,9 +3090,14 @@ const filteredNominal_Roll_archives = useMemo(() => {
         
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-           {/* 1. REGION FILTER (Super Admin / Global Only) */}
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto">
-              {(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) ? (
+{/* 1. REGION FILTER (Enabled ONLY for Super Admin) */}
+            <select 
+              value={filterRegion} 
+              onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
+              disabled={currentUser.role !== 'SUPER_ADMIN'} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+            >
+              {currentUser.role === 'SUPER_ADMIN' ? (
                 <>
                   <option value="ALL REGIONS">ALL REGIONS</option>
                   {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
@@ -3064,16 +3107,21 @@ const filteredNominal_Roll_archives = useMemo(() => {
               )}
             </select>
 
-            {/* 2. STATION FILTER (RPC / Super Admin) */}
-            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white w-full sm:w-auto disabled:bg-gray-100 disabled:text-gray-500">
-                {(['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? (
-                  <>
-                    <option value="ALL STATIONS">ALL STATIONS</option>
-                    {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
-                  </>
-                ) : (
-                  <option value={currentUser.station}>{currentUser.station}</option>
-                )}
+            {/* 2. STATION FILTER (Enabled ONLY for Super Admin and RPC) */}
+            <select 
+              value={filterStation} 
+              onChange={(e) => setFilterStation(e.target.value)} 
+              disabled={!['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+            >
+              {['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
+                <>
+                  <option value="ALL STATIONS">ALL STATIONS</option>
+                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                </>
+              ) : (
+                <option value={currentUser.station}>{currentUser.station}</option>
+              )}
             </select>
             </div>
 
@@ -3212,7 +3260,7 @@ const AdminApprovals = ({ currentUser }) => {
   const [resetRequests, setResetRequests] = useState([]);
   const [loadingResets, setLoadingResets] = useState(false);
 
-  const isRPC = currentUser && currentUser.role === 'RPC';
+  const isRPC = currentUser && currentUser.role === 'RPC', 'Deputy Commander';
   const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
 
   useEffect(() => {
@@ -4072,7 +4120,7 @@ const handleSignupSubmit = async (e) => {
       let derivedRole = 'USER';
       if (signupData.position === 'System Manager') derivedRole = 'SUPER_ADMIN';
       else if (POSITIONS.ADMIN.includes(signupData.position) || signupData.position.includes('Divisional Commander') || signupData.station === 'KMP HEADQUARTERS' || signupData.station === 'KMP Headquarters' || signupData.region === 'POLICE HEADQUARTERS') derivedRole = 'ADMIN';
-      else if (POSITIONS.RPC.includes(signupData.position) || signupData.position.includes(`${signupData.region} Commander`)) derivedRole = 'RPC';
+      else if (POSITIONS.RPC.includes(signupData.position) || signupData.position.includes(`${signupData.region} Commander`)) derivedRole = 'RPC', 'Deputy Commander';
       
       formData.append("role", derivedRole);
       
@@ -4474,13 +4522,32 @@ const DashboardLayout = ({
     
   }, [currentPage, currentUser?.fnum]); // This triggers EVERY time the page changes!
 
-  const latestCommId = (Admin_Communication && Admin_Communication.length > 0) 
-    ? Math.max(...Admin_Communication.map(c => c.id)) 
-    : 0;
-  const hasUnread = latestCommId > lastViewedId;
+// Calculate if the current user has unread messages, regardless of their role
+  const relevantComms = (Array.isArray(Admin_Communication) ? Admin_Communication : []).filter(c => {
+    if (currentUser?.role === 'SUPER_ADMIN') return true;
+    const audience = c.target_audience || c.audience || 'ALL_USERS';
+    const region = c.target_region || c.region;
+    if (audience === 'ALL_USERS' || audience === 'ALL') return true;
+    if (audience === 'ADMINS_ONLY' && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role)) return true;
+    if (audience === 'RPC_ONLY' && ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role)) return true;
+    if (audience === 'SPECIFIC_REGION' && region === currentUser?.region) return true;
+    return false;
+  });
+
+  const hasUnreadComms = relevantComms.some(c => !c.acknowledged);
 
   const navItems = [
-    { name: '🏠 Home Dashboard', id: 'home', icon: <Home size={20} /> },
+    { 
+      name: '🏠 Home Dashboard', 
+      id: 'home', 
+      icon: (
+        <div className="relative flex items-center justify-center">
+          <Home size={20} />
+          {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping" />}
+          {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full" />}
+        </div>
+      )
+    },
     { name: '📋 Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> },
     { name: '📊 Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> },
     { name: '⛓️‍💥 Success Stories', id: 'success', icon: <Trophy size={20} /> },
@@ -4611,19 +4678,20 @@ const handleExportLogs = async () => {
                 }`}
               >
                 <div className="min-w-[24px]">{item.icon}</div>
-                {sidebarOpen && (
-                  <span className={`ml-3 font-medium text-sm flex items-center justify-between flex-1 ${item.id === 'Admin_Communication' && hasUnread ? 'text-green-200 font-extrabold animate-pulse' : ''}`}>
+{sidebarOpen && (
+                  <span className={`ml-3 font-medium text-sm flex items-center justify-between flex-1 ${item.id === 'home' && hasUnreadComms ? 'text-green-200 font-extrabold animate-pulse' : ''}`}>
                     {item.name}
-                    {item.id === 'Admin_Communication' && hasUnread && (
-                      <span className="text-[9px] bg-green-200/20 text-green-200 border border-green-200 px-1.5 py-0.5 rounded uppercase tracking-wider">New</span>
+                    {item.id === 'home' && hasUnreadComms && (
+                      <span className="text-[9px] bg-green-200/20 text-green-200 border border-green-200 px-1.5 py-0.5 rounded uppercase tracking-wider">New Dispatch</span>
                     )}
                   </span>
+                )}
                 )}
               </button>
             ))}
           </nav>
 
-{sidebarOpen && ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) && (
+{sidebarOpen && ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) && (
             <div className="px-4 space-y-3">
               <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
                 <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access, Modifications & Approvals</div>
@@ -4714,7 +4782,7 @@ const handleExportLogs = async () => {
             </div> 
           )}
 
-          {sidebarOpen && ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) && (
+          {sidebarOpen && ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) && (
             <div className="px-4 mt-4 space-y-3">
               <div className="bg-slate-800 rounded-lg p-3 border border-yellow-600/30">
                 <div className="text-sm font-bold text-yellow-500 mb-3 flex items-center"><Shield size={16} className="mr-2"/> ⚙️ Reports & Ledgers</div>
@@ -4896,8 +4964,8 @@ const handleExportLogs = async () => {
                       <input 
                         type="checkbox" 
                         className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
-                        checked={Boolean(selectedUserDetail.permissions?.export_data) || selectedUserDetail.role === 'RPC' || String(selectedUserDetail.role || '').includes('ADMIN')}
-                        disabled={selectedUserDetail.role === 'RPC' || String(selectedUserDetail.role || '').includes('ADMIN')}
+                        checked={Boolean(selectedUserDetail.permissions?.export_data) || selectedUserDetail.role === 'RPC', 'Deputy Commander' || String(selectedUserDetail.role || '').includes('ADMIN')}
+                        disabled={selectedUserDetail.role === 'RPC', 'Deputy Commander' || String(selectedUserDetail.role || '').includes('ADMIN')}
                         onChange={(e) => {
                           const newPerms = { ...(selectedUserDetail.permissions || {}), export_data: e.target.checked };
                           setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms });
@@ -5130,7 +5198,7 @@ const renderPage = () => {
       case 'nominal-roll': 
         return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
       case 'approvals': 
-        return ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+        return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
       case 'profile': 
         return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} Nominal_Rolls={Nominal_Rolls} />;
       case 'Admin_Communication': 
