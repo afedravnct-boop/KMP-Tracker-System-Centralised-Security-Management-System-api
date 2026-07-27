@@ -195,11 +195,19 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
     } catch(e) { console.error(e); } finally { setLoadingReceipts(false); }
   };
 
-  const relevantComms = (Array.isArray(commsData) ? commsData : []).filter(c => {
-    if (c.target_audience === 'ALL_USERS' || c.target_audience === 'ALL') return true;
-    if (c.target_audience === 'ADMINS_ONLY' && isAdmin) return true;
-    if (c.target_audience === 'RPC_ONLY' && isRPC) return true;
-    if (c.target_audience === 'SPECIFIC_REGION' && c.target_region === currentUser.region) return true;
+const relevantComms = (Array.isArray(adminCommsData) ? adminCommsData : []).filter(c => {
+    // Super Admins bypass the filter and see all active messages
+    if (currentUser.role === 'SUPER_ADMIN') return true;
+    
+    // Safely catch naming variations from the database
+    const audience = c.target_audience || c.audience || 'ALL_USERS';
+    const region = c.target_region || c.region;
+
+    if (audience === 'ALL_USERS' || audience === 'ALL') return true;
+    if (audience === 'ADMINS_ONLY' && isAdmin) return true;
+    if (audience === 'RPC_ONLY' && isRPC) return true;
+    if (audience === 'SPECIFIC_REGION' && region === currentUser.region) return true;
+    
     return false;
   }).slice(0, 5);
   
@@ -3250,21 +3258,33 @@ const AdminApprovals = ({ currentUser }) => {
     }
   };
 
-  const handleReviewRequest = async (reqId, actionStatus) => {
+const handleReviewRequest = async (reqId, actionStatus) => {
     try {
-      const response = await authFetch(`/api/v1/requests/${reqId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const token = localStorage.getItem('kmp_authToken');
+      
+      // Changed to PUT to match your backend standards
+      const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
+        method: "PUT", 
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({ status: actionStatus })
       });
       
-      if (!response.ok) throw new Error("Failed to process request");
+      if (!response.ok) {
+        // This will now catch and read the REAL error from your Python backend!
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server Error: ${response.status}`);
+      }
       
       setModRequests(modRequests.filter(r => r.id !== reqId));
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
       console.error(err);
-      alert("Error processing the modification request.");
+      // We will now see exactly WHY it failed on the screen
+      alert(`Error processing request: ${err.message}`);
     }
   };
 
@@ -4366,25 +4386,22 @@ const DashboardLayout = ({
     return saved ? JSON.parse(saved) : 0;
   });
 
-  // 🟢 LIVE DATABASE HEARTBEAT & ONLINE ROSTER SYNC
+// 🟢 LIVE DATABASE HEARTBEAT & ONLINE ROSTER SYNC
   const [realOnlineUsers, setRealOnlineUsers] = useState([]);
 
-useEffect(() => {
+  useEffect(() => {
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
     const syncHeartbeat = async () => {
-      // 🛡️ THE FIX: Grab the freshest token on every single heartbeat!
       const currentToken = localStorage.getItem('kmp_authToken');
       if (!currentToken) return;
 
       try {
-        // 1. Send the ping to keep this user alive in the DB
         await fetch(`${API_URL}/api/v1/users/heartbeat`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${currentToken}` }
         });
 
-        // 2. Fetch the live list of active officers
         const response = await fetch(`${API_URL}/api/v1/users/online`, {
           headers: { 'Authorization': `Bearer ${currentToken}` }
         });
@@ -4393,38 +4410,12 @@ useEffect(() => {
           setRealOnlineUsers(await response.json());
         }
       } catch (err) {
-        console.warn("Heartbeat sync paused, retrying next minute...");
+        console.warn("Heartbeat sync paused...");
       }
     };
 
-    // Fire immediately upon mounting the dashboard
     syncHeartbeat();
-
-    // Loop exactly every 60 seconds (60000ms)
     const heartbeatInterval = setInterval(syncHeartbeat, 60000);
-
-    return () => clearInterval(heartbeatInterval);
-  }, []);
-
-        // 2. Fetch the live list of active officers
-        const response = await fetch(`${API_URL}/api/v1/users/online`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        if (response.ok) {
-          setRealOnlineUsers(await response.json());
-        }
-      } catch (err) {
-        console.warn("Heartbeat sync paused, retrying next minute...");
-      }
-    };
-
-    // Fire immediately upon mounting the dashboard
-    syncHeartbeat();
-
-    // Loop exactly every 60 seconds (60000ms)
-    const heartbeatInterval = setInterval(syncHeartbeat, 60000);
-
     return () => clearInterval(heartbeatInterval);
   }, []);
 
