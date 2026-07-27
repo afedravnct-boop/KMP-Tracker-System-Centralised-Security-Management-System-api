@@ -3975,17 +3975,20 @@ const handleSignupSubmit = async (e) => {
 
         if (response.ok) {
           localStorage.setItem('kmp_authToken', data.access_token);
-          onLogin({ 
+onLogin({ 
               fnum: data.fnum || 'A/2408', 
               rank: data.rank || 'AIP',
               name: data.name || 'Afedra Vincent',
               sex: data.sex || 'MALE',
               ipps: data.ipps || '950010',
               region: data.region || 'KMP HEADQUARTERS',
+              division: data.division || 'KMP HEADQUARTERS',
               station: data.station || 'KMP HEADQUARTERS',
+              position: data.position || 'System Manager', // 🟢 Catches your Official Title!
               email: data.email || 'afedravnct@gmail.com',
               phone: data.phone || '0779302872',
               role: data.role || 'SUPER_ADMIN',
+              permissions: data.permissions || {},         // 🟢 Catches your Admin matrix!
               profile_photo_path: data.profile_photo_path || ''
           });
         } else {
