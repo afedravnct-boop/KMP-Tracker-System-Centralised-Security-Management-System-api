@@ -426,7 +426,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [notification, setNotification] = useState(null);
 
 const [filterRegion, setFilterRegion] = useState((['SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL REGIONS' : currentUser.region);
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [filterStation, setFilterStation] = useState(
   ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) 
     ? 'ALL STATIONS' 
