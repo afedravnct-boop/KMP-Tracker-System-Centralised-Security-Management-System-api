@@ -1410,17 +1410,25 @@ def get_system_audit_logs(db: Session = Depends(get_db), current_user: models.Us
             raise HTTPException(status_code=403, detail="Unauthorized access to system logs.")
 
         logs = db.query(models.Audit_Logs).order_by(models.Audit_Logs.id.desc()).limit(100).all()
-        return [
-            {
+        
+        clean_logs = []
+        for log in logs:
+            formatted_time = None
+            if log.created_at:
+                # Append the +03:00 EAT offset so the browser doesn't mistakenly add an extra 3 hours
+                formatted_time = log.created_at.strftime("%Y-%m-%dT%H:%M:%S+03:00")
+                
+            clean_logs.append({
                 "id": log.id,
-                "created_at": log.created_at.isoformat() if log.created_at else None,
+                "created_at": formatted_time,
                 "event_type": getattr(log, 'event_type', None), 
                 "user_fnum": getattr(log, 'user_fnum', None),
                 "target_user": getattr(log, 'target_user', None),
                 "status": getattr(log, 'status', None),
                 "details": getattr(log, 'details', None)
-            } for log in logs
-        ]
+            })
+            
+        return clean_logs
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to fetch audit logs.")
 
