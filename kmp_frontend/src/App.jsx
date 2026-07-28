@@ -5072,10 +5072,7 @@ const handleExportLogs = async () => {
               </button>
             </div>
 <div className="p-6">
-              {/* 1. Header & Photo */}
-              <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-gray-100">
-                <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-2xl overflow-hidden shadow-sm border-2 border-blue-500">
-                  {selectedUserDetail.profile_photo_path ? (
+              
                      {/* 1. Header & Photo */}
               <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-gray-100">
                 <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-2xl overflow-hidden shadow-sm border-2 border-blue-500">
@@ -5231,7 +5228,6 @@ Revoke Access
                 )}
               </div>
               
-            </div>
           </div>
         )}
 
@@ -5321,13 +5317,13 @@ useEffect(() => {
           authFetch("/api/v1/stats", { signal: controller.signal }),
           authFetch("/api/v1/stories", { signal: controller.signal }),
           authFetch("/api/v1/nominal-roll", { signal: controller.signal }),
-	  authFetch("/api/v1/Admin_Communication", { signal: controller.signal }),
+          authFetch("/api/v1/Admin_Communication", { signal: controller.signal }),
           authFetch("/api/v1/establishments", { signal: controller.signal }),
           authFetch("/api/v1/nominal-roll-archive", { signal: controller.signal }),
           authFetch("/api/v1/users", { signal: controller.signal })
         ]);
 
-if (!controller.signal.aborted) {
+        if (!controller.signal.aborted) {
           if (resReports.ok) setReports(await resReports.json());
           if (resStats.ok) setStats(await resStats.json());
           if (resStories.ok) setStories(await resStories.json());
@@ -5347,7 +5343,11 @@ if (!controller.signal.aborted) {
             }
           }
         }
-        
+      } catch (error) {                                         // 🟢 FIXED: Added missing catch block
+        if (error.name !== 'AbortError') console.error(error);  // 🟢 FIXED: Ignored safe abort errors
+      }                                                         // 🟢 FIXED: Closed the try/catch
+    };                                                          // 🟢 FIXED: Closed fetchAllData function
+    
     fetchAllData();
     return () => controller.abort();
   }, [currentUser?.fnum]); 
