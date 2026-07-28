@@ -469,7 +469,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [customEndDate, setCustomEndDate] = useState('');
 
   const [showLockup, setShowLockup] = useState(false);
-  const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mental_health_status: '' });
+const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' });
 
   const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
 
@@ -1136,8 +1136,9 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredReports.map((report) => (
-                    <tr key={report.sn} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateCrimeForm(report); }}>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">{report.sn}</td>
+                    <tr key={report.id || report.sn} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateCrimeForm(report); }}>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">
+    {report.id || report.sn}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-blue-700 align-top">{report.sdRef || report.sd_ref}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 align-top">{report.date}<br/><span className="text-xs text-gray-400">{report.time}</span></td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 align-top">{report.station} <br/><span className="text-xs text-gray-400">{report.region}</span></td>
@@ -1657,7 +1658,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredStats.map((stat) => (
                     <tr key={stat.sn} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
-                      <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-gray-900">{stat.sn}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-gray-900">{stat.id || stat.sn}</td>
                       <td className="px-3 py-3 whitespace-nowrap text-[11px] text-gray-500">{stat.date}</td>
                       <td className="px-3 py-3 whitespace-nowrap text-[11px] font-medium text-blue-700">{stat.station}</td>
                       <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold text-gray-700">{stat.arrested}</td>
@@ -2612,7 +2613,9 @@ const handleFormSubmit = async (e) => {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredEstablishments.map((est) => (
                     <tr key={est.id} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(est); }}>
-                      <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-blue-800">{est.division}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-gray-900">
+  {est.division || 'N/A'}
+</td>
                       <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-blue-800">{est.station}</td>
                       <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold">{est.personnel_in_station}</td> 
                       <td className="px-3 py-3 whitespace-nowrap text-[11px] text-gray-800">{est.sub_station || '-'}</td>
