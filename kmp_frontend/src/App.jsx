@@ -1149,23 +1149,51 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                         />
                         
                         {report.suspectDetails && report.suspectDetails.length > 0 && (
-                          <div className="mt-3 bg-red-50 border border-red-100 rounded-lg p-3 shadow-sm">
-                            <span className="text-[10px] font-bold text-red-800 uppercase tracking-wider block mb-2 border-b border-red-200 pb-1">
-                              Suspects in Custody ({report.suspectDetails.length}):
-                            </span>
-                            <ul className="space-y-1.5">
-                              {report.suspectDetails.map((s, i) => (
-                                <li key={i} className="text-xs text-red-900 font-medium flex flex-col sm:flex-row sm:items-center">
-                                  <span className="font-bold mr-2">{i + 1}. {s.name}</span>
-                                  <span className="text-red-700">
-                                    ({s.sex}{s.age ? `, ${s.age}yrs` : ''}{s.tribe ? `, ${s.tribe}` : ''}) 
-                                    {s.residence ? ` - Res: ${s.residence}` : ''}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
+  <div className="mt-3 bg-red-50 border border-red-100 rounded-lg p-3 shadow-sm">
+    <span className="text-[10px] font-bold text-red-800 uppercase tracking-wider block mb-2 border-b border-red-200 pb-1">
+      Suspects in Custody ({report.suspectDetails.length}):
+    </span>
+    <ul className="space-y-2.5">
+      {report.suspectDetails.map((s, i) => (
+        <li key={i} className="text-xs text-red-900 font-medium flex items-start space-x-3 bg-white p-2 rounded border border-red-100 shadow-xs">
+          {/* Suspect Mugshot */}
+          <div className="shrink-0">
+            {s.photo_url ? (
+              <img src={s.photo_url} alt={s.name} className="w-12 h-12 rounded object-cover border border-red-200 shadow-xs" onError={(e) => { e.target.style.display = 'none'; }} />
+            ) : (
+              <div className="w-12 h-12 rounded bg-red-100 text-red-400 flex items-center justify-center font-bold text-[9px] border border-red-200 text-center p-0.5">
+                No Photo
+              </div>
+            )}
+          </div>
+
+          {/* Suspect Particulars */}
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-slate-900 uppercase">
+              {i + 1}. {s.name}
+            </div>
+            <div className="text-red-700 mt-0.5 space-y-0.5">
+              <div>
+                <span className="font-semibold">Particulars:</span> ({s.sex}{s.age ? `, ${s.age}yrs` : ''}{s.tribe ? `, ${s.tribe}` : ''})
+              </div>
+              {s.residence && (
+                <div><span className="font-semibold">Residence:</span> {s.residence}</div>
+              )}
+              {s.contact && (
+                <div><span className="font-semibold">Contact:</span> {s.contact}</div>
+              )}
+              {s.mental_health_status && s.mental_health_status !== 'NORMAL' && (
+                <div className="text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded text-[10px] inline-block mt-0.5 border border-amber-200">
+                  Mental Status: {s.mental_health_status}
+                </div>
+              )}
+            </div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  </div>
+)}
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-extrabold text-red-600 text-center align-top">{report.suspects || 0}</td>
                       <td className="px-4 py-4 whitespace-nowrap align-top">
@@ -4522,15 +4550,15 @@ const DashboardLayout = ({
     return () => clearInterval(heartbeatInterval);
   }, []);
 
-  // 🟢 INDEPENDENT BACKGROUND IDLE TIMER
+// 🟢 ACTIVE IDLE TIMER & AUTO-LOGOUT LOGIC
   useEffect(() => {
-    // Set idle timeout duration (e.g., 30 minutes = 30 * 60 * 1000)
-    const IDLE_TIMEOUT_MS = 30 * 60 * 1000; 
+    const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 Minutes
     let lastActivityTime = Date.now();
+    let hasWarned = false;
 
-    // Reset the clock on any user activity
     const updateActivity = () => {
       lastActivityTime = Date.now();
+      hasWarned = false; // Reset warning if user comes back
     };
 
     // Attach activity listeners
@@ -4539,15 +4567,23 @@ const DashboardLayout = ({
     window.addEventListener('click', updateActivity);
     window.addEventListener('scroll', updateActivity);
 
-    // The heartbeat: Checks the clock every 10 seconds WITHOUT needing a click
+    // The heartbeat check loop (runs every 10 seconds)
     const idleCheckInterval = setInterval(() => {
-      if (Date.now() - lastActivityTime >= IDLE_TIMEOUT_MS) {
-        alert("Session Expired: You have been logged out due to inactivity.");
-        onLogout(); // Automatically triggers your secure logout function
+      const elapsed = Date.now() - lastActivityTime;
+      
+      // Optional: Show a quick warning 1 minute before timeout (at 29 minutes)
+      if (elapsed >= IDLE_TIMEOUT_MS - 60000 && !hasWarned) {
+        hasWarned = true;
+        console.warn("Security Notice: Session expiring soon due to inactivity.");
+      }
+
+      // Final Timeout Reached: Force Logout
+      if (elapsed >= IDLE_TIMEOUT_MS) {
+        alert("Session Expired: You have been securely logged out due to inactivity.");
+        onLogout(); // Triggers your secure clearance teardown
       }
     }, 10000);
 
-    // Cleanup listeners when component unmounts
     return () => {
       window.removeEventListener('mousemove', updateActivity);
       window.removeEventListener('keypress', updateActivity);
