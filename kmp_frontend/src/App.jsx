@@ -41,7 +41,8 @@ const POSITIONS = {
     "KMP Commander", "Deputy KMP Commander",
     "KMP CID Commander", "KMP CI Commander", "KMP Operations Commander", 
     "KMP Traffic & Road Safety Commander", "KMP 999 eru commander", 
-    "999 ERU Regional Data Officer", "KMP SFC Coordinator"
+    "999 ERU Regional Data Officer", "KMP SFC Coordinator",
+    "Data Officer", "Data Assistant Officer"
   ],
   RPC: [
     "KMP South Commander", "KMP North Commander", "KMP East Commander", "Deputy Commander KMP south", "Deputy Commander KMP North", "Deputy Commander KMP East"
@@ -1461,7 +1462,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                 </button>
               </div>
 
-              <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
+                <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
                 <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                   {/* Metric cards placeholder */}
@@ -2183,13 +2184,11 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
-
   const [updateSearch, setUpdateSearch] = useState('');
 
-  const [filterDivision, setFilterDivision] = useState('ALL DIVISIONS');
-  
   const [formData, setFormData] = useState({
     id: null,
     region: currentUser.region,
@@ -2211,11 +2210,10 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
   const filteredEstablishments = useMemo(() => {
     return (Array.isArray(establishments) ? establishments : []).filter(e => {
       if (filterRegion !== 'ALL REGIONS' && e.region !== filterRegion) return false;
-      if (filterDivision !== 'ALL DIVISIONS' && e.division !== filterDivision) return false;
       if (filterStation !== 'ALL STATIONS' && e.station !== filterStation) return false;
       return true;
     });
-  }, [establishments, filterRegion, filterDivision, filterStation]);
+  }, [establishments, filterRegion, filterStation]);
 
   const availableUpdateEstablishments = useMemo(() => {
     return (Array.isArray(establishments) ? establishments : []).filter(e => {
@@ -2228,15 +2226,15 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
     });
   }, [establishments, currentUser, updateSearch]);
 
-const handleInputChange = (e) => {
+  const handleInputChange = (e) => {
     const { name, value, type } = e.target;
     
     if (name === 'region') {
       setFormData({ 
         ...formData, 
         region: value, 
-        division: REGIONAL_HIERARCHY[value][0],
-        station: REGIONAL_HIERARCHY[value][0]   
+        division: REGIONAL_HIERARCHY[value]?.[0] || '',
+        station: REGIONAL_HIERARCHY[value]?.[0] || ''   
       });
     } else if (name === 'division') {
       setFormData({ 
@@ -2256,7 +2254,7 @@ const handleInputChange = (e) => {
       setFormData({
         id: null,
         region: currentUser.region,
-        division: currentUser.region,
+        division: currentUser.division || '',
         station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
         personnel_in_station: 0,
         sub_station: '', 
@@ -2275,10 +2273,10 @@ const handleInputChange = (e) => {
   };
 
   const populateUpdateForm = (data) => {
-    setFormData({ ...data });
+    setFormData({ ...data, division: data.division || '' });
   };
 
-const handleFormSubmit = async (e) => {
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
 
     const requiredFields = ['region', 'division', 'station', 'location'];
@@ -2292,7 +2290,8 @@ const handleFormSubmit = async (e) => {
     const isDuplicate = establishments.some(e => 
       e.region === formData.region && 
       e.station === formData.station && 
-      e.division === formData.division
+      e.division === formData.division &&
+      e.id !== formData.id
     );
 
     if (isDuplicate && operation === 'new') {
@@ -2301,6 +2300,8 @@ const handleFormSubmit = async (e) => {
     }
 
     setIsSubmitting(true); 
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+    const token = localStorage.getItem('kmp_authToken');
 
     if (operation === 'new') {
       const newEntry = { 
@@ -2308,15 +2309,22 @@ const handleFormSubmit = async (e) => {
         last_updated_by: `${currentUser.name} (${currentUser.fnum})`
       };
       delete newEntry.sn; 
+      delete newEntry.id;
       
       try {
-        await authFetch("/api/v1/establishments", {
+        const response = await fetch(`${API_URL}/api/v1/establishments`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
           body: JSON.stringify(newEntry)
         });
 
-        setEstablishments([newEntry, ...establishments]);
+        if (!response.ok) throw new Error("Failed to post record");
+        const savedData = await response.json();
+
+        setEstablishments([savedData, ...establishments]);
         setNotification(`Establishment recorded for ${formData.station}!`);
         
         setFormData({ 
@@ -2324,7 +2332,7 @@ const handleFormSubmit = async (e) => {
           division:'', station:'', personnel_in_station:0, sub_station: '', 
           personnel_in_sub_station: 0, post: '', personnel_in_post: 0, 
           booths: 0, location: '', personnel_in_booth: 0, 
-          installed_by: '', comment: '', sn: null 
+          installed_by: '', comment: '', id: null 
         });
 
       } catch (err) {
@@ -2343,9 +2351,12 @@ const handleFormSubmit = async (e) => {
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
 
       try {
-        const response = await authFetch(`/api/v1/establishments/${formData.id}`, {
+        const response = await fetch(`${API_URL}/api/v1/establishments/${formData.id}`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
           body: JSON.stringify(updatedRecord)
         });
 
@@ -2392,7 +2403,284 @@ const handleFormSubmit = async (e) => {
                 <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
                   Register New
                 </button>
-                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>I seem to be encountering an error. Can I try something else for you?
+                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
+                  Update Existing
+                </button>
+              </div>
+
+              {notification && (
+                <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
+                  <span className="text-sm font-medium">{notification}</span>
+                </div>
+              )}
+
+              {operation === 'update' && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Record to Update</label>
+                  <input type="text" placeholder="Search by SN, Sub-Station, Post..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
+                  <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
+                    {availableUpdateEstablishments.length === 0 ? (
+                      <div className="p-3 text-xs text-gray-500 text-center">No records found matching your search.</div>
+                    ) : (
+                      availableUpdateEstablishments.map(e => (
+                        <div key={e.id} onClick={() => populateUpdateForm(e)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.id === e.id ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
+                          <span className={formData.id === e.id ? 'text-blue-200' : 'text-gray-400'}>SN: {e.id}</span> | <span className={formData.id === e.id ? 'text-white' : 'font-bold text-blue-700'}>{e.sub_station || e.post || e.station}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              <form onSubmit={handleFormSubmit} className="space-y-4">
+                {operation === 'update' && formData.id && (
+                   <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
+                     Currently Editing Record ID: {formData.id}
+                   </div>
+                )}
+                
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
+                      <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster)} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                        {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
+                          Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
+                        ) : (
+                          <option value={currentUser.region}>{currentUser.region}</option>
+                        )}
+                      </select>
+                    </div>
+                    
+                    <div className="col-span-2">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">DIVISION (Headquarter) *</label>
+                      <select name="division" value={formData.division} onChange={handleInputChange} disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster)} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                        {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
+                          formData.region && REGIONAL_HIERARCHY[formData.region] ? REGIONAL_HIERARCHY[formData.region].map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value="">Select Region First</option>
+                        ) : (
+                          <option value={currentUser.station || currentUser.division}>{currentUser.station || currentUser.division}</option>
+                        )}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">STATION</label>
+                      <input type="text" name="station" value={formData.station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Station" />
+                    </div>
+                    <div className="col-span-2"> 
+                      <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL IN STATION</label> 
+                      <input type="number" name="personnel_in_station" min="0" value={formData.personnel_in_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">SUB-STATION</label>
+                      <input type="text" name="sub_station" value={formData.sub_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Sub-Station" />
+                    </div>  
+                    <div className="col-span-2">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL IN SUB STATION</label>
+                      <input type="number" name="personnel_in_sub_station" min="0" value={formData.personnel_in_sub_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">POST</label>
+                      <input type="text" name="post" value={formData.post} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Post" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL (POST)</label>
+                      <input type="number" name="personnel_in_post" min="0" value={formData.personnel_in_post} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">BOOTHS</label>
+                      <input type="number" name="booths" min="0" value={formData.booths} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL (BOOTH)</label>
+                      <input type="number" name="personnel_in_booth" min="0" value={formData.personnel_in_booth} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                    </div>
+
+                    <div className="col-span-2">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">LOCATION (Address/Area)</label>
+                      <input type="text" name="location" value={formData.location} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Detailed location..." />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">INSTALLED BY</label>
+                      <input type="text" name="installed_by" value={formData.installed_by} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Organization or Individual" />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">STATUS</label>
+                      <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500">
+                        <option value="OPERATIONAL">OPERATIONAL</option>
+                        <option value="UNDER MAINTENANCE">UNDER MAINTENANCE</option>
+                        <option value="NON-OPERATIONAL">NON-OPERATIONAL</option>
+                        <option value="DECOMMISSIONED">DECOMMISSIONED</option>
+                        <option value="TO BE COMMISSIONED">TO BE COMMISSIONED</option>  
+                      </select>
+                    </div>
+                    <div className="col-span-2 pb-8">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">COMMENT ON STATUS</label>
+                      <ReactQuill 
+                        theme="snow" 
+                        value={formData.comment || ''} 
+                        onChange={(content) => setFormData({ ...formData, comment: autoCapitalize(content) })}
+                        className="bg-white rounded-md"
+                        modules={{
+                          toolbar: [
+                            ['bold', 'italic', 'underline'],
+                            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                            ['clean']
+                          ]
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting}
+                  className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center disabled:bg-gray-400"
+                >
+                  {isSubmitting ? 'Processing...' : (operation === 'new' ? '💾 Log New Establishment' : '💾 Save Updates')}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+        
+<div className="lg:col-span-8 space-y-4">
+          
+          {/* 🟢 MOVED AREA METRICS: Now sits above the table and filters! */}
+          <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
+            <div className="absolute top-4 right-4 z-10">
+              <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none">
+                <option value="ALL TIME">ALL TIME</option>
+                <option value="TODAY">TODAY ONLY</option>
+                <option value="LAST 7 DAYS">LAST 7 DAYS</option>
+                <option value="LAST 30 DAYS">LAST 30 DAYS</option>
+                <option value="LAST 90 DAYS">LAST 90 DAYS</option>
+                <option value="LAST 120 DAYS">LAST 120 DAYS</option>
+              </select>
+            </div>
+            <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+              <MetricCard title="Arrested" value={totals.arrested} colorClass="text-blue-700" />
+              <MetricCard title="Given Bond" value={totals.given_bond} colorClass="text-indigo-600" />
+              <MetricCard title="Cautioned" value={totals.cautioned} colorClass="text-gray-600" />
+              <MetricCard title="Pending Court" value={totals.pending_court} colorClass="text-yellow-600" />
+              <MetricCard title="To Court" value={totals.taken_to_court} colorClass="text-blue-500" />
+              <MetricCard title="Released" value={totals.released} colorClass="text-green-600" />
+              <MetricCard title="Remanded" value={totals.remanded} colorClass="text-red-600" />
+              <MetricCard title="Convicted" value={totals.convicted} colorClass="text-purple-600" />
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3">
+{/* 1. DYNAMIC REGION FILTER */}
+            <select 
+              value={filterRegion} 
+              onChange={(e) => { 
+                setFilterRegion(e.target.value); 
+                setFilterStation('ALL STATIONS');
+              }} 
+              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
+            >
+              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                <>
+                  <option value="ALL REGIONS">ALL REGIONS</option>
+                  {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
+                </>
+              ) : (
+                <option value={currentUser?.region}>{currentUser?.region}</option>
+              )}
+            </select>
+
+            {/* 2. DYNAMIC STATION FILTER */}
+            <select 
+              value={filterStation} 
+              onChange={(e) => setFilterStation(e.target.value)} 
+              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
+            >
+              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                <>
+                  <option value="ALL STATIONS">ALL STATIONS</option>
+                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] 
+                    ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
+                    : null
+                  }
+                </>
+              ) : (
+                <option value={currentUser?.station}>{currentUser?.station}</option>
+              )}
+            </select>
+          </div>
+
+          <ExpandableTableCard 
+            title="Regional Establishments Master Ledger"
+            onToggle={(expanded) => {
+              if (setSidebarOpen) {
+                setSidebarOpen(!expanded); 
+              }
+            }}
+          >
+            <div className="overflow-x-auto w-full">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50 sticky top-0 z-10">
+                  <tr>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">DIVISION</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">STATION</th>
+                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(STN)</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">SUB-STATION</th>
+                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(SUB-STN)</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">POST</th>
+                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(POST)</th>
+                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">BOOTHS</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">LOCATION</th>
+                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(BOOTH)</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">INSTALLED BY</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">STATUS</th>
+                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">COMMENT</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredEstablishments.map((est) => (
+                    <tr key={est.id} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(est); }}>
+                      <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-gray-900">{est.division || 'N/A'}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-blue-800">{est.station}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold">{est.personnel_in_station}</td> 
+                      <td className="px-3 py-3 whitespace-nowrap text-[11px] text-gray-800">{est.sub_station || '-'}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold">{est.personnel_in_sub_station}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-[11px] text-gray-800">{est.post || '-'}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold">{est.personnel_in_post}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold">{est.booths}</td>
+                      <td className="px-3 py-3 text-[11px] text-gray-800 break-words max-w-[150px]">{est.location || '-'}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold">{est.personnel_in_booth}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-[11px] text-gray-600">{est.installed_by || '-'}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold">
+                        <span className={`px-2 py-1 rounded-full text-[9px] ${est.status === 'OPERATIONAL' ? 'bg-green-100 text-green-800' : est.status.includes('MAINTENANCE') ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                          {est.status}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-[10px] text-gray-500 italic max-w-[150px] break-words">
+                         <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: est.comment || '-' }} />
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredEstablishments.length === 0 && (
+                    <tr><td colSpan="13" className="text-center py-6 text-gray-500">No establishments logged for this jurisdiction.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </ExpandableTableCard>
+        </div>
+      </div>
+    </div>
+  );
+};
 // ====================================================================
 // --- PAGE 5: NOMINAL ROLL ---
 // ====================================================================
@@ -3428,11 +3716,12 @@ const handleReviewRequest = async (reqId, actionStatus) => {
 // ====================================================================
 // --- PROFILE UPDATE SYSTEM (COMMAND WORKFLOW ENABLED FOR ALL USERS) ---
 // ====================================================================
-const AdminProfile = ({ currentUser, setCurrentUser }) => { 
+const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isRequestMode, setIsRequestMode] = useState(false);
   const [notification, setNotification] = useState(null);
-  
+  const [viewingImage, setViewingImage] = useState(null);
+
   const canAutoApprove = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role);
 
   // 🟢 DEFINED OFFICER RANKS FOR PROMOTION CHECKS
@@ -3659,12 +3948,29 @@ const handleSubmit = async (e) => {
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6 mt-10 relative z-10 animate-in fade-in duration-300">
+      {/* 🟢 THE FIX: Dedicated Back Button */}
+      <button 
+        onClick={() => setCurrentPage && setCurrentPage('home')} 
+        className="flex items-center text-sm font-bold text-slate-500 hover:text-blue-700 transition-colors bg-white hover:bg-blue-50 px-4 py-2 rounded-lg shadow-sm border border-slate-200 w-fit"
+      >
+        <Home size={16} className="mr-2" /> Return to Master Dashboard
+      </button>
+
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+        <div className="bg-slate-900 px-6 py-8 border-b border-gray-200 flex justify-between items-center relative">
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
         <div className="bg-slate-900 px-6 py-8 border-b border-gray-200 flex justify-between items-center relative">
           <div className="flex items-center z-10">
             <div className="relative group">
               {formData.profile_photo_path ? (
-                <img src={formData.profile_photo_path} alt="" className={`w-24 h-24 rounded-full object-cover shadow-2xl border-4 border-slate-700 bg-white ${isEditing ? 'opacity-80' : ''}`} onError={(e) => { e.target.style.display='none'; }} />
+                {formData.profile_photo_path ? (
+                <img 
+                  src={formData.profile_photo_path} 
+                  alt="" 
+                  className={`w-24 h-24 rounded-full object-cover shadow-2xl border-4 border-slate-700 bg-white transition-transform ${isEditing ? 'opacity-80' : 'cursor-pointer hover:scale-105'}`} 
+                  onClick={() => !isEditing && setViewingImage(formData.profile_photo_path)} // 🟢 OPENS FULL VIEW
+                  onError={(e) => { e.target.style.display='none'; }} 
+                />
               ) : (
                 <div className="w-24 h-24 bg-blue-600 rounded-full flex items-center justify-center text-white font-extrabold text-4xl shadow-2xl border-4 border-slate-700">
                   {currentUser.name?.charAt(0) || 'A'}
@@ -3688,7 +3994,7 @@ const handleSubmit = async (e) => {
           
           <button 
             onClick={() => { setIsEditing(!isEditing); setIsRequestMode(false); }} 
-            className={`z-10 flex items-center px-4 py-2 rounded-lg font-bold transition-colors shadow-sm ${isEditing ? 'bg-slate-700 text-white border border-slate-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
+            className={`z-10 flex items-center px-4 py-2 rounded-lg font-bold transition-colors shadow-sm ${isEditing ? 'bg-slate-700 text-white border border-slate-600' : 'bg-blue-600 text-white hover:bg-blue-300'}`}
           >
             {isEditing ? <><X size={16} className="mr-2"/> Cancel Edit</> : <><Edit size={16} className="mr-2"/> Update Profile</>}
           </button>
@@ -3824,7 +4130,7 @@ const handleSubmit = async (e) => {
                   <div className="text-sm font-bold text-slate-800 truncate">{currentUser.email || 'N/A'}</div>
                 </div>
                 
-                <div className="col-span-2">
+               <div className="col-span-2">
                   <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Contact Number</label>
                   <div className="text-sm font-bold text-slate-800">{currentUser.phone || 'N/A'}</div>
                 </div>
@@ -3834,6 +4140,22 @@ const handleSubmit = async (e) => {
           )}
         </div>
       </div>
+
+      {/* 🟢 FULL SCREEN IMAGE MODAL FOR MY PROFILE */}
+      {viewingImage && (
+        <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingImage(null)}>
+          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg">
+            <X size={24}/>
+          </button>
+          <img 
+            src={viewingImage} 
+            alt="Full Profile" 
+            className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" 
+            onClick={(e) => e.stopPropagation()} 
+          />
+        </div>
+      )}
+
     </div>
   );
 };
@@ -3860,6 +4182,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     `Divisional Commander ${signupData.station}`,
     `CID Officer ${signupData.station}`,
     `Data Officer ${signupData.station}`
+    `Data Assistant Officer ${signupData.station}`
   ];
 
   const [attempts, setAttempts] = useState(0);
@@ -3892,19 +4215,20 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     }
   };
 
-  const handlePhotoUpload = async (e) => {
+const handlePhotoUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const localPreviewUrl = URL.createObjectURL(file);
-      setSignupData(prev => ({ ...prev, profile_photo_path: localPreviewUrl }));
-      setAuthMessage("Uploading profile photo to S3 bucket...");
-
+      setNotification("⏳ Uploading and saving new profile photo...");
       const uploadData = new FormData();
       uploadData.append("file", file);
-      uploadData.append("fnum", signupData.fnum || "PENDING_REGISTRATION");
+      uploadData.append("fnum", currentUser.fnum);
       uploadData.append("category", "user_profile");
 
       try {
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+        const token = localStorage.getItem('kmp_authToken');
+        
+        // 1. Upload to S3
         const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, {
           method: "POST",
           body: uploadData,
@@ -3915,11 +4239,38 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         const data = await response.json();
         const s3Url = data.full_s3_url || data.cloud_storage_path;
 
-        setSignupData(prev => ({ ...prev, profile_photo_path: s3Url }));
-        setAuthMessage("✅ Photo uploaded to S3 successfully!");
+        // 2. Auto-save to Database immediately
+        const securePayload = {
+          fnum: currentUser.fnum,
+          name: currentUser.name,
+          rank: currentUser.rank,
+          region: currentUser.region,
+          station: currentUser.station,
+          email: formData.email,
+          phone: formData.phone,
+          profile_photo_path: s3Url
+        };
+
+        const updateRes = await fetch(`${API_URL}/api/v1/users/profile/update`, {
+          method: "PUT",
+          headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify(securePayload)
+        });
+
+        if (!updateRes.ok) throw new Error("Failed to link photo to profile in database.");
+
+        // 3. Update React State Permanently
+        setFormData(prev => ({ ...prev, profile_photo_path: s3Url }));
+        setCurrentUser(prev => ({ ...prev, profile_photo_path: s3Url }));
+        setNotification("✅ Photo uploaded and permanently saved successfully!");
+        
+        setTimeout(() => setNotification(null), 4000);
       } catch (error) {
         console.error("Upload error:", error);
-        setAuthMessage("⚠️ S3 upload error. Temporary preview active.");
+        setNotification(`❌ Error: ${error.message}`);
       }
     }
   };
@@ -4259,6 +4610,7 @@ const DashboardLayout = ({
   const [showOnline, setShowOnline] = useState(false);
   const [showAllUsers, setShowAllUsers] = useState(false);
   const [selectedUserDetail, setSelectedUserDetail] = useState(null);
+  const [viewingProfileImage, setViewingProfileImage] = useState(null);
   
   const [lastViewedId, setLastViewedId] = useState(() => {
     const saved = localStorage.getItem('last_viewed_comm_id');
@@ -4645,7 +4997,7 @@ const handleExportLogs = async () => {
                     </div>
                   </div>
                                     
-                  {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && (
+{(['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.consolidated) && (
                     <button 
                       onClick={onViewConsolidated}
                       className="w-full text-xs py-2 rounded transition flex items-center justify-center font-bold mt-3 bg-slate-900 hover:bg-slate-950 text-blue-400 border border-blue-900"
@@ -4659,8 +5011,9 @@ const handleExportLogs = async () => {
           )}
         </div>
 
-        <div className="p-4 border-t border-slate-700 bg-slate-950">
-          <div className="flex items-center mb-4 px-2 cursor-pointer hover:bg-slate-800 p-2 rounded transition-colors" onClick={() => setSelectedUserDetail({ ...currentUser, isSystemUser: false })}>
+<div className="p-4 border-t border-slate-700 bg-slate-950">
+          {/* 🟢 THE FIX: Change onClick to setCurrentPage('profile') so it routes to the editable page! */}
+          <div className="flex items-center mb-4 px-2 cursor-pointer hover:bg-slate-800 p-2 rounded transition-colors" onClick={() => setCurrentPage('profile')}>
              <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm shadow overflow-hidden">
                {currentUser?.profile_photo_path ? (
                  <img src={currentUser.profile_photo_path} alt="" className="w-full h-full object-cover" onError={(e) => { e.target.style.display='none'; }} />
@@ -4675,8 +5028,8 @@ const handleExportLogs = async () => {
              )}
           </div>
           <button onClick={onLogout} className="flex items-center w-full px-4 py-2 text-red-400 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-red-900">
-            <LogOut size={18} />
-            {sidebarOpen && <span className="ml-3 font-medium text-sm">Secure Logout</span>}
+             <LogOut size={18} />
+             {sidebarOpen && <span className="ml-3 font-medium text-sm">Secure Logout</span>}
           </button>
         </div>
       </div>
@@ -4718,14 +5071,18 @@ const handleExportLogs = async () => {
               <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-gray-100">
                 <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-2xl overflow-hidden shadow-sm border-2 border-blue-500">
                   {selectedUserDetail.profile_photo_path ? (
-                     <img src={selectedUserDetail.profile_photo_path} alt="Profile" className="w-full h-full object-cover" />
+                     {/* 1. Header & Photo */}
+              <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-gray-100">
+                <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-2xl overflow-hidden shadow-sm border-2 border-blue-500">
+                  {selectedUserDetail.profile_photo_path ? (
+                     <img 
+                       src={selectedUserDetail.profile_photo_path} 
+                       alt="Profile" 
+                       className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" 
+                       onClick={() => setViewingProfileImage(selectedUserDetail.profile_photo_path)} // 🟢 OPENS FULL VIEW
+                     />
                   ) : (selectedUserDetail.name?.charAt(0) || 'U')}
                 </div>
-                <div>
-                  <div className="font-extrabold text-slate-800 text-xl leading-tight">{selectedUserDetail.name}</div>
-                  <div className="text-xs font-bold text-blue-600 uppercase tracking-wider mt-1">
-                    {selectedUserDetail.fnum} • {selectedUserDetail.rank} • {selectedUserDetail.station}
-                  </div>
                 </div>
               </div>
 
@@ -4864,17 +5221,33 @@ const handleExportLogs = async () => {
                   }} 
                   className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm"
                 >
-                  Revoke Access
-                </button>
-              )}
+Revoke Access
+                  </button>
+                )}
+              </div>
+              
             </div>
-            
           </div>
-        </div>
-      )}
-    </div>
-  );
-};  
+        )}
+
+        {/* 🟢 FULL SCREEN IMAGE MODAL FOR SELECTED USER */}
+        {viewingProfileImage && (
+          <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingProfileImage(null)}>
+            <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg">
+              <X size={24}/>
+            </button>
+            <img 
+              src={viewingProfileImage} 
+              alt="Full Profile" 
+              className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" 
+              onClick={(e) => e.stopPropagation()} 
+            />
+          </div>
+        )}
+
+      </div>
+    );
+  };  
 
 // ====================================================================
 // --- ROOT APP COMPONENT ---
@@ -4949,7 +5322,7 @@ useEffect(() => {
           authFetch("/api/v1/users", { signal: controller.signal })
         ]);
 
-        if (!controller.signal.aborted) {
+if (!controller.signal.aborted) {
           if (resReports.ok) setReports(await resReports.json());
           if (resStats.ok) setStats(await resStats.json());
           if (resStories.ok) setStories(await resStories.json());
@@ -4957,14 +5330,18 @@ useEffect(() => {
           if (resComms.ok) setAdminCommsData(await resComms.json());
           if (resEst.ok) setEstablishments(await resEst.json());
           if (resArchives.ok) setNominal_Roll_archives(await resArchives.json());
-          if (resUsers.ok) setUsers(await resUsers.json());
+          
+          if (resUsers.ok) {
+            const allUsers = await resUsers.json();
+            setUsers(allUsers);
+            
+            // 🟢 LIVE SYNC FIX: Instantly update current user permissions without requiring logout
+            const me = allUsers.find(u => u.fnum === currentUser.fnum);
+            if (me && (JSON.stringify(me.permissions) !== JSON.stringify(currentUser.permissions) || me.role !== currentUser.role)) {
+                setCurrentUser(prev => ({ ...prev, permissions: me.permissions, role: me.role }));
+            }
+          }
         }
-      } catch (err) {
-        if (err.name !== 'AbortError') {
-          console.error("Data sync failed:", err);
-        }
-      }
-    };
         
     fetchAllData();
     return () => controller.abort();
