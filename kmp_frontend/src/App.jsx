@@ -610,6 +610,40 @@ const handleAddSuspect = () => {
     });
   };
 
+  const handleSuspectPhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setNotification("⏳ Uploading suspect mugshot...");
+      const uploadData = new FormData();
+      uploadData.append("file", file);
+      uploadData.append("category", "suspect_mugshot");
+      uploadData.append("case_id", formData.sd_ref || "NEW_CASE");
+
+      try {
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+        const token = localStorage.getItem('kmp_authToken');
+        
+        const response = await fetch(`${API_URL}/api/v1/investigation/upload/`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}` },
+          body: uploadData,
+        });
+        
+        const data = await response.json();
+        if (data.full_s3_url || data.cloud_storage_path) {
+          setNewSuspect({ ...newSuspect, photo_url: data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}` });
+          setNotification("✅ Mugshot uploaded securely!");
+        } else {
+          throw new Error("Invalid response");
+        }
+      } catch (error) {
+        console.warn("Backend offline. Using local preview.", error);
+        setNewSuspect({ ...newSuspect, photo_url: URL.createObjectURL(file) });
+        setNotification("⚠️ API unreachable. Using temporary local preview.");
+      }
+    }
+  };
+
   const handleFormSubmit = async (e) => {
     e.preventDefault();
 
@@ -622,16 +656,19 @@ const handleAddSuspect = () => {
     }
     
     if (operation === 'new') {
-      // PRESERVES PREFIX CASING (SD Ref:) BUT UPPERCASES THE NUMBER
-      const final_sd_ref = `${formData.ref_type} ${formData.ref_number.toUpperCase()}`.trim();
+      // 1. COMBINE EXACT PREFIX (CRB:, DEF:, TAR:, GEF:, CID:, SD Ref:) WITH THE NUMBER
+      const final_reference = `${formData.ref_type} ${formData.ref_number.toUpperCase()}`.trim();
 
+      // 2. CHECK IF THIS EXACT PREFIX + NUMBER COMBINATION EXISTS AT THIS SPECIFIC STATION
       const isDuplicate = reports.some(r => 
-        (r.sd_ref || r.sdRef || '').trim().toLowerCase() === final_sd_ref.toLowerCase() || 
-        r.narrative.trim().toLowerCase() === formData.narrative.trim().toLowerCase()
+        r.station === formData.station && (
+          (r.sd_ref || r.sdRef || '').trim().toLowerCase() === final_reference.toLowerCase() || 
+          r.narrative.trim().toLowerCase() === formData.narrative.trim().toLowerCase()
+        )
       );
 
       if (isDuplicate) {
-        setNotification("Error: This Reference or identical report narrative has already been entered into the system.");
+        setNotification(`Error: This specific ${formData.ref_type} entry or identical narrative already exists at ${formData.station}.`);
         return;
       }
 
@@ -640,7 +677,7 @@ const handleAddSuspect = () => {
       
       const apiPayload = {
         sn: exactNextSN,
-        sd_ref: final_sd_ref, 
+        sd_ref: final_reference, // 🟢 Saves the exact "Prefix: Number" string to the database
         region: formData.region,
         station: formData.station,
         date: formData.date,
@@ -779,6 +816,32 @@ const handleAddSuspect = () => {
                     <input type="text" value={newSuspect.residence} onChange={e => setNewSuspect({...newSuspect, residence: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. Bwaise Zone 2"/>
                   </div>
                 </div>
+                <div className="md:col-span-3">
+                    <label className="block text-[10px] font-bold text-gray-700 mb-1">Residence/Location</label>
+                    <input type="text" value={newSuspect.residence} onChange={e => setNewSuspect({...newSuspect, residence: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. Bwaise Zone 2"/>
+                  </div>
+                  
+                  {/* 🟢 NEW MUGSHOT UPLOAD FIELD */}
+                  <div className="md:col-span-3 bg-red-50 p-3 rounded-lg border border-red-100">
+                    <label className="block text-[10px] font-bold text-red-800 mb-2 flex items-center">
+                      <Camera size={12} className="mr-1"/> Suspect Mugshot (Optional)
+                    </label>
+                    <div className="flex items-center space-x-4">
+                      {newSuspect.photo_url ? (
+                        <img src={newSuspect.photo_url} alt="Mugshot" className="w-12 h-12 rounded object-cover border-2 border-red-300 shadow-sm" />
+                      ) : (
+                        <div className="w-12 h-12 rounded bg-red-100 flex items-center justify-center text-red-300 border-2 border-dashed border-red-300">
+                          <Camera size={16}/>
+                        </div>
+                      )}
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleSuspectPhotoUpload} 
+                        className="text-xs file:mr-4 file:py-1.5 file:px-4 file:rounded file:border-0 file:text-xs file:font-bold file:bg-red-600 file:text-white hover:file:bg-red-700 w-full cursor-pointer" 
+                      />
+                    </div>
+                  </div>
                 <div className="flex justify-end">
                   <button type="button" onClick={handleAddSuspect} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded text-sm transition-colors flex items-center">
                     <PlusCircle size={16} className="mr-1"/> Add to Register
@@ -4958,7 +5021,11 @@ const handleExportLogs = async () => {
             </div> 
           )}
 
-          {sidebarOpen && ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) && (
+          {sidebarOpen && (
+            ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || 
+            currentUser.permissions?.consolidated || 
+            currentUser.permissions?.export_data
+          ) && (
             <div className="px-4 mt-4 space-y-3">
               <div className="bg-slate-800 rounded-lg p-3 border border-yellow-600/30">
                 <div className="text-sm font-bold text-yellow-500 mb-3 flex items-center"><Shield size={16} className="mr-2"/> ⚙️ Reports & Ledgers</div>
@@ -5401,7 +5468,7 @@ const renderPage = () => {
       case 'approvals': 
         return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
       case 'profile': 
-        return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} Nominal_Rolls={Nominal_Rolls} />;
+        return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
       case 'Admin_Communication': 
         return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm}/>;
       default: 
