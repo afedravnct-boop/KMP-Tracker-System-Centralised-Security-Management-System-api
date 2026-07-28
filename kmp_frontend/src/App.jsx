@@ -3716,15 +3716,13 @@ const handleReviewRequest = async (reqId, actionStatus) => {
 // ====================================================================
 // --- PROFILE UPDATE SYSTEM (COMMAND WORKFLOW ENABLED FOR ALL USERS) ---
 // ====================================================================
-const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
+const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => { 
   const [isEditing, setIsEditing] = useState(false);
   const [isRequestMode, setIsRequestMode] = useState(false);
   const [notification, setNotification] = useState(null);
   const [viewingImage, setViewingImage] = useState(null);
-
+  
   const canAutoApprove = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role);
-
-  // 🟢 DEFINED OFFICER RANKS FOR PROMOTION CHECKS
   const OFFICER_RANKS = ['AIP', 'IP', 'ASP', 'SP', 'SASP', 'SSP', 'ACP', 'CP', 'SCP', 'AIGP', 'DIGP', 'IGP'];
 
   const [formData, setFormData] = useState({
@@ -3738,10 +3736,8 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
     profile_photo_path: currentUser.profile_photo_path || ''
   });
 
-  // 🟢 DYNAMIC LOGIC TO UNFREEZE F/NO FIELD
   const isOfficerRank = OFFICER_RANKS.includes(formData.rank?.toUpperCase().trim());
   const wasNCO = !OFFICER_RANKS.includes(currentUser.rank?.toUpperCase().trim());
-  // If they are an NCO upgrading to an Officer, they get to edit their FNUM (even if they aren't an admin!)
   const canEditFnum = canAutoApprove || (isOfficerRank && wasNCO);
 
   const handleInputChange = (e) => {
@@ -3751,7 +3747,7 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   const handlePhotoUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      setNotification("⏳ Uploading new profile photo to secure S3 bucket...");
+      setNotification("⏳ Uploading and saving new profile photo...");
       const uploadData = new FormData();
       uploadData.append("file", file);
       uploadData.append("fnum", currentUser.fnum);
@@ -3759,6 +3755,8 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
 
       try {
         const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+        const token = localStorage.getItem('kmp_authToken');
+        
         const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, {
           method: "POST",
           body: uploadData,
@@ -3769,11 +3767,36 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
         const data = await response.json();
         const s3Url = data.full_s3_url || data.cloud_storage_path;
 
+        const securePayload = {
+          fnum: currentUser.fnum,
+          name: currentUser.name,
+          rank: currentUser.rank,
+          region: currentUser.region,
+          station: currentUser.station,
+          email: formData.email,
+          phone: formData.phone,
+          profile_photo_path: s3Url
+        };
+
+        const updateRes = await fetch(`${API_URL}/api/v1/users/profile/update`, {
+          method: "PUT",
+          headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify(securePayload)
+        });
+
+        if (!updateRes.ok) throw new Error("Failed to link photo to profile in database.");
+
         setFormData(prev => ({ ...prev, profile_photo_path: s3Url }));
-        setNotification("✅ Photo uploaded to S3 successfully! Don't forget to save changes.");
+        setCurrentUser(prev => ({ ...prev, profile_photo_path: s3Url }));
+        setNotification("✅ Photo uploaded and permanently saved successfully!");
+        
+        setTimeout(() => setNotification(null), 4000);
       } catch (error) {
         console.error("Upload error:", error);
-        setNotification("❌ S3 upload error. Please try again.");
+        setNotification(`❌ Error: ${error.message}`);
       }
     }
   };
@@ -3809,7 +3832,6 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
       setNotification("✅ Request successfully logged for Command review.");
       setIsRequestMode(false);
       
-      // Revert local state to approved bounds
       setFormData({
          ...formData,
          fnum: currentUser.fnum,
@@ -3827,7 +3849,7 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
     }
   };
 
-const handleSubmit = async (e) => {
+  const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     setNotification("⏳ Verifying profile data with HR Nominal Roll...");
 
@@ -3835,7 +3857,6 @@ const handleSubmit = async (e) => {
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
       
-      // 🟢 CHANGED THE URL HERE TO MATCH THE NEW BACKEND ROUTE
       const response = await fetch(`${API_URL}/api/v1/users/profile/update`, {
         method: "PUT",
         headers: { 
@@ -3851,13 +3872,10 @@ const handleSubmit = async (e) => {
          throw new Error(data.detail || "Failed to update database.");
       }
 
-      // 🟢 THE JWT GHOSTING FIX: Catch the new token if FNUM changed
       if (data.new_token) {
           localStorage.setItem('kmp_authToken', data.new_token);
-          console.log("Token successfully refreshed for new Officer File Number.");
       }
 
-      // Update active React user state globally
       setCurrentUser({
         ...currentUser,
         fnum: formData.fnum,
@@ -3881,7 +3899,6 @@ const handleSubmit = async (e) => {
     }
   };
 
-  // 🟢 STRICT SECURITY LOCK: Contact Form Submission
   const handleContactSubmit = async (e) => {
     if (e) e.preventDefault();
     setNotification("⏳ Saving contact details...");
@@ -3890,8 +3907,6 @@ const handleSubmit = async (e) => {
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
       
-      // 🛡️ THE FIX: Force all HR fields back to the verified currentUser state.
-      // This prevents users from smuggling Name/Rank changes through the contact form.
       const securePayload = {
         fnum: currentUser.fnum,
         name: currentUser.name,
@@ -3916,7 +3931,6 @@ const handleSubmit = async (e) => {
 
       if (!response.ok) throw new Error(data.detail || "Failed to update database.");
 
-      // Only update the React state with the safe contact fields
       setCurrentUser({
         ...currentUser,
         email: formData.email,
@@ -3935,10 +3949,6 @@ const handleSubmit = async (e) => {
 
   const handleProfileSave = (e) => {
      e.preventDefault();
-
-     // If the user changed their FNUM (meaning they are an NCO promoted to Officer),
-     // we route them directly to the DB Verification backend (bypassing the manual Request system)
-     // because HR approval is verified automatically against the Nominal Roll table!
      if (canAutoApprove || formData.fnum !== currentUser.fnum) {
          handleSubmit(e);
      } else {
@@ -3948,7 +3958,7 @@ const handleSubmit = async (e) => {
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6 mt-10 relative z-10 animate-in fade-in duration-300">
-      {/* 🟢 THE FIX: Dedicated Back Button */}
+      
       <button 
         onClick={() => setCurrentPage && setCurrentPage('home')} 
         className="flex items-center text-sm font-bold text-slate-500 hover:text-blue-700 transition-colors bg-white hover:bg-blue-50 px-4 py-2 rounded-lg shadow-sm border border-slate-200 w-fit"
@@ -3958,17 +3968,14 @@ const handleSubmit = async (e) => {
 
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
         <div className="bg-slate-900 px-6 py-8 border-b border-gray-200 flex justify-between items-center relative">
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-        <div className="bg-slate-900 px-6 py-8 border-b border-gray-200 flex justify-between items-center relative">
           <div className="flex items-center z-10">
             <div className="relative group">
               {formData.profile_photo_path ? (
-                {formData.profile_photo_path ? (
                 <img 
                   src={formData.profile_photo_path} 
                   alt="" 
                   className={`w-24 h-24 rounded-full object-cover shadow-2xl border-4 border-slate-700 bg-white transition-transform ${isEditing ? 'opacity-80' : 'cursor-pointer hover:scale-105'}`} 
-                  onClick={() => !isEditing && setViewingImage(formData.profile_photo_path)} // 🟢 OPENS FULL VIEW
+                  onClick={() => !isEditing && setViewingImage(formData.profile_photo_path)}
                   onError={(e) => { e.target.style.display='none'; }} 
                 />
               ) : (
@@ -3994,7 +4001,7 @@ const handleSubmit = async (e) => {
           
           <button 
             onClick={() => { setIsEditing(!isEditing); setIsRequestMode(false); }} 
-            className={`z-10 flex items-center px-4 py-2 rounded-lg font-bold transition-colors shadow-sm ${isEditing ? 'bg-slate-700 text-white border border-slate-600' : 'bg-blue-600 text-white hover:bg-blue-300'}`}
+            className={`z-10 flex items-center px-4 py-2 rounded-lg font-bold transition-colors shadow-sm ${isEditing ? 'bg-slate-700 text-white border border-slate-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
           >
             {isEditing ? <><X size={16} className="mr-2"/> Cancel Edit</> : <><Edit size={16} className="mr-2"/> Update Profile</>}
           </button>
@@ -4009,7 +4016,6 @@ const handleSubmit = async (e) => {
 
           {isEditing ? (
             <div className="space-y-6">
-              
               <div className={`p-6 rounded-xl border transition-colors duration-300 ${canAutoApprove ? 'bg-blue-50 border-blue-200' : isRequestMode ? 'bg-yellow-50 border-yellow-300' : 'bg-slate-100 border-slate-200'}`}>
                 <div className="flex justify-between items-center mb-4 border-b pb-2 border-slate-200/50">
                   <div className={`flex items-center text-xs font-extrabold uppercase tracking-wider ${canAutoApprove ? 'text-blue-700' : isRequestMode ? 'text-yellow-700' : 'text-slate-500'}`}>
@@ -4065,10 +4071,9 @@ const handleSubmit = async (e) => {
                 </div>
               </div>
 
-{/* 🟢 CHANGED: onSubmit={handleSubmit} restores direct saving for contact info */}
               <form onSubmit={handleContactSubmit} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
                 <div className="flex items-center text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2">
-                  <Edit size={14} className="mr-2" /> Editable Contact Data & Photo
+                  <Edit size={14} className="mr-2" /> Editable Contact Data
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -4082,7 +4087,7 @@ const handleSubmit = async (e) => {
                 </div>
                 <div className="flex justify-end pt-4 mt-2 border-t border-gray-100">
                   <button type="submit" className="bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-6 rounded-lg shadow-md transition-colors flex items-center text-sm">
-                    💾 Save All Profile Changes
+                    💾 Save Profile Changes
                   </button>
                 </div>
               </form>
@@ -4130,7 +4135,7 @@ const handleSubmit = async (e) => {
                   <div className="text-sm font-bold text-slate-800 truncate">{currentUser.email || 'N/A'}</div>
                 </div>
                 
-               <div className="col-span-2">
+                <div className="col-span-2">
                   <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Contact Number</label>
                   <div className="text-sm font-bold text-slate-800">{currentUser.phone || 'N/A'}</div>
                 </div>
