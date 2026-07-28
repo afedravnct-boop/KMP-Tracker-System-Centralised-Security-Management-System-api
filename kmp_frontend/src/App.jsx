@@ -4699,10 +4699,9 @@ const DashboardLayout = ({
     let hasWarned = false;
 
     const enforceLogout = () => {
-      onLogout(); // 🟢 Tear down the UI instantly to the login screen
-      setTimeout(() => {
-        alert("Session Expired: You have been securely logged out due to inactivity.");
-      }, 100);
+      // Alert pauses the browser. When they click OK, the next line executes instantly.
+      alert("Session Expired: You have been securely logged out due to inactivity.");
+      onLogout(); 
     };
 
     const updateActivity = () => {
@@ -5596,12 +5595,11 @@ const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
       currentUser={currentUser}
       currentPage={currentPage} 
       setCurrentPage={handlePageChange} 
-      onLogout={() => { 
+onLogout={() => { 
         localStorage.removeItem('kmp_authToken'); 
         localStorage.removeItem('kmp_currentUser'); 
         localStorage.removeItem('kmp_currentPage'); 
-        setCurrentUser(null); 
-        setCurrentPage('home');
+        window.location.reload(); // 🟢 Hard-kills the React tree and wipes memory
       }}
       onUpdateUserRole={handleUpdateUserRole}
       onRevokeUser={handleRevokeUser}
