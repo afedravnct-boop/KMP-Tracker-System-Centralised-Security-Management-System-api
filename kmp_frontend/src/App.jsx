@@ -169,6 +169,10 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
   
   const commsData = adminCommsData || [];
 
+  const rawComms = adminCommsData || [];
+
+  const safeComms = Array.isArray(rawComms) ? rawComms : (rawComms.data || rawComms.items || []);
+
   const canViewConsolidated = isAdmin || currentUser.permissions?.consolidated;
   const canExportData = isRPC || currentUser.permissions?.export_data;
 
@@ -181,6 +185,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
   const [receiptsData, setReceiptsData] = useState([]);
   const [loadingReceipts, setLoadingReceipts] = useState(false);
   const [expandedComm, setExpandedComm] = useState(null);
+  const [isInboxExpanded, setIsInboxExpanded] = useState(false);
 
   const fetchReceipts = async (commId) => {
     setViewingReceiptsFor(commId);
@@ -195,7 +200,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
     } catch(e) { console.error(e); } finally { setLoadingReceipts(false); }
   };
 
-const relevantComms = (Array.isArray(adminCommsData) ? adminCommsData : []).filter(c => {
+const relevantComms = safeComms.filter(c => {
     // Super Admins bypass the filter and see all active messages
     if (currentUser.role === 'SUPER_ADMIN') return true;
     
@@ -293,7 +298,7 @@ const relevantComms = (Array.isArray(adminCommsData) ? adminCommsData : []).filt
               <div className="p-6 text-center text-xs font-bold text-slate-400 uppercase">No active directives.</div>
             ) : (
               <div className="divide-y divide-slate-200">
-                {relevantComms.map((comm) => (
+                {(isInboxExpanded ? relevantComms : relevantComms.slice(0, 1)).map((comm) => (
                   <div key={comm.id} className={`p-4 transition-all duration-500 ${
                     comm.acknowledged 
                       ? 'bg-gray-50 border-l-4 border-l-gray-300 opacity-70 grayscale-[30%]' 
@@ -357,6 +362,16 @@ const relevantComms = (Array.isArray(adminCommsData) ? adminCommsData : []).filt
                     )}
                   </div>
                 ))}
+{/* 🛡️ THE FIX: Toggle Button to Expand/Collapse Inbox */}
+                {relevantComms.length > 1 && (
+                  <div 
+                    onClick={() => setIsInboxExpanded(!isInboxExpanded)}
+                    className="p-3 bg-slate-200/50 text-center text-[10px] font-extrabold text-slate-600 hover:bg-slate-200 cursor-pointer transition-colors tracking-widest uppercase"
+                  >
+                    {isInboxExpanded ? "Collapse Inbox" : `View ${relevantComms.length - 1} Older Dispatches`}
+                  </div>
+                )}
+
               </div>
             )}
           </div>
@@ -425,12 +440,9 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
-  const [filterStation, setFilterStation] = useState(
-  ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) 
-    ? 'ALL STATIONS' 
-    : currentUser?.station || ''
-);  
+  const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
+
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   const [updateSearch, setUpdateSearch] = useState('');
@@ -1041,37 +1053,44 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
               <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
             </div>
-{/* 1. REGION FILTER (Enabled ONLY for Super Admin) */}
+{/* 1. DYNAMIC REGION FILTER */}
             <select 
               value={filterRegion} 
-              onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
-              disabled={currentUser.role !== 'SUPER_ADMIN'} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+              onChange={(e) => { 
+                setFilterRegion(e.target.value); 
+                setFilterStation('ALL STATIONS'); // Instantly reset station when region changes
+              }} 
+              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
             >
-              {currentUser.role === 'SUPER_ADMIN' ? (
+              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                 <>
                   <option value="ALL REGIONS">ALL REGIONS</option>
                   {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
                 </>
               ) : (
-                <option value={currentUser.region}>{currentUser.region}</option>
+                <option value={currentUser?.region}>{currentUser?.region}</option>
               )}
             </select>
 
-            {/* 2. STATION FILTER (Enabled ONLY for Super Admin and RPC) */}
+            {/* 2. DYNAMIC STATION FILTER */}
             <select 
               value={filterStation} 
               onChange={(e) => setFilterStation(e.target.value)} 
-              disabled={!['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
             >
-              {['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
+              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                 <>
                   <option value="ALL STATIONS">ALL STATIONS</option>
-                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                  {/* Only map the stations that belong to the currently selected Region */}
+                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] 
+                    ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
+                    : null
+                  }
                 </>
               ) : (
-                <option value={currentUser.station}>{currentUser.station}</option>
+                <option value={currentUser?.station}>{currentUser?.station}</option>
               )}
             </select>    
           </div>
@@ -1168,12 +1187,8 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
-  const [filterStation, setFilterStation] = useState(
-  ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) 
-    ? 'ALL STATIONS' 
-    : currentUser?.station || ''
-);  
+  const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [updateSearch, setUpdateSearch] = useState('');
   
   const [dateFilter, setDateFilter] = useState('ALL TIME');
@@ -1526,37 +1541,44 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
         
         <div className="lg:col-span-8 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-{/* 1. REGION FILTER (Enabled ONLY for Super Admin) */}
+{/* 1. DYNAMIC REGION FILTER */}
             <select 
               value={filterRegion} 
-              onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
-              disabled={currentUser.role !== 'SUPER_ADMIN'} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+              onChange={(e) => { 
+                setFilterRegion(e.target.value); 
+                setFilterStation('ALL STATIONS'); // Instantly reset station when region changes
+              }} 
+              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
             >
-              {currentUser.role === 'SUPER_ADMIN' ? (
+              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                 <>
                   <option value="ALL REGIONS">ALL REGIONS</option>
                   {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
                 </>
               ) : (
-                <option value={currentUser.region}>{currentUser.region}</option>
+                <option value={currentUser?.region}>{currentUser?.region}</option>
               )}
             </select>
 
-            {/* 2. STATION FILTER (Enabled ONLY for Super Admin and RPC) */}
+            {/* 2. DYNAMIC STATION FILTER */}
             <select 
               value={filterStation} 
               onChange={(e) => setFilterStation(e.target.value)} 
-              disabled={!['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
             >
-              {['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
+              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                 <>
                   <option value="ALL STATIONS">ALL STATIONS</option>
-                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                  {/* Only map the stations that belong to the currently selected Region */}
+                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] 
+                    ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
+                    : null
+                  }
                 </>
               ) : (
-                <option value={currentUser.station}>{currentUser.station}</option>
+                <option value={currentUser?.station}>{currentUser?.station}</option>
               )}
             </select>    
           </div>
@@ -1633,12 +1655,8 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
 // ====================================================================
 const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
-  const [filterStation, setFilterStation] = useState(
-  ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) 
-    ? 'ALL STATIONS' 
-    : currentUser?.station || ''
-);   
+  const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');   
   const [notification, setNotification] = useState(null);
   const [updateSearch, setUpdateSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
@@ -2003,37 +2021,44 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
         <div className="lg:col-span-7 space-y-4">
           {/* Responsive filter row mirroring the Crime Registry setup */}
           <div className="flex flex-col sm:flex-row gap-3">
-{/* 1. REGION FILTER (Enabled ONLY for Super Admin) */}
+{/* 1. DYNAMIC REGION FILTER */}
             <select 
               value={filterRegion} 
-              onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
-              disabled={currentUser.role !== 'SUPER_ADMIN'} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+              onChange={(e) => { 
+                setFilterRegion(e.target.value); 
+                setFilterStation('ALL STATIONS'); // Instantly reset station when region changes
+              }} 
+              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
             >
-              {currentUser.role === 'SUPER_ADMIN' ? (
+              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                 <>
                   <option value="ALL REGIONS">ALL REGIONS</option>
                   {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
                 </>
               ) : (
-                <option value={currentUser.region}>{currentUser.region}</option>
+                <option value={currentUser?.region}>{currentUser?.region}</option>
               )}
             </select>
 
-            {/* 2. STATION FILTER (Enabled ONLY for Super Admin and RPC) */}
+            {/* 2. DYNAMIC STATION FILTER */}
             <select 
               value={filterStation} 
               onChange={(e) => setFilterStation(e.target.value)} 
-              disabled={!['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
             >
-              {['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
+              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                 <>
                   <option value="ALL STATIONS">ALL STATIONS</option>
-                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                  {/* Only map the stations that belong to the currently selected Region */}
+                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] 
+                    ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
+                    : null
+                  }
                 </>
               ) : (
-                <option value={currentUser.station}>{currentUser.station}</option>
+                <option value={currentUser?.station}>{currentUser?.station}</option>
               )}
             </select>                            
               {/* Visible, functional Date Filter Dropdown */}
@@ -2110,8 +2135,9 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
-  const [filterStation, setFilterStation] = useState('ALL STATIONS');
+  const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
+
   const [updateSearch, setUpdateSearch] = useState('');
 
   const [filterDivision, setFilterDivision] = useState('ALL DIVISIONS');
@@ -2468,37 +2494,44 @@ const handleFormSubmit = async (e) => {
         </div>
         
         <div className="lg:col-span-8 space-y-4">          <div className="flex flex-col sm:flex-row gap-3">
-             {/* 1. REGION FILTER (Enabled ONLY for Super Admin) */}
+{/* 1. DYNAMIC REGION FILTER */}
             <select 
               value={filterRegion} 
-              onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
-              disabled={currentUser.role !== 'SUPER_ADMIN'} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+              onChange={(e) => { 
+                setFilterRegion(e.target.value); 
+                setFilterStation('ALL STATIONS'); // Instantly reset station when region changes
+              }} 
+              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
             >
-              {currentUser.role === 'SUPER_ADMIN' ? (
+              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                 <>
                   <option value="ALL REGIONS">ALL REGIONS</option>
                   {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
                 </>
               ) : (
-                <option value={currentUser.region}>{currentUser.region}</option>
+                <option value={currentUser?.region}>{currentUser?.region}</option>
               )}
             </select>
 
-            {/* 2. STATION FILTER (Enabled ONLY for Super Admin and RPC) */}
+            {/* 2. DYNAMIC STATION FILTER */}
             <select 
               value={filterStation} 
               onChange={(e) => setFilterStation(e.target.value)} 
-              disabled={!['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
             >
-              {['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
+              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                 <>
                   <option value="ALL STATIONS">ALL STATIONS</option>
-                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                  {/* Only map the stations that belong to the currently selected Region */}
+                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] 
+                    ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
+                    : null
+                  }
                 </>
               ) : (
-                <option value={currentUser.station}>{currentUser.station}</option>
+                <option value={currentUser?.station}>{currentUser?.station}</option>
               )}
             </select>
           </div>
@@ -2573,12 +2606,8 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
-  const [filterStation, setFilterStation] = useState(
-  ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) 
-    ? 'ALL STATIONS' 
-    : currentUser?.station || ''
-);  
+  const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');  
   const [updateSearch, setUpdateSearch] = useState('');
 
   const [viewMode, setViewMode] = useState('active'); 
@@ -3090,37 +3119,44 @@ const filteredNominal_Roll_archives = useMemo(() => {
         
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-{/* 1. REGION FILTER (Enabled ONLY for Super Admin) */}
+{/* 1. DYNAMIC REGION FILTER */}
             <select 
               value={filterRegion} 
-              onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
-              disabled={currentUser.role !== 'SUPER_ADMIN'} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+              onChange={(e) => { 
+                setFilterRegion(e.target.value); 
+                setFilterStation('ALL STATIONS'); // Instantly reset station when region changes
+              }} 
+              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
             >
-              {currentUser.role === 'SUPER_ADMIN' ? (
+              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                 <>
                   <option value="ALL REGIONS">ALL REGIONS</option>
                   {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
                 </>
               ) : (
-                <option value={currentUser.region}>{currentUser.region}</option>
+                <option value={currentUser?.region}>{currentUser?.region}</option>
               )}
             </select>
 
-            {/* 2. STATION FILTER (Enabled ONLY for Super Admin and RPC) */}
+            {/* 2. DYNAMIC STATION FILTER */}
             <select 
               value={filterStation} 
               onChange={(e) => setFilterStation(e.target.value)} 
-              disabled={!['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto"
+              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
+              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
             >
-              {['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
+              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                 <>
                   <option value="ALL STATIONS">ALL STATIONS</option>
-                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                  {/* Only map the stations that belong to the currently selected Region */}
+                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] 
+                    ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
+                    : null
+                  }
                 </>
               ) : (
-                <option value={currentUser.station}>{currentUser.station}</option>
+                <option value={currentUser?.station}>{currentUser?.station}</option>
               )}
             </select>
             </div>
@@ -3260,10 +3296,21 @@ const AdminApprovals = ({ currentUser }) => {
   const [resetRequests, setResetRequests] = useState([]);
   const [loadingResets, setLoadingResets] = useState(false);
 
-  const isRPC = currentUser && currentUser.role === 'RPC', 'Deputy Commander';
+const isRPC = currentUser && ['RPC', 'Deputy Commander'].includes(currentUser.role);
   const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
 
-  useEffect(() => {
+useEffect(() => {
+    // 1. Fetch HR Requests IMMEDIATELY so the number always shows on the tab
+    setLoadingRequests(true);
+    authFetch("/api/v1/requests")
+      .then(res => res.json())
+      .then(data => {
+          setModRequests(Array.isArray(data) ? data : []);
+          setLoadingRequests(false);
+      })
+      .catch(err => { console.error(err); setLoadingRequests(false); });
+
+    // 2. Only fetch Audit Logs when the tab is clicked (because logs are heavy!)
     if (activeTab === 'logs') {
       setLoadingLogs(true);
       authFetch("/api/v1/audit-logs")
@@ -3273,16 +3320,6 @@ const AdminApprovals = ({ currentUser }) => {
             setLoadingLogs(false); 
         })
         .catch(err => { console.error(err); setLoadingLogs(false); });
-    }
-    if (activeTab === 'requests') {
-      setLoadingRequests(true);
-      authFetch("/api/v1/requests")
-        .then(res => res.json())
-        .then(data => {
-            setModRequests(Array.isArray(data) ? data : []);
-            setLoadingRequests(false);
-        })
-        .catch(err => { console.error(err); setLoadingRequests(false); });
     }
   }, [activeTab]);
 
@@ -3302,13 +3339,19 @@ const AdminApprovals = ({ currentUser }) => {
   };
 
 const handleReviewRequest = async (reqId, actionStatus) => {
+    // Prevent fetching if the ID is missing
+    if (!reqId) {
+      alert("Error: Request ID is undefined. Primary key mismatch.");
+      return;
+    }
+
     try {
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
       
-      // Changed to PUT to match your backend standards
+      // Reverted to PATCH (your original, correct code!)
       const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
-        method: "PUT", 
+        method: "PATCH", 
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
@@ -3317,16 +3360,15 @@ const handleReviewRequest = async (reqId, actionStatus) => {
       });
       
       if (!response.ok) {
-        // This will now catch and read the REAL error from your Python backend!
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || `Server Error: ${response.status}`);
       }
       
-      setModRequests(modRequests.filter(r => r.id !== reqId));
+      // Safely filter out the request using whichever primary key it possesses
+      setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId && r.request_id !== reqId));
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
       console.error(err);
-      // We will now see exactly WHY it failed on the screen
       alert(`Error processing request: ${err.message}`);
     }
   };
@@ -3369,12 +3411,12 @@ const handleReviewRequest = async (reqId, actionStatus) => {
         <h3 className="text-lg text-gray-500 mt-2 font-medium">Review pending officer signups, HR transfers, and Audit Logs.</h3>
       </div>
 
-      <div className="flex space-x-2 border-b border-gray-200 mb-6 bg-white/50 backdrop-blur rounded-t-xl px-4 pt-4 overflow-x-auto custom-scrollbar">
+<div className="flex space-x-2 border-b border-gray-200 mb-6 bg-white/50 backdrop-blur rounded-t-xl px-4 pt-4 overflow-x-auto custom-scrollbar">
         <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
           New Account Authorizations ({loadingPending ? '...' : realPendingUsers.length})
         </button>
         <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'requests' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-          HR Modification Requests ({activeTab === 'requests' ? modRequests.length : '?'})
+          HR Modification Requests ({modRequests.length})
         </button>
         <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
           Audit Logs
@@ -3468,12 +3510,12 @@ const handleReviewRequest = async (reqId, actionStatus) => {
                         {req.requested_station && req.requested_station !== req.current_station && <div className="text-xs"><span className="font-bold text-slate-400">Station:</span> <span className="text-red-500 line-through mr-1">{req.current_station}</span> ➡️ <span className="text-green-600 font-bold">{req.requested_station}</span></div>}
                         {req.requested_region && req.requested_region !== req.current_region && <div className="text-xs"><span className="font-bold text-slate-400">Region:</span> <span className="text-red-500 line-through mr-1">{req.current_region}</span> ➡️ <span className="text-green-600 font-bold">{req.requested_region}</span></div>}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm">
+<td className="px-4 py-3 whitespace-nowrap text-sm">
                         <div className="flex space-x-2">
-                          <button onClick={() => handleReviewRequest(req.id, "APPROVED")} className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
+                          <button onClick={() => handleReviewRequest(req.id || req.sn || req.request_id, "APPROVED")} className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
                             <CheckCircle size={14} className="mr-1" /> Approve
                           </button>
-                          <button onClick={() => handleReviewRequest(req.id, "REJECTED")} className="bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
+                          <button onClick={() => handleReviewRequest(req.id || req.sn || req.request_id, "REJECTED")} className="bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
                             <X size={14} className="mr-1" /> Reject
                           </button>
                         </div>
@@ -4522,8 +4564,8 @@ const DashboardLayout = ({
     
   }, [currentPage, currentUser?.fnum]); // This triggers EVERY time the page changes!
 
-// Calculate if the current user has unread messages, regardless of their role
-  const relevantComms = (Array.isArray(Admin_Communication) ? Admin_Communication : []).filter(c => {
+  const safeSidebarComms = Array.isArray(Admin_Communication) ? Admin_Communication : (Admin_Communication?.data || Admin_Communication?.items || []);
+  const relevantComms = safeSidebarComms.filter(c => {
     if (currentUser?.role === 'SUPER_ADMIN') return true;
     const audience = c.target_audience || c.audience || 'ALL_USERS';
     const region = c.target_region || c.region;
@@ -4555,22 +4597,12 @@ const DashboardLayout = ({
     { name: '👥 Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> },
   ];
 
-  // 🛡️ THE FIX: Only inject 'Admin Dispatch' into the sidebar if the user has Command Clearance!
+// 🛡️ THE FIX: Only inject 'Admin Dispatch' into the sidebar if the user has Command Clearance!
   if (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)) {
      navItems.push({ 
        name: '📢📧 Admin Dispatch', 
        id: 'Admin_Communication', 
-       icon: (
-         <div className="relative flex items-center justify-center">
-           <Bell size={20} />
-           {hasUnread && (
-             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping" />
-           )}
-           {hasUnread && (
-             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e]" />
-           )}
-         </div>
-       ) 
+       icon: <Bell size={20} />
      });
   }
 
@@ -4685,7 +4717,6 @@ const handleExportLogs = async () => {
                       <span className="text-[9px] bg-green-200/20 text-green-200 border border-green-200 px-1.5 py-0.5 rounded uppercase tracking-wider">New Dispatch</span>
                     )}
                   </span>
-                )}
                 )}
               </button>
             ))}
@@ -4964,8 +4995,8 @@ const handleExportLogs = async () => {
                       <input 
                         type="checkbox" 
                         className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
-                        checked={Boolean(selectedUserDetail.permissions?.export_data) || selectedUserDetail.role === 'RPC', 'Deputy Commander' || String(selectedUserDetail.role || '').includes('ADMIN')}
-                        disabled={selectedUserDetail.role === 'RPC', 'Deputy Commander' || String(selectedUserDetail.role || '').includes('ADMIN')}
+                        checked={Boolean(selectedUserDetail.permissions?.export_data) || ['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')}
+                        disabled={['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')}
                         onChange={(e) => {
                           const newPerms = { ...(selectedUserDetail.permissions || {}), export_data: e.target.checked };
                           setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms });
@@ -5098,7 +5129,7 @@ useEffect(() => {
           authFetch("/api/v1/stats", { signal: controller.signal }),
           authFetch("/api/v1/stories", { signal: controller.signal }),
           authFetch("/api/v1/nominal-roll", { signal: controller.signal }),
-          authFetch("/api/v1/Admin_Communication", { signal: controller.signal }),
+	  authFetch("/api/v1/Admin_Communication", { signal: controller.signal }),
           authFetch("/api/v1/establishments", { signal: controller.signal }),
           authFetch("/api/v1/nominal-roll-archive", { signal: controller.signal }),
           authFetch("/api/v1/users", { signal: controller.signal })
