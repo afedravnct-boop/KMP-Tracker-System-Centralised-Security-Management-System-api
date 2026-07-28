@@ -2549,33 +2549,7 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
           </div>
         </div>
         
-<div className="lg:col-span-8 space-y-4">
-          
-          {/* 🟢 MOVED AREA METRICS: Now sits above the table and filters! */}
-          <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
-            <div className="absolute top-4 right-4 z-10">
-              <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none">
-                <option value="ALL TIME">ALL TIME</option>
-                <option value="TODAY">TODAY ONLY</option>
-                <option value="LAST 7 DAYS">LAST 7 DAYS</option>
-                <option value="LAST 30 DAYS">LAST 30 DAYS</option>
-                <option value="LAST 90 DAYS">LAST 90 DAYS</option>
-                <option value="LAST 120 DAYS">LAST 120 DAYS</option>
-              </select>
-            </div>
-            <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-              <MetricCard title="Arrested" value={totals.arrested} colorClass="text-blue-700" />
-              <MetricCard title="Given Bond" value={totals.given_bond} colorClass="text-indigo-600" />
-              <MetricCard title="Cautioned" value={totals.cautioned} colorClass="text-gray-600" />
-              <MetricCard title="Pending Court" value={totals.pending_court} colorClass="text-yellow-600" />
-              <MetricCard title="To Court" value={totals.taken_to_court} colorClass="text-blue-500" />
-              <MetricCard title="Released" value={totals.released} colorClass="text-green-600" />
-              <MetricCard title="Remanded" value={totals.remanded} colorClass="text-red-600" />
-              <MetricCard title="Convicted" value={totals.convicted} colorClass="text-purple-600" />
-            </div>
-          </div>
-
+        <div className="lg:col-span-8 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
 {/* 1. DYNAMIC REGION FILTER */}
             <select 
