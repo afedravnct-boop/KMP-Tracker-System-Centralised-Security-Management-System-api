@@ -1461,9 +1461,9 @@ def get_system_activity_logs(db: Session = Depends(get_logs_db), current_user: m
 @app.post("/api/v1/activity-logs")
 def create_system_activity_log(data: dict, db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        # Dynamically find the model name you used
         model_target = getattr(models, 'Activity_Logs', getattr(models, 'activity_logs', None))
         if not model_target:
+            print("ACTIVITY LOG FATAL: Model 'Activity_Logs' not found in models.py")
             return {"status": "error", "detail": "Model not found"}
             
         new_activity = model_target(
@@ -1478,7 +1478,10 @@ def create_system_activity_log(data: dict, db: Session = Depends(get_logs_db), c
         return {"status": "logged in branch"}
     except Exception as e:
         db.rollback()
-        return {"status": "error"}
+        # 🚨 THIS WILL NOW SHOW EXACTLY WHAT IS BROKEN IN RENDER LOGS
+        error_msg = f"DATABASE ERROR writing to Activity Logs: {str(e)}"
+        print(error_msg) 
+        return {"status": "error", "detail": error_msg}
 
 @app.post("/api/v1/audit-logs")
 def create_audit_log(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
