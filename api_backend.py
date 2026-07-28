@@ -1558,5 +1558,53 @@ def create_modification_request(data: dict, db: Session = Depends(get_db), curre
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.patch("/api/v1/requests/{req_id}")
+def update_modification_request_status(
+    req_id: int, 
+    payload: dict, 
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(require_admin)
+):
+    # 1. Find the specific request
+    req = db.query(models.Modification_Requests).filter(models.Modification_Requests.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Modification request not found.")
+        
+    action_status = payload.get("status", "").upper()
+    if action_status not in ["APPROVED", "REJECTED"]:
+        raise HTTPException(status_code=400, detail="Invalid action status.")
+        
+    # 2. Update the request status
+    req.status = action_status
+    
+    # 3. If approved, automatically execute the changes on the Officer's profile
+    if action_status == "APPROVED":
+        user = db.query(models.Users).filter(models.Users.fnum == req.fnum).first()
+        if user:
+            changes = {}
+            if req.requested_name and req.requested_name != user.name:
+                changes["name"] = (user.name, req.requested_name)
+                user.name = req.requested_name
+            if req.requested_rank and req.requested_rank != user.rank:
+                changes["rank"] = (user.rank, req.requested_rank)
+                user.rank = req.requested_rank
+            if req.requested_region and req.requested_region != user.region:
+                changes["region"] = (user.region, req.requested_region)
+                user.region = req.requested_region
+            if req.requested_station and req.requested_station != user.station:
+                changes["station"] = (user.station, req.requested_station)
+                user.station = req.requested_station
+                
+            # Log the successful HR execution in the Audit Logs
+            if hasattr(models, 'Audit_Logs') and changes:
+                log_semantic_audit(
+                    db=db, fnum=current_user.fnum, action="HR_MODIFICATION_APPROVED", 
+                    target_identifier=user.fnum, changes=changes, 
+                    remarks="Admin approved profile update request."
+                )
+                
+    db.commit()
+    return {"status": "success", "message": f"Request {action_status.lower()} successfully."}
+
 if __name__ == "__main__":
     uvicorn.run("api_backend:app", host="0.0.0.0", port=8000, reload=True)
