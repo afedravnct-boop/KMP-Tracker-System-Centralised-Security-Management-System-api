@@ -4186,7 +4186,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     `${signupData.region} Commander`,
     `Divisional Commander ${signupData.station}`,
     `CID Officer ${signupData.station}`,
-    `Data Officer ${signupData.station}`
+    `Data Officer ${signupData.station}`,
     `Data Assistant Officer ${signupData.station}`
   ];
 
