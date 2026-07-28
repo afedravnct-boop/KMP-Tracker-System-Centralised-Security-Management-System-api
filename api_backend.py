@@ -198,13 +198,59 @@ def strip_html_to_plain_text(text):
     return text.strip()
 
 def apply_custom_sheet_design(workbook, worksheet, df, sheet_name, user):
+    # 1. Determine Header Color based on the Sheet Name (Matching your screenshots)
+    header_bg_color = '#002060'  # Default Dark Blue (Crime Registry & OPS Stats)
+    
+    if sheet_name == "Success Stories":
+        header_bg_color = '#C65911'  # Orange/Brown
+    elif sheet_name == "Nominal Roll":
+        header_bg_color = '#60497A'  # Purple
+        
+    # 2. Create the Header Format
     header_format = workbook.add_format({
-        'bold': True, 'valign': 'vcenter',
-        'fg_color': '#0B2447', 'font_color': 'white', 'border': 1
+        'bold': True,
+        'valign': 'vcenter',
+        'align': 'center',
+        'fg_color': header_bg_color,
+        'font_color': 'white',
+        'border': 1
     })
+    
+    # 3. Create formats for the body cells
+    wrap_format = workbook.add_format({'text_wrap': True, 'valign': 'top'})
+    std_format = workbook.add_format({'valign': 'top'})
+
+    # 4. Paint the Header Row
     for col_num, value in enumerate(df.columns.values):
         worksheet.write(0, col_num, value, header_format)
-        worksheet.set_column(col_num, col_num, 18)
+
+    # 5. Dynamically resize columns based on their content type
+    for col_num, col_name in enumerate(df.columns.values):
+        col_name_str = str(col_name).upper()
+        
+        # Default dimensions
+        width = 15
+        col_format = std_format
+        
+        # Apply specific widths and wrapping rules
+        if col_name_str == 'SN':
+            width = 6
+            col_format = workbook.add_format({'align': 'center', 'valign': 'top'})
+        elif col_name_str in ['NARRATIVE', 'COMMENT', 'DETAILS', 'NARRATIVE / PROGRESS']:
+            width = 65  # Extra wide for incident reports with text wrapping enabled
+            col_format = wrap_format 
+        elif col_name_str in ['STATION', 'REGION', 'DIVISION', 'OFFENCE', 'STATUS', 'NAME']:
+            width = 22
+        elif col_name_str in ['SD REF', 'FORCE NUMBER', 'IPPS']:
+            width = 18
+        elif col_name_str in ['DATE', 'TIME', 'SEX', 'AGE']:
+            width = 12
+            
+        # Execute the column styling
+        worksheet.set_column(col_num, col_num, width, col_format)
+        
+    # 6. Freeze the top row so headers stay visible when scrolling down
+    worksheet.freeze_panes(1, 0)
 
 async def send_command_briefing(email_to: List[str], subject: str, html_body: str):
     message = MessageSchema(
