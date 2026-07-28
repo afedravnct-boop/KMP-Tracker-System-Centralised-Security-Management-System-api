@@ -40,9 +40,6 @@ class Crime_Reports(Base):
     # String reference solves circular dependency
     suspect_details = relationship("Suspect_Lockup", back_populates="crime_report", cascade="all, delete-orphan")
 
-# ==========================================
-# 1.5 SUSPECT LOCKUP REGISTRY
-# ==========================================
 class Suspect_Lockup(Base):
     __tablename__ = "suspect_lockup"
 
@@ -55,8 +52,8 @@ class Suspect_Lockup(Base):
     residence = Column(String, nullable=True)
     contact = Column(String, nullable=True)
     mental_health_status = Column(String, nullable=True)
+    photo_url = Column(String, nullable=True) 
 
-    # Class reference works here because Crime_Reports is defined above it
     crime_report = relationship(Crime_Reports, back_populates="suspect_details")
 
 # ==========================================
@@ -248,14 +245,15 @@ class Audit_Logs(Base):
     # 🟢 ADDED FOREIGN KEY CASCADE
     user_fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
 
-class ActivityLogs(Base):
+class Activity_Logs(Base):
     __tablename__ = "activity_logs"
+
     id = Column(Integer, primary_key=True, index=True)
     fnum = Column(String, index=True)
-    name = Column(String)
-    action = Column(String)
-    page_accessed = Column(String)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    action = Column(String, nullable=True)
+    module = Column(String, nullable=True)
+    details = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 # ==========================================
 # 9. ADMIN COMMUNICATION

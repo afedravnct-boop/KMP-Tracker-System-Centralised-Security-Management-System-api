@@ -4764,14 +4764,14 @@ const handleExportLogs = async () => {
               <div className="rounded-lg p-4 bg-slate-800">
                 <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
                   <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Connections ({realOnlineUsers.length})</span>
-                  <span className="bg-slate-900 px-2 py-2 rounded-full text-xs"></span>
+                  <span className="bg-slate-800 px-2 py-2 rounded-full text-xs"></span>
                 </button>
                 
                 {showOnline && (
                   <div className="mt-4 space-y-2 border-t border-slate-700 pt-4 max-h-40 overflow-y-auto custom-scrollbar pr-1">
                     {/* DYNAMICALLY RENDERS ALL LIVE USERS */}
                     {realOnlineUsers.map((user) => (
-                      <div key={user.fnum} onClick={() => inspectSystemUser(user)} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between group">
+                      <div key={user.fnum} onClick={() => inspectSystemUser(user)} className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between group">
                         <div className="flex items-center space-x-3">
                           {user.profile_photo_path ? (
                             <img src={user.profile_photo_path} alt="" className="w-7 h-7 rounded-full border border-green-400 object-cover shadow-sm group-hover:border-green-300 transition-colors" onError={(e) => { e.target.style.display='none'; }} />

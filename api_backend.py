@@ -660,8 +660,14 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
         "sn": r.sn, "sdRef": r.sd_ref, "region": r.region, "station": r.station,
         "date": r.date, "time": r.time, "offence": r.offence, "narrative": r.narrative, 
         "status": r.status, "suspects": r.suspects, "lastUpdatedBy": r.last_updated_by,
-        "suspectDetails": [{"name": getattr(s, 'name', ''), "sex": getattr(s, 'sex', ''), "age": getattr(s, 'age', ''), "residence": getattr(s, 'residence', '')} for s in getattr(r, 'suspect_details', [])]
-    } for r in reports]
+        "suspectDetails": [{
+    "name": getattr(s, 'name', ''), 
+    "sex": getattr(s, 'sex', ''), 
+    "age": getattr(s, 'age', ''), 
+    "residence": getattr(s, 'residence', ''),
+    "mental_health_status": getattr(s, 'mental_health_status', ''), 
+    "photo_url": getattr(s, 'photo_url', '')
+} for s in getattr(r, 'suspect_details', [])]
 
 @app.post("/api/v1/reports")
 def create_report(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -678,16 +684,19 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
         db.add(new_record)
         db.flush() 
         
-        for s in suspects_data:
+for s in suspects_data:
             new_suspect = models.Suspect_Lockup(
                 sd_ref=new_record.sn,
-                name=s.get('name'), sex=s.get('sex'), age=str(s.get('age')) if s.get('age') else None,
-                tribe=s.get('tribe'), residence=s.get('residence'), contact=s.get('contact'),
-                mental_health_status=s.get('mental_health_status')
+                name=s.get('name'), 
+                sex=s.get('sex'), 
+                age=str(s.get('age')) if s.get('age') else None,
+                tribe=s.get('tribe'), 
+                residence=s.get('residence'), 
+                contact=s.get('contact'),
+                mental_health_status=s.get('mental_health_status'),
+                photo_url=s.get('photo_url') # 🟢 CAPTURE PHOTO URL
             )
             db.add(new_suspect)
-
-        db.commit()
         return {"status": "success"}
     except IntegrityError:
         db.rollback()
@@ -1494,46 +1503,38 @@ def get_system_activity_logs(db: Session = Depends(get_logs_db), current_user: m
         if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
             raise HTTPException(status_code=403, detail="Unauthorized access.")
         
-        # Determine the table/model based on what exists (handling both cases from previous duplicates)
-        model_target = getattr(models, 'Activity_Logs', getattr(models, 'activity_logs', None))
-        if not model_target:
-            return []
-            
-        logs = db.query(model_target).order_by(model_target.id.desc()).limit(100).all()
+        logs = db.query(models.Activity_Logs).order_by(models.Activity_Logs.id.desc()).limit(100).all()
         return [
             {
-                "id": getattr(log, 'id', ''),
-                "created_at": getattr(log, 'created_at', getattr(log, 'time', None)).isoformat() if getattr(log, 'created_at', getattr(log, 'time', None)) else None,
-                "fnum": getattr(log, 'fnum', ''),
-                "action": getattr(log, 'action', ''),
-                "module": getattr(log, 'module', ''),
-                "details": getattr(log, 'details', '')
+                "id": log.id,
+                "created_at": log.created_at.isoformat() if log.created_at else None,
+                "fnum": log.fnum or '',
+                "action": log.action or '',
+                "module": log.module or '',
+                "details": log.details or ''
             } for log in logs
         ]
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to fetch activity logs.")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch activity logs: {str(e)}")
 
 @app.post("/api/v1/activity-logs")
 def create_system_activity_log(data: dict, db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        model_target = getattr(models, 'Activity_Logs', getattr(models, 'activity_logs', None))
-        if not model_target:
-            print("ACTIVITY LOG FATAL: Model 'Activity_Logs' not found in models.py")
-            return {"status": "error", "detail": "Model not found"}
-            
-        new_activity = model_target(
+        page = data.get("page_accessed", data.get("module", "UNKNOWN"))
+        act = data.get("action", "ACCESSED MODULE")
+        
+        new_activity = models.Activity_Logs(
             fnum=current_user.fnum,
-            name=current_user.name,
-            action=data.get("action", "ACCESSED MODULE"),
-            page_accessed=data.get("page_accessed", "UNKNOWN"),
-            timestamp=datetime.now(pytz.utc)
+            action=act,
+            module=page,
+            details=f"Officer {current_user.name} ({current_user.fnum}) executed {act} on {page}",
+            created_at=datetime.utcnow()
         )
         db.add(new_activity)
         db.commit()
-        return {"status": "logged in branch"}
+        return {"status": "logged in database"}
     except Exception as e:
         db.rollback()
-        # 🚨 THIS WILL NOW SHOW EXACTLY WHAT IS BROKEN IN RENDER LOGS
         error_msg = f"DATABASE ERROR writing to Activity Logs: {str(e)}"
         print(error_msg) 
         return {"status": "error", "detail": error_msg}
