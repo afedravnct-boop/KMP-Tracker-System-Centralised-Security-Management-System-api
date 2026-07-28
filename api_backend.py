@@ -1113,8 +1113,17 @@ def acknowledge_communication(comm_id: int, db: Session = Depends(get_db), curre
 
 @app.get("/api/v1/communications/{comm_id}/readers")
 def get_communication_readers(comm_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN"]:
-        raise HTTPException(status_code=403, detail="Clearance Denied")
+    # 🛡️ EXPLICIT CLEARANCE: Admins, RPCs, Deputy RPCs, and Divisional Commanders
+    position_str = current_user.position or ""
+    is_cleared = (
+        current_user.role in ["ADMIN", "SUPER_ADMIN", "RPC", "Deputy Commander"] or
+        "Divisional Commander" in position_str or
+        "Deputy" in position_str or
+        "RPC" in position_str
+    )
+    
+    if not is_cleared:
+        raise HTTPException(status_code=403, detail="Clearance Denied: High Command privileges required.")
     
     try:
         readers = db.query(

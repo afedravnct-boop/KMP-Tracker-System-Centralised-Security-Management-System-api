@@ -16,6 +16,7 @@ import ConsolidatedLedger from './ConsolidatedLedger';
 import HrEstablishmentsLedger from './HrEstablishmentsLedger';
 import Admin_Communication from './Admin_Communication';
 
+
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 const REGIONAL_HIERARCHY = {
@@ -186,6 +187,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
   const [loadingReceipts, setLoadingReceipts] = useState(false);
   const [expandedComm, setExpandedComm] = useState(null);
   const [isInboxExpanded, setIsInboxExpanded] = useState(false);
+  const [isInboxFullScreen, setIsInboxFullScreen] = useState(false);
 
   const fetchReceipts = async (commId) => {
     setViewingReceiptsFor(commId);
@@ -276,8 +278,9 @@ const relevantComms = safeComms.filter(c => {
         </h3>   
       </div>
 
-      <div className="w-full">
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+      <div className={isInboxFullScreen ? "fixed inset-0 z-[100] bg-gray-100 flex flex-col p-4 sm:p-8 animate-in fade-in zoom-in duration-200" : "w-full"}>
+        <div className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col ${isInboxFullScreen ? 'flex-1 shadow-2xl' : ''}`}>
+          
           <div className="bg-slate-900 text-white px-4 py-3 flex justify-between items-center shrink-0">
             <h3 className="font-bold text-sm flex items-center tracking-wider">
               <div className="relative flex items-center justify-center mr-3">
@@ -289,11 +292,14 @@ const relevantComms = safeComms.filter(c => {
                   </>
                 )}
               </div>
-              Administrative Communication
+              Administrative Communication {isInboxFullScreen && "(Full Screen Mode)"}
             </h3>
+            <button onClick={() => setIsInboxFullScreen(!isInboxFullScreen)} className="text-gray-400 hover:text-white p-1.5 rounded transition-colors bg-slate-800 hover:bg-slate-700 border border-slate-600 flex items-center" title="Toggle Full Screen">
+              {isInboxFullScreen ? <><Minimize2 size={16} className="mr-1"/> Close</> : <Maximize2 size={16}/>}
+            </button>
           </div>
           
-          <div className="p-0 overflow-y-auto max-h-[350px] custom-scrollbar bg-slate-50 flex-1">
+          <div className={`p-0 overflow-y-auto custom-scrollbar bg-slate-50 flex-1 ${isInboxFullScreen ? 'max-h-none' : 'max-h-[350px]'}`}>
             {relevantComms.length === 0 ? (
               <div className="p-6 text-center text-xs font-bold text-slate-400 uppercase">No active directives.</div>
             ) : (
@@ -344,10 +350,22 @@ const relevantComms = safeComms.filter(c => {
                             <div className={`text-xs font-medium ql-editor p-0 ${comm.acknowledged ? 'text-slate-500' : 'text-slate-700'}`} dangerouslySetInnerHTML={{ __html: comm.message }} />
                             
                             <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center">
-                                <div className="text-[9px] font-bold text-slate-400 uppercase">
-                                  Dispatched by: {comm.sender_name}
-                                  {isAdmin && <button onClick={() => fetchReceipts(comm.id)} className="ml-3 text-blue-600 hover:text-blue-800 underline">View Receipts</button>}
-                                </div>
+<div className="text-[9px] font-bold text-slate-400 uppercase">
+    Dispatched by: {comm.sender_name}
+    {(
+      ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||
+      currentUser?.position?.includes('Divisional Commander') ||
+      currentUser?.position?.includes('Deputy') ||
+      currentUser?.position?.includes('RPC')
+    ) && (
+      <button 
+        onClick={() => fetchReceipts(comm.id)} 
+        className="ml-3 text-blue-600 hover:text-blue-800 underline font-bold cursor-pointer"
+      >
+        View Receipts
+      </button>
+    )}
+  </div>
                                 {comm.acknowledged ? (
                                     <span className="text-[10px] font-extrabold text-green-600 flex items-center bg-green-50 px-2 py-1 rounded border border-green-200">
                                        <CheckCircle size={12} className="mr-1"/> Acknowledged
