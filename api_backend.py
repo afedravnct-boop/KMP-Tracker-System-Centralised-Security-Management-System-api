@@ -684,7 +684,7 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
         db.add(new_record)
         db.flush() 
         
-for s in suspects_data:
+        for s in suspects_data:
             new_suspect = models.Suspect_Lockup(
                 sd_ref=new_record.sn,
                 name=s.get('name'), 
@@ -733,7 +733,8 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
                 new_suspect = models.Suspect_Lockup(
                     sd_ref=sn, name=s.get('name'), sex=s.get('sex'), age=str(s.get('age')) if s.get('age') else None,
                     tribe=s.get('tribe'), residence=s.get('residence'), contact=s.get('contact'),
-                    mental_health_status=s.get('mental_health_status')
+                    mental_health_status=s.get('mental_health_status'),
+                    photo_url=s.get('photo_url') # <-- Add this line
                 )
                 db.add(new_suspect)
 

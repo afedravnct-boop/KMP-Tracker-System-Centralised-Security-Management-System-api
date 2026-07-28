@@ -592,13 +592,14 @@ const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', t
     }
   };
 
-  const handleAddSuspect = () => {
+const handleAddSuspect = () => {
     if (!newSuspect.name.trim()) return alert("Suspect name is required.");
     setFormData({
       ...formData,
       suspectDetails: [...formData.suspectDetails, { ...newSuspect, id: Date.now() }]
     });
-    setNewSuspect({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mentalhealthstatus: '' });
+    // Fix the typo and add photo_url reset
+    setNewSuspect({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' }); 
   };
 
   const handleRemoveSuspect = (id) => {
@@ -1657,7 +1658,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredStats.map((stat) => (
-                    <tr key={stat.sn} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
+                    <tr key={stat.id} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
                       <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-gray-900">{stat.id || stat.sn}</td>
                       <td className="px-3 py-3 whitespace-nowrap text-[11px] text-gray-500">{stat.date}</td>
                       <td className="px-3 py-3 whitespace-nowrap text-[11px] font-medium text-blue-700">{stat.station}</td>
@@ -2455,23 +2456,29 @@ const handleFormSubmit = async (e) => {
   </div>
 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className="block text-xs font-bold text-gray-700 mb-1">STATION</label>
-                    <input type="text" name="station" value={formData.station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Station" />
-                  </div>
-                  <div className="col-span-2"> 
-                    <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL IN STATION</label> 
-                    <input type="number" name="personnel_in_station" min="0" value={formData.personnel_in_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-xs font-bold text-gray-700 mb-1">SUB-STATION</label>
-                    <input type="text" name="sub_station" value={formData.sub_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Sub-Station" />
-                  </div>  
-                  <div className="col-span-2">
-                    <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL IN SUB STATION</label>
-                    <input type="number" name="personnel_in_sub_station" min="0" value={formData.personnel_in_sub_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
-                  </div>
+<div className="grid grid-cols-2 gap-4">
+  <div className="col-span-2">
+    <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
+    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster)} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
+        Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
+      ) : (
+        <option value={currentUser.region}>{currentUser.region}</option>
+      )}
+    </select>
+  </div>
+  
+  <div className="col-span-2">
+    <label className="block text-xs font-bold text-gray-700 mb-1">DIVISION (Headquarter) *</label>
+    <select name="division" value={formData.division} onChange={handleInputChange} disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster)} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+      {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
+        formData.region && REGIONAL_HIERARCHY[formData.region] ? REGIONAL_HIERARCHY[formData.region].map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value="">Select Region First</option>
+      ) : (
+        <option value={currentUser.station || currentUser.division}>{currentUser.station || currentUser.division}</option>
+      )}
+    </select>
+  </div>
+</div>
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">POST</label>
@@ -4559,9 +4566,22 @@ const DashboardLayout = ({
     let lastActivityTime = Date.now();
     let hasWarned = false;
 
+    const enforceLogout = () => {
+      onLogout(); // 🟢 Tear down the UI instantly to the login screen
+      setTimeout(() => {
+        alert("Session Expired: You have been securely logged out due to inactivity.");
+      }, 100);
+    };
+
     const updateActivity = () => {
-      lastActivityTime = Date.now();
-      hasWarned = false; // Reset warning if user comes back
+      const now = Date.now();
+      // 🟢 THE FIX: If the browser slept and woke up past the timeout, DO NOT reset the clock. Boot them immediately.
+      if (now - lastActivityTime >= IDLE_TIMEOUT_MS) {
+        enforceLogout();
+        return;
+      }
+      lastActivityTime = now;
+      hasWarned = false; 
     };
 
     // Attach activity listeners
@@ -4580,10 +4600,9 @@ const DashboardLayout = ({
         console.warn("Security Notice: Session expiring soon due to inactivity.");
       }
 
-      // Final Timeout Reached: Force Logout
+      // Final Timeout Reached via Interval
       if (elapsed >= IDLE_TIMEOUT_MS) {
-        alert("Session Expired: You have been securely logged out due to inactivity.");
-        onLogout(); // Triggers your secure clearance teardown
+        enforceLogout();
       }
     }, 10000);
 
