@@ -656,18 +656,28 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
         query = query.filter(models.Crime_Reports.station == current_user.station)
         
     reports = query.order_by(models.Crime_Reports.sn.desc()).all()
+    
     return [{
-        "sn": r.sn, "sdRef": r.sd_ref, "region": r.region, "station": r.station,
-        "date": r.date, "time": r.time, "offence": r.offence, "narrative": r.narrative, 
-        "status": r.status, "suspects": r.suspects, "lastUpdatedBy": r.last_updated_by,
+        "sn": r.sn, 
+        "sdRef": r.sd_ref, 
+        "region": r.region, 
+        "station": r.station,
+        "date": r.date, 
+        "time": r.time, 
+        "offence": r.offence, 
+        "narrative": r.narrative, 
+        "status": r.status, 
+        "suspects": r.suspects, 
+        "lastUpdatedBy": r.last_updated_by,
         "suspectDetails": [{
-    "name": getattr(s, 'name', ''), 
-    "sex": getattr(s, 'sex', ''), 
-    "age": getattr(s, 'age', ''), 
-    "residence": getattr(s, 'residence', ''),
-    "mental_health_status": getattr(s, 'mental_health_status', ''), 
-    "photo_url": getattr(s, 'photo_url', '')
-} for s in getattr(r, 'suspect_details', [])]
+            "name": getattr(s, 'name', ''), 
+            "sex": getattr(s, 'sex', ''), 
+            "age": getattr(s, 'age', ''), 
+            "residence": getattr(s, 'residence', ''),
+            "mental_health_status": getattr(s, 'mental_health_status', ''), 
+            "photo_url": getattr(s, 'photo_url', '')
+        } for s in getattr(r, 'suspect_details', [])]
+    } for r in reports] # 🟢 FIXED: Added the missing closure for the outer loop!
 
 @app.post("/api/v1/reports")
 def create_report(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
