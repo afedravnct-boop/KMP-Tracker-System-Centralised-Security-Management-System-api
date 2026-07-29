@@ -3348,6 +3348,7 @@ const handleFormSubmit = async (e) => {
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
 {/* 1. DYNAMIC REGION FILTER */}
+            {/* 1. 100% DYNAMIC REGION FILTER */}
             <select 
               value={filterRegion} 
               onChange={(e) => { 
@@ -3360,14 +3361,18 @@ const handleFormSubmit = async (e) => {
               {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                 <>
                   <option value="ALL REGIONS">ALL REGIONS</option>
-                  {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
+                  {/* Combines hardcoded KMP regions with ANY new region found in the database */}
+                  {Array.from(new Set([
+                    ...Object.keys(REGIONAL_HIERARCHY), 
+                    ...(Nominal_Rolls || []).map(n => n.region).filter(Boolean)
+                  ])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}
                 </>
               ) : (
                 <option value={currentUser?.region}>{currentUser?.region}</option>
               )}
             </select>
 
-            {/* 2. DYNAMIC STATION FILTER */}
+            {/* 2. 100% DYNAMIC STATION FILTER */}
             <select 
               value={filterStation} 
               onChange={(e) => setFilterStation(e.target.value)} 
@@ -3377,11 +3382,11 @@ const handleFormSubmit = async (e) => {
               {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                 <>
                   <option value="ALL STATIONS">ALL STATIONS</option>
-                  {/* Only map the stations that belong to the currently selected Region */}
-                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] 
-                    ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
-                    : null
-                  }
+                  {/* Combines hardcoded stations with ANY new station uploaded for the selected region */}
+                  {Array.from(new Set([
+                    ...(REGIONAL_HIERARCHY[filterRegion] || []), 
+                    ...(Nominal_Rolls || []).filter(n => n.region === filterRegion).map(n => n.station).filter(Boolean)
+                  ])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}
                 </>
               ) : (
                 <option value={currentUser?.station}>{currentUser?.station}</option>
