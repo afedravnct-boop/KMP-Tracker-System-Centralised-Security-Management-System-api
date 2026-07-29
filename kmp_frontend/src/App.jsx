@@ -6,7 +6,7 @@ import {
   Award, Maximize2, Minimize2, Activity, User, Lock, 
   AlertTriangle, RadioReceiver, Eye, X, Building, Image, 
   Camera, Users, Home, Unlock, Send, Archive, PieChart,
-  Bell, MessageSquare
+  Bell, MessageSquare, Upload
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReactQuill from 'react-quill-new';
