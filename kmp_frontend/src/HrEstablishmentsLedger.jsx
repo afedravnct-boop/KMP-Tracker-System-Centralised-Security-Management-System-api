@@ -1,6 +1,5 @@
 import React from 'react';
-import { Users, Building, X, ShieldAlert } from 'lucide-react';
-import BulkUpload from './BulkNominalRollUpload';
+import BulkNominalRollUpload from './BulkNominalRollUpload';
 
 const HrEstablishmentsLedger = ({ data, onClose, currentUser, onUploadSuccess }) => {
   // 🟢 1. Security Check: Admin Clearance (Matching the Python backend logic)
