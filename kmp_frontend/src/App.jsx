@@ -1559,13 +1559,6 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                 </button>
               </div>
 
-                <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
-                <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                  {/* Metric cards placeholder */}
-                </div>
-              </div>
-
               {notification && (
                 <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
                   {notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}
@@ -1685,9 +1678,38 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
           </div>
         </div>
         
-        <div className="lg:col-span-8 space-y-4">
+<div className="lg:col-span-8 space-y-4">
+          
+          {/* 🟢 AREA METRICS BLOCK: Moved here from the left side */}
+          <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
+            <div className="absolute top-4 right-4 z-10">
+              <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none cursor-pointer">
+                <option value="ALL TIME">ALL TIME</option>
+                <option value="TODAY">TODAY ONLY</option>
+                <option value="LAST 7 DAYS">LAST 7 DAYS</option>
+                <option value="LAST 30 DAYS">LAST 30 DAYS</option>
+                <option value="LAST 90 DAYS">LAST 90 DAYS</option>
+                <option value="LAST 120 DAYS">LAST 120 DAYS</option>
+              </select>
+            </div>
+            <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">
+              📋 Area Metrics ({filterRegion} - {dateFilter})
+            </h4>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+              <MetricCard title="Arrested" value={totals.arrested} colorClass="text-blue-700" />
+              <MetricCard title="Given Bond" value={totals.given_bond} colorClass="text-indigo-600" />
+              <MetricCard title="Cautioned" value={totals.cautioned} colorClass="text-gray-600" />
+              <MetricCard title="Pending Court" value={totals.pending_court} colorClass="text-yellow-600" />
+              <MetricCard title="To Court" value={totals.taken_to_court} colorClass="text-blue-500" />
+              <MetricCard title="Released" value={totals.released} colorClass="text-green-600" />
+              <MetricCard title="Remanded" value={totals.remanded} colorClass="text-red-600" />
+              <MetricCard title="Convicted" value={totals.convicted} colorClass="text-purple-600" />
+            </div>
+          </div>
+          {/* 🟢 END AREA METRICS BLOCK */}
+
           <div className="flex flex-col sm:flex-row gap-3">
-{/* 1. DYNAMIC REGION FILTER */}
+            {/* 1. DYNAMIC REGION FILTER */}
             <select 
               value={filterRegion} 
               onChange={(e) => { 
@@ -1726,7 +1748,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
               ) : (
                 <option value={currentUser?.station}>{currentUser?.station}</option>
               )}
-            </select>    
+            </select>   
           </div>
 
           <ExpandableTableCard 
@@ -1756,7 +1778,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredStats.map((stat) => (
-                    <tr key={stat.id} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
+                    <tr key={stat.id || stat.sn} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
                       <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-gray-900">{stat.id || stat.sn}</td>
                       <td className="px-3 py-3 whitespace-nowrap text-[11px] text-gray-500">{stat.date}</td>
                       <td className="px-3 py-3 whitespace-nowrap text-[11px] font-medium text-blue-700">{stat.station}</td>
