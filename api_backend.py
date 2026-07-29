@@ -197,60 +197,62 @@ def strip_html_to_plain_text(text):
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
-def apply_custom_sheet_design(workbook, worksheet, df, sheet_name, user):
-    # 1. Determine Header Color based on the Sheet Name (Matching your screenshots)
-    header_bg_color = '#002060'  # Default Dark Blue (Crime Registry & OPS Stats)
-    
-    if sheet_name == "Success Stories":
-        header_bg_color = '#C65911'  # Orange/Brown
-    elif sheet_name == "Nominal Roll":
-        header_bg_color = '#60497A'  # Purple
-        
-    # 2. Create the Header Format
+def apply_custom_sheet_design(workbook, worksheet, df, sheet_title, user):
+    # 1. PREPARE PRINT SETTINGS (Page Layout ready for Ctrl+P)
+    worksheet.set_landscape()
+    worksheet.set_margins(left=0.25, right=0.25, top=0.75, bottom=0.75)
+
+    # 2. SET PRINT HEADERS AND FOOTERS
+    worksheet.set_header('&C&"Tahoma,Bold"RESTRICTED')
+    worksheet.set_footer('&C&"Tahoma"Page &P of &N\nRESTRICTED')
+
+    # 3. CREATE FORMATS (Tahoma enforced)
     header_format = workbook.add_format({
         'bold': True,
-        'valign': 'vcenter',
-        'align': 'center',
-        'fg_color': header_bg_color,
+        'bg_color': '#002060', 
         'font_color': 'white',
-        'border': 1
+        'font_name': 'Tahoma',
+        'font_size': 11,
+        'border': 1,
+        'align': 'center',
+        'valign': 'vcenter',
+        'text_wrap': True
     })
     
-    # 3. Create formats for the body cells
-    wrap_format = workbook.add_format({'text_wrap': True, 'valign': 'top'})
-    std_format = workbook.add_format({'valign': 'top'})
+    data_format = workbook.add_format({
+        'font_name': 'Tahoma',
+        'font_size': 11,
+        'border': 1,
+        'valign': 'vcenter'
+    })
 
-    # 4. Paint the Header Row
+    # 4. APPLY HEADER ROW FORMATTING
     for col_num, value in enumerate(df.columns.values):
         worksheet.write(0, col_num, value, header_format)
 
-    # 5. Dynamically resize columns based on their content type
-    for col_num, col_name in enumerate(df.columns.values):
-        col_name_str = str(col_name).upper()
-        
-        # Default dimensions
-        width = 15
-        col_format = std_format
-        
-        # Apply specific widths and wrapping rules
-        if col_name_str == 'SN':
-            width = 6
-            col_format = workbook.add_format({'align': 'center', 'valign': 'top'})
-        elif col_name_str in ['NARRATIVE', 'COMMENT', 'DETAILS', 'NARRATIVE / PROGRESS']:
-            width = 65  # Extra wide for incident reports with text wrapping enabled
-            col_format = wrap_format 
-        elif col_name_str in ['STATION', 'REGION', 'DIVISION', 'OFFENCE', 'STATUS', 'NAME']:
-            width = 22
-        elif col_name_str in ['SD REF', 'FORCE NUMBER', 'IPPS']:
-            width = 18
-        elif col_name_str in ['DATE', 'TIME', 'SEX', 'AGE']:
-            width = 12
-            
-        # Execute the column styling
-        worksheet.set_column(col_num, col_num, width, col_format)
-        
-    # 6. Freeze the top row so headers stay visible when scrolling down
-    worksheet.freeze_panes(1, 0)
+    # 5. APPLY DATA ROW FORMATTING
+    for row_num in range(len(df)):
+        for col_num in range(len(df.columns)):
+            val = df.iloc[row_num, col_num]
+            if pd.isna(val): val = ""
+            worksheet.write(row_num + 1, col_num, val, data_format)
+
+    # 6. SHEET-SPECIFIC PRINT SCALING & COLUMN SIZING
+    if sheet_title == "OPS Statistics":
+        worksheet.fit_to_pages(1, 0) # Fit to 1 page wide
+        worksheet.set_column('A:A', 5)   # SN
+        worksheet.set_column('B:B', 12)  # Date
+        worksheet.set_column('C:D', 20)  # Region, Station
+        worksheet.set_column('E:L', 10)  # Metrics
+
+    elif "(Print)" in sheet_title:       # PRINT TABS
+        worksheet.fit_to_pages(1, 0)     # Fit to 1 page wide for UI copies
+        worksheet.set_column('A:A', 5)   # SN
+        worksheet.set_column('B:Z', 15)  # Standard readable width for the rest
+
+    else:
+        # Master tabs: NO fit-to-width so they stay wide and readable
+        worksheet.set_column('A:Z', 18) 
 
 async def send_command_briefing(email_to: List[str], subject: str, html_body: str):
     message = MessageSchema(
@@ -445,18 +447,15 @@ def update_user_access(fnum: str, access_data: UserAccessUpdate, db: Session = D
 @app.post("/api/v1/users/heartbeat")
 def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        # Update their clock using UTC to prevent server/client timezone drift
         current_user.last_active_at = datetime.utcnow()
         db.commit()
         return {"status": "alive"}
     except Exception as e:
         db.rollback()
-        # Fail silently so the frontend doesn't spam console errors on network blips
         return {"status": "error"}
 
 @app.get("/api/v1/users/online")
 def get_online_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # Define "online" as having a heartbeat in the last 2 minutes
     threshold = datetime.utcnow() - timedelta(minutes=2)
     
     query = db.query(models.Users).filter(
@@ -464,7 +463,6 @@ def get_online_users(db: Session = Depends(get_db), current_user: models.Users =
         models.Users.last_active_at >= threshold
     )
     
-    # 🛡️ Apply your standard Geographical Firewall
     perms = current_user.permissions or {}
     is_global = (
         current_user.role == "SUPER_ADMIN" or 
@@ -677,7 +675,7 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
             "mental_health_status": getattr(s, 'mental_health_status', ''), 
             "photo_url": getattr(s, 'photo_url', '')
         } for s in getattr(r, 'suspect_details', [])]
-    } for r in reports] # 🟢 FIXED: Added the missing closure for the outer loop!
+    } for r in reports] 
 
 @app.post("/api/v1/reports")
 def create_report(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -704,7 +702,7 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
                 residence=s.get('residence'), 
                 contact=s.get('contact'),
                 mental_health_status=s.get('mental_health_status'),
-                photo_url=s.get('photo_url') # 🟢 CAPTURE PHOTO URL
+                photo_url=s.get('photo_url') 
             )
             db.add(new_suspect)
         return {"status": "success"}
@@ -744,7 +742,7 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
                     sd_ref=sn, name=s.get('name'), sex=s.get('sex'), age=str(s.get('age')) if s.get('age') else None,
                     tribe=s.get('tribe'), residence=s.get('residence'), contact=s.get('contact'),
                     mental_health_status=s.get('mental_health_status'),
-                    photo_url=s.get('photo_url') # <-- Add this line
+                    photo_url=s.get('photo_url') 
                 )
                 db.add(new_suspect)
 
@@ -847,7 +845,6 @@ def create_establishment(data: dict, db: Session = Depends(get_db), current_user
 
 @app.put("/api/v1/establishments/{est_id}")
 def update_establishment(est_id: int, est_update: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # Safely handle both 'id' and 'sn' depending on your exact model setup
     existing_est = db.query(models.Establishments).filter(
         (models.Establishments.id == est_id) if hasattr(models.Establishments, 'id') else (models.Establishments.sn == est_id)
     ).first()
@@ -1038,7 +1035,6 @@ def create_admin_communication(comm: Admin_CommunicationCreate, background_tasks
                     <p style="font-size: 10px; color: gray;">Automated dispatch from KMP Tracker.</p>
                 </div>
                 """
-                # Safely execute the async email in the background
                 def send_email_sync():
                     asyncio.run(send_command_briefing(emails, comm.subject, html_body))
                 
@@ -1048,6 +1044,7 @@ def create_admin_communication(comm: Admin_CommunicationCreate, background_tasks
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/v1/Admin_Communication")
 def get_admin_communications(
     start_date: Optional[str] = None, end_date: Optional[str] = None,
@@ -1081,7 +1078,6 @@ def get_admin_communications(
 
     comms = query.order_by(models.Admin_Communication.created_at.desc()).all()
     
-    # OPTIMIZATION: Fetch all read receipts for this user in ONE query
     read_records = db.query(models.Communication_Reads.comm_id).filter(
         models.Communication_Reads.fnum == current_user.fnum
     ).all()
@@ -1133,7 +1129,6 @@ def acknowledge_communication(comm_id: int, db: Session = Depends(get_db), curre
 
 @app.get("/api/v1/communications/{comm_id}/readers")
 def get_communication_readers(comm_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # 🛡️ EXPLICIT CLEARANCE: Admins, RPCs, Deputy RPCs, and Divisional Commanders
     position_str = current_user.position or ""
     is_cleared = (
         current_user.role in ["ADMIN", "SUPER_ADMIN", "RPC", "Deputy Commander"] or
@@ -1174,7 +1169,6 @@ def get_communication_readers(comm_id: int, db: Session = Depends(get_db), curre
 @app.get("/api/v1/reports/consolidated-ledger")
 def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        # 1. Safely handle permissions (whether it is an object or a string)
         perms = current_user.permissions
         if isinstance(perms, str):
             import json
@@ -1185,21 +1179,18 @@ def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depend
         if not isinstance(perms, dict):
             perms = {}
 
-        # 2. Check Security Clearance
         is_admin = current_user.role in ["ADMIN", "SUPER_ADMIN"]
         has_perm = perms.get("consolidated", False)
 
         if not is_admin and not has_perm:
             raise HTTPException(status_code=403, detail="Clearance Denied: You do not have access to the Consolidated Ledger.")
 
-        # 3. Parse Dates
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
         end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
 
         start_str = start_dt.strftime("%Y-%m-%d")
         end_str = end_dt.strftime("%Y-%m-%d")
 
-        # 4. Database Queries
         crime_data = db.query(
             models.Crime_Reports.region, models.Crime_Reports.offence,
             func.count(models.Crime_Reports.sn).label("cases"),
@@ -1219,7 +1210,6 @@ def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depend
         ).filter(and_(models.Success_Stories.date >= start_str, models.Success_Stories.date < end_str))\
          .group_by(models.Success_Stories.region).all()
 
-        # 5. Build Result
         result = []
         for r in crime_data:
             result.append({"region": r[0], "offence": r[1], "cases": r[2], "suspects": r[3] or 0})
@@ -1233,7 +1223,6 @@ def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depend
     except HTTPException:
         raise
     except Exception as e:
-        # Catching the crash here PREVENTS the "Fake CORS Error" bug!
         print(f"Ledger Crash: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database Ledger Error: {str(e)}")
 
@@ -1302,8 +1291,12 @@ def export_master_database_unified(
 
         with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
             workbook = writer.book
+            
+            # 🟢 FORCE TAHOMA FONT FOR THE ENTIRE EXCEL DOCUMENT
+            workbook.formats[0].set_font_name('Tahoma')
+            workbook.formats[0].set_font_size(11) # 11 is the standard readable size for Tahoma
 
-# --- TAB 1: CRIME REGISTRY ---
+            # --- TAB 1: CRIME REGISTRY ---
             crime_query = db.query(models.Crime_Reports)
             if scope == "station" and value and value != "all":
                 crime_query = crime_query.filter(models.Crime_Reports.station == value)
@@ -1341,6 +1334,41 @@ def export_master_database_unified(
 
             df_crime.to_excel(writer, sheet_name="Crime Registry", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["Crime Registry"], df_crime, "Crime Registry", authorized_user)
+
+            # 🟢 NEW: TAB 1B: CRIME REGISTRY (Printable UI Copy) ---
+            if not df_crime.empty:
+                df_crime_print = df_crime.copy()
+                
+                # Merge columns to match the UI perfectly
+                df_crime_print["Date & Time"] = df_crime_print["DATE"].astype(str) + " " + df_crime_print["TIME"].astype(str)
+                df_crime_print["Region/Station/Post"] = df_crime_print["REGION"].astype(str) + " / " + df_crime_print["STATION"].astype(str)
+                
+                # Rename columns to match your exact requested headers
+                df_crime_print.rename(columns={
+                    "ID": "S/N", 
+                    "SN": "S/N", 
+                    "SD REF": "Reference",
+                    "NARRATIVE": "Incident Narrative",
+                    "STATUS": "Status",
+                    "SUSPECTS": "Suspects"
+                }, inplace=True)
+
+                if "COMPLAINANT" not in df_crime_print.columns:
+                    df_crime_print["Complainant"] = ""
+                else:
+                    df_crime_print.rename(columns={"COMPLAINANT": "Complainant"}, inplace=True)
+
+                ui_crime_columns = ["S/N", "Reference", "Date & Time", "Region/Station/Post", "Incident Narrative", "Complainant", "Suspects", "Status"]
+                # Only keep columns that actually exist
+                available_crime_cols = [col for col in ui_crime_columns if col in df_crime_print.columns]
+                df_crime_print = df_crime_print[available_crime_cols]
+            else:
+                df_crime_print = pd.DataFrame(columns=["S/N", "Reference", "Date & Time", "Region/Station/Post", "Incident Narrative", "Complainant", "Suspects", "Status"])
+                
+            df_crime_print.to_excel(writer, sheet_name="Crime Registry (Print)", index=False)
+            apply_custom_sheet_design(workbook, writer.sheets["Crime Registry (Print)"], df_crime_print, "Crime Registry (Print)", authorized_user)
+            # ----------------------------------------------
+
             del crime_data, crime_list, df_crime
             gc.collect()
 
@@ -1397,6 +1425,33 @@ def export_master_database_unified(
             df_roll = pd.DataFrame(roll_list) if roll_list else pd.DataFrame(columns=["SN", "Force Number", "Rank", "Name", "Sex", "Position", "DOB", "DOE", "DO POST", "DO PRO", "Contact", "Educ Level", "IPPS", "TIN", "NIN", "Home Dist", "Tribe", "Acc No", "Bank Branch", "Station", "District", "Region", "Section", "Directorate", "Status"])
             df_roll.to_excel(writer, sheet_name="Nominal Roll", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["Nominal Roll"], df_roll, "Nominal Roll", authorized_user)
+
+            # --- TAB 4B: ESTABLISHMENTS (Printable UI Copy) ---
+            if not df_roll.empty:
+                df_hr_print = df_roll.copy()
+                
+                df_hr_print.rename(columns={
+                    "SN": "S/N",
+                    "Force Number": "F-NUMBER",
+                    "Rank": "RANK",
+                    "Name": "NAME",
+                    "Region": "REGION",
+                    "Station": "STATION",
+                    "Position": "ROLE",
+                    "Contact": "CONTACT"
+                }, inplace=True)
+                
+                ui_hr_columns = ["S/N", "F-NUMBER", "RANK", "NAME", "REGION", "STATION", "ROLE", "CONTACT"] 
+                
+                available_hr_cols = [col for col in ui_hr_columns if col in df_hr_print.columns]
+                df_hr_print = df_hr_print[available_hr_cols]
+            else:
+                df_hr_print = pd.DataFrame(columns=["S/N", "F-NUMBER", "RANK", "NAME", "REGION", "STATION", "ROLE", "CONTACT"])
+                
+            df_hr_print.to_excel(writer, sheet_name="Establishments (Print)", index=False)
+            apply_custom_sheet_design(workbook, writer.sheets["Establishments (Print)"], df_hr_print, "Establishments (Print)", authorized_user)
+            # ----------------------------------------------
+
             del roll_data, roll_list, df_roll
             gc.collect()
 
@@ -1473,10 +1528,10 @@ def export_establishments(db: Session = Depends(get_db), authorized_user: models
             del est_data, est_list, df_est
             gc.collect()
             
-            workbook.set_properties({
-                'title': 'KMP HR & establishments - RESTRICTED',
-                'author': f'{authorized_user.rank} {authorized_user.name}'
-            })
+        workbook.set_properties({
+            'title': 'KMP HR & establishments - RESTRICTED',
+            'author': f'{authorized_user.rank} {authorized_user.name}'
+        })
 
         zip_password = authorized_user.fnum.encode('utf-8')
         with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
@@ -1514,7 +1569,6 @@ def get_system_audit_logs(db: Session = Depends(get_db), current_user: models.Us
         for log in logs:
             formatted_time = None
             if log.created_at:
-                # Append the +03:00 EAT offset so the browser doesn't mistakenly add an extra 3 hours
                 formatted_time = log.created_at.strftime("%Y-%m-%dT%H:%M:%S+03:00")
                 
             clean_logs.append({
@@ -1589,7 +1643,6 @@ def create_audit_log(data: dict, db: Session = Depends(get_db), current_user: mo
         return {"status": "logged"}
     except Exception as e:
         db.rollback()
-        # Fail silently so it doesn't crash the user's app if the log fails
         return {"status": "error"}
 
 @app.post("/api/v1/system/log-session")
