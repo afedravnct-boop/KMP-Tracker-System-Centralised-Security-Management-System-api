@@ -3090,7 +3090,7 @@ const filteredNominal_Roll_archives = useMemo(() => {
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div>
                 <h4 className="font-bold text-gray-800 text-sm flex items-center">
-                  <FileUp className="w-4 h-4 mr-2 text-blue-600" /> Batch Excel Import
+                  <Upload className="w-4 h-4 mr-2 text-blue-600" /> Batch Excel Import
                 </h4>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Ensure your Excel file uses these exact column headers for consistency:

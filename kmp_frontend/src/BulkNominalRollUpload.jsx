@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, FileUp, AlertCircle, CheckCircle } from 'lucide-react';
+import { Upload, Upload, AlertCircle, CheckCircle } from 'lucide-react';
 
 
 const BulkNominalRollUpload = ({ onUploadSuccess }) => {
@@ -58,7 +58,7 @@ const BulkNominalRollUpload = ({ onUploadSuccess }) => {
         {/* Left Side: Info */}
         <div className="flex items-center gap-3 w-full sm:w-auto">
           <div className="bg-blue-100 p-2 rounded-lg text-blue-700">
-            <FileUp size={24} />
+            <Upload size={24} />
           </div>
           <div>
             <h3 className="font-bold text-gray-800 text-sm">Bulk Excel Nominal Roll Import</h3>
