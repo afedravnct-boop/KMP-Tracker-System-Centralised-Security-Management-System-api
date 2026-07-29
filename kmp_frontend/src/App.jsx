@@ -5679,8 +5679,8 @@ onLogout={() => {
         <HrEstablishmentsLedger 
            data={hrLedgerData} 
            onClose={() => setIsViewingHR(false)} 
-           currentUser={currentUser}    {/* 🟢 Passes auth down to lock out non-admins */}
-           onUploadSuccess={fetchData}  {/* 🟢 Refreshes the table after Excel upload */}
+           currentUser={currentUser} 
+           onUploadSuccess={() => window.location.reload()} 
         />
       )}
 
