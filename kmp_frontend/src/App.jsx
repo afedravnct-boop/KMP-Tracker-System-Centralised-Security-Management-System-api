@@ -3511,12 +3511,12 @@ const handleFormSubmit = async (e) => {
 // ====================================================================
 const AdminApprovals = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState('approvals');
+  
   const [modRequests, setModRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
+  
   const [audit_logs, setaudit_logs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
-  const [activity_logs, setActivity_logs] = useState([]);
-  const [loadingActivity, setLoadingActivity] = useState(false);
   
   const [realPendingUsers, setRealPendingUsers] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
@@ -3524,11 +3524,11 @@ const AdminApprovals = ({ currentUser }) => {
   const [resetRequests, setResetRequests] = useState([]);
   const [loadingResets, setLoadingResets] = useState(false);
 
-const isRPC = currentUser && ['RPC', 'Deputy Commander'].includes(currentUser.role);
+  const isRPC = currentUser && ['RPC', 'Deputy Commander'].includes(currentUser.role);
   const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
 
-useEffect(() => {
-    // 1. Fetch HR Requests IMMEDIATELY so the number always shows on the tab
+  useEffect(() => {
+    // 1. Fetch HR Requests
     setLoadingRequests(true);
     authFetch("/api/v1/requests")
       .then(res => res.json())
@@ -3538,7 +3538,48 @@ useEffect(() => {
       })
       .catch(err => { console.error(err); setLoadingRequests(false); });
 
-    // 2. Only fetch Audit Logs when the tab is clicked (because logs are heavy!)
+    // 2. 🟢 FIXED: Fetch Pending Account Authorizations
+    const fetchPendingUsers = async () => {
+      setLoadingPending(true);
+      try {
+        // Tries standard endpoint routes automatically to guarantee connection
+        let res = await authFetch("/api/v1/admin/pending-users");
+        if (!res.ok) res = await authFetch("/api/v1/users/pending");
+        if (!res.ok) res = await authFetch("/api/v1/auth/pending");
+        if (!res.ok) res = await authFetch("/api/v1/pending-users");
+
+        if (res.ok) {
+          const data = await res.json();
+          setRealPendingUsers(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        console.error("Failed to sync pending users:", err);
+      } finally {
+        setLoadingPending(false);
+      }
+    };
+    fetchPendingUsers();
+
+    // 3. 🟢 FIXED: Fetch Password Reset Requests
+    const fetchResets = async () => {
+      setLoadingResets(true);
+      try {
+        let res = await authFetch("/api/v1/admin/reset-requests");
+        if (!res.ok) res = await authFetch("/api/v1/auth/reset-requests");
+
+        if (res.ok) {
+          const data = await res.json();
+          setResetRequests(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        console.error("Failed to sync password resets:", err);
+      } finally {
+        setLoadingResets(false);
+      }
+    };
+    fetchResets();
+
+    // 4. Fetch Audit Logs (Only when tab is clicked because logs are heavy)
     if (activeTab === 'logs') {
       setLoadingLogs(true);
       authFetch("/api/v1/audit-logs")
@@ -3566,18 +3607,15 @@ useEffect(() => {
     }
   };
 
-const handleReviewRequest = async (reqId, actionStatus) => {
-    // Prevent fetching if the ID is missing
+  const handleReviewRequest = async (reqId, actionStatus) => {
     if (!reqId) {
       alert("Error: Request ID is undefined. Primary key mismatch.");
       return;
     }
-
     try {
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
       
-      // Reverted to PATCH (your original, correct code!)
       const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
         method: "PATCH", 
         headers: { 
@@ -3592,7 +3630,6 @@ const handleReviewRequest = async (reqId, actionStatus) => {
         throw new Error(errData.detail || `Server Error: ${response.status}`);
       }
       
-      // Safely filter out the request using whichever primary key it possesses
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId && r.request_id !== reqId));
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
@@ -3631,15 +3668,15 @@ const handleReviewRequest = async (reqId, actionStatus) => {
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
       <div className="text-center mb-8 flex flex-col items-center">
         <img 
-  src="/upf_badge.png" 
-  alt="UPF Logo" 
-  className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
-/>
+          src="/upf_badge.png" 
+          alt="UPF Logo" 
+          className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+        />
         <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Access & Command Approvals</h1>
         <h3 className="text-lg text-gray-500 mt-2 font-medium">Review pending officer signups, HR transfers, and Audit Logs.</h3>
       </div>
 
-<div className="flex space-x-2 border-b border-gray-200 mb-6 bg-white/50 backdrop-blur rounded-t-xl px-4 pt-4 overflow-x-auto custom-scrollbar">
+      <div className="flex space-x-2 border-b border-gray-200 mb-6 bg-white/50 backdrop-blur rounded-t-xl px-4 pt-4 overflow-x-auto custom-scrollbar">
         <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
           New Account Authorizations ({loadingPending ? '...' : realPendingUsers.length})
         </button>
@@ -3675,8 +3712,10 @@ const handleReviewRequest = async (reqId, actionStatus) => {
                   {realPendingUsers.map(u => (
                     <tr key={u.fnum} className="hover:bg-slate-50">
                       <td className="px-4 py-3 text-sm flex items-center space-x-3">
-                        {u.profile_photo_path && (
+                        {u.profile_photo_path ? (
                           <img src={u.profile_photo_path} alt="" className="w-10 h-10 rounded-full bg-slate-100 object-cover border border-gray-200" onError={(e) => { e.target.style.display='none'; }} />
+                        ) : (
+                          <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold">{u.name?.charAt(0) || 'U'}</div>
                         )}
                         <div>
                           <div className="font-bold text-gray-900">{u.name} ({u.fnum})</div>
@@ -3700,13 +3739,13 @@ const handleReviewRequest = async (reqId, actionStatus) => {
                     </tr>
                   ))}
                 </tbody>
-</table>
-          </div>
-        )}
-      </div>
-    )}
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
-    {activeTab === 'requests' && (
+      {activeTab === 'requests' && (
         <div className="bg-white rounded-xl shadow-sm border border-yellow-200 overflow-hidden max-w-6xl mx-auto">
           <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
             <Shield className="w-5 h-5 mr-2 text-yellow-400" /> HR Modification Requests
@@ -3738,7 +3777,7 @@ const handleReviewRequest = async (reqId, actionStatus) => {
                         {req.requested_station && req.requested_station !== req.current_station && <div className="text-xs"><span className="font-bold text-slate-400">Station:</span> <span className="text-red-500 line-through mr-1">{req.current_station}</span> ➡️ <span className="text-green-600 font-bold">{req.requested_station}</span></div>}
                         {req.requested_region && req.requested_region !== req.current_region && <div className="text-xs"><span className="font-bold text-slate-400">Region:</span> <span className="text-red-500 line-through mr-1">{req.current_region}</span> ➡️ <span className="text-green-600 font-bold">{req.requested_region}</span></div>}
                       </td>
-<td className="px-4 py-3 whitespace-nowrap text-sm">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm">
                         <div className="flex space-x-2">
                           <button onClick={() => handleReviewRequest(req.id || req.sn || req.request_id, "APPROVED")} className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
                             <CheckCircle size={14} className="mr-1" /> Approve
@@ -3757,55 +3796,56 @@ const handleReviewRequest = async (reqId, actionStatus) => {
         </div>
       )}
 
-    {activeTab === 'logs' && (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-6xl mx-auto">
-        <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
-          <Shield className="w-5 h-5 mr-2 text-blue-400" /> System Audit Logs
+      {activeTab === 'logs' && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-6xl mx-auto">
+          <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
+            <Shield className="w-5 h-5 mr-2 text-blue-400" /> System Audit Logs
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Timestamp</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">User FNUM</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Event</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Target</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Details</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {loadingLogs ? (
+                   <tr><td colSpan="5" className="p-8 text-center text-sm text-gray-500 font-bold animate-pulse">Decrypting server logs...</td></tr>
+                ) : audit_logs.length === 0 ? (
+                  <tr><td colSpan="5" className="p-4 text-center text-sm text-gray-500">No recent security events logged in main database.</td></tr>
+                ) : (
+                  audit_logs.map((log) => (
+                    <tr key={log.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">
+                        {log.created_at ? new Date(log.created_at).toLocaleString() : 'Unknown Time'}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-extrabold text-blue-700">
+                        {log.user_fnum}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm">
+                        <span className="font-extrabold text-slate-800 uppercase text-xs">{log.event_type}</span>
+                      </td>
+                       <td className="px-4 py-3 text-sm text-gray-600 font-medium">
+                        {log.target_user || 'N/A'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {log.details}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Timestamp</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">User FNUM</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Event</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Target</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Details</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {loadingLogs ? (
-                 <tr><td colSpan="5" className="p-8 text-center text-sm text-gray-500 font-bold animate-pulse">Decrypting server logs...</td></tr>
-              ) : audit_logs.length === 0 ? (
-                <tr><td colSpan="5" className="p-4 text-center text-sm text-gray-500">No recent security events logged in main database.</td></tr>
-              ) : (
-                audit_logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">
-                      {log.created_at ? new Date(log.created_at).toLocaleString() : 'Unknown Time'}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm font-extrabold text-blue-700">
-                      {log.user_fnum}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm">
-                      <span className="font-extrabold text-slate-800 uppercase text-xs">{log.event_type}</span>
-                    </td>
-                     <td className="px-4 py-3 text-sm text-gray-600 font-medium">
-                      {log.target_user || 'N/A'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
-                      {log.details}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    )}
+      )}
 
-    {activeTab === 'resets' && (        <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden max-w-6xl mx-auto">
+      {activeTab === 'resets' && (        
+        <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden max-w-6xl mx-auto">
           <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
             <Lock className="w-5 h-5 mr-2 text-red-400" /> Authorized Password Recovery
           </div>
@@ -3854,7 +3894,6 @@ const handleReviewRequest = async (reqId, actionStatus) => {
           )}
         </div>
       )}
-
     </div>
   );
 };
