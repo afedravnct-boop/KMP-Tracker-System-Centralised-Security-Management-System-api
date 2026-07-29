@@ -536,29 +536,64 @@ const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', t
     window.open(url, '_blank');
   };
 
-  const filteredReports = useMemo(() => {
-    return (Array.isArray(reports) ? reports : []).filter(r => {
-      if (filterRegion !== 'ALL REGIONS' && r.region !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && r.station !== filterStation) return false;
-      if (searchQuery && !r.narrative.toLowerCase().includes(searchQuery.toLowerCase()) && 
-          !r.station.toLowerCase().includes(searchQuery.toLowerCase()) && 
-          !(r.sdRef || r.sd_ref || '').toLowerCase().includes(searchQuery.toLowerCase())) return false;
-      
-      if (dateFilter === 'TODAY') {
-        const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-        if (r.date !== todayStr) return false;
-      } else if (dateFilter === 'LAST 7 DAYS') {
-        const repDate = new Date(r.date);
-        const today = new Date();
-        const diffDays = Math.ceil(Math.abs(today - repDate) / (1000 * 60 * 60 * 24));
-        if (diffDays > 7) return false;
-      } else if (dateFilter === 'CUSTOM') {
-        if (customStartDate && r.date < customStartDate) return false;
-        if (customEndDate && r.date > customEndDate) return false;
+const filteredReports = useMemo(() => {
+    if (!Array.isArray(reports)) return [];
+
+    return reports.filter(r => {
+      // 1. Normalize the strings to prevent case/space mismatch
+      const dbRegion = (r.region || '').trim().toUpperCase();
+      const dbStation = (r.station || '').trim().toUpperCase();
+      const selectedRegion = (filterRegion || '').trim().toUpperCase();
+      const selectedStation = (filterStation || '').trim().toUpperCase();
+
+      // 2. REGION CHECK: If a specific region is chosen, strictly enforce it
+      if (selectedRegion !== 'ALL REGIONS' && selectedRegion !== '') {
+        if (dbRegion !== selectedRegion) return false;
       }
+
+      // 3. STATION CHECK: If a specific station is chosen, strictly enforce it
+      if (selectedStation !== 'ALL STATIONS' && selectedStation !== '') {
+        if (dbStation !== selectedStation) return false;
+      }
+      
+      // 4. SEARCH QUERY MATCHING
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase().trim();
+        const textMatch = 
+          (r.narrative || '').toLowerCase().includes(query) || 
+          (r.station || '').toLowerCase().includes(query) || 
+          (r.sdRef || r.sd_ref || '').toLowerCase().includes(query);
+        if (!textMatch) return false;
+      }
+      
+      // 5. DATE MATCHING
+      if (dateFilter && dateFilter !== 'ALL TIME') {
+        if (dateFilter === 'TODAY') {
+          const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+          if (r.date !== todayStr) return false;
+        } else if (dateFilter === 'LAST 7 DAYS') {
+          const repDate = new Date(r.date);
+          const diffDays = (Date.now() - repDate) / (1000 * 60 * 60 * 24);
+          if (diffDays > 7) return false;
+        } else if (dateFilter === 'LAST 30 DAYS') {
+          const repDate = new Date(r.date);
+          const diffDays = (Date.now() - repDate) / (1000 * 60 * 60 * 24);
+          if (diffDays > 30) return false;
+        } else if (dateFilter === 'LAST 90 DAYS') {
+          const repDate = new Date(r.date);
+          const diffDays = (Date.now() - repDate) / (1000 * 60 * 60 * 24);
+          if (diffDays > 90) return false;
+        } else if (dateFilter === 'LAST 120 DAYS') {
+          const repDate = new Date(r.date);
+          const diffDays = (Date.now() - repDate) / (1000 * 60 * 60 * 24);
+          if (diffDays > 120) return false;
+        }
+      }
+
+      // If it survives all the checks above, it belongs in the table!
       return true;
     });
-  }, [reports, filterRegion, filterStation, searchQuery, dateFilter, customStartDate, customEndDate]);
+  }, [reports, filterRegion, filterStation, searchQuery, dateFilter]);
 
   const availableUpdateCases = useMemo(() => {
     return (Array.isArray(reports) ? reports : []).filter(r => {
@@ -1156,7 +1191,7 @@ const handleAddSuspect = () => {
               )}
             </select>
 
-            {/* 2. DYNAMIC STATION FILTER */}
+{/* 2. DYNAMIC STATION FILTER */}
             <select 
               value={filterStation} 
               onChange={(e) => setFilterStation(e.target.value)} 
@@ -1166,10 +1201,9 @@ const handleAddSuspect = () => {
               {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                 <>
                   <option value="ALL STATIONS">ALL STATIONS</option>
-                  {/* Only map the stations that belong to the currently selected Region */}
-                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] 
-                    ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
-                    : null
+                  {filterRegion === 'ALL REGIONS' 
+                    ? Array.from(new Set(Object.values(REGIONAL_HIERARCHY).flat())).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)
+                    : REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)
                   }
                 </>
               ) : (

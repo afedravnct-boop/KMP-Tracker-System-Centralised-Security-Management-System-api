@@ -1293,18 +1293,42 @@ def export_master_database_unified(
         with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
             workbook = writer.book
 
-            # --- TAB 1: CRIME REGISTRY ---
+# --- TAB 1: CRIME REGISTRY ---
             crime_query = db.query(models.Crime_Reports)
             if scope == "station" and value and value != "all":
                 crime_query = crime_query.filter(models.Crime_Reports.station == value)
             crime_data = crime_query.yield_per(1000)
+            
+            # 🟢 Fetching exact DB attributes but assigning to UPPERCASE Excel headers
             crime_list = [{
-                "SN": getattr(r, 'id', getattr(r, 'sn', '')), "SD Ref": getattr(r, 'sd_ref', getattr(r, 'sdRef', '')),
-                "Date": getattr(r, 'date', ''), "Time": getattr(r, 'time', ''), "Region": getattr(r, 'region', ''),
-                "Station": getattr(r, 'station', ''), "Offence": getattr(r, 'offence', ''), "Status": getattr(r, 'status', ''),
-                "Suspects": getattr(r, 'suspects', 0), "Narrative": strip_html_to_plain_text(getattr(r, 'narrative', '')) 
+                "ID": getattr(r, 'id', ''),
+                "SN": getattr(r, 'id', ''),  # SN fetches the corresponding ID
+                "SD REF": getattr(r, 'sd_ref', getattr(r, 'sdRef', '')),
+                "REGION": getattr(r, 'region', ''),
+                "STATION": getattr(r, 'station', ''),
+                "DATE": getattr(r, 'date', ''),
+                "TIME": getattr(r, 'time', ''),
+                "OFFENCE": getattr(r, 'offence', ''),
+                "NARRATIVE": strip_html_to_plain_text(getattr(r, 'narrative', '')),
+                "STATUS": getattr(r, 'status', ''),
+                "SUSPECTS": getattr(r, 'suspects', 0),
+                "LAST UPDATED BY": getattr(r, 'last_updated_by', ''),
+                "CREATED AT": str(getattr(r, 'created_at', '')) # Cast to string to prevent Excel timezone errors
             } for r in crime_data]
-            df_crime = pd.DataFrame(crime_list) if crime_list else pd.DataFrame(columns=["SN", "SD Ref", "Date", "Time", "Region", "Station", "Offence", "Status", "Suspects", "Narrative"])
+            
+            # 🟢 Explicitly lock the exact column flow left-to-right
+            ordered_columns = [
+                "ID", "SN", "SD REF", "REGION", "STATION", 
+                "DATE", "TIME", "OFFENCE", "NARRATIVE", 
+                "STATUS", "SUSPECTS", "LAST UPDATED BY", "CREATED AT"
+            ]
+
+            if crime_list:
+                df_crime = pd.DataFrame(crime_list)
+                df_crime = df_crime[ordered_columns] # Force column order
+            else:
+                df_crime = pd.DataFrame(columns=ordered_columns)
+
             df_crime.to_excel(writer, sheet_name="Crime Registry", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["Crime Registry"], df_crime, "Crime Registry", authorized_user)
             del crime_data, crime_list, df_crime
