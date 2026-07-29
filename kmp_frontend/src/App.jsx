@@ -15,7 +15,7 @@ import CommandLedger from './CommandLedger';
 import ConsolidatedLedger from './ConsolidatedLedger';
 import HrEstablishmentsLedger from './HrEstablishmentsLedger';
 import Admin_Communication from './Admin_Communication';
-
+import BulkNominalRollUpload from './BulkNominalRollUpload';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -3081,8 +3081,54 @@ const filteredNominal_Roll_archives = useMemo(() => {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+   <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-5 space-y-6">
+
+          {/* 🟢 Bulk Excel Upload with Required Schema Preview */}
+          {(currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'RPC') && (
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+              <div>
+                <h4 className="font-bold text-gray-800 text-sm flex items-center">
+                  <FileUp className="w-4 h-4 mr-2 text-blue-600" /> Batch Excel Import
+                </h4>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Ensure your Excel file uses these exact column headers for consistency:
+                </p>
+              </div>
+
+              {/* Exact Column Headers Badge List */}
+              <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-mono text-slate-700 flex flex-wrap gap-1.5">
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">sn</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">fnum</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">rank</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">name</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">sex</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">position</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dob</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">doe</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dopost</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dopro</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">contact</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">educlevel</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">ipps</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">tin</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">nin</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">homedist</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">tribe</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">accno</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">bankbranch</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">station</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">district</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">region</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">section</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dir</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">status</span>
+              </div>
+
+              <BulkNominalRollUpload onUploadSuccess={fetchNominalRollData} />
+            </div>
+          )}
+
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
               <h3 className="text-white font-semibold flex items-center"><Users className="w-5 h-5 mr-2 text-blue-400" /> ⚙️ Log Personnel</h3>

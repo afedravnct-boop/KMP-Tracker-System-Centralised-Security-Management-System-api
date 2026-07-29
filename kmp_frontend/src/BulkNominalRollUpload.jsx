@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Upload, FileUp, AlertCircle, CheckCircle } from 'lucide-react';
 
-const BulkUpload = ({ onUploadSuccess }) => {
+const BulkNominalRollUpload = ({ onUploadSuccess }) => {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -23,10 +23,8 @@ const BulkUpload = ({ onUploadSuccess }) => {
     formData.append("file", file);
 
     try {
-      // Grab your auth token (adjust this if you store it differently, e.g., in sessionStorage)
       const token = localStorage.getItem("token") || sessionStorage.getItem("token");
 
-      // Replace with your actual backend URL if you use a configured axios instance/env variable
       const response = await fetch("http://localhost:8000/api/v1/nominal-roll/bulk-upload", {
         method: "POST",
         headers: {
@@ -39,15 +37,14 @@ const BulkUpload = ({ onUploadSuccess }) => {
 
       if (response.ok) {
         setFeedback({ type: "success", message: data.message });
-        setFile(null); // Reset the input
-        // Trigger a refresh of the Nominal Roll table if the parent passed a function
-        if (onUploadSuccess) onUploadSuccess(); 
+        setFile(null); // Reset the selected file
+        if (onUploadSuccess) onUploadSuccess(); // Refresh the nominal roll table instantly
       } else {
         setFeedback({ type: "error", message: data.detail || "Upload failed." });
       }
     } catch (error) {
       console.error("Bulk upload error:", error);
-      setFeedback({ type: "error", message: "Network error. Make sure the server is running." });
+      setFeedback({ type: "error", message: "Network error. Make sure the backend server is running." });
     } finally {
       setUploading(false);
     }
@@ -63,8 +60,8 @@ const BulkUpload = ({ onUploadSuccess }) => {
             <FileUp size={24} />
           </div>
           <div>
-            <h3 className="font-bold text-gray-800 text-sm">Legacy Excel Import</h3>
-            <p className="text-xs text-gray-500">Upload .xlsx or .xls to batch import personnel.</p>
+            <h3 className="font-bold text-gray-800 text-sm">Bulk Excel Nominal Roll Import</h3>
+            <p className="text-xs text-gray-500">Upload legacy .xlsx or .xls spreadsheets to batch-import personnel into NeonDB.</p>
           </div>
         </div>
 
@@ -74,13 +71,13 @@ const BulkUpload = ({ onUploadSuccess }) => {
             type="file"
             accept=".xlsx, .xls"
             onChange={handleFileChange}
-            id="excel-upload"
+            id="nominal-excel-upload"
             className="hidden"
             disabled={uploading}
           />
           <label
-            htmlFor="excel-upload"
-            className={`px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium cursor-pointer transition-colors ${
+            htmlFor="nominal-excel-upload"
+            className={`px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium cursor-pointer transition-colors truncate max-w-[200px] sm:max-w-xs ${
               file ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-white text-gray-700 hover:bg-gray-50'
             } ${uploading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
@@ -90,7 +87,7 @@ const BulkUpload = ({ onUploadSuccess }) => {
           <button
             onClick={handleUpload}
             disabled={!file || uploading}
-            className="flex items-center gap-2 bg-blue-700 hover:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed shadow-sm"
+            className="flex items-center gap-2 bg-blue-700 hover:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed shadow-sm whitespace-nowrap"
           >
             {uploading ? (
               <>
@@ -120,4 +117,4 @@ const BulkUpload = ({ onUploadSuccess }) => {
   );
 };
 
-export default BulkUpload;
+export default BulkNominalRollUpload;
