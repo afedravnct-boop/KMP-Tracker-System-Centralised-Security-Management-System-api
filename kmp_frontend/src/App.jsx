@@ -2979,7 +2979,7 @@ const filteredNominal_Roll_archives = useMemo(() => {
     }
   };
 
- const handleFormSubmit = async (e) => { 
+const handleFormSubmit = async (e) => { 
     e.preventDefault();
     const currentRolls = Array.isArray(Nominal_Rolls) ? Nominal_Rolls : [];
     const token = localStorage.getItem('kmp_authToken');
@@ -2987,14 +2987,20 @@ const filteredNominal_Roll_archives = useMemo(() => {
     if (!token) {
         setNotification("Error: Security token missing. Please log out and log back in.");
         return;
+    } // 🟢 ADDED MISSING BRACKET HERE
+
+    if (formData.nin) {
+        const cleanNin = formData.nin.toUpperCase().trim();
+        const ninRegex = /^C[MF][A-Z0-9]{12}$/;
+        
+        if (!ninRegex.test(cleanNin)) {
+            setNotification("⚠️ Error: National ID must start with CM or CF, be exactly 14 characters, and contain only letters and numbers.");
+            return; 
+        }
+        formData.nin = cleanNin; 
     }
 
     if (operation === 'new') {
-      const isDuplicate = currentRolls.some(n => n.fnum && n.fnum.trim().toUpperCase() === formData.fnum.trim().toUpperCase());
-      if (isDuplicate) {
-        setNotification("Error: An officer with this Force Number already exists.");
-        return;
-      }
 
       const exactNextSN = currentRolls.length > 0 ? Math.max(...currentRolls.map(n => n.sn)) + 1 : 1;
       const newEntry = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
@@ -3862,7 +3868,28 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   const [notification, setNotification] = useState(null);
   const [viewingImage, setViewingImage] = useState(null);
   
+  // 🟢 NEW PASSWORD STATE & FUNCTION
+  const [passwordData, setPasswordData] = useState({ old_password: '', new_password: '' });
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    setNotification("⏳ Updating security key...");
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const token = localStorage.getItem('kmp_authToken');
+      const response = await fetch(`${API_URL}/api/v1/users/change-password`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify(passwordData)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Failed to update password.");
+      setNotification(`✅ ${data.message}`);
+      setPasswordData({ old_password: '', new_password: '' });
+    } catch (err) { setNotification(`❌ Error: ${err.message}`); }
+  };
+
   const canAutoApprove = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role);
+
   const OFFICER_RANKS = ['AIP', 'IP', 'ASP', 'SP', 'SASP', 'SSP', 'ACP', 'CP', 'SCP', 'AIGP', 'DIGP', 'IGP'];
 
   const [formData, setFormData] = useState({
@@ -4225,15 +4252,38 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
                     <input type="tel" name="phone" value={formData.phone} onChange={handleInputChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-900" />
                   </div>
                 </div>
-                <div className="flex justify-end pt-4 mt-2 border-t border-gray-100">
+<div className="flex justify-end pt-4 mt-2 border-t border-gray-100">
                   <button type="submit" className="bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-6 rounded-lg shadow-md transition-colors flex items-center text-sm">
                     💾 Save Profile Changes
                   </button>
                 </div>
               </form>
 
+              {/* 🟢 NEW PASSWORD CHANGE FORM */}
+              <form onSubmit={handlePasswordChange} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                <div className="flex items-center text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2">
+                  <Lock size={14} className="mr-2 text-red-500" /> Security: Change Password
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Current Password</label>
+                    <input type="password" required value={passwordData.old_password} onChange={(e) => setPasswordData({...passwordData, old_password: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">New Password (Min 6 Chars)</label>
+                    <input type="password" required value={passwordData.new_password} onChange={(e) => setPasswordData({...passwordData, new_password: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                </div>
+                <div className="flex justify-end pt-4 mt-2 border-t border-gray-100">
+                  <button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg shadow-md transition-colors text-sm">
+                    Update Security Key
+                  </button>
+                </div>
+              </form>
+
             </div>
           ) : (
+
             <div className="space-y-6">
               <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b pb-2 flex items-center">
                 <Shield size={14} className="mr-2 text-slate-400" /> Comprehensive Officer Profile
@@ -4319,6 +4369,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     fnum: '', ipps: '', name: '', rank: '', sex: 'MALE', region: 'KMP NORTH', station: 'KAWEMPE', position: '',
     email: '', phone: '', password: '', profile_photo_path: ''
   });
+  const [photoFile, setPhotoFile] = useState(null);
 
   const availablePositions = [
     ...POSITIONS.ADMIN, 
@@ -4360,20 +4411,17 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     }
   };
 
-const handlePhotoUpload = async (e) => {
+  const handlePhotoUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      setNotification("⏳ Uploading and saving new profile photo...");
+      setAuthMessage("⏳ Uploading photo...");
       const uploadData = new FormData();
       uploadData.append("file", file);
-      uploadData.append("fnum", currentUser.fnum);
+      uploadData.append("fnum", signupData.fnum || "NEW_USER");
       uploadData.append("category", "user_profile");
 
       try {
         const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        const token = localStorage.getItem('kmp_authToken');
-        
-        // 1. Upload to S3
         const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, {
           method: "POST",
           body: uploadData,
@@ -4384,43 +4432,19 @@ const handlePhotoUpload = async (e) => {
         const data = await response.json();
         const s3Url = data.full_s3_url || data.cloud_storage_path;
 
-        // 2. Auto-save to Database immediately
-        const securePayload = {
-          fnum: currentUser.fnum,
-          name: currentUser.name,
-          rank: currentUser.rank,
-          region: currentUser.region,
-          station: currentUser.station,
-          email: formData.email,
-          phone: formData.phone,
-          profile_photo_path: s3Url
-        };
-
-        const updateRes = await fetch(`${API_URL}/api/v1/users/profile/update`, {
-          method: "PUT",
-          headers: { 
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify(securePayload)
-        });
-
-        if (!updateRes.ok) throw new Error("Failed to link photo to profile in database.");
-
-        // 3. Update React State Permanently
-        setFormData(prev => ({ ...prev, profile_photo_path: s3Url }));
-        setCurrentUser(prev => ({ ...prev, profile_photo_path: s3Url }));
-        setNotification("✅ Photo uploaded and permanently saved successfully!");
-        
-        setTimeout(() => setNotification(null), 4000);
+        setSignupData(prev => ({ ...prev, profile_photo_path: s3Url }));
+        setAuthMessage("✅ Photo uploaded securely!");
+        setTimeout(() => setAuthMessage(null), 3000);
       } catch (error) {
         console.error("Upload error:", error);
-        setNotification(`❌ Error: ${error.message}`);
+        setSignupData(prev => ({ ...prev, profile_photo_path: URL.createObjectURL(file) }));
+        setPhotoFile(file);
+        setAuthMessage("⚠️ Network error: Using local preview. Photo will upload on submit.");
       }
     }
   };
 
-const handleSignupSubmit = async (e) => {
+  const handleSignupSubmit = async (e) => {
     e.preventDefault();
 
     if (!signupData.profile_photo_path) {
@@ -4433,7 +4457,7 @@ const handleSignupSubmit = async (e) => {
       return;
     }
 
-    setAuthMessage("Submitting authorization request...");
+    setAuthMessage("⏳ Submitting authorization request...");
 
     try {
       const formData = new FormData();
@@ -4452,13 +4476,17 @@ const handleSignupSubmit = async (e) => {
       let derivedRole = 'USER';
       if (signupData.position === 'System Manager') derivedRole = 'SUPER_ADMIN';
       else if (POSITIONS.ADMIN.includes(signupData.position) || signupData.position.includes('Divisional Commander') || signupData.station === 'KMP HEADQUARTERS' || signupData.station === 'KMP Headquarters' || signupData.region === 'POLICE HEADQUARTERS') derivedRole = 'ADMIN';
-      else if (POSITIONS.RPC.includes(signupData.position) || signupData.position.includes(`${signupData.region} Commander`)) derivedRole = 'RPC', 'Deputy Commander';
+      else if (POSITIONS.RPC.includes(signupData.position) || signupData.position.includes(`${signupData.region} Commander`)) derivedRole = 'RPC';
       
       formData.append("role", derivedRole);
       
-      // ✅ THE FIX: We must pass the generated S3 photo URL to the backend!
-      formData.append("profile_photo_path", signupData.profile_photo_path);
+      if (photoFile && signupData.profile_photo_path.startsWith('blob:')) {
+        formData.append("file", photoFile);
+      } else {
+        formData.append("profile_photo_path", signupData.profile_photo_path);
+      }
 
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const response = await fetch(`${API_URL}/api/v1/auth/signup`, {
         method: 'POST',
         body: formData,
@@ -4469,7 +4497,7 @@ const handleSignupSubmit = async (e) => {
       if (response.ok) {
         setAuthMessage("✅ Account Request Submitted! Awaiting Admin Approval.");
         if (onSignup) onSignup({ ...signupData, role: derivedRole });
-        setMode('login');
+        setTimeout(() => setMode('login'), 2000);
       } else {
         setAuthMessage(`❌ Registration Failed: ${data.detail || "Server error"}`);
       }
@@ -4489,6 +4517,7 @@ const handleSignupSubmit = async (e) => {
         formData.append('username', fnum.trim()); 
         formData.append('password', password.trim());
 
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const response = await fetch(`${API_URL}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -4499,7 +4528,7 @@ const handleSignupSubmit = async (e) => {
 
         if (response.ok) {
           localStorage.setItem('kmp_authToken', data.access_token);
-onLogin({ 
+          onLogin({ 
               fnum: data.fnum || 'A/2408', 
               rank: data.rank || 'AIP',
               name: data.name || 'Afedra Vincent',
@@ -4508,11 +4537,11 @@ onLogin({
               region: data.region || 'KMP HEADQUARTERS',
               division: data.division || 'KMP HEADQUARTERS',
               station: data.station || 'KMP HEADQUARTERS',
-              position: data.position || 'System Manager', // 🟢 Catches your Official Title!
+              position: data.position || 'System Manager',
               email: data.email || 'afedravnct@gmail.com',
               phone: data.phone || '0779302872',
               role: data.role || 'SUPER_ADMIN',
-              permissions: data.permissions || {},         // 🟢 Catches your Admin matrix!
+              permissions: data.permissions || {},
               profile_photo_path: data.profile_photo_path || ''
           });
         } else {
@@ -4531,11 +4560,12 @@ onLogin({
         setPassword('');
         setAuthMessage("Network error. Could not connect to the server.");
       }
-} else if (mode === 'forgot') {
+    } else if (mode === 'forgot') {
       try {
         const formData = new URLSearchParams();
         formData.append('fnum', fnum.trim());
 
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const response = await fetch(`${API_URL}/api/v1/auth/request-reset`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -4556,16 +4586,17 @@ onLogin({
       }
     }
   };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative">
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
         <div className="bg-slate-900 p-6 text-center relative">
           <img 
-  src="/upf_badge.png" 
-  alt="UPF Logo" 
-  className="w-24 h-24 mx-auto mb-4 object-contain contrast-200 brightness-75 drop-shadow-sm" 
-  onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} 
-/>
+            src="/upf_badge.png" 
+            alt="UPF Logo" 
+            className="w-24 h-24 mx-auto mb-4 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+            onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} 
+          />
           <h1 className="text-2xl font-extrabold text-white tracking-wide">Uganda Police Force</h1>
           <h2 className="text-lg font-bold text-blue-400 mt-1">Kampala Metropolitan Police Headquarters</h2>
           <h3 className="text-sm font-medium text-slate-400 mt-2 uppercase tracking-widest">Centralised Security Data Management System Access Portal</h3>
@@ -4581,7 +4612,7 @@ onLogin({
           ) : (
             <>
               {authMessage && (
-                <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${authMessage.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
+                <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${authMessage.includes('Error') || authMessage.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
                  <span className="text-sm font-medium">
                    {Array.isArray(authMessage) 
                      ? authMessage.map((err, index) => (
@@ -4596,6 +4627,7 @@ onLogin({
                  </span>
                 </div>
               )}
+              
               {mode === 'signup' ? (
                 <form onSubmit={handleSignupSubmit} className="space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
                   <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">Request Access Authorization</h3>
@@ -4629,10 +4661,11 @@ onLogin({
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
                       <select name="station" value={signupData.station} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
-                         {REGIONAL_HIERARCHY[signupData.region].map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                         {REGIONAL_HIERARCHY[signupData.region]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
                       </select>
                     </div>
                   </div>
+
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label>
                     <select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
@@ -4640,6 +4673,7 @@ onLogin({
                       {availablePositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
                     </select>
                   </div>
+
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Email *</label>
@@ -4651,24 +4685,22 @@ onLogin({
                     </div>
                   </div>
 
-                  {signupData.position && !POSITIONS.ADMIN.includes(signupData.position) && signupData.position !== 'System Manager' && (
-                    <div className="mb-4 bg-gray-50 p-3 rounded-lg border border-gray-200 col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-2">Officer Identification Photo (Mandatory for Field Officers) *</label>
-                      <div className="flex items-center space-x-4">
-                        {signupData.profile_photo_path ? (
-                          <img src={signupData.profile_photo_path} alt="Profile Preview" className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm" />
-                        ) : (
-                          <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300">
-                            <Camera size={24} />
-                          </div>
-                        )}
-                        <div className="flex-1">
-                          <input type="file" accept="image/*" required onChange={handlePhotoUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
-                          <p className="text-xs text-gray-400 mt-1">Directly uploads to secure S3 bucket</p>
+                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                    <label className="block text-xs font-bold text-gray-700 mb-2">Officer Identification Photo (Mandatory) *</label>
+                    <div className="flex items-center space-x-4">
+                      {signupData.profile_photo_path ? (
+                        <img src={signupData.profile_photo_path} alt="Preview" className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm" />
+                      ) : (
+                        <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300">
+                          <Camera size={24} />
                         </div>
+                      )}
+                      <div className="flex-1">
+                        <input type="file" accept="image/*" required onChange={handlePhotoUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
+                        <p className="text-xs text-gray-400 mt-1">Directly uploads to secure storage</p>
                       </div>
                     </div>
-                  )}
+                  </div>
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Create Password *</label>
@@ -4756,8 +4788,10 @@ const DashboardLayout = ({
   const [showAllUsers, setShowAllUsers] = useState(false);
   const [selectedUserDetail, setSelectedUserDetail] = useState(null);
   const [viewingProfileImage, setViewingProfileImage] = useState(null);
+  const [newForcePassword, setNewForcePassword] = useState(''); // 🟢 ADDED FOR MODAL
   
   const [lastViewedId, setLastViewedId] = useState(() => {
+
     const saved = localStorage.getItem('last_viewed_comm_id');
     return saved ? JSON.parse(saved) : 0;
   });
@@ -5038,7 +5072,6 @@ return (
               </button>
             ))}
           </nav>
-
 {sidebarOpen && ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) && (
             <div className="px-4 space-y-3">
               <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
@@ -5069,8 +5102,8 @@ return (
                 {showOnline && (
                   <div className="mt-4 space-y-2 border-t border-slate-700 pt-4 max-h-40 overflow-y-auto custom-scrollbar pr-1">
                     {/* DYNAMICALLY RENDERS ALL LIVE USERS */}
-                    {realOnlineUsers.map((user) => (
-                      <div key={user.fnum} onClick={() => inspectSystemUser(user)} className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between group">
+{realOnlineUsers.map((user) => (
+                      <div key={user.fnum} onClick={() => { setSelectedUserDetail({ ...user, isSystemUser: true, isReadOnly: true }); setNewForcePassword(''); }} className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between group">
                         <div className="flex items-center space-x-3">
                           {user.profile_photo_path ? (
                             <img src={user.profile_photo_path} alt="" className="w-7 h-7 rounded-full border border-green-400 object-cover shadow-sm group-hover:border-green-300 transition-colors" onError={(e) => { e.target.style.display='none'; }} />
@@ -5101,7 +5134,7 @@ return (
                     {users?.map(u => (
                        <div 
                          key={u.fnum} 
-                         onClick={() => inspectSystemUser(u)} 
+                         onClick={() => { setSelectedUserDetail({ ...u, isSystemUser: true, isReadOnly: false }); setNewForcePassword(''); }} 
                          className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-blue-500 cursor-pointer transition-all flex items-center justify-between group"
                        >
                           <div className="flex items-center space-x-2">
@@ -5272,24 +5305,17 @@ return (
               </div>
 
               {/* 3. ACCESS CONTROLS (Only visible if managing a system user) */}
-              {selectedUserDetail.isSystemUser && (
+{/* 3. ACCESS CONTROLS (Hidden if viewing from Active Connections) */}
+              {selectedUserDetail.isSystemUser && !selectedUserDetail.isReadOnly && (
                 <>
-<h4 className="font-extrabold text-sm text-gray-900 border-b pb-2 flex items-center mb-4 mt-6">
+                  <h4 className="font-extrabold text-sm text-gray-900 border-b pb-2 flex items-center mb-4 mt-6">
                     <Shield size={16} className="mr-2 text-red-600"/> 
                     Component Admin Clearances
                   </h4>
                   <div className="space-y-3 bg-white p-4 rounded-lg border border-red-100 shadow-sm">
                     
                     <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input 
-                        type="checkbox" 
-                        className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-                        defaultChecked={String(selectedUserDetail.role || '').includes('ADMIN')}
-                        onChange={(e) => {
-                          const newRole = e.target.checked ? 'ADMIN' : 'USER';
-                          onUpdateUserRole(selectedUserDetail.fnum, newRole, selectedUserDetail.permissions || {});
-                        }}
-                      />
+                      <input type="checkbox" className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500" defaultChecked={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newRole = e.target.checked ? 'ADMIN' : 'USER'; onUpdateUserRole(selectedUserDetail.fnum, newRole, selectedUserDetail.permissions || {}); }} />
                       <div className="flex-1">
                         <div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">System Administrator</div>
                         <div className="text-xs text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit Logs.</div>
@@ -5297,17 +5323,7 @@ return (
                     </label>
 
                     <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input 
-                        type="checkbox" 
-                        className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500"
-                        checked={Boolean(selectedUserDetail.permissions?.consolidated) || String(selectedUserDetail.role || '').includes('ADMIN')}
-                        disabled={String(selectedUserDetail.role || '').includes('ADMIN')}
-                        onChange={(e) => {
-                          const newPerms = { ...(selectedUserDetail.permissions || {}), consolidated: e.target.checked };
-                          setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms });
-                          onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms);
-                        }}
-                      />
+                      <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500" checked={Boolean(selectedUserDetail.permissions?.consolidated) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), consolidated: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
                       <div className="flex-1">
                         <div className="text-sm font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">Consolidated Ledger Access</div>
                         <div className="text-xs text-slate-500 font-medium">Allows viewing the cross-domain master Excel overlays.</div>
@@ -5315,17 +5331,7 @@ return (
                     </label>
 
                     <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input 
-                        type="checkbox" 
-                        className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
-                        checked={Boolean(selectedUserDetail.permissions?.export_data) || ['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')}
-                        disabled={['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')}
-                        onChange={(e) => {
-                          const newPerms = { ...(selectedUserDetail.permissions || {}), export_data: e.target.checked };
-                          setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms });
-                          onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms);
-                        }}
-                      />
+                      <input type="checkbox" className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500" checked={Boolean(selectedUserDetail.permissions?.export_data) || ['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), export_data: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
                       <div className="flex-1">
                         <div className="text-sm font-bold text-slate-800 group-hover:text-purple-700 transition-colors">Database Export Privilege</div>
                         <div className="text-xs text-slate-500 font-medium">Allows downloading raw .xlsx database files to local device.</div>
@@ -5333,27 +5339,48 @@ return (
                     </label>
 
                     <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input 
-                        type="checkbox" 
-                        className="w-4 h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500"
-                        checked={Boolean(selectedUserDetail.permissions?.view_global_roster) || ['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)}
-                        disabled={['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)}
-                        onChange={(e) => {
-                          const newPerms = { ...(selectedUserDetail.permissions || {}), view_global_roster: e.target.checked };
-                          setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms });
-                          onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms);
-                        }}
-                      />
+                      <input type="checkbox" className="w-4 h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500" checked={Boolean(selectedUserDetail.permissions?.view_global_roster) || ['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)} disabled={['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), view_global_roster: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
                       <div className="flex-1">
                         <div className="text-sm font-bold text-slate-800 group-hover:text-orange-700 transition-colors">Global Roster Visibility</div>
                         <div className="text-xs text-slate-500 font-medium">Allows viewing personnel from ALL regions in the System Roster.</div>
                       </div>
                     </label>
-
                   </div>
+
+                  {/* 🟢 Super Admin Force Password Tool */}
+                  {currentUser.role === 'SUPER_ADMIN' && (
+                    <div className="mt-6 bg-red-50 p-4 rounded-lg border border-red-200 shadow-sm">
+                      <h4 className="font-extrabold text-xs text-red-800 border-b border-red-200 pb-2 mb-3 flex items-center">
+                        <Lock size={14} className="mr-2" /> Super Admin: Issue New Password
+                      </h4>
+                      <div className="flex space-x-2">
+                        <input type="text" placeholder="Type new password (min 6 chars)" value={newForcePassword} onChange={(e) => setNewForcePassword(e.target.value)} className="flex-1 text-sm border-red-300 rounded shadow-sm p-2 outline-none focus:ring-2 focus:ring-red-500 font-mono" />
+                        <button onClick={async () => {
+                            if (newForcePassword.length < 6) return alert('Password must be at least 6 characters.');
+                            try {
+                              const token = localStorage.getItem('kmp_authToken');
+                              const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+                              const res = await fetch(`${API_URL}/api/v1/admin/users/${selectedUserDetail.fnum}/force-password`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                body: JSON.stringify({ new_password: newForcePassword })
+                              });
+                              if (!res.ok) throw new Error(await res.text());
+                              alert(`Password successfully changed for ${selectedUserDetail.name}.`);
+                              setNewForcePassword('');
+                            } catch (err) { alert('Error: ' + err.message); }
+                          }}
+                          className="bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2 rounded text-xs transition border border-red-800 shrink-0"
+                        >
+                          Set Password
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
+
 
             <div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center rounded-b-xl shrink-0">
               <button 
