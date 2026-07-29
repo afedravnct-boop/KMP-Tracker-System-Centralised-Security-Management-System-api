@@ -240,7 +240,7 @@ const relevantComms = safeComms.filter(c => {
                           {receiptsData.map((r, i) => (
                              <div key={i} className="flex justify-between items-center text-xs p-3 bg-white rounded shadow-sm">
                                 <div><span className="font-extrabold text-slate-800 block">{r.name}</span><span className="font-mono text-[9px] text-gray-400">{r.fnum}</span></div>
-                                <span className="text-[10px] text-green-600 font-bold bg-green-50 px-2 py-1 rounded">Read: {r.read_at}</span>
+                                <span className="text-xs text-green-600 font-bold bg-green-50 px-2 py-1 rounded">Read: {r.read_at}</span>
                              </div>
                           ))}
                        </div>
@@ -319,7 +319,7 @@ const relevantComms = safeComms.filter(c => {
                     <div className="cursor-pointer" onClick={() => setExpandedComm(expandedComm === comm.id ? null : comm.id)}>
                         <div className="flex justify-between items-start mb-1">
                           <div className="flex items-center space-x-2">
-                            <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-sm uppercase tracking-wider ${
+                            <span className={`text-xs font-extrabold px-2 py-0.5 rounded-sm uppercase tracking-wider ${
                               comm.message_type === 'CRITICAL_ALERT' ? 'bg-red-100 text-red-700' : 
                               comm.message_type === 'ASSIGNMENT' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'
                             }`}>{comm.message_type.replace('_', ' ')}</span>
@@ -330,7 +330,7 @@ const relevantComms = safeComms.filter(c => {
                               </span>
                             )}
                           </div>
-                          <span className="text-[10px] font-bold text-slate-400">{comm.created_at}</span>
+                          <span className="text-xs font-bold text-slate-400">{comm.created_at}</span>
                         </div>
                         <div className="flex justify-between items-center mt-2">
                            <h4 className={`text-sm leading-tight ${
@@ -368,11 +368,11 @@ const relevantComms = safeComms.filter(c => {
     )}
   </div>
                                 {comm.acknowledged ? (
-                                    <span className="text-[10px] font-extrabold text-green-600 flex items-center bg-green-50 px-2 py-1 rounded border border-green-200">
+                                    <span className="text-xs font-extrabold text-green-600 flex items-center bg-green-50 px-2 py-1 rounded border border-green-200">
                                        <CheckCircle size={12} className="mr-1"/> Acknowledged
                                     </span>
                                 ) : (
-                                    <button onClick={() => onAcknowledgeComm(comm.id)} className="text-[10px] bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded font-bold shadow-sm transition flex items-center">
+                                    <button onClick={() => onAcknowledgeComm(comm.id)} className="text-xs bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded font-bold shadow-sm transition flex items-center">
                                         Acknowledge Receipt
                                     </button>
                                 )}
@@ -385,7 +385,7 @@ const relevantComms = safeComms.filter(c => {
                 {relevantComms.length > 1 && (
                   <div 
                     onClick={() => setIsInboxExpanded(!isInboxExpanded)}
-                    className="p-3 bg-slate-200/50 text-center text-[10px] font-extrabold text-slate-600 hover:bg-slate-200 cursor-pointer transition-colors tracking-widest uppercase"
+                    className="p-3 bg-slate-200/50 text-center text-xs font-extrabold text-slate-600 hover:bg-slate-200 cursor-pointer transition-colors tracking-widest uppercase"
                   >
                     {isInboxExpanded ? "Collapse Inbox" : `View ${relevantComms.length - 1} Older Dispatches`}
                   </div>
@@ -407,47 +407,47 @@ const relevantComms = safeComms.filter(c => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
           <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-300 group">
             <div className="w-14 h-14 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mr-4 group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0"><LayoutDashboard size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Crime Registry</h3><p className="text-[11px] text-slate-500 font-medium mt-1">Log and track daily active incidents.</p></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Crime Registry</h3><p className="text-xs text-slate-500 font-medium mt-1">Log and track daily active incidents.</p></div>
           </div>
           
           <div onClick={() => setCurrentPage('statistics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-300 group">
             <div className="w-14 h-14 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mr-4 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0"><BarChart3 size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">OPS Statistics</h3><p className="text-[11px] text-slate-500 font-medium mt-1">Weekly numerical operational aggregates.</p></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">OPS Statistics</h3><p className="text-xs text-slate-500 font-medium mt-1">Weekly numerical operational aggregates.</p></div>
           </div>
 
           <div onClick={() => setCurrentPage('success')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-yellow-400 group">
             <div className="w-14 h-14 rounded-full bg-yellow-50 text-yellow-600 flex items-center justify-center mr-4 group-hover:bg-yellow-500 group-hover:text-white transition-colors shrink-0"><Trophy size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Success Stories</h3><p className="text-[11px] text-slate-500 font-medium mt-1">Document tactical milestones.</p></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Success Stories</h3><p className="text-xs text-slate-500 font-medium mt-1">Document tactical milestones.</p></div>
           </div>
 
           <div onClick={() => setCurrentPage('establishments')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-emerald-300 group">
             <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mr-4 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0"><Building size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-[11px] text-slate-500 font-medium mt-1">Map divisions, stations, and booths.</p></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-xs text-slate-500 font-medium mt-1">Map divisions, stations, and booths.</p></div>
           </div>
 
           <div onClick={() => setCurrentPage('nominal-roll')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-purple-300 group">
             <div className="w-14 h-14 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mr-4 group-hover:bg-purple-600 group-hover:text-white transition-colors shrink-0"><Users size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Master Nominal Roll</h3><p className="text-[11px] text-slate-500 font-medium mt-1">Personnel deployment registry.</p></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Master Nominal Roll</h3><p className="text-xs text-slate-500 font-medium mt-1">Personnel deployment registry.</p></div>
           </div>
 
           {isAdmin && (
             <div onClick={() => setCurrentPage('approvals')} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-slate-500 group">
               <div className="w-14 h-14 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-4 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0"><UserPlus size={24} /></div>
-              <div><h3 className="text-sm font-extrabold text-white leading-tight">Access Approvals</h3><p className="text-[11px] text-slate-400 font-medium mt-1">Review system logs and pending signups.</p></div>
+              <div><h3 className="text-sm font-extrabold text-white leading-tight">Access Approvals</h3><p className="text-xs text-slate-400 font-medium mt-1">Review system logs and pending signups.</p></div>
             </div>
           )}
           
           {canViewConsolidated && (
             <div onClick={onViewConsolidated} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-slate-500 group md:col-span-2 lg:col-span-3">
               <div className="w-14 h-14 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-4 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0"><Eye size={24} /></div>
-              <div><h3 className="text-sm font-extrabold text-white leading-tight">Consolidated Entries</h3><p className="text-[11px] text-slate-400 font-medium mt-1">Cross-domain master visualization.</p></div>
+              <div><h3 className="text-sm font-extrabold text-white leading-tight">Consolidated Entries</h3><p className="text-xs text-slate-400 font-medium mt-1">Cross-domain master visualization.</p></div>
             </div>
           )}
 
           {canExportData && (
             <div onClick={() => onMasterExport('all', 'all')} className="bg-blue-900 rounded-xl shadow-sm border border-blue-800 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-400 group md:col-span-2 lg:col-span-3">
               <div className="w-14 h-14 rounded-full bg-blue-800 text-blue-200 flex items-center justify-center mr-4 group-hover:bg-blue-700 group-hover:text-white transition-colors shrink-0"><Download size={24} /></div>
-              <div><h3 className="text-sm font-extrabold text-white leading-tight">Download Master Database</h3><p className="text-[11px] text-blue-200 font-medium mt-1">Export full encrypted .xlsx ledger.</p></div>
+              <div><h3 className="text-sm font-extrabold text-white leading-tight">Download Master Database</h3><p className="text-xs text-blue-200 font-medium mt-1">Export full encrypted .xlsx ledger.</p></div>
             </div>
           )}
       </div>
@@ -825,40 +825,40 @@ const handleAddSuspect = () => {
                 <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">Add Suspect Details</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
                   <div className="md:col-span-2">
-                    <label className="block text-[10px] font-bold text-gray-700 mb-1">Full Name *</label>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
                     <input type="text" value={newSuspect.name} onChange={e => setNewSuspect({...newSuspect, name: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 uppercase focus:ring-red-500" placeholder="e.g. OPIO JOHN"/>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-700 mb-1">Sex</label>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Sex</label>
                     <select value={newSuspect.sex} onChange={e => setNewSuspect({...newSuspect, sex: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 bg-white">
                       <option>MALE</option><option>FEMALE</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-700 mb-1">Age</label>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Age</label>
                     <input type="number" value={newSuspect.age} onChange={e => setNewSuspect({...newSuspect, age: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. 24"/>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-700 mb-1">Tribe/Nationality</label>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Tribe/Nationality</label>
                     <input type="text" value={newSuspect.tribe} onChange={e => setNewSuspect({...newSuspect, tribe: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 uppercase"/>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-700 mb-1">Contact/Phone</label>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Contact/Phone</label>
                     <input type="text" value={newSuspect.contact} onChange={e => setNewSuspect({...newSuspect, contact: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2"/>
                   </div>
                   <div className="md:col-span-3">
-                    <label className="block text-[10px] font-bold text-gray-700 mb-1">Residence/Location</label>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Residence/Location</label>
                     <input type="text" value={newSuspect.residence} onChange={e => setNewSuspect({...newSuspect, residence: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. Bwaise Zone 2"/>
                   </div>
                 </div>
                 <div className="md:col-span-3">
-                    <label className="block text-[10px] font-bold text-gray-700 mb-1">Residence/Location</label>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Residence/Location</label>
                     <input type="text" value={newSuspect.residence} onChange={e => setNewSuspect({...newSuspect, residence: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. Bwaise Zone 2"/>
                   </div>
                   
                   {/* 🟢 NEW MUGSHOT UPLOAD FIELD */}
                   <div className="md:col-span-3 bg-red-50 p-3 rounded-lg border border-red-100">
-                    <label className="block text-[10px] font-bold text-red-800 mb-2 flex items-center">
+                    <label className="block text-xs font-bold text-red-800 mb-2 flex items-center">
                       <Camera size={12} className="mr-1"/> Suspect Mugshot (Optional)
                     </label>
                     <div className="flex items-center space-x-4">
@@ -896,7 +896,7 @@ const handleAddSuspect = () => {
                       <div key={suspect.id} className="bg-white border border-red-100 rounded-lg p-3 flex justify-between items-center shadow-sm">
                         <div>
                           <div className="font-bold text-slate-800 text-sm uppercase">{index + 1}. {suspect.name}</div>
-                          <div className="text-[11px] text-slate-500 font-medium mt-1">
+                          <div className="text-xs text-slate-500 font-medium mt-1">
                             {suspect.sex} • {suspect.age ? `${suspect.age}yrs` : 'Age Unknown'} • {suspect.tribe || 'Tribe Unknown'} <br/>
                             Res: {suspect.residence || 'N/A'} | Tel: {suspect.contact || 'N/A'}
                           </div>
@@ -1235,7 +1235,7 @@ const handleAddSuspect = () => {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredReports.map((report) => (
-                    <tr key={report.id || report.sn} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateCrimeForm(report); }}>
+                    <tr key={report.id || report.sn} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateCrimeForm(report); }}>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">
     {report.id || report.sn}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-blue-700 align-top">{report.sdRef || report.sd_ref}</td>
@@ -1250,7 +1250,7 @@ const handleAddSuspect = () => {
                         
                         {report.suspectDetails && report.suspectDetails.length > 0 && (
   <div className="mt-3 bg-red-50 border border-red-100 rounded-lg p-3 shadow-sm">
-    <span className="text-[10px] font-bold text-red-800 uppercase tracking-wider block mb-2 border-b border-red-200 pb-1">
+    <span className="text-xs font-bold text-red-800 uppercase tracking-wider block mb-2 border-b border-red-200 pb-1">
       Suspects in Custody ({report.suspectDetails.length}):
     </span>
     <ul className="space-y-2.5">
@@ -1283,7 +1283,7 @@ const handleAddSuspect = () => {
                 <div><span className="font-semibold">Contact:</span> {s.contact}</div>
               )}
               {s.mental_health_status && s.mental_health_status !== 'NORMAL' && (
-                <div className="text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded text-[10px] inline-block mt-0.5 border border-amber-200">
+                <div className="text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded text-xs inline-block mt-0.5 border border-amber-200">
                   Mental Status: {s.mental_health_status}
                 </div>
               )}
@@ -1297,7 +1297,7 @@ const handleAddSuspect = () => {
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-extrabold text-red-600 text-center align-top">{report.suspects || 0}</td>
                       <td className="px-4 py-4 whitespace-nowrap align-top">
-                        <span className={`px-2 inline-flex text-[10px] leading-5 font-bold rounded-full 
+                        <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full 
                           ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800' : ''}
                           ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800' : ''}
                           ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800' : ''}
@@ -1629,42 +1629,42 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                   
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-[11px] font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Arrested</label>
+                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Arrested</label>
                       <input type="number" name="arrested" min="0" value={formData.arrested} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" />
                     </div>
                     
                     <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-[11px] font-bold text-gray-600 uppercase tracking-wider mb-1">Given Bond</label>
+                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Given Bond</label>
                       <input type="number" name="given_bond" min="0" value={formData.given_bond} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" />
                     </div>
                     
                     <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-[11px] font-bold text-gray-600 uppercase tracking-wider mb-1">Cautioned</label>
+                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Cautioned</label>
                       <input type="number" name="cautioned" min="0" value={formData.cautioned} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" />
                     </div>
                     
                     <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-[11px] font-bold text-gray-600 uppercase tracking-wider mb-1">Pending Court</label>
+                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Pending Court</label>
                       <input type="number" name="pending_court" min="0" value={formData.pending_court} onChange={handleInputChange} className="w-full text-lg font-bold text-yellow-600 border-b-2 border-transparent focus:border-yellow-500 outline-none p-1 bg-transparent" />
                     </div>
                     
                     <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-[11px] font-bold text-gray-600 uppercase tracking-wider mb-1">Taken to Court</label>
+                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Taken to Court</label>
                       <input type="number" name="taken_to_court" min="0" value={formData.taken_to_court} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-600 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" />
                     </div>
                     
                     <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-[11px] font-bold text-gray-600 uppercase tracking-wider mb-1">Released by Court</label>
+                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Released by Court</label>
                       <input type="number" name="released" min="0" value={formData.released} onChange={handleInputChange} className="w-full text-lg font-bold text-green-600 border-b-2 border-transparent focus:border-green-500 outline-none p-1 bg-transparent" />
                     </div>
                     
                     <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-[11px] font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Remanded</label>
+                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Remanded</label>
                       <input type="number" name="remanded" min="0" value={formData.remanded} onChange={handleInputChange} className="w-full text-lg font-bold text-red-600 border-b-2 border-transparent focus:border-red-500 outline-none p-1 bg-transparent" />
                     </div>
                     
                     <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-[11px] font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Convicted</label>
+                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Convicted</label>
                       <input type="number" name="convicted" min="0" value={formData.convicted} onChange={handleInputChange} className="w-full text-lg font-bold text-purple-600 border-b-2 border-transparent focus:border-purple-500 outline-none p-1 bg-transparent" />
                     </div>
                   </div>
@@ -1763,46 +1763,46 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50 sticky top-0">
                   <tr>
-                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">S/N</th>
-                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">Date</th>
-                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">Division</th>
-                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">Suspects<br/>arrested</th>
-                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">Given<br/>Bond</th>
-                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">Cautioned</th>
-                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">Pending<br/>Court</th>
-                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">Taken to<br/>Court</th>
-                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">Released<br/>by court</th>
-                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">Suspects<br/>remanded</th>
-                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">Suspects<br/>convicted</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">S/N</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Date</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Division</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Suspects<br/>arrested</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Given<br/>Bond</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Cautioned</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Pending<br/>Court</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Taken to<br/>Court</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Released<br/>by court</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Suspects<br/>remanded</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Suspects<br/>convicted</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredStats.map((stat) => (
-                    <tr key={stat.id || stat.sn} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
-                      <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-gray-900">{stat.id || stat.sn}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-[11px] text-gray-500">{stat.date}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-[11px] font-medium text-blue-700">{stat.station}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold text-gray-700">{stat.arrested}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold text-gray-700">{stat.given_bond}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold text-gray-700">{stat.cautioned}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold text-yellow-600">{stat.pending_court}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold text-blue-600">{stat.taken_to_court}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold text-green-600">{stat.released}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold text-red-600">{stat.remanded}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold text-purple-600">{stat.convicted}</td>
+                    <tr key={stat.id || stat.sn} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
+                      <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900">{stat.id || stat.sn}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-500">{stat.date}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-xs font-medium text-blue-700">{stat.station}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-gray-700">{stat.arrested}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-gray-700">{stat.given_bond}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-gray-700">{stat.cautioned}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-yellow-600">{stat.pending_court}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-blue-600">{stat.taken_to_court}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-green-600">{stat.released}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-red-600">{stat.remanded}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-purple-600">{stat.convicted}</td>
                     </tr>
                   ))}
                   {filteredStats.length > 0 && (
                     <tr className="bg-slate-200 font-bold text-gray-900 border-t-2 border-slate-400">
                       <td colSpan="3" className="px-3 py-3 text-right text-xs uppercase tracking-wider">Total</td>
-                      <td className="px-2 py-3 text-center text-[11px] text-blue-800">{totals.arrested}</td>
-                      <td className="px-2 py-3 text-center text-[11px] text-blue-800">{totals.given_bond}</td>
-                      <td className="px-2 py-3 text-center text-[11px] text-blue-800">{totals.cautioned}</td>
-                      <td className="px-2 py-3 text-center text-[11px] text-blue-800">{totals.pending_court}</td>
-                      <td className="px-2 py-3 text-center text-[11px] text-blue-800">{totals.taken_to_court}</td>
-                      <td className="px-2 py-3 text-center text-[11px] text-blue-800">{totals.released}</td>
-                      <td className="px-2 py-3 text-center text-[11px] text-blue-800">{totals.remanded}</td>
-                      <td className="px-2 py-3 text-center text-[11px] text-blue-800">{totals.convicted}</td>
+                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.arrested}</td>
+                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.given_bond}</td>
+                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.cautioned}</td>
+                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.pending_court}</td>
+                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.taken_to_court}</td>
+                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.released}</td>
+                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.remanded}</td>
+                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.convicted}</td>
                     </tr>
                   )}
                   {filteredStats.length === 0 && (
@@ -2276,7 +2276,7 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-500 font-medium align-top">{story.last_updated_by || "System Genesis"}</td>
                       <td className="px-4 py-4 whitespace-nowrap align-top">
-                        <span className={`px-2 inline-flex text-[10px] leading-5 font-bold rounded-full ${story.status.includes('COMPLETED') ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                        <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${story.status.includes('COMPLETED') ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
                           {story.status}
                         </span>
                       </td>
@@ -2723,41 +2723,41 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
-                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">DIVISION</th>
-                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">STATION</th>
-                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(STN)</th>
-                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">SUB-STATION</th>
-                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(SUB-STN)</th>
-                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">POST</th>
-                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(POST)</th>
-                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">BOOTHS</th>
-                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">LOCATION</th>
-                    <th className="px-2 py-3 text-center text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(BOOTH)</th>
-                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">INSTALLED BY</th>
-                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">STATUS</th>
-                    <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider leading-tight">COMMENT</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">DIVISION</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">STATION</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(STN)</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">SUB-STATION</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(SUB-STN)</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">POST</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(POST)</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">BOOTHS</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">LOCATION</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(BOOTH)</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">INSTALLED BY</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">STATUS</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">COMMENT</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredEstablishments.map((est) => (
-                    <tr key={est.id} className="hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(est); }}>
-                      <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-gray-900">{est.division || 'N/A'}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold text-blue-800">{est.station}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold">{est.personnel_in_station}</td> 
-                      <td className="px-3 py-3 whitespace-nowrap text-[11px] text-gray-800">{est.sub_station || '-'}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold">{est.personnel_in_sub_station}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-[11px] text-gray-800">{est.post || '-'}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold">{est.personnel_in_post}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold">{est.booths}</td>
-                      <td className="px-3 py-3 text-[11px] text-gray-800 break-words max-w-[150px]">{est.location || '-'}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-[11px] text-center font-bold">{est.personnel_in_booth}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-[11px] text-gray-600">{est.installed_by || '-'}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-[11px] font-bold">
+                    <tr key={est.id} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(est); }}>
+                      <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900">{est.division || 'N/A'}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-blue-800">{est.station}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_station}</td> 
+                      <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.sub_station || '-'}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_sub_station}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.post || '-'}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_post}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.booths}</td>
+                      <td className="px-3 py-3 text-xs text-gray-800 break-words max-w-[150px]">{est.location || '-'}</td>
+                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_booth}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600">{est.installed_by || '-'}</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-xs font-bold">
                         <span className={`px-2 py-1 rounded-full text-[9px] ${est.status === 'OPERATIONAL' ? 'bg-green-100 text-green-800' : est.status.includes('MAINTENANCE') ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
                           {est.status}
                         </span>
                       </td>
-                      <td className="px-3 py-3 text-[10px] text-gray-500 italic max-w-[150px] break-words">
+                      <td className="px-3 py-3 text-xs text-gray-500 italic max-w-[150px] break-words">
                          <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: est.comment || '-' }} />
                       </td>
                     </tr>
@@ -3154,33 +3154,33 @@ const filteredNominal_Roll_archives = useMemo(() => {
                   <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">1. Primary Identifiers</h4>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">F/NO. *</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">F/NO. *</label>
                       <input type="text" name="fnum" value={formData.fnum} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 uppercase" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">IPPS NO. *</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">IPPS NO. *</label>
                       <input type="text" name="ipps" value={formData.ipps} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                     <div className="col-span-2">
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">NAME *</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">NAME *</label>
                       <input type="text" name="name" value={formData.name} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 uppercase" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">RANK *</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">RANK *</label>
                       <input type="text" name="rank" value={formData.rank} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">SEX</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">SEX</label>
                       <select name="sex" value={formData.sex} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white">
                         <option>MALE</option><option>FEMALE</option>
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">TIN NO.</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">TIN NO.</label>
                       <input type="text" name="tin" value={formData.tin} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">NIN</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">NIN</label>
                       <input type="text" name="nin" value={formData.nin} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                   </div>
@@ -3190,13 +3190,13 @@ const filteredNominal_Roll_archives = useMemo(() => {
                   <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">2. Service & Placement</h4>
 <div className="grid grid-cols-2 gap-3">
   <div>
-    <label className="block text-[10px] font-bold text-gray-700 mb-1">REGION *</label>
+    <label className="block text-xs font-bold text-gray-700 mb-1">REGION *</label>
     <select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">
       {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
     </select>
   </div>
   <div>
-    <label className="block text-[10px] font-bold text-gray-700 mb-1">DUTY STATION *</label>
+    <label className="block text-xs font-bold text-gray-700 mb-1">DUTY STATION *</label>
     <select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">
       {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
         (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)
@@ -3206,19 +3206,19 @@ const filteredNominal_Roll_archives = useMemo(() => {
     </select>
   </div>
   <div>
-    <label className="block text-[10px] font-bold text-gray-700 mb-1">POSITION *</label>
+    <label className="block text-xs font-bold text-gray-700 mb-1">POSITION *</label>
     <input type="text" name="position" value={formData.position} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
   </div>
   <div>
-    <label className="block text-[10px] font-bold text-gray-700 mb-1">DISTRICT</label>
+    <label className="block text-xs font-bold text-gray-700 mb-1">DISTRICT</label>
     <input type="text" name="district" value={formData.district} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
   </div>
   <div>
-    <label className="block text-[10px] font-bold text-gray-700 mb-1">SECTION</label>
+    <label className="block text-xs font-bold text-gray-700 mb-1">SECTION</label>
     <input type="text" name="section" value={formData.section} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
   </div>
   <div>
-    <label className="block text-[10px] font-bold text-gray-700 mb-1">DIR (Directorate)</label>
+    <label className="block text-xs font-bold text-gray-700 mb-1">DIR (Directorate)</label>
     <input type="text" name="dir" value={formData.dir} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
   </div>
 </div>
@@ -3228,35 +3228,35 @@ const filteredNominal_Roll_archives = useMemo(() => {
                   <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">3. Dates & Demographics</h4>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">D.O.B</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">D.O.B</label>
                       <input type="date" name="dob" value={formData.dob} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">D.O.E</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">D.O.E</label>
                       <input type="date" name="doe" value={formData.doe} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">D.O. POST</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">D.O. POST</label>
                       <input type="date" name="dopost" value={formData.dopost} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">D.O. PRO</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">D.O. PRO</label>
                       <input type="date" name="dopro" value={formData.dopro} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                     <div className="col-span-2">
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">CONTACT</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">CONTACT</label>
                       <input type="text" name="contact" value={formData.contact} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">EDUC LEVEL</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">EDUC LEVEL</label>
                       <input type="text" name="educlevel" value={formData.educlevel} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">HOME DIST</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">HOME DIST</label>
                       <input type="text" name="homedist" value={formData.homedist} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">TRIBE</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">TRIBE</label>
                       <input type="text" name="tribe" value={formData.tribe} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                   </div>
@@ -3266,15 +3266,15 @@ const filteredNominal_Roll_archives = useMemo(() => {
                   <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">4. Financial & Status</h4>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">ACC. NO</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">ACC. NO</label>
                       <input type="text" name="accno" value={formData.accno} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">BANK & BRANCH</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">BANK & BRANCH</label>
                       <input type="text" name="bankbranch" value={formData.bankbranch} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
                     </div>
                     <div className="col-span-2">
-                      <label className="block text-[10px] font-bold text-gray-700 mb-1">STATUS</label>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">STATUS</label>
                       <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white font-bold">
                         <option>ACTIVE</option>
                         <option>ON LEAVE</option>
@@ -3387,23 +3387,23 @@ const filteredNominal_Roll_archives = useMemo(() => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50 sticky top-0 z-10">
                     <tr>
-                      <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">S/No</th>
-                      <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">F/NO.</th>
-                      <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">RANK</th>
-                      <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">NAME</th>
-                      <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">SEX</th>
-                      <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">POSITION</th>
-                      <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">D.O.B</th>
-                      <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">D.O.E</th>
-                      <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">D.O. POST</th>
-                      <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">CONTACT</th>
-                      <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">IPPS NO.</th>
-                      <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">DUTY STATION</th>
-                      <th className="px-3 py-3 text-left text-[10px] font-bold text-gray-500 uppercase whitespace-nowrap">STATUS</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">S/No</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">F/NO.</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">RANK</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">NAME</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">SEX</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">POSITION</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">D.O.B</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">D.O.E</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">D.O. POST</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">CONTACT</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">IPPS NO.</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">DUTY STATION</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">STATUS</th>
                       {viewMode === 'archive' && (
                         <>
-                          <th className="px-3 py-3 text-left text-[10px] font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">REASON</th>
-                          <th className="px-3 py-3 text-left text-[10px] font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">DATE ARCHIVED</th>
+                          <th className="px-3 py-3 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">REASON</th>
+                          <th className="px-3 py-3 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">DATE ARCHIVED</th>
                         </>
                       )}
                     </tr>
@@ -3418,23 +3418,23 @@ const filteredNominal_Roll_archives = useMemo(() => {
                                 window.scrollTo({ top: 0, behavior: 'smooth' });
                              }
                           }}>
-                        <td className="px-3 py-2 whitespace-nowrap text-[11px] font-bold text-gray-900">{n.sn}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-[11px] font-bold text-blue-800">{n.fnum || n.f_num}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-[11px] font-bold">{n.rank}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-[11px] font-medium">{n.name}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-[11px]">{n.sex}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-[11px] text-gray-700">{n.position}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-[11px] text-gray-500">{n.dob}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-[11px] text-gray-500">{n.doe}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-[11px] text-gray-500">{n.dopost}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-[11px]">{n.contact}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-[11px] font-mono">{n.ipps}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-[11px] font-bold text-blue-700">{n.station}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-[11px] font-bold text-green-700">{n.status}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-gray-900">{n.sn}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800">{n.fnum || n.f_num}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold">{n.rank}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs font-medium">{n.name}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs">{n.sex}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">{n.position}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.dob}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.doe}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.dopost}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs">{n.contact}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs font-mono">{n.ipps}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-700">{n.station}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-green-700">{n.status}</td>
                         {viewMode === 'archive' && (
                           <>
-                            <td className="px-3 py-2 whitespace-nowrap text-[11px] font-bold text-red-700 bg-red-50/50">{n.archive_reason}</td>
-                            <td className="px-3 py-2 whitespace-nowrap text-[11px] text-red-500 bg-red-50/50">{n.archive_date}</td>
+                            <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-red-700 bg-red-50/50">{n.archive_reason}</td>
+                            <td className="px-3 py-2 whitespace-nowrap text-xs text-red-500 bg-red-50/50">{n.archive_date}</td>
                           </>
                         )}
                       </tr>
@@ -4117,12 +4117,12 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
                   </div>
                   
                   {!canAutoApprove && !isRequestMode && (
-                    <button type="button" onClick={() => setIsRequestMode(true)} className="text-[10px] bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-sm">
+                    <button type="button" onClick={() => setIsRequestMode(true)} className="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-sm">
                       <Shield size={12} className="mr-1"/> Request Modification
                     </button>
                   )}
                   {!canAutoApprove && isRequestMode && (
-                    <button type="button" onClick={handleProfileSave} className="text-[10px] bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-sm">
+                    <button type="button" onClick={handleProfileSave} className="text-xs bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-sm">
                       <Send size={12} className="mr-1"/> Send Official Request
                     </button>
                   )}
@@ -4130,12 +4130,12 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Full Name</label>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Full Name</label>
                     <input type="text" name="name" value={formData.name} onChange={handleInputChange} disabled={!canAutoApprove && !isRequestMode} className={`w-full p-2.5 rounded-lg font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-gray-900 focus:ring-2 focus:ring-blue-500' : 'bg-gray-200 border-gray-300 text-gray-600 cursor-not-allowed'}`} />
                   </div>
                   <div className="flex gap-4">
                     <div className="w-1/2">
-                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
                         Force / File Number
                       </label>
                       <input 
@@ -4149,16 +4149,16 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
                       {canEditFnum && <p className="text-[9px] text-blue-600 mt-1 font-bold animate-pulse">Unlocked for Promotion Verification</p>}
                     </div>
                     <div className="w-1/2">
-                      <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Rank</label>
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Rank</label>
                       <input type="text" name="rank" value={formData.rank} onChange={(e) => setFormData({...formData, rank: e.target.value.toUpperCase()})} disabled={!canAutoApprove && !isRequestMode && !wasNCO} className={`w-full p-2.5 rounded-lg font-bold border ${(canAutoApprove || isRequestMode || wasNCO) ? 'bg-white border-blue-300 text-gray-900 focus:ring-2 focus:ring-blue-500' : 'bg-gray-200 border-gray-300 text-gray-600 cursor-not-allowed'}`} />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Command Region</label>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Command Region</label>
                     <input type="text" name="region" value={formData.region} onChange={handleInputChange} disabled={!canAutoApprove && !isRequestMode} className={`w-full p-2.5 rounded-lg font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-gray-900 focus:ring-2 focus:ring-blue-500' : 'bg-gray-200 border-gray-300 text-gray-600 cursor-not-allowed'}`} />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Assigned Station</label>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Assigned Station</label>
                     <input type="text" name="station" value={formData.station} onChange={handleInputChange} disabled={!canAutoApprove && !isRequestMode} className={`w-full p-2.5 rounded-lg font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-gray-900 focus:ring-2 focus:ring-blue-500' : 'bg-gray-200 border-gray-300 text-gray-600 cursor-not-allowed'}`} />
                   </div>
                 </div>
@@ -4170,11 +4170,11 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-700 uppercase tracking-wider mb-1">Official Email</label>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Official Email</label>
                     <input type="email" name="email" value={formData.email} onChange={handleInputChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-900" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-700 uppercase tracking-wider mb-1">Contact Number</label>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Contact Number</label>
                     <input type="tel" name="phone" value={formData.phone} onChange={handleInputChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-900" />
                   </div>
                 </div>
@@ -4194,42 +4194,42 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6 bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner">
                 
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Force/File Number</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Force/File Number</label>
                   <div className="text-sm font-extrabold text-slate-900">{currentUser.fnum}</div>
                 </div>
                 
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">IPPS Number</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">IPPS Number</label>
                   <div className="text-sm font-bold text-slate-800">{currentUser.ipps || 'N/A'}</div>
                 </div>
                 
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Sex</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Sex</label>
                   <div className="text-sm font-bold text-slate-800">{currentUser.sex || 'N/A'}</div>
                 </div>
                 
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">System Role</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">System Role</label>
                   <div className={`text-sm font-extrabold ${canAutoApprove ? 'text-green-600' : 'text-blue-600'}`}>{currentUser.role || 'USER'}</div>
                 </div>
 
                 <div className="col-span-2">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Official Title / Position</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Official Title / Position</label>
                   <div className="text-sm font-bold text-slate-800">{currentUser.position || 'N/A'}</div>
                 </div>
                 
                 <div className="col-span-2">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Command Chain (Region / Station)</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Command Chain (Region / Station)</label>
                   <div className="text-sm font-bold text-slate-800">{currentUser.region || 'N/A'} / {currentUser.station || 'N/A'}</div>
                 </div>
 
                 <div className="col-span-2">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Official Email</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Official Email</label>
                   <div className="text-sm font-bold text-slate-800 truncate">{currentUser.email || 'N/A'}</div>
                 </div>
                 
                 <div className="col-span-2">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Contact Number</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Contact Number</label>
                   <div className="text-sm font-bold text-slate-800">{currentUser.phone || 'N/A'}</div>
                 </div>
 
@@ -4617,7 +4617,7 @@ onLogin({
                         )}
                         <div className="flex-1">
                           <input type="file" accept="image/*" required onChange={handlePhotoUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
-                          <p className="text-[10px] text-gray-400 mt-1">Directly uploads to secure S3 bucket</p>
+                          <p className="text-xs text-gray-400 mt-1">Directly uploads to secure S3 bucket</p>
                         </div>
                       </div>
                     </div>
@@ -5054,7 +5054,7 @@ const handleExportLogs = async () => {
                             {u.profile_photo_path ? (
                               <img src={u.profile_photo_path} alt="" className="w-7 h-7 rounded-full object-cover border border-slate-600 group-hover:border-blue-400" onError={(e) => { e.target.style.display='none'; }} />
                             ) : (
-                              <div className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-[10px] border border-slate-600 group-hover:border-blue-400 group-hover:text-blue-300">
+                              <div className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-xs border border-slate-600 group-hover:border-blue-400 group-hover:text-blue-300">
                                 {u.name?.charAt(0) || 'U'}
                               </div>
                             )}
@@ -5087,7 +5087,7 @@ const handleExportLogs = async () => {
                 
                 <div className="space-y-4">
                   <div>
-                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1 block">HR & Establishments</span>
+                    <span className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1 block">HR & Establishments</span>
                     <div className="flex space-x-2">
                       <button onClick={onViewHRReport} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center">
                         <Eye size={14} className="mr-1"/> View
@@ -5124,7 +5124,7 @@ const handleExportLogs = async () => {
              {sidebarOpen && (
                <div className="ml-3">
                  <div className="text-sm font-bold leading-tight truncate w-40">{currentUser?.name || 'Guest'}</div>
-                 <div className="text-[10px] font-bold text-green-400 uppercase">{currentUser?.role || 'N/A'} • {currentUser?.station || 'N/A'}</div>
+                 <div className="text-xs font-bold text-green-400 uppercase">{currentUser?.role || 'N/A'} • {currentUser?.station || 'N/A'}</div>
                </div>
              )}
           </div>
@@ -5238,7 +5238,7 @@ const handleExportLogs = async () => {
                       />
                       <div className="flex-1">
                         <div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">System Administrator</div>
-                        <div className="text-[10px] text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit Logs.</div>
+                        <div className="text-xs text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit Logs.</div>
                       </div>
                     </label>
 
@@ -5256,7 +5256,7 @@ const handleExportLogs = async () => {
                       />
                       <div className="flex-1">
                         <div className="text-sm font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">Consolidated Ledger Access</div>
-                        <div className="text-[10px] text-slate-500 font-medium">Allows viewing the cross-domain master Excel overlays.</div>
+                        <div className="text-xs text-slate-500 font-medium">Allows viewing the cross-domain master Excel overlays.</div>
                       </div>
                     </label>
 
@@ -5274,7 +5274,7 @@ const handleExportLogs = async () => {
                       />
                       <div className="flex-1">
                         <div className="text-sm font-bold text-slate-800 group-hover:text-purple-700 transition-colors">Database Export Privilege</div>
-                        <div className="text-[10px] text-slate-500 font-medium">Allows downloading raw .xlsx database files to local device.</div>
+                        <div className="text-xs text-slate-500 font-medium">Allows downloading raw .xlsx database files to local device.</div>
                       </div>
                     </label>
 
@@ -5292,7 +5292,7 @@ const handleExportLogs = async () => {
                       />
                       <div className="flex-1">
                         <div className="text-sm font-bold text-slate-800 group-hover:text-orange-700 transition-colors">Global Roster Visibility</div>
-                        <div className="text-[10px] text-slate-500 font-medium">Allows viewing personnel from ALL regions in the System Roster.</div>
+                        <div className="text-xs text-slate-500 font-medium">Allows viewing personnel from ALL regions in the System Roster.</div>
                       </div>
                     </label>
 
@@ -5675,10 +5675,12 @@ onLogout={() => {
         />
       )}
 
-      {isViewingHR && hrLedgerData && (
+{isViewingHR && hrLedgerData && (
         <HrEstablishmentsLedger 
            data={hrLedgerData} 
            onClose={() => setIsViewingHR(false)} 
+           currentUser={currentUser}    {/* 🟢 Passes auth down to lock out non-admins */}
+           onUploadSuccess={fetchData}  {/* 🟢 Refreshes the table after Excel upload */}
         />
       )}
 

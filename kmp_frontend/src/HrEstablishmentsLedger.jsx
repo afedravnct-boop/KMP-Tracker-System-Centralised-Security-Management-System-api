@@ -1,24 +1,53 @@
 import React from 'react';
-import { Users, Building, X } from 'lucide-react';
+import { Users, Building, X, ShieldAlert } from 'lucide-react';
+import BulkUpload from './BulkUpload';
 
-const HrEstablishmentsLedger = ({ data, onClose }) => {
+const HrEstablishmentsLedger = ({ data, onClose, currentUser, onUploadSuccess }) => {
+  // 🟢 1. Security Check: Admin Clearance (Matching the Python backend logic)
+  const hasClearance = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'RPC';
+
+  // 🟢 2. Render "Access Denied" if the user does not have the required role
+  if (!hasClearance) {
+    return (
+      <div className="mt-6 bg-white p-6 rounded-xl shadow-lg border border-red-200 animate-in fade-in duration-300 relative z-10 max-w-3xl mx-auto">
+        <div className="flex justify-end mb-4">
+          <button onClick={onClose} className="text-gray-600 hover:text-white hover:bg-slate-800 font-bold px-4 py-2 border border-gray-300 rounded-lg transition-colors flex items-center shadow-sm">
+            <X size={16} className="mr-2" /> Close
+          </button>
+        </div>
+        <div className="py-12 flex flex-col items-center text-center">
+          <div className="bg-red-50 p-4 rounded-full mb-4 border border-red-100">
+            <ShieldAlert size={48} className="text-red-600" />
+          </div>
+          <h2 className="text-2xl font-extrabold text-gray-800 tracking-tight mb-2">CLEARANCE DENIED</h2>
+          <p className="text-gray-500 font-medium max-w-md">
+            You do not have the required administrative privileges to view the Master Ledger or perform bulk data operations.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // Safe fallbacks in case data hasn't fully loaded
   const hrData = data?.hr || [];
   const estData = data?.establishments || [];
 
   return (
     <div className="mt-6 bg-white p-6 rounded-xl shadow-lg border border-gray-200 animate-in fade-in duration-300 relative z-10 max-w-[1400px] mx-auto">
-      <div className="flex justify-between items-center mb-6 pb-4 border-b">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 pb-4 border-b gap-4">
         <div>
           <h2 className="text-2xl font-extrabold text-gray-800 tracking-tight">HR & Establishments Master Ledger</h2>
           <p className="text-sm font-bold text-gray-500 mt-1 uppercase tracking-wider">Cross-Referenced Structure & Personnel Data</p>
         </div>
-        <button onClick={onClose} className="text-gray-600 hover:text-white hover:bg-slate-800 font-bold px-5 py-2.5 border border-gray-300 rounded-lg transition-colors flex items-center shadow-sm">
+        <button onClick={onClose} className="text-gray-600 hover:text-white hover:bg-slate-800 font-bold px-5 py-2.5 border border-gray-300 rounded-lg transition-colors flex items-center shadow-sm whitespace-nowrap">
           <X size={16} className="mr-2" /> Close Master View
         </button>
       </div>
 
-      <div className="flex flex-col space-y-10">
+      {/* 🟢 3. Embedded the Bulk Upload Component for Admins */}
+      <BulkUpload onUploadSuccess={onUploadSuccess} />
+
+      <div className="flex flex-col space-y-10 mt-2">
         
         {/* ========================================= */}
         {/* TABLE 1: HR NOMINAL ROLL SUMMARY          */}

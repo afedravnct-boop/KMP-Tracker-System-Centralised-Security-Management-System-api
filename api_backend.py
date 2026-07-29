@@ -639,6 +639,126 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/v1/nominal-roll/bulk-upload")
+async def bulk_upload_nominal_roll(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    # 1. Security Check: Only allow Admins and RPCs to do bulk uploads
+    if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
+        raise HTTPException(status_code=403, detail="Clearance Denied: Unauthorized for bulk HR uploads.")
+
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Invalid file format. Please upload an Excel (.xlsx or .xls) file.")
+
+    try:
+        # 2. Read the Excel File into Pandas
+        contents = await file.read()
+        df = pd.read_excel(io.BytesIO(contents))
+        
+        # 3. Clean headers (uppercase, remove trailing spaces)
+        df.columns = df.columns.str.strip().str.upper()
+        
+        # 4. Dictionary to map your Excel columns to the Database Model columns
+        # (This catches multiple variations like "F-NUMBER" or "FORCE NUMBER")
+        header_map = {
+            "FORCE NUMBER": "fnum", "F-NUMBER": "fnum", "FNUM": "fnum",
+            "RANK": "rank",
+            "NAME": "name",
+            "SEX": "sex",
+            "POSITION": "position", "ROLE": "position",
+            "DOB": "dob", "DATE OF BIRTH": "dob",
+            "DOE": "doe", "DATE OF ENLISTMENT": "doe",
+            "DO POST": "dopost", "DO_POST": "dopost",
+            "DO PRO": "dopro", "DO_PRO": "dopro",
+            "CONTACT": "contact", "PHONE": "contact",
+            "EDUC LEVEL": "educlevel", "EDUCATION": "educlevel",
+            "IPPS": "ipps",
+            "TIN": "tin",
+            "NIN": "nin",
+            "HOME DIST": "homedist", "HOME DISTRICT": "homedist",
+            "TRIBE": "tribe",
+            "ACC NO": "accno", "ACCOUNT NUMBER": "accno",
+            "BANK BRANCH": "bankbranch",
+            "STATION": "station",
+            "DISTRICT": "district",
+            "REGION": "region",
+            "SECTION": "section",
+            "DIRECTORATE": "dir", "DIR": "dir",
+            "STATUS": "status"
+        }
+        
+        df.rename(columns=header_map, inplace=True)
+        
+        # 5. Clean empty cells (Replace NaN with None for the database)
+        df = df.where(pd.notnull(df), None)
+        
+        records_added = 0
+        records_skipped = 0
+        
+        # 6. Fetch existing Force Numbers to prevent duplicate crashes
+        # Adjust "fnum" below if your model uses "f_num" instead
+        existing_fnums = {u[0] for u in db.query(models.Nominal_Roll.fnum).all()}
+        
+        # 7. Get the valid column names from your database model to filter out junk Excel columns
+        valid_keys = [c.name for c in models.Nominal_Roll.__table__.columns]
+
+        for index, row in df.iterrows():
+            row_dict = row.to_dict()
+            fnum_val = str(row_dict.get('fnum', '')).strip()
+            
+            # Skip rows without a Force Number
+            if not fnum_val or fnum_val == 'None':
+                continue 
+                
+            # Skip if officer already exists in the database
+            if fnum_val in existing_fnums:
+                records_skipped += 1
+                continue
+            
+            # Clean Date Formatting
+            for date_col in ['dob', 'doe', 'dopost', 'dopro']:
+                if date_col in row_dict and row_dict[date_col]:
+                    val = row_dict[date_col]
+                    if isinstance(val, datetime):
+                        row_dict[date_col] = val.strftime("%Y-%m-%d")
+                    elif isinstance(val, str) and "/" in val:
+                        try:
+                            d_obj = datetime.strptime(val.strip(), "%d/%m/%Y")
+                            row_dict[date_col] = d_obj.strftime("%Y-%m-%d")
+                        except ValueError:
+                            pass # Leave as is if parsing fails
+            
+            # Build the clean database row
+            clean_row = {k: v for k, v in row_dict.items() if k in valid_keys and v is not None}
+            
+            new_record = models.Nominal_Roll(**clean_row)
+            new_record.last_updated_by = current_user.fnum
+            db.add(new_record)
+            
+            # Add to set so we don't duplicate within the same Excel sheet
+            existing_fnums.add(fnum_val) 
+            records_added += 1
+
+        # 8. Commit the massive batch to NeonDB
+        db.commit()
+        
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(
+                db, current_user.fnum, "HR_BULK_UPLOAD", "SYSTEM", 
+                {}, f"Uploaded {records_added} personnel. Skipped {records_skipped} duplicates."
+            )
+            
+        return {
+            "status": "success", 
+            "message": f"Successfully imported {records_added} officers. Skipped {records_skipped} existing records."
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Bulk upload failed: {str(e)}")
+
 # ==========================================
 # 8. LEDGER MANAGEMENT (GET, POST, PUT)
 # ==========================================
