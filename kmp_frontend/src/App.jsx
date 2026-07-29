@@ -2798,30 +2798,39 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     district: '', region: currentUser.region, section: '', dir: '', status: 'ACTIVE'
   });
 
-  const filteredRolls = useMemo(() => {
+const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
-      if (filterRegion !== 'ALL REGIONS' && n.region !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && n.station !== filterStation) return false;
+      // Safely normalize database strings and filter strings
+      const dbRegion = (n.region || '').trim().toUpperCase();
+      const dbStation = (n.station || '').trim().toUpperCase();
+      const selRegion = (filterRegion || '').trim().toUpperCase();
+      const selStation = (filterStation || '').trim().toUpperCase();
+
+      if (selRegion !== 'ALL REGIONS' && selRegion !== '' && dbRegion !== selRegion) return false;
+      if (selStation !== 'ALL STATIONS' && selStation !== '' && dbStation !== selStation) return false;
+      
       return true;
     });
   }, [Nominal_Rolls, filterRegion, filterStation]);
 
-const filteredNominal_Roll_archives = useMemo(() => {
-  if (!Array.isArray(Nominal_Roll_archives)) return [];
+  const filteredNominal_Roll_archives = useMemo(() => {
+    if (!Array.isArray(Nominal_Roll_archives)) return [];
+    const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
 
-  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+    return Nominal_Roll_archives.filter(n => {
+      if (isSuperAdmin) return true;
 
-  return Nominal_Roll_archives.filter(n => {
-    if (isSuperAdmin) return true;
+      const dbRegion = (n.region || '').trim().toUpperCase();
+      const dbStation = (n.station || '').trim().toUpperCase();
+      const selRegion = (filterRegion !== 'ALL REGIONS' ? filterRegion : currentUser.region || '').trim().toUpperCase();
+      const selStation = (filterStation !== 'ALL STATIONS' ? filterStation : currentUser.station || '').trim().toUpperCase();
 
-    const regionToMatch = filterRegion !== 'ALL REGIONS' ? filterRegion : currentUser.region;
-    const stationToMatch = filterStation !== 'ALL STATIONS' ? filterStation : currentUser.station;
+      if (dbRegion !== selRegion) return false;
+      if (dbStation !== selStation) return false;
+      return true;
+    });
+  }, [Nominal_Roll_archives, filterRegion, filterStation, currentUser]);
 
-    if (n.region !== regionToMatch) return false;
-    if (n.station !== stationToMatch) return false;
-    return true;
-  });
-}, [Nominal_Roll_archives, filterRegion, filterStation, currentUser]);
   const availableUpdateRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && n.region !== currentUser.region) return false;
@@ -4893,47 +4902,41 @@ const DashboardLayout = ({
     return () => clearInterval(heartbeatInterval);
   }, []);
 
-// 🟢 ACTIVE IDLE TIMER & AUTO-LOGOUT LOGIC
+// 🟢 ACTIVE IDLE TIMER & AUTO-LOGOUT DIALOGUE LOGIC
   useEffect(() => {
-    const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 Minutes
+    const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // Exactly 30 Minutes
     let lastActivityTime = Date.now();
     let hasWarned = false;
 
     const enforceLogout = () => {
-      // Alert pauses the browser. When they click OK, the next line executes instantly.
+      // This triggers the explicit dialog box you want
       alert("Session Expired: You have been securely logged out due to inactivity.");
-      onLogout(); 
+      if (typeof onLogout === 'function') {
+        onLogout();
+      } else {
+        localStorage.removeItem('kmp_authToken');
+        window.location.reload();
+      }
     };
 
     const updateActivity = () => {
-      const now = Date.now();
-      // 🟢 THE FIX: If the browser slept and woke up past the timeout, DO NOT reset the clock. Boot them immediately.
-      if (now - lastActivityTime >= IDLE_TIMEOUT_MS) {
-        enforceLogout();
-        return;
-      }
-      lastActivityTime = now;
+      lastActivityTime = Date.now();
       hasWarned = false; 
     };
 
-    // Attach activity listeners
+    // Attach activity listeners across the entire window
     window.addEventListener('mousemove', updateActivity);
     window.addEventListener('keypress', updateActivity);
     window.addEventListener('click', updateActivity);
     window.addEventListener('scroll', updateActivity);
 
-    // The heartbeat check loop (runs every 10 seconds)
+    // Check interval running every 10 seconds
     const idleCheckInterval = setInterval(() => {
       const elapsed = Date.now() - lastActivityTime;
       
-      // Optional: Show a quick warning 1 minute before timeout (at 29 minutes)
-      if (elapsed >= IDLE_TIMEOUT_MS - 60000 && !hasWarned) {
-        hasWarned = true;
-        console.warn("Security Notice: Session expiring soon due to inactivity.");
-      }
-
-      // Final Timeout Reached via Interval
+      // Final Timeout Reached -> Triggers the alert popup
       if (elapsed >= IDLE_TIMEOUT_MS) {
+        clearInterval(idleCheckInterval);
         enforceLogout();
       }
     }, 10000);
