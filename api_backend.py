@@ -330,6 +330,44 @@ def register_user(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database write failed: {str(e)}")
 
+from urllib.parse import unquote
+from fastapi import HTTPException, Depends
+
+# ---------------------------------------------------------
+# ADMIN: APPROVE PENDING USER REGISTRATION
+# ---------------------------------------------------------
+@app.post("/api/v1/admin/approve/{fnum:path}")
+def approve_pending_user(fnum: str, db: Session = Depends(get_db)):
+    # 1. Clean the Force Number (Ensures "A%2F2408" safely becomes "A/2408")
+    clean_fnum = unquote(fnum).strip().upper()
+    
+    # 2. Find the pending user in the database
+    # (Assuming your SQLAlchemy model is named models.Users)
+    target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum).first()
+    
+    if not target_user:
+        raise HTTPException(status_code=404, detail=f"Officer {clean_fnum} not found in database.")
+        
+    # 3. Activate the user 
+    # (Using hasattr ensures this won't crash regardless of what you named your column)
+    if hasattr(target_user, 'status'):
+        target_user.status = "ACTIVE"
+        
+    if hasattr(target_user, 'is_approved'):
+        target_user.is_approved = True
+        
+    if hasattr(target_user, 'is_active'):
+        target_user.is_active = True
+
+    # 4. Log the action (Optional, if you have Audit Logs setup)
+    if hasattr(models, 'Audit_Logs'):
+        log_semantic_audit(db, "SYSTEM", "ACCOUNT_APPROVAL", target_user.fnum, {}, f"User {clean_fnum} was approved for system access.")
+
+    # 5. Save changes
+    db.commit()
+    
+    return {"status": "success", "message": f"Officer {clean_fnum} successfully authorized."}
+
 @app.post("/api/v1/users/upload-profile")
 async def upload_profile_photo(
     file: UploadFile = File(...),
