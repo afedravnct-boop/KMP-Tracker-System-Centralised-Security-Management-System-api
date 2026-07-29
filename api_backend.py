@@ -31,6 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from apscheduler.schedulers.background import BackgroundScheduler
+from fastapi import UploadFile, File, HTTPException, Depends
 
 # Internal Imports
 from app import models, database
@@ -677,6 +678,9 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ---------------------------------------------------------
+# ADMIN: EXCEL BULK UPLOAD FOR NOMINAL ROLL
+# ---------------------------------------------------------
 @app.post("/api/v1/nominal-roll/bulk-upload")
 async def bulk_upload_nominal_roll(
     file: UploadFile = File(...),
@@ -699,7 +703,6 @@ async def bulk_upload_nominal_roll(
         df.columns = df.columns.str.strip().str.upper()
         
         # 4. Dictionary to map your Excel columns to the Database Model columns
-        # (This catches multiple variations like "F-NUMBER" or "FORCE NUMBER")
         header_map = {
             "FORCE NUMBER": "fnum", "F-NUMBER": "fnum", "FNUM": "fnum",
             "RANK": "rank",
@@ -736,10 +739,9 @@ async def bulk_upload_nominal_roll(
         records_skipped = 0
         
         # 6. Fetch existing Force Numbers to prevent duplicate crashes
-        # Adjust "fnum" below if your model uses "f_num" instead
         existing_fnums = {u[0] for u in db.query(models.Nominal_Roll.fnum).all()}
         
-        # 7. Get the valid column names from your database model to filter out junk Excel columns
+        # 7. Get the valid column names from your database model
         valid_keys = [c.name for c in models.Nominal_Roll.__table__.columns]
 
         for index, row in df.iterrows():
@@ -796,315 +798,6 @@ async def bulk_upload_nominal_roll(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Bulk upload failed: {str(e)}")
-
-# ==========================================
-# 8. LEDGER MANAGEMENT (GET, POST, PUT)
-# ==========================================
-# --- CRIME REPORTS ---
-@app.get("/api/v1/reports")
-def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    query = db.query(models.Crime_Reports)
-    if current_user.role == "SUPER_ADMIN" or (current_user.permissions or {}).get("view_all_reports", False):
-        pass 
-    elif current_user.role in ["ADMIN", "RPC"]:
-        query = query.filter(models.Crime_Reports.region == current_user.region)
-    else:
-        query = query.filter(models.Crime_Reports.station == current_user.station)
-        
-    reports = query.order_by(models.Crime_Reports.sn.desc()).all()
-    
-    return [{
-        "sn": r.sn, 
-        "sdRef": r.sd_ref, 
-        "region": r.region, 
-        "station": r.station,
-        "date": r.date, 
-        "time": r.time, 
-        "offence": r.offence, 
-        "narrative": r.narrative, 
-        "status": r.status, 
-        "suspects": r.suspects, 
-        "lastUpdatedBy": r.last_updated_by,
-        "suspectDetails": [{
-            "name": getattr(s, 'name', ''), 
-            "sex": getattr(s, 'sex', ''), 
-            "age": getattr(s, 'age', ''), 
-            "residence": getattr(s, 'residence', ''),
-            "mental_health_status": getattr(s, 'mental_health_status', ''), 
-            "photo_url": getattr(s, 'photo_url', '')
-        } for s in getattr(r, 'suspect_details', [])]
-    } for r in reports] 
-
-@app.post("/api/v1/reports")
-def create_report(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        data.pop('sn', None) 
-        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
-            data["region"] = current_user.region
-            data["station"] = current_user.station
-            
-        suspects_data = data.pop('suspectDetails', []) 
-        new_record = models.Crime_Reports(**data)
-        new_record.last_updated_by = current_user.fnum
-        
-        db.add(new_record)
-        db.flush() 
-        
-        for s in suspects_data:
-            new_suspect = models.Suspect_Lockup(
-                sd_ref=new_record.sn,
-                name=s.get('name'), 
-                sex=s.get('sex'), 
-                age=str(s.get('age')) if s.get('age') else None,
-                tribe=s.get('tribe'), 
-                residence=s.get('residence'), 
-                contact=s.get('contact'),
-                mental_health_status=s.get('mental_health_status'),
-                photo_url=s.get('photo_url') 
-            )
-            db.add(new_suspect)
-        return {"status": "success"}
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=400, detail="Duplicate Reference for this station.")
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.put("/api/v1/reports/{sn}")
-def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        existing_report = db.query(models.Crime_Reports).filter(models.Crime_Reports.sn == sn).first()
-        if not existing_report:
-            raise HTTPException(status_code=404, detail="Crime Report not found")
-
-        suspects_data = data.pop('suspectDetails', [])
-        data.pop('sn', None)
-        
-        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
-            data.pop("region", None)
-            data.pop("station", None)
-        
-        for key, value in data.items():
-            if hasattr(existing_report, key):
-                setattr(existing_report, key, value)
-                
-        existing_report.last_updated_by = current_user.fnum
-        
-        existing_lockups = db.query(models.Suspect_Lockup).filter(models.Suspect_Lockup.sd_ref == sn).all()
-        existing_names = [lockup.name for lockup in existing_lockups]
-        
-        for s in suspects_data:
-            if s.get('name') not in existing_names:
-                new_suspect = models.Suspect_Lockup(
-                    sd_ref=sn, name=s.get('name'), sex=s.get('sex'), age=str(s.get('age')) if s.get('age') else None,
-                    tribe=s.get('tribe'), residence=s.get('residence'), contact=s.get('contact'),
-                    mental_health_status=s.get('mental_health_status'),
-                    photo_url=s.get('photo_url') 
-                )
-                db.add(new_suspect)
-
-        db.commit()
-        return {"status": "success"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-# --- OPS STATISTICS ---
-@app.get("/api/v1/stats")
-def get_stats(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    query = db.query(models.Operational_Statistics)
-    if current_user.role == "SUPER_ADMIN":
-        pass
-    elif current_user.role in ["ADMIN", "RPC"]:
-        query = query.filter(models.Operational_Statistics.region == current_user.region)
-    else:
-        query = query.filter(models.Operational_Statistics.station == current_user.station)
-        
-    return query.order_by(models.Operational_Statistics.sn.desc()).all()
-
-@app.post("/api/v1/stats")
-def create_stat(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        data.pop('sn', None) 
-        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
-            data["region"] = current_user.region
-            data["station"] = current_user.station
-            
-        new_record = models.Operational_Statistics(**data)
-        new_record.last_updated_by = current_user.fnum
-        db.add(new_record)
-        db.commit()
-        return {"status": "success"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-# --- SUCCESS STORIES ---
-@app.get("/api/v1/stories")
-def get_stories(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    query = db.query(models.Success_Stories)
-    if current_user.role == "SUPER_ADMIN":
-        pass
-    elif current_user.role in ["ADMIN", "RPC"]:
-        query = query.filter(models.Success_Stories.region == current_user.region)
-    else:
-        query = query.filter(models.Success_Stories.station == current_user.station)
-    return query.order_by(models.Success_Stories.sn.desc()).all()
-
-@app.post("/api/v1/stories")
-def create_story(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        data.pop('sn', None) 
-        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
-            data["region"] = current_user.region
-            data["station"] = current_user.station
-            
-        new_record = models.Success_Stories(**data)
-        new_record.last_updated_by = current_user.fnum
-        db.add(new_record)
-        db.commit()
-        db.refresh(new_record)
-        return {"status": "success", "sn": new_record.sn}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-# --- ESTABLISHMENTS ---
-@app.get("/api/v1/establishments")
-def get_all_establishments(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    query = db.query(models.Establishments)
-    if current_user.role == "SUPER_ADMIN":
-        pass
-    elif current_user.role in ["ADMIN", "RPC"]:
-        query = query.filter(models.Establishments.region == current_user.region)
-    else:
-        query = query.filter(models.Establishments.station == current_user.station)
-    return query.order_by(models.Establishments.id.desc()).all()
-
-@app.post("/api/v1/establishments")
-def create_establishment(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        data.pop('sn', None) 
-        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
-            data["region"] = current_user.region
-            data["division"] = current_user.division
-            data["station"] = current_user.station
-            
-        new_est = models.Establishments(**data)
-        new_est.last_updated_by = current_user.fnum
-        db.add(new_est)
-        db.commit()
-        db.refresh(new_est)
-        return {"status": "success", "sn": new_est.sn}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.put("/api/v1/establishments/{est_id}")
-def update_establishment(est_id: int, est_update: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    existing_est = db.query(models.Establishments).filter(
-        (models.Establishments.id == est_id) if hasattr(models.Establishments, 'id') else (models.Establishments.sn == est_id)
-    ).first()
-    
-    if not existing_est:
-        raise HTTPException(status_code=404, detail="Establishment not found.")
-
-    est_update.pop('sn', None) 
-    est_update.pop('id', None) 
-    
-    if current_user.role not in ["SUPER_ADMIN", "RPC"]:
-        est_update.pop("region", None)
-        est_update.pop("division", None)
-        est_update.pop("station", None)
-
-    for key, value in est_update.items():
-        if hasattr(existing_est, key):
-            setattr(existing_est, key, value)
-
-    existing_est.last_updated_by = current_user.fnum
-    db.commit()
-    return {"status": "success"}
-
-# --- NOMINAL ROLL ---
-@app.get("/api/v1/nominal-roll")
-def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    query = db.query(models.Nominal_Roll)
-    if current_user.role in ["ADMIN", "SUPER_ADMIN", "RPC"]:
-        pass 
-    else:
-        query = query.filter(models.Nominal_Roll.station == current_user.station)
-    return query.order_by(models.Nominal_Roll.sn.desc()).all()
-
-@app.post("/api/v1/nominal-roll")
-def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        data.pop('sn', None) 
-        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
-            data["region"] = current_user.region
-            data["station"] = current_user.station
-            
-        clean_data = {}
-        for k, v in data.items():
-            if v == "":
-                clean_data[k] = None
-            else:
-                if k in ['dob', 'doe', 'dopost', 'dopro'] and v is not None:
-                    if "/" in v:  
-                        try:
-                            date_obj = datetime.strptime(v, "%d/%m/%Y")
-                            clean_data[k] = date_obj.strftime("%Y-%m-%d")
-                        except ValueError:
-                            clean_data[k] = v 
-                    else:
-                        clean_data[k] = v 
-                else:
-                    clean_data[k] = v
-
-        new_record = models.Nominal_Roll(**clean_data)
-        new_record.last_updated_by = current_user.fnum
-        db.add(new_record)
-        db.commit()
-        db.refresh(new_record)
-        return {"status": "success", "message": "Officer added successfully", "sn": new_record.sn}
-        
-    except IntegrityError:
-        db.rollback() 
-        raise HTTPException(status_code=400, detail="Duplicate Entry: Force Number or IPPS already exists.")
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-
-@app.put("/api/v1/nominal-roll/{fnum}/archive")
-def archive_personnel(fnum: str, request_data: ArchiveRequest, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        active_record = db.query(models.Nominal_Roll).filter(
-            (models.Nominal_Roll.fnum == fnum) if hasattr(models.Nominal_Roll, 'fnum') else (models.Nominal_Roll.f_num == fnum)
-        ).first()
-        
-        if not active_record:
-            raise HTTPException(status_code=404, detail="Officer not found in active roll.")
-
-        record_data = active_record.__dict__.copy()
-        record_data.pop("_sa_instance_state", None) 
-        record_data.pop("id", None) 
-        record_data.pop("sn", None) 
-        
-        record_data["status"] = "ARCHIVED"
-        record_data["archive_reason"] = request_data.archive_reason
-        record_data["archive_date"] = datetime.now().date()
-        record_data["last_updated_by"] = current_user.fnum
-
-        archived_record = models.Nominal_Roll_Archive(**record_data)
-        db.add(archived_record)
-        db.delete(active_record)
-        db.commit()
-        return {"status": "success", "message": "Officer successfully moved to archives."}
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to migrate record: {str(e)}")
-
 @app.get("/api/v1/nominal-roll-archive")
 def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     query = db.query(models.Nominal_Roll_Archive)

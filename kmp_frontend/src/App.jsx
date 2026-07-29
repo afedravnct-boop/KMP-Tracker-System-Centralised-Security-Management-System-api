@@ -3592,13 +3592,33 @@ const AdminApprovals = ({ currentUser }) => {
     }
   }, [activeTab]);
 
-  const handleApproveUser = async (fnum) => {
+const handleApproveUser = async (fnum) => {
     try {
-      const response = await authFetch(`/api/v1/approve/${fnum}`, { method: "POST" });
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.detail || "Failed to approve user.");
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const token = localStorage.getItem('kmp_authToken');
+      
+      // 🟢 THE FIX: Safely encode slashes so "A/2408" becomes "A%2F2408"
+      const safeFnum = encodeURIComponent(fnum);
+      const headers = { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}` 
+      };
+
+      // 🟢 Automatically tests the 3 most standard backend routes
+      let response = await fetch(`${API_URL}/api/v1/admin/approve/${safeFnum}`, { method: "POST", headers });
+      
+      if (response.status === 404) {
+        response = await fetch(`${API_URL}/api/v1/auth/approve/${safeFnum}`, { method: "POST", headers });
       }
+      if (response.status === 404) {
+        response = await fetch(`${API_URL}/api/v1/approve/${safeFnum}`, { method: "POST", headers });
+      }
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server Error: ${response.status}`);
+      }
+      
       setRealPendingUsers(realPendingUsers.filter(u => u.fnum !== fnum));
       alert(`Officer ${fnum} successfully authorized!`);
     } catch (err) {
