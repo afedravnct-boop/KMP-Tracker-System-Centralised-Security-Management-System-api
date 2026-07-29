@@ -4982,18 +4982,20 @@ const handleExportLogs = async () => {
     }
   };
 
-  return (
+return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
       <div className={`bg-cyan-900 text-white transition-all duration-300 ${sidebarOpen ? 'w-72' : 'w-15'} flex flex-col h-full shadow-2xl z-20`}>
+        
+        {/* --- HEADER --- */}
         <div className="p-4 flex items-center justify-between border-b border-slate-500">
           {sidebarOpen && (
             <div className="flex items-center">
               <img 
-  src="/upf_badge.png" 
-  alt="UPF Logo" 
-  className="w-4 h-4 mr-0.5 object-contain contrast-200 brightness-75 drop-shadow-sm" 
-  onError={(e) => { e.target.style.display = 'none'; }} 
-/>
+                src="/upf_badge.png" 
+                alt="UPF Logo" 
+                className="w-4 h-4 mr-0.5 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+                onError={(e) => { e.target.style.display = 'none'; }} 
+              />
               <span className="font-bold text-0.5g tracking-wider">KMP TRACKER SYSTEM</span>
             </div>
           )}
@@ -5002,8 +5004,10 @@ const handleExportLogs = async () => {
           </button>
         </div>
         
+        {/* --- NAVIGATION LIST --- */}
         <div className="flex-1 overflow-y-auto py-2 custom-scrollbar">
           {sidebarOpen && <div className="px-6 mb-2 text-xs font-bold text-orange-500 uppercase tracking-wider">📋 Select Domain Category</div>}
+          
           <nav className="space-y-1 mb-8">
             {navItems.map((item) => (
               <button 
@@ -5011,8 +5015,10 @@ const handleExportLogs = async () => {
                 onClick={() => {
                   setCurrentPage(item.id);
                   if (item.id === 'Admin_Communication') {
-                    setLastViewedId(latestCommId);
-                    localStorage.setItem('last_viewed_comm_id', JSON.stringify(latestCommId));
+                    // Safely check if latestCommId exists. If not, fallback to Date.now() to prevent crashes.
+                    const safeId = typeof latestCommId !== 'undefined' ? latestCommId : Date.now();
+                    setLastViewedId(safeId);
+                    localStorage.setItem('last_viewed_comm_id', JSON.stringify(safeId));
                   }
                 }}
                 className={`w-full flex items-center px-6 py-3 transition-colors text-left ${
@@ -5020,7 +5026,8 @@ const handleExportLogs = async () => {
                 }`}
               >
                 <div className="min-w-[24px]">{item.icon}</div>
-{sidebarOpen && (
+                
+                {sidebarOpen && (
                   <span className={`ml-3 font-medium text-sm flex items-center justify-between flex-1 ${item.id === 'home' && hasUnreadComms ? 'text-green-200 font-extrabold animate-pulse' : ''}`}>
                     {item.name}
                     {item.id === 'home' && hasUnreadComms && (

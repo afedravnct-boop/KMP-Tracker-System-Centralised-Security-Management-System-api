@@ -1400,6 +1400,7 @@ def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.User
         raise HTTPException(status_code=500, detail="Failed to load HR data due to a server error.")
 
 @app.get("/api/v1/reports/export")
+@app.get("/api/v1/reports/export")
 def export_master_database_unified(
     timeframe: Optional[str] = "all", scope: Optional[str] = None, 
     value: Optional[str] = None, db: Session = Depends(get_db), 
@@ -1411,10 +1412,8 @@ def export_master_database_unified(
 
         with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
             workbook = writer.book
-            
-            # 🟢 FORCE TAHOMA FONT FOR THE ENTIRE EXCEL DOCUMENT
             workbook.formats[0].set_font_name('Tahoma')
-            workbook.formats[0].set_font_size(11) # 11 is the standard readable size for Tahoma
+            workbook.formats[0].set_font_size(11)
 
             # --- TAB 1: CRIME REGISTRY ---
             crime_query = db.query(models.Crime_Reports)
@@ -1422,48 +1421,39 @@ def export_master_database_unified(
                 crime_query = crime_query.filter(models.Crime_Reports.station == value)
             crime_data = crime_query.yield_per(1000)
             
-            # 🟢 Fetching exact DB attributes but assigning to UPPERCASE Excel headers
             crime_list = [{
                 "ID": getattr(r, 'id', ''),
-                "SN": getattr(r, 'id', ''),  # SN fetches the corresponding ID
+                "SN": getattr(r, 'id', ''), 
                 "SD REF": getattr(r, 'sd_ref', getattr(r, 'sdRef', '')),
                 "REGION": getattr(r, 'region', ''),
                 "STATION": getattr(r, 'station', ''),
-                "DATE": getattr(r, 'date', ''),
-                "TIME": getattr(r, 'time', ''),
+                "DATE": str(getattr(r, 'date', '')) if getattr(r, 'date') else "",
+                "TIME": str(getattr(r, 'time', '')) if getattr(r, 'time') else "",
                 "OFFENCE": getattr(r, 'offence', ''),
                 "NARRATIVE": strip_html_to_plain_text(getattr(r, 'narrative', '')),
                 "STATUS": getattr(r, 'status', ''),
                 "SUSPECTS": getattr(r, 'suspects', 0),
                 "LAST UPDATED BY": getattr(r, 'last_updated_by', ''),
-                "CREATED AT": str(getattr(r, 'created_at', '')) # Cast to string to prevent Excel timezone errors
+                "CREATED AT": str(getattr(r, 'created_at', ''))
             } for r in crime_data]
             
-            # 🟢 Explicitly lock the exact column flow left-to-right
-            ordered_columns = [
-                "ID", "SN", "SD REF", "REGION", "STATION", 
-                "DATE", "TIME", "OFFENCE", "NARRATIVE", 
-                "STATUS", "SUSPECTS", "LAST UPDATED BY", "CREATED AT"
-            ]
+            ordered_columns = ["ID", "SN", "SD REF", "REGION", "STATION", "DATE", "TIME", "OFFENCE", "NARRATIVE", "STATUS", "SUSPECTS", "LAST UPDATED BY", "CREATED AT"]
 
             if crime_list:
                 df_crime = pd.DataFrame(crime_list)
-                df_crime = df_crime[ordered_columns] # Force column order
+                df_crime = df_crime[ordered_columns]
             else:
                 df_crime = pd.DataFrame(columns=ordered_columns)
 
             df_crime.to_excel(writer, sheet_name="Crime Registry", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["Crime Registry"], df_crime, "Crime Registry", authorized_user)
 
-            # 🟢 NEW: TAB 1B: CRIME REGISTRY (Printable UI Copy) ---
+            # --- TAB 1B: CRIME REGISTRY (Printable) ---
             if not df_crime.empty:
                 df_crime_print = df_crime.copy()
-                
-                # Merge columns to match the UI perfectly
                 df_crime_print["Date & Time"] = df_crime_print["DATE"].astype(str) + " " + df_crime_print["TIME"].astype(str)
                 df_crime_print["Region/Station/Post"] = df_crime_print["REGION"].astype(str) + " / " + df_crime_print["STATION"].astype(str)
                 
-                # Rename columns to match your exact requested headers
                 df_crime_print.rename(columns={
                     "ID": "S/N", 
                     "SN": "S/N", 
@@ -1479,7 +1469,6 @@ def export_master_database_unified(
                     df_crime_print.rename(columns={"COMPLAINANT": "Complainant"}, inplace=True)
 
                 ui_crime_columns = ["S/N", "Reference", "Date & Time", "Region/Station/Post", "Incident Narrative", "Complainant", "Suspects", "Status"]
-                # Only keep columns that actually exist
                 available_crime_cols = [col for col in ui_crime_columns if col in df_crime_print.columns]
                 df_crime_print = df_crime_print[available_crime_cols]
             else:
@@ -1487,7 +1476,6 @@ def export_master_database_unified(
                 
             df_crime_print.to_excel(writer, sheet_name="Crime Registry (Print)", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["Crime Registry (Print)"], df_crime_print, "Crime Registry (Print)", authorized_user)
-            # ----------------------------------------------
 
             del crime_data, crime_list, df_crime
             gc.collect()
@@ -1498,35 +1486,40 @@ def export_master_database_unified(
                 stats_query = stats_query.filter(models.Operational_Statistics.station == value)
             stats_data = stats_query.yield_per(1000)
             stats_list = [{
-                "SN": getattr(s, 'id', getattr(s, 'sn', '')), "Date": getattr(s, 'date', ''), "Region": getattr(s, 'region', ''),
-                "Station": getattr(s, 'station', ''), "Arrested": getattr(s, 'arrested', 0), "Given Bond": getattr(s, 'given_bond', 0),
-                "Cautioned": getattr(s, 'cautioned', 0), "Pending Court": getattr(s, 'pending_court', 0), "Taken To Court": getattr(s, 'taken_to_court', 0),
-                "Released": getattr(s, 'released', 0), "Remanded": getattr(s, 'remanded', 0), "Convicted": getattr(s, 'convicted', 0)
+                "SN": getattr(s, 'id', getattr(s, 'sn', '')), 
+                "Date": str(getattr(s, 'date', '')) if getattr(s, 'date') else "", 
+                "Region": getattr(s, 'region', ''),
+                "Station": getattr(s, 'station', ''), 
+                "Arrested": getattr(s, 'arrested', 0), 
+                "Given Bond": getattr(s, 'given_bond', 0),
+                "Cautioned": getattr(s, 'cautioned', 0), 
+                "Pending Court": getattr(s, 'pending_court', 0), 
+                "Taken To Court": getattr(s, 'taken_to_court', 0),
+                "Released": getattr(s, 'released', 0), 
+                "Remanded": getattr(s, 'remanded', 0), 
+                "Convicted": getattr(s, 'convicted', 0)
             } for s in stats_data]
+            
             df_stats = pd.DataFrame(stats_list) if stats_list else pd.DataFrame(columns=["SN", "Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"])
             df_stats.to_excel(writer, sheet_name="OPS Statistics", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["OPS Statistics"], df_stats, "OPS Statistics", authorized_user)
-            del stats_data, stats_list, df_stats
-            gc.collect()
-
-            # --- TAB 2B: OPS STATISTICS (Printable UI Copy with Summation) ---
+            
+            # --- TAB 2B: OPS STATISTICS (Printable) ---
             if not df_stats.empty:
                 df_stats_print = df_stats.copy()
-                
-                # 1. Define the 8 columns that need to be summed
                 numeric_cols = ["Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"]
                 
-                # 2. Calculate the totals
+                # SECURE SUM: Convert all strings/nulls to numeric 0 first to prevent sum() crashes
+                for col in numeric_cols:
+                    df_stats_print[col] = pd.to_numeric(df_stats_print[col], errors='coerce').fillna(0)
+                    
                 totals = df_stats_print[numeric_cols].sum()
                 
-                # 3. Create a clean Total Row
                 total_row = {col: "" for col in df_stats_print.columns}
-                total_row["Station"] = "TOTALS" # Label the row to match the UI
-                
+                total_row["Station"] = "TOTALS"
                 for col in numeric_cols:
                     total_row[col] = totals[col]
                     
-                # 4. Append the Total Row to the bottom of the dataframe
                 df_total = pd.DataFrame([total_row])
                 df_stats_print = pd.concat([df_stats_print, df_total], ignore_index=True)
             else:
@@ -1534,7 +1527,9 @@ def export_master_database_unified(
 
             df_stats_print.to_excel(writer, sheet_name="OPS Statistics (Print)", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["OPS Statistics (Print)"], df_stats_print, "OPS Statistics (Print)", authorized_user)
-            # ----------------------------------------------
+            
+            del stats_data, stats_list, df_stats
+            gc.collect()
 
             # --- TAB 3: SUCCESS STORIES ---
             stories_query = db.query(models.Success_Stories)
@@ -1542,8 +1537,12 @@ def export_master_database_unified(
                 stories_query = stories_query.filter(models.Success_Stories.station == value)
             stories_data = stories_query.yield_per(1000)
             stories_list = [{
-                "SN": getattr(s, 'id', getattr(s, 'sn', '')), "Date": getattr(s, 'date', ''), "Time": getattr(s, 'time', ''),
-                "Region": getattr(s, 'region', ''), "Station": getattr(s, 'station', ''), "Status": getattr(s, 'status', ''),
+                "SN": getattr(s, 'id', getattr(s, 'sn', '')), 
+                "Date": str(getattr(s, 'date', '')) if getattr(s, 'date') else "", 
+                "Time": str(getattr(s, 'time', '')) if getattr(s, 'time') else "",
+                "Region": getattr(s, 'region', ''), 
+                "Station": getattr(s, 'station', ''), 
+                "Status": getattr(s, 'status', ''),
                 "Narrative": strip_html_to_plain_text(getattr(s, 'narrative', '')) 
             } for s in stories_data]
             df_stories = pd.DataFrame(stories_list) if stories_list else pd.DataFrame(columns=["SN", "Date", "Time", "Region", "Station", "Status", "Narrative"])
@@ -1558,10 +1557,14 @@ def export_master_database_unified(
                 roll_query = roll_query.filter(models.Nominal_Roll.station == value)
             roll_data = roll_query.yield_per(1000)
             roll_list = [{
-                "SN": getattr(n, 'id', getattr(n, 'sn', '')), "Force Number": getattr(n, 'fnum', getattr(n, 'f_num', '')),
+                "SN": getattr(n, 'id', getattr(n, 'sn', '')), 
+                "Force Number": getattr(n, 'fnum', getattr(n, 'f_num', '')),
                 "Rank": getattr(n, 'rank', ''), "Name": getattr(n, 'name', ''), "Sex": getattr(n, 'sex', ''),
-                "Position": getattr(n, 'position', ''), "DOB": getattr(n, 'dob', ''), "DOE": getattr(n, 'doe', ''),
-                "DO POST": getattr(n, 'dopost', getattr(n, 'do_post', '')), "DO PRO": getattr(n, 'dopro', getattr(n, 'do_pro', '')),
+                "Position": getattr(n, 'position', ''), 
+                "DOB": str(getattr(n, 'dob', '')) if getattr(n, 'dob') else "", 
+                "DOE": str(getattr(n, 'doe', '')) if getattr(n, 'doe') else "",
+                "DO POST": str(getattr(n, 'dopost', getattr(n, 'do_post', ''))) if getattr(n, 'dopost', getattr(n, 'do_post', '')) else "", 
+                "DO PRO": str(getattr(n, 'dopro', getattr(n, 'do_pro', ''))) if getattr(n, 'dopro', getattr(n, 'do_pro', '')) else "",
                 "Contact": getattr(n, 'contact', ''), "Educ Level": getattr(n, 'educlevel', getattr(n, 'educ_level', '')),
                 "IPPS": getattr(n, 'ipps', ''), "TIN": getattr(n, 'tin', ''), "NIN": getattr(n, 'nin', ''),
                 "Home Dist": getattr(n, 'homedist', getattr(n, 'home_dist', '')), "Tribe": getattr(n, 'tribe', ''),
@@ -1573,10 +1576,9 @@ def export_master_database_unified(
             df_roll.to_excel(writer, sheet_name="Nominal Roll", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["Nominal Roll"], df_roll, "Nominal Roll", authorized_user)
 
-            # --- TAB 4B: ESTABLISHMENTS (Printable UI Copy) ---
+            # --- TAB 4B: ESTABLISHMENTS (Printable) ---
             if not df_roll.empty:
                 df_hr_print = df_roll.copy()
-                
                 df_hr_print.rename(columns={
                     "SN": "S/N",
                     "Force Number": "F-NUMBER",
@@ -1589,7 +1591,6 @@ def export_master_database_unified(
                 }, inplace=True)
                 
                 ui_hr_columns = ["S/N", "F-NUMBER", "RANK", "NAME", "REGION", "STATION", "ROLE", "CONTACT"] 
-                
                 available_hr_cols = [col for col in ui_hr_columns if col in df_hr_print.columns]
                 df_hr_print = df_hr_print[available_hr_cols]
             else:
@@ -1597,7 +1598,6 @@ def export_master_database_unified(
                 
             df_hr_print.to_excel(writer, sheet_name="Establishments (Print)", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["Establishments (Print)"], df_hr_print, "Establishments (Print)", authorized_user)
-            # ----------------------------------------------
 
             del roll_data, roll_list, df_roll
             gc.collect()

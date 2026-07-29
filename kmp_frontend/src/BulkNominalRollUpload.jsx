@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, Upload, AlertCircle, CheckCircle } from 'lucide-react';
+import { Upload, AlertCircle, CheckCircle } from 'lucide-react';
 
 
 const BulkNominalRollUpload = ({ onUploadSuccess }) => {
