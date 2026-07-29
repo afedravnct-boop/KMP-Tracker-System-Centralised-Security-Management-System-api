@@ -237,15 +237,15 @@ def apply_custom_sheet_design(workbook, worksheet, df, sheet_title, user):
             if pd.isna(val): val = ""
             worksheet.write(row_num + 1, col_num, val, data_format)
 
-    # 6. SHEET-SPECIFIC PRINT SCALING & COLUMN SIZING
-    if sheet_title == "OPS Statistics":
+# 6. SHEET-SPECIFIC PRINT SCALING & COLUMN SIZING
+    if "OPS Statistics" in sheet_title:  # 🟢 CHANGED: Now catches both the Master and the (Print) sheet
         worksheet.fit_to_pages(1, 0) # Fit to 1 page wide
         worksheet.set_column('A:A', 5)   # SN
         worksheet.set_column('B:B', 12)  # Date
         worksheet.set_column('C:D', 20)  # Region, Station
         worksheet.set_column('E:L', 10)  # Metrics
 
-    elif "(Print)" in sheet_title:       # PRINT TABS
+    elif "(Print)" in sheet_title:       # PRINT TABS (Crime Registry & Establishments)
         worksheet.fit_to_pages(1, 0)     # Fit to 1 page wide for UI copies
         worksheet.set_column('A:A', 5)   # SN
         worksheet.set_column('B:Z', 15)  # Standard readable width for the rest
@@ -1388,6 +1388,33 @@ def export_master_database_unified(
             apply_custom_sheet_design(workbook, writer.sheets["OPS Statistics"], df_stats, "OPS Statistics", authorized_user)
             del stats_data, stats_list, df_stats
             gc.collect()
+
+            # --- TAB 2B: OPS STATISTICS (Printable UI Copy with Summation) ---
+            if not df_stats.empty:
+                df_stats_print = df_stats.copy()
+                
+                # 1. Define the 8 columns that need to be summed
+                numeric_cols = ["Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"]
+                
+                # 2. Calculate the totals
+                totals = df_stats_print[numeric_cols].sum()
+                
+                # 3. Create a clean Total Row
+                total_row = {col: "" for col in df_stats_print.columns}
+                total_row["Station"] = "TOTALS" # Label the row to match the UI
+                
+                for col in numeric_cols:
+                    total_row[col] = totals[col]
+                    
+                # 4. Append the Total Row to the bottom of the dataframe
+                df_total = pd.DataFrame([total_row])
+                df_stats_print = pd.concat([df_stats_print, df_total], ignore_index=True)
+            else:
+                df_stats_print = pd.DataFrame(columns=["SN", "Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"])
+
+            df_stats_print.to_excel(writer, sheet_name="OPS Statistics (Print)", index=False)
+            apply_custom_sheet_design(workbook, writer.sheets["OPS Statistics (Print)"], df_stats_print, "OPS Statistics (Print)", authorized_user)
+            # ----------------------------------------------
 
             # --- TAB 3: SUCCESS STORIES ---
             stories_query = db.query(models.Success_Stories)
