@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Building, X } from 'lucide-react';
+import { Users, Building, X, ShieldAlert, Upload } from 'lucide-react';
 
 const HrEstablishmentsLedger = ({ data, onClose }) => {
   // Safe fallbacks in case data hasn't fully loaded

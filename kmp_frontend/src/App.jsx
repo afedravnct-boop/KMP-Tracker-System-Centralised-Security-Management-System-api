@@ -3126,7 +3126,7 @@ const filteredNominal_Roll_archives = useMemo(() => {
                 <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">status</span>
               </div>
 
-              <BulkNominalRollUpload onUploadSuccess={fetchNominalRollData} />
+              <BulkNominalRollUpload onUploadSuccess={() => window.location.reload()} />
             </div>
           )}
 
