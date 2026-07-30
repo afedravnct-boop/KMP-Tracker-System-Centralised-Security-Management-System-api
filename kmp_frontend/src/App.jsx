@@ -173,9 +173,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
   const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role);
   
   const commsData = adminCommsData || [];
-
   const rawComms = adminCommsData || [];
-
   const safeComms = Array.isArray(rawComms) ? rawComms : (rawComms.data || rawComms.items || []);
 
   const canViewConsolidated = isAdmin || currentUser.permissions?.consolidated;
@@ -189,9 +187,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
   const [viewingReceiptsFor, setViewingReceiptsFor] = useState(null);
   const [receiptsData, setReceiptsData] = useState([]);
   const [loadingReceipts, setLoadingReceipts] = useState(false);
-  const [expandedComm, setExpandedComm] = useState(null);
-  const [isInboxExpanded, setIsInboxExpanded] = useState(false);
-  const [isInboxFullScreen, setIsInboxFullScreen] = useState(false);
 
   const fetchReceipts = async (commId) => {
     setViewingReceiptsFor(commId);
@@ -206,11 +201,9 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
     } catch(e) { console.error(e); } finally { setLoadingReceipts(false); }
   };
 
-const relevantComms = safeComms.filter(c => {
-    // Super Admins bypass the filter and see all active messages
+  const relevantComms = safeComms.filter(c => {
     if (currentUser.role === 'SUPER_ADMIN') return true;
     
-    // Safely catch naming variations from the database
     const audience = c.target_audience || c.audience || 'ALL_USERS';
     const region = c.target_region || c.region;
 
@@ -226,6 +219,8 @@ const relevantComms = safeComms.filter(c => {
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8 relative z-10 animate-in fade-in duration-300">
+      
+      {/* 🟢 RECEIPTS MODAL */}
       {viewingReceiptsFor && (
         <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4">
             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-300">
@@ -253,6 +248,7 @@ const relevantComms = safeComms.filter(c => {
         </div>
       )}
 
+      {/* 🟢 COMPLIANCE WARNING */}
       {showComplianceWarning && (
         <div className="bg-red-600 text-white font-extrabold p-4 rounded-xl shadow-lg flex flex-col md:flex-row items-center justify-between animate-pulse border-2 border-red-400">
           <div className="flex items-center text-sm mb-3 md:mb-0">
@@ -265,55 +261,52 @@ const relevantComms = safeComms.filter(c => {
         </div>
       )}
 
+      {/* 🟢 HEADER LOGOS */}
       <div className="text-center flex flex-col items-center mt-4">
-        <img 
-  src="/upf_badge.png" 
-  alt="UPF Logo" 
-  className="w-24 h-24 mb-1 object-contain drop-shadow-md contrast-200 brightness-75" 
-/>
+        <img src="/upf_badge.png" alt="UPF Logo" className="w-24 h-24 mb-1 object-contain drop-shadow-md contrast-200 brightness-75" />
         <h1 className="text-3xl font-bold text-gray-900 tracking-wide">UGANDA POLICE FORCE</h1>
         <h2 className="text-lg font-bold text-slate-600 mt-1 uppercase tracking-wide">KAMPALA METROPOLITAN POLICE HEADQUARTERS</h2>
         <h3 className="text-sm font-bold text-blue-600 mt-3 uppercase tracking-widest bg-blue-50 px-4 py-1 rounded-full border border-blue-200">Centralised Security Data Management System</h3>
       </div>
 
+      {/* 🟢 WELCOME BANNER */}
       <div className="w-full">
         <h3 className="text-center text-sm font-bold text-slate-600 bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
            Welcome, <span className="text-blue-700">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
         </h3>   
       </div>
 
-      <div className={isInboxFullScreen ? "fixed inset-0 z-[100] bg-gray-100 flex flex-col p-4 sm:p-8 animate-in fade-in zoom-in duration-200" : "w-full"}>
-        <div className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col ${isInboxFullScreen ? 'flex-1 shadow-2xl' : ''}`}>
+      {/* 🟢 ADMIN COMMAND DISPATCH WIDGET (~3cm height) */}
+      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && (
+        <div 
+          onClick={() => setCurrentPage('Admin_Communication')} 
+          className="h-28 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-green-400 group relative overflow-hidden"
+        >
+          {hasUnread && (
+            <>
+              <div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping"></div>
+              <div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full"></div>
+            </>
+          )}
           
-{/* 🟢 ADMIN COMMAND DISPATCH WIDGET (~3cm height, replaces the giant inline inbox) */}
-<div 
-  onClick={() => setCurrentPage('Admin_Communication')} 
-  className="h-28 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-green-400 group relative overflow-hidden"
->
-  {/* 🟢 Pulsing Green Notification Dot (Only shows if there are unread messages) */}
-  {hasUnread && (
-    <>
-      <div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping"></div>
-      <div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full"></div>
-    </>
-  )}
-  
-  <div className="w-14 h-14 rounded-full bg-slate-900 text-white flex items-center justify-center mr-4 group-hover:bg-slate-800 transition-colors shrink-0">
-    <RadioReceiver size={24} className={hasUnread ? "text-green-400 animate-pulse" : "text-slate-400"} />
-  </div>
-  
-  <div className="flex-1">
-    <h3 className="text-sm font-extrabold text-slate-900 leading-tight">Command Dispatches</h3>
-    <p className="text-xs font-medium mt-1 line-clamp-2 transition-colors duration-300 flex items-center">
-      {hasUnread ? (
-        <span className="text-green-600 font-bold">You have unread directives. Click to view.</span>
-      ) : (
-        <span className="text-slate-500">Secure directives, network alerts, and command communications.</span>
+          <div className="w-14 h-14 rounded-full bg-slate-900 text-white flex items-center justify-center mr-4 group-hover:bg-slate-800 transition-colors shrink-0">
+            <RadioReceiver size={24} className={hasUnread ? "text-green-400 animate-pulse" : "text-slate-400"} />
+          </div>
+          
+          <div className="flex-1">
+            <h3 className="text-sm font-extrabold text-slate-900 leading-tight">Command Dispatches</h3>
+            <p className="text-xs font-medium mt-1 line-clamp-2 transition-colors duration-300 flex items-center">
+              {hasUnread ? (
+                <span className="text-green-600 font-bold">You have unread directives. Click to view.</span>
+              ) : (
+                <span className="text-slate-500">Secure directives, network alerts, and command communications.</span>
+              )}
+            </p>
+          </div>
+        </div>
       )}
-    </p>
-  </div>
-</div>
 
+      {/* 🟢 MAIN GRID */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
           <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-300 group">
             <div className="w-14 h-14 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mr-4 group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0"><LayoutDashboard size={24} /></div>
@@ -364,7 +357,6 @@ const relevantComms = safeComms.filter(c => {
     </div>
   );
 };
-
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -5390,11 +5382,9 @@ const DashboardLayout = ({
                 >
                   Revoke Access
                 </button>
-              )}
             </div>
 
           </div>
-        </div>
       )}
 
       {/* 🟢 FULL SCREEN IMAGE MODAL FOR SELECTED USER */}
