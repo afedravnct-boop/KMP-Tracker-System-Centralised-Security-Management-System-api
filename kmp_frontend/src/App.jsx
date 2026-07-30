@@ -4863,16 +4863,15 @@ const DashboardLayout = ({
   const [showAllUsers, setShowAllUsers] = useState(false);
   const [selectedUserDetail, setSelectedUserDetail] = useState(null);
   const [viewingProfileImage, setViewingProfileImage] = useState(null);
-  const [newForcePassword, setNewForcePassword] = useState(''); // 🟢 ADDED FOR MODAL
+  const [newForcePassword, setNewForcePassword] = useState('');
   const [isFullScreen, setIsFullScreen] = useState(false);
   
   const [lastViewedId, setLastViewedId] = useState(() => {
-  
     const saved = localStorage.getItem('last_viewed_comm_id');
     return saved ? JSON.parse(saved) : 0;
   });
 
-// 🟢 LIVE DATABASE HEARTBEAT & ONLINE ROSTER SYNC
+  // 🟢 LIVE DATABASE HEARTBEAT & ONLINE ROSTER SYNC
   const [realOnlineUsers, setRealOnlineUsers] = useState([]);
 
   useEffect(() => {
@@ -4905,15 +4904,13 @@ const DashboardLayout = ({
     return () => clearInterval(heartbeatInterval);
   }, []);
 
-// 🟢 1. ACTIVE IDLE TIMER & AUTO-LOGOUT DIALOGUE LOGIC
+  // 🟢 1. ACTIVE IDLE TIMER & AUTO-LOGOUT DIALOGUE LOGIC
   useEffect(() => {
     const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 Minutes
     let lastActivityTime = Date.now();
 
     const enforceLogout = () => {
-      // 🟢 This explicitly fires the browser popup dialog you requested
       alert("Session Expired: You have been securely logged out due to inactivity.");
-      
       if (typeof onLogout === 'function') {
         onLogout();
       } else {
@@ -4926,16 +4923,13 @@ const DashboardLayout = ({
       lastActivityTime = Date.now();
     };
 
-    // Attach activity listeners
     window.addEventListener('mousemove', updateActivity);
     window.addEventListener('keypress', updateActivity);
     window.addEventListener('click', updateActivity);
     window.addEventListener('scroll', updateActivity);
 
-    // Background check interval running every 10 seconds
     const idleCheckInterval = setInterval(() => {
       const elapsed = Date.now() - lastActivityTime;
-      
       if (elapsed >= IDLE_TIMEOUT_MS) {
         clearInterval(idleCheckInterval);
         enforceLogout();
@@ -4960,7 +4954,6 @@ const DashboardLayout = ({
 
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
     
-    // Silently send the footprint to the database
     fetch(`${API_URL}/api/v1/audit-logs`, {
       method: 'POST',
       headers: { 
@@ -4974,7 +4967,7 @@ const DashboardLayout = ({
       })
     }).catch(e => console.warn("Audit log silent fail"));
     
-  }, [currentPage, currentUser?.fnum]); // This triggers EVERY time the page changes!
+  }, [currentPage, currentUser?.fnum]);
 
   const safeSidebarComms = Array.isArray(Admin_Communication) ? Admin_Communication : (Admin_Communication?.data || Admin_Communication?.items || []);
   const relevantComms = safeSidebarComms.filter(c => {
@@ -5009,11 +5002,10 @@ const DashboardLayout = ({
     { name: '👥 Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> },
   ];
 
-// 🛡️ THE FIX: Only inject 'Admin Dispatch' into the sidebar if the user has Command Clearance!
   if (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)) {
      navItems.push({ 
-       name: '📢📧 Admin Dispatch', 
-       id: 'Admin_Communication', 
+       name: ' Admin Dispatch', 
+       id: 'Admin Official Communication', 
        icon: <Bell size={20} />
      });
   }
@@ -5032,7 +5024,7 @@ const DashboardLayout = ({
     setSelectedUserDetail({ ...user, isSystemUser: true });
   };
 
-const handleExportLogs = async () => {
+  const handleExportLogs = async () => {
     try {
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
@@ -5044,10 +5036,7 @@ const handleExportLogs = async () => {
       if (!response.ok) throw new Error("Security Clearance Denied");
 
       const logs = await response.json();
-      
-      const headers = [
-        "ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"
-      ];
+      const headers = ["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"];
       
       const csvRows = logs.map(log => {
         const safeDetails = log.details ? log.details.replace(/"/g, '""') : "";
@@ -5072,7 +5061,6 @@ const handleExportLogs = async () => {
       document.body.appendChild(link);
       link.click();
       
-      // 🛡️ THE FIX: 2 Second Delay
       setTimeout(() => {
          document.body.removeChild(link);
          window.URL.revokeObjectURL(url);
@@ -5084,11 +5072,10 @@ const handleExportLogs = async () => {
     }
   };
 
-return (
+  return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-      <div className={`bg-cyan-900 text-white transition-all duration-300 ${sidebarOpen ? 'w-72' : 'w-15'} flex flex-col h-full shadow-2xl z-20`}>
-        
-{/* 🟢 3. SIDEBAR WRAPPER (Collapses if isFullScreen is true) */}
+      
+      {/* 🟢 SIDEBAR WRAPPER (Collapses if isFullScreen is true) */}
       <div className={`transition-all duration-300 flex flex-col bg-slate-900 border-r border-slate-700 ${isFullScreen ? 'hidden w-0' : 'w-64 md:w-72 flex-shrink-0'}`}>
         
         {/* --- HEADER --- */}
@@ -5158,7 +5145,7 @@ return (
 
               <div className="rounded-lg p-4 bg-slate-800">
                 <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
-                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Connections ({realOnlineUsers?.length || 0})</span>
+                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Online Connections ({realOnlineUsers?.length || 0})</span>
                 </button>
                 
                 {showOnline && (
@@ -5323,7 +5310,7 @@ return (
       </main>
 
       {/* USER ACCESS MANAGEMENT MODAL */}
-{selectedUserDetail && (
+      {selectedUserDetail && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in">
           
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-y-auto max-h-[95vh] custom-scrollbar flex flex-col">
@@ -5337,8 +5324,8 @@ return (
                 <X size={20} />
               </button>
             </div>
-<div className="p-6">
-              
+            
+            <div className="p-6">
                      {/* 1. Header & Photo */}
               <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-gray-100">
                 <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-2xl overflow-hidden shadow-sm border-2 border-blue-500">
@@ -5350,7 +5337,6 @@ return (
                        onClick={() => setViewingProfileImage(selectedUserDetail.profile_photo_path)} // 🟢 OPENS FULL VIEW
                      />
                   ) : (selectedUserDetail.name?.charAt(0) || 'U')}
-                </div>
                 </div>
               </div>
 
@@ -5387,8 +5373,7 @@ return (
                 </div>
               </div>
 
-              {/* 3. ACCESS CONTROLS (Only visible if managing a system user) */}
-{/* 3. ACCESS CONTROLS (Hidden if viewing from Active Connections) */}
+              {/* 3. ACCESS CONTROLS */}
               {selectedUserDetail.isSystemUser && !selectedUserDetail.isReadOnly && (
                 <>
                   <h4 className="font-extrabold text-sm text-gray-900 border-b pb-2 flex items-center mb-4 mt-6">
@@ -5464,7 +5449,7 @@ return (
               )}
             </div>
 
-
+            {/* 🟢 RESTORED MODAL FOOTER */}
             <div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center rounded-b-xl shrink-0">
               <button 
                 onClick={() => setSelectedUserDetail(null)} 
@@ -5483,32 +5468,33 @@ return (
                   }} 
                   className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm"
                 >
-Revoke Access
-                  </button>
-                )}
-              </div>
-              
-          </div>
-        )}
+                  Revoke Access
+                </button>
+              )}
+            </div>
 
-        {/* 🟢 FULL SCREEN IMAGE MODAL FOR SELECTED USER */}
-        {viewingProfileImage && (
-          <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingProfileImage(null)}>
-            <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg">
-              <X size={24}/>
-            </button>
-            <img 
-              src={viewingProfileImage} 
-              alt="Full Profile" 
-              className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" 
-              onClick={(e) => e.stopPropagation()} 
-            />
           </div>
-        )}
+        </div>
+      )}
 
-      </div>
-    );
-  };  
+      {/* 🟢 FULL SCREEN IMAGE MODAL FOR SELECTED USER */}
+      {viewingProfileImage && (
+        <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingProfileImage(null)}>
+          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg">
+            <X size={24}/>
+          </button>
+          <img 
+            src={viewingProfileImage} 
+            alt="Full Profile" 
+            className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" 
+            onClick={(e) => e.stopPropagation()} 
+          />
+        </div>
+      )}
+
+    </div>
+  );
+};
 
 // ====================================================================
 // --- ROOT APP COMPONENT ---
