@@ -3076,6 +3076,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
 {/* Exact Column Headers Badge List */}
 <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-mono text-slate-700 flex flex-wrap gap-1.5">
+  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">id</span>
   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">sn</span>
   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold text-red-600">fnum</span>
   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">rank</span>

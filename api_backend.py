@@ -1062,6 +1062,7 @@ async def bulk_upload_nominal_roll(
         
 # The Smart Mapping Dictionary - Mapping to Python Model Attribute Names
         header_map = {
+            "id": "id", "serial": "id", "serialnumber": "id",
             "sn": "sn", "serial": "sn", "serialnumber": "sn",
             "forcenumber": "fnum", "fnumber": "fnum", "fnum": "fnum", "f_num": "fnum", "force": "fnum", "fno": "fnum",
             "rank": "rank",
