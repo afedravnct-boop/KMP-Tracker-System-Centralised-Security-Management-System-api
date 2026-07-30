@@ -6,7 +6,7 @@ import {
   Award, Maximize2, Minimize2, Activity, User, Lock, 
   AlertTriangle, RadioReceiver, Eye, X, Building, Image, 
   Camera, Users, Home, Unlock, Send, Archive, PieChart,
-  Bell, MessageSquare, Upload
+  Bell, MessageSquare, Upload, ArrowLeft
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReactQuill from 'react-quill-new';
@@ -16,7 +16,8 @@ import ConsolidatedLedger from './ConsolidatedLedger';
 import HrEstablishmentsLedger from './HrEstablishmentsLedger';
 import Admin_Communication from './Admin_Communication';
 import BulkNominalRollUpload from './BulkNominalRollUpload';
-
+const DashboardLayout = ({ currentUser }) => { 
+   const [isFullScreen, setIsFullScreen] = useState(false);
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -35,7 +36,6 @@ const autoCapitalize = (text) => {
   });
 };
 
-const [isFullScreen, setIsFullScreen] = useState(false);
 
 const POSITIONS = {
   ADMIN: [
