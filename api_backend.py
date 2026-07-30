@@ -1863,12 +1863,11 @@ def log_user_session(req: SessionLogRequest, db: Session = Depends(get_db)):
     return {"status": "success"}
 
 # ==========================================
-# 14. MODIFICATION REQUESTS (PROFILE UPDATES)
+# 14. MODIFICATION REQUESTS & USER REVOCATION
 # ==========================================
 @app.get("/api/v1/requests")
 def get_all_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     """Fetches pending profile update requests with geographical filtering."""
-    
     query = db.query(models.Modification_Requests).join(
         models.Users, models.Modification_Requests.fnum == models.Users.fnum
     ).filter(models.Modification_Requests.status == "PENDING")
@@ -1921,16 +1920,36 @@ def create_modification_request(data: dict, db: Session = Depends(get_db), curre
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-# Example of how your backend query should look now:
-@router.delete("/users/{fnum}/revoke")
-def revoke_user(fnum: str, reason: str = None, db: Session = Depends(get_db)):
-    # Instead of deleting, we flag them as revoked and save the reason
-    db.execute(
-        "UPDATE users SET status = 'REVOKED', comments = :reason WHERE fnum = :fnum",
-        {"reason": reason or "No reason provided", "fnum": fnum}
-    )
+@app.delete("/api/v1/users/{fnum}/revoke")
+def revoke_user_access(
+    fnum: str, 
+    reason: Optional[str] = "No reason provided", 
+    db: Session = Depends(get_db), 
+    admin: models.Users = Depends(require_admin)
+):
+    """Safely revokes an active user's system access using SQLAlchemy ORM."""
+    clean_fnum = unquote(fnum).strip().upper()
+    target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum).first()
+    
+    if not target_user:
+        raise HTTPException(status_code=404, detail=f"Officer {clean_fnum} not found.")
+
+    if hasattr(target_user, 'status'):
+        target_user.status = 'REVOKED'
+    if hasattr(target_user, 'is_approved'):
+        target_user.is_approved = False
+    if hasattr(target_user, 'is_active'):
+        target_user.is_active = False
+
+    if hasattr(models, 'Audit_Logs'):
+        log_semantic_audit(
+            db=db, fnum=admin.fnum, action="USER_ACCESS_REVOKED",
+            target_identifier=clean_fnum, changes={"status": ("ACTIVE", "REVOKED")},
+            remarks=f"Revocation Reason: {reason}"
+        )
+
     db.commit()
-    return {"message": "User access revoked and logged."}
+    return {"status": "success", "message": f"User {clean_fnum} access revoked successfully."}
 
 @app.patch("/api/v1/requests/{req_id}")
 def update_modification_request_status(
@@ -1939,7 +1958,6 @@ def update_modification_request_status(
     db: Session = Depends(get_db), 
     current_user: models.Users = Depends(require_admin)
 ):
-    # 1. Find the specific request
     req = db.query(models.Modification_Requests).filter(models.Modification_Requests.id == req_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Modification request not found.")
@@ -1948,10 +1966,8 @@ def update_modification_request_status(
     if action_status not in ["APPROVED", "REJECTED"]:
         raise HTTPException(status_code=400, detail="Invalid action status.")
         
-    # 2. Update the request status
     req.status = action_status
     
-    # 3. If approved, automatically execute the changes on the Officer's profile
     if action_status == "APPROVED":
         user = db.query(models.Users).filter(models.Users.fnum == req.fnum).first()
         if user:
@@ -1969,7 +1985,6 @@ def update_modification_request_status(
                 changes["station"] = (user.station, req.requested_station)
                 user.station = req.requested_station
                 
-            # Log the successful HR execution in the Audit Logs
             if hasattr(models, 'Audit_Logs') and changes:
                 log_semantic_audit(
                     db=db, fnum=current_user.fnum, action="HR_MODIFICATION_APPROVED", 

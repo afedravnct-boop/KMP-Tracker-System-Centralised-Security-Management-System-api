@@ -169,7 +169,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
 
 
 
-const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewConsolidated, adminCommsData, onAcknowledgeComm }) => {
+const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], onMasterExport, onViewConsolidated, adminCommsData, onAcknowledgeComm }) => {
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
   const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role);
   
@@ -182,8 +182,56 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
 
   const today = new Date().getDay();
   const isEndOfWeek = today === 5 || today === 6 || today === 0;
-  const hasSubmittedThisWeek = false; 
-  const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && !isAdmin;
+
+  // 🟢 DYNAMIC WEEKLY COMPLIANCE CHECK
+  const userStation = (currentUser.station || '').trim().toUpperCase();
+  
+  const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+  
+  const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => 
+    (r.station || '').trim().toUpperCase() === userStation && new Date(r.date).getTime() >= sevenDaysAgo
+  );
+
+  const hasSubmittedStats = (Array.isArray(stats) ? stats : []).some(s => 
+    (s.station || '').trim().toUpperCase() === userStation && new Date(s.date).getTime() >= sevenDaysAgo
+  );
+
+  const hasSubmittedThisWeek = hasSubmittedReport || hasSubmittedStats;
+
+  // STRICT ROLE & POSITION TARGETING
+  const allowedRoles = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'];
+  const userRole = (currentUser.role || '').toUpperCase();
+  const userPosition = (currentUser.position || '').toUpperCase();
+  
+  const isTargetOfficer = 
+    allowedRoles.includes(userRole) || 
+    userPosition.includes('RPC') || 
+    userPosition.includes('COMMANDER') || 
+    userPosition.includes('DATA OFFICER');
+
+  const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && isTargetOfficer;
+  const showComplianceSuccess = isEndOfWeek && hasSubmittedThisWeek && isTargetOfficer;
+
+  // 🟢 COMPLIANCE TIMED FOLDING STATES (1 min wide, 4 min folded, 5 min pause)
+  const [isBannerFolded, setIsBannerFolded] = useState(false);
+
+  useEffect(() => {
+    if (!showComplianceWarning) return;
+
+    let timer;
+    const runCycle = () => {
+      setIsBannerFolded(false); // Wide state (1 Minute)
+      timer = setTimeout(() => {
+        setIsBannerFolded(true); // Folded state (4 Minutes)
+        timer = setTimeout(() => {
+          runCycle(); 
+        }, 240000); // 4 minutes folded
+      }, 60000); // 1 minute wide
+    };
+
+    runCycle();
+    return () => clearTimeout(timer);
+  }, [showComplianceWarning]);
 
   const [viewingReceiptsFor, setViewingReceiptsFor] = useState(null);
   const [receiptsData, setReceiptsData] = useState([]);
@@ -193,7 +241,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
     setViewingReceiptsFor(commId);
     setLoadingReceipts(true);
     try {
-      const token = localStorage.getItem('kmp_authToken');
+      const token = sessionStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const res = await fetch(`${API_URL}/api/v1/communications/${commId}/readers`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -249,16 +297,50 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
         </div>
       )}
 
-      {/* 🟢 COMPLIANCE WARNING */}
+      {/* 🔴 DYNAMIC WIDE / FOLDED COMPLIANCE WARNING */}
       {showComplianceWarning && (
-        <div className="bg-red-600 text-white font-extrabold p-4 rounded-xl shadow-lg flex flex-col md:flex-row items-center justify-between animate-pulse border-2 border-red-400">
-          <div className="flex items-center text-sm mb-3 md:mb-0">
-            <AlertTriangle className="mr-3 w-6 h-6 shrink-0 text-yellow-300" />
-            <span>COMPLIANCE ALERT: Your weekly Disruptive OPS Statistics are overdue. Please submit them immediately.</span>
+        <div className={`transition-all duration-700 ease-in-out overflow-hidden rounded-xl shadow-lg border-2 ${
+          isBannerFolded 
+            ? 'bg-red-600 border-red-400 p-3 max-w-xs mx-auto cursor-pointer hover:bg-red-700' 
+            : 'bg-red-600 border-red-400 p-4 w-full animate-pulse'
+        }`}
+        onClick={() => isBannerFolded && setIsBannerFolded(false)}
+        title={isBannerFolded ? "Click to expand compliance reminder" : ""}
+        >
+          {isBannerFolded ? (
+            <div className="flex items-center justify-center space-x-2 text-white font-extrabold text-xs tracking-wider uppercase">
+              <span className="flex h-3 w-3 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-400"></span>
+              </span>
+              <span>⚠️ Compliance Overdue: Click to View Reminder</span>
+            </div>
+          ) : (
+            <div className="flex flex-col md:flex-row items-center justify-between text-white font-extrabold">
+              <div className="flex items-center text-sm mb-3 md:mb-0">
+                <AlertTriangle className="mr-3 w-6 h-6 shrink-0 text-yellow-300 animate-bounce" />
+                <span>COMPLIANCE ALERT: Your weekly Disruptive OPS Statistics or Crime entries are overdue for {currentUser.station}. Please submit daily or weekly records immediately to maintain command standing.</span>
+              </div>
+              <div className="flex space-x-2 shrink-0">
+                <button onClick={(e) => { e.stopPropagation(); setIsBannerFolded(true); }} className="bg-red-800 text-white px-3 py-2 rounded font-bold shadow text-xs hover:bg-red-900 transition">
+                  Fold Now
+                </button>
+                <button onClick={() => setCurrentPage('statistics')} className="bg-white text-red-700 px-4 py-2 rounded font-bold shadow text-xs hover:bg-gray-100 transition">
+                  Go to Statistics
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 🟢 COMPLIANCE APPRECIATION BANNER */}
+      {showComplianceSuccess && (
+        <div className="bg-emerald-600 text-white font-extrabold p-4 rounded-xl shadow-lg flex items-center justify-between border-2 border-emerald-400">
+          <div className="flex items-center text-sm">
+            <CheckCircle className="mr-3 w-6 h-6 shrink-0 text-emerald-200" />
+            <span>COMMAND COMMENDATION: Thank you, {currentUser.rank} {currentUser.name}, for duly filing your weekly tactical returns for {currentUser.station}. Command records reflect full compliance.</span>
           </div>
-          <button onClick={() => setCurrentPage('statistics')} className="bg-white text-red-700 px-4 py-2 rounded font-bold shadow text-xs hover:bg-gray-100 transition shrink-0 whitespace-nowrap">
-            Go to Statistics
-          </button>
         </div>
       )}
 
@@ -273,7 +355,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
       {/* 🟢 WELCOME BANNER */}
       <div className="w-full">
         <h3 className="text-center text-sm font-bold text-slate-600 bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-           Welcome, <span className="text-blue-700">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
+            Welcome, <span className="text-blue-700">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
         </h3>   
       </div>
 
@@ -358,6 +440,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
     </div>
   );
 };
+
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -4582,16 +4665,17 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         <div className="relative z-10 text-center space-y-6 p-8 max-w-xl">
           <img 
             src="/upf_badge.png" 
-            alt="UPF Flag Emblem" 
+            alt="UPF Flag Emblem.png" 
             className="w-32 h-32 mx-auto object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.8)] contrast-200 brightness-90 animate-pulse" 
           />
           <div className="space-y-2">
-            <h1 className="text-3xl font-extrabold text-white tracking-widest uppercase drop-shadow-md">Uganda Police Force</h1>
-            <h2 className="text-sm font-bold text-blue-400 tracking-wider uppercase">Kampala Metropolitan Police • Central Command</h2>
+            <h1 className="text-3xl font-extrabold text-white tracking-wide uppercase drop-shadow-md">Uganda Police Force</h1>
+            <h2 className="text-sm font-bold text-blue-400 tracking-wider uppercase">Kampala Metropolitan Police </h2>
+            <h3 className="text-sm font-bold text-blue-400 tracking-wider uppercase">Police Tracker System - Centralised Security Data Management System</h3>
           </div>
           <div className="pt-6">
-            <span className="inline-block bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-widest py-3 px-6 rounded-full border border-white/20 shadow-xl backdrop-blur-md animate-bounce">
-              ⚡ Touch mouse or click anywhere to open terminal
+            <span className="inline-block bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wide py-3 px-6 rounded-full border border-white/20 shadow-xl backdrop-blur-md animate-bounce">
+              Touch mouse or click anywhere to open Log in page
             </span>
           </div>
         </div>
