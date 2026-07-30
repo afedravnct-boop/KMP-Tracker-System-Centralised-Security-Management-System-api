@@ -5,7 +5,7 @@ import 'react-quill-new/dist/quill.snow.css';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
-const AdminCommunication = ({ currentUser, users, setCurrentPage }) => {
+const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   const [activeTab, setActiveTab] = useState('dispatch'); // 'dispatch' or 'inbox'
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -186,7 +186,7 @@ const AdminCommunication = ({ currentUser, users, setCurrentPage }) => {
         <div className="flex border-b border-gray-200 bg-slate-50">
           <button 
             onClick={() => setActiveTab('dispatch')} 
-            className={`flex-1 py-4 font-bold flex items-center justify-center transition-all ${activeTab === 'dispatch' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
+            className={`flex-1 py-4 font-bold flex items-center justify-center transition-all ${activeTab === 'dispatch' ? 'bg-white border-b-2 border-blue-600 text-blue-500 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
           >
             <Send className="w-5 h-5 mr-2" /> Dispatch Console
           </button>
