@@ -372,5 +372,5 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   );
 };
 
-export default AdminCommunication;
+export default Admin_Communication;
 // Forcing Vercel to sync
