@@ -1103,10 +1103,10 @@ async def bulk_upload_nominal_roll(
         # 7. Get valid column names from the Database schema
         valid_keys = [c.name for c in models.Nominal_Roll.__table__.columns]
 
-        for index, row in df.iterrows():
+for index, row in df.iterrows():
             row_dict = row.to_dict()
             
-            # Look for f_num (the new mapping) or fallback to fnum
+            # Look for f_num, fnum, force number, etc. from mapped dictionary
             fnum_val = str(row_dict.get('f_num', row_dict.get('fnum', ''))).strip().upper()
             
             # Skip completely empty rows
@@ -1118,7 +1118,7 @@ async def bulk_upload_nominal_roll(
                 records_skipped += 1
                 continue
             
-            # Clean Dates (Now matching the snake_case dictionary outputs)
+            # Clean Dates
             for date_col in ['dob', 'doe', 'do_post', 'do_pro']:
                 if date_col in row_dict and row_dict[date_col]:
                     val = row_dict[date_col]
@@ -1131,13 +1131,16 @@ async def bulk_upload_nominal_roll(
                         except ValueError:
                             pass 
             
-            # Final DB Safety Check: Ensure the force number maps to the exact column name your DB uses
-            if 'f_num' in valid_keys:
-                row_dict['f_num'] = fnum_val
-            elif 'fnum' in valid_keys:
+            # 🟢 SAFE MAPPING TO MATCH YOUR DATABASE MODEL
+            # If your database model uses 'fnum', assign it to 'fnum'. If it uses 'f_num', assign 'f_num'.
+            if 'fnum' in valid_keys:
                 row_dict['fnum'] = fnum_val
+                row_dict.pop('f_num', None)
+            elif 'f_num' in valid_keys:
+                row_dict['f_num'] = fnum_val
+                row_dict.pop('fnum', None)
             
-            # Build and Save - Filtering out columns that don't exist in the database
+            # Build and Save - Filtering out columns that don't exist in the database model
             clean_row = {k: v for k, v in row_dict.items() if k in valid_keys and v is not None}
             new_record = models.Nominal_Roll(**clean_row)
             new_record.last_updated_by = current_user.fnum
