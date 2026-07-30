@@ -3440,24 +3440,11 @@ const AdminApprovals = ({ currentUser }) => {
   const [resetRequests, setResetRequests] = useState([]);
   const [loadingResets, setLoadingResets] = useState(false);
 
-  // 🟢 NEW: Formal Reason State for Rejection Modal
-  const [pendingRejectFnum, setPendingRejectFnum] = useState(null);
-  const [rejectReason, setRejectReason] = useState('Offensive communication');
-  const [customRejectReason, setCustomRejectReason] = useState('');
-
-  const OFFICIAL_REASONS = [
-    "Offensive communication",
-    "Violation of Official Secrets Act",
-    "Not authorized by Superintending Commander",
-    "Transferred / Administrative Disciplinary Action",
-    "Duplicate / Ghost Account",
-    "Custom typed narrative"
-  ];
-
   const isRPC = currentUser && ['RPC', 'Deputy Commander'].includes(currentUser.role);
   const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
 
   useEffect(() => {
+    // 1. Fetch HR Requests
     setLoadingRequests(true);
     authFetch("/api/v1/requests")
       .then(res => res.json())
@@ -3467,9 +3454,11 @@ const AdminApprovals = ({ currentUser }) => {
       })
       .catch(err => { console.error(err); setLoadingRequests(false); });
 
+    // 2. 🟢 FIXED: Fetch Pending Account Authorizations
     const fetchPendingUsers = async () => {
       setLoadingPending(true);
       try {
+        // Tries standard endpoint routes automatically to guarantee connection
         let res = await authFetch("/api/v1/admin/pending-users");
         if (!res.ok) res = await authFetch("/api/v1/users/pending");
         if (!res.ok) res = await authFetch("/api/v1/auth/pending");
@@ -3487,6 +3476,7 @@ const AdminApprovals = ({ currentUser }) => {
     };
     fetchPendingUsers();
 
+    // 3. 🟢 FIXED: Fetch Password Reset Requests
     const fetchResets = async () => {
       setLoadingResets(true);
       try {
@@ -3505,6 +3495,7 @@ const AdminApprovals = ({ currentUser }) => {
     };
     fetchResets();
 
+    // 4. Fetch Audit Logs (Only when tab is clicked because logs are heavy)
     if (activeTab === 'logs') {
       setLoadingLogs(true);
       authFetch("/api/v1/audit-logs")
@@ -3517,16 +3508,27 @@ const AdminApprovals = ({ currentUser }) => {
     }
   }, [activeTab]);
 
-  const handleApproveUser = async (fnum) => {
+const handleApproveUser = async (fnum) => {
     try {
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
+      
+      // 🟢 THE FIX: Safely encode slashes so "A/2408" becomes "A%2F2408"
       const safeFnum = encodeURIComponent(fnum);
-      const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
+      const headers = { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}` 
+      };
 
+      // 🟢 Automatically tests the 3 most standard backend routes
       let response = await fetch(`${API_URL}/api/v1/admin/approve/${safeFnum}`, { method: "POST", headers });
-      if (response.status === 404) response = await fetch(`${API_URL}/api/v1/auth/approve/${safeFnum}`, { method: "POST", headers });
-      if (response.status === 404) response = await fetch(`${API_URL}/api/v1/approve/${safeFnum}`, { method: "POST", headers });
+      
+      if (response.status === 404) {
+        response = await fetch(`${API_URL}/api/v1/auth/approve/${safeFnum}`, { method: "POST", headers });
+      }
+      if (response.status === 404) {
+        response = await fetch(`${API_URL}/api/v1/approve/${safeFnum}`, { method: "POST", headers });
+      }
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -3541,21 +3543,80 @@ const AdminApprovals = ({ currentUser }) => {
     }
   };
 
-  // 🟢 NEW: SECURE REJECT CONFIRMATION WITH CATEGORIES
-  const confirmRejectUser = async () => {
-    const finalReason = rejectReason === "Custom typed narrative" ? customRejectReason : rejectReason;
-    
-    if (!finalReason || finalReason.trim() === "") {
-      alert("A valid administrative reason is required.");
+  const handleReviewRequest = async (reqId, actionStatus) => {
+    if (!reqId) {
+      alert("Error: Request ID is undefined. Primary key mismatch.");
       return;
     }
-
     try {
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
-      const safeFnum = encodeURIComponent(pendingRejectFnum);
       
-      const response = await fetch(`${API_URL}/api/v1/users/${safeFnum}/revoke?reason=${encodeURIComponent(finalReason)}`, { 
+      const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
+        method: "PATCH", 
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ status: actionStatus })
+      });
+      
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server Error: ${response.status}`);
+      }
+      
+      setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId && r.request_id !== reqId));
+      alert(`Request ${actionStatus.toLowerCase()} successfully!`);
+    } catch (err) {
+      console.error(err);
+      alert(`Error processing request: ${err.message}`);
+    }
+  };
+
+  const handleResetAction = async (reqId, actionStr) => {
+    try {
+      const formData = new URLSearchParams();
+      formData.append('action', actionStr);
+      
+      const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
+        method: "POST",
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData
+      });
+      
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail);
+      
+      setResetRequests(resetRequests.filter(r => r.id !== reqId));
+      
+      if (actionStr === "APPROVE") {
+         alert(`Password successfully reset! Give the officer this temporary key: ${data.new_password}`);
+      } else {
+         alert("Request rejected.");
+      }
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+  };
+
+
+// 🟢 CAPTURES REASON FOR REJECTING PENDING USERS
+  const handleRejectUser = async (fnum) => {
+    const reason = window.prompt(
+      `Please enter the reason for rejecting the access request for ${fnum}:`, 
+      "Unauthorized / Details Unverified" // Default reason
+    );
+    
+    if (reason === null || reason.trim() === "") return; // Stops if admin clicks Cancel or leaves it blank
+    
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const token = localStorage.getItem('kmp_authToken');
+      const safeFnum = encodeURIComponent(fnum);
+      
+      // 🟢 Passes the reason securely as a URL parameter
+      const response = await fetch(`${API_URL}/api/v1/users/${safeFnum}/revoke?reason=${encodeURIComponent(reason)}`, { 
         method: "DELETE", 
         headers: { "Authorization": `Bearer ${token}` } 
       });
@@ -3565,99 +3626,39 @@ const AdminApprovals = ({ currentUser }) => {
          throw new Error(errData.detail || `Server Error: ${response.status}`);
       }
       
-      setRealPendingUsers(realPendingUsers.filter(u => u.fnum !== pendingRejectFnum));
-      setPendingRejectFnum(null);
-      setCustomRejectReason('');
-      alert(`Request rejected and permanently logged in database.`);
+      setRealPendingUsers(realPendingUsers.filter(u => u.fnum !== fnum));
+      alert(`Request for ${fnum} rejected and permanently logged.`);
     } catch (err) {
       console.error(err);
-      alert(`Deletion Failed: ${err.message}`);
+      alert(`Rejection Failed: ${err.message}`);
     }
-  };
-
-  // ... (Keep existing handleReviewRequest and handleResetAction)
-  const handleReviewRequest = async (reqId, actionStatus) => {
-    if (!reqId) return alert("Error: Request ID is undefined. Primary key mismatch.");
-    try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const token = localStorage.getItem('kmp_authToken');
-      
-      const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ status: actionStatus })
-      });
-      
-      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || `Server Error`);
-      setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId && r.request_id !== reqId));
-      alert(`Request ${actionStatus.toLowerCase()} successfully!`);
-    } catch (err) { alert(`Error processing request: ${err.message}`); }
-  };
-
-  const handleResetAction = async (reqId, actionStr) => {
-    try {
-      const formData = new URLSearchParams();
-      formData.append('action', actionStr);
-      const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
-        method: "POST", headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail);
-      setResetRequests(resetRequests.filter(r => r.id !== reqId));
-      if (actionStr === "APPROVE") alert(`Password successfully reset! Temp key: ${data.new_password}`);
-      else alert("Request rejected.");
-    } catch (err) { alert(`Error: ${err.message}`); }
   };
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
-      
-      {/* 🟢 REJECT PENDING USER MODAL */}
-      {pendingRejectFnum && (
-        <div className="fixed inset-0 z-[9999] bg-slate-900/80 backdrop-blur-sm flex justify-center items-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border-t-4 border-red-600 animate-in zoom-in duration-200">
-            <h3 className="font-extrabold text-slate-900 mb-2 flex items-center text-lg">
-              <ShieldAlert className="mr-2 text-red-600"/> Official Rejection Notice
-            </h3>
-            <p className="text-sm text-slate-500 mb-4">Please select the official administrative reason for denying access to <span className="font-bold text-slate-800">{pendingRejectFnum}</span>.</p>
-            
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Category of Rejection</label>
-            <select 
-              value={rejectReason} 
-              onChange={(e) => setRejectReason(e.target.value)} 
-              className="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 focus:ring-2 focus:ring-red-500 outline-none mb-4"
-            >
-              {OFFICIAL_REASONS.map(reason => <option key={reason} value={reason}>{reason}</option>)}
-            </select>
-
-            {rejectReason === "Custom typed narrative" && (
-              <textarea 
-                placeholder="Enter detailed administrative comment here..." 
-                value={customRejectReason} 
-                onChange={(e) => setCustomRejectReason(e.target.value)}
-                className="w-full p-3 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none mb-4 min-h-[100px]"
-              />
-            )}
-
-            <div className="flex space-x-3 mt-2">
-              <button onClick={() => setPendingRejectFnum(null)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-3 rounded-lg transition-colors text-sm">Cancel</button>
-              <button onClick={confirmRejectUser} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg shadow-md transition-colors text-sm">Submit Rejection</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ... Rest of your UI (Header, Tabs, etc) stays exactly the same ... */}
       <div className="text-center mb-8 flex flex-col items-center">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" />
+        <img 
+          src="/upf_badge.png" 
+          alt="UPF Logo" 
+          className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+        />
         <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Access & Command Approvals</h1>
         <h3 className="text-lg text-gray-500 mt-2 font-medium">Review pending officer signups, HR transfers, and Audit Logs.</h3>
       </div>
 
       <div className="flex space-x-2 border-b border-gray-200 mb-6 bg-white/50 backdrop-blur rounded-t-xl px-4 pt-4 overflow-x-auto custom-scrollbar">
-        <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>New Account Authorizations ({loadingPending ? '...' : realPendingUsers.length})</button>
-        <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'requests' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>HR Modification Requests ({modRequests.length})</button>
-        <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Audit Logs</button>
-        <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Password Resets ({activeTab === 'resets' ? resetRequests.length : '?'})</button>
+        <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          New Account Authorizations ({loadingPending ? '...' : realPendingUsers.length})
+        </button>
+        <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'requests' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          HR Modification Requests ({modRequests.length})
+        </button>
+        <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          Audit Logs
+        </button>
+        <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          Password Resets ({activeTab === 'resets' ? resetRequests.length : '?'})
+        </button>
       </div>
 
       {activeTab === 'approvals' && (
@@ -3683,18 +3684,77 @@ const AdminApprovals = ({ currentUser }) => {
                       <td className="px-4 py-3 text-sm flex items-center space-x-3">
                         {u.profile_photo_path ? (
                           <img src={u.profile_photo_path} alt="" className="w-10 h-10 rounded-full bg-slate-100 object-cover border border-gray-200" onError={(e) => { e.target.style.display='none'; }} />
-                        ) : <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold">{u.name?.charAt(0) || 'U'}</div>}
+                        ) : (
+                          <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold">{u.name?.charAt(0) || 'U'}</div>
+                        )}
                         <div>
                           <div className="font-bold text-gray-900">{u.name} ({u.fnum})</div>
                           <div className="text-gray-500 text-xs">Rank: {u.rank} | IPPS: {u.ipps}</div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm"><div className="font-medium text-gray-700">{u.station}</div><div className="text-gray-500 text-xs">{u.region}</div></td>
-                      <td className="px-4 py-3 text-sm"><span className={`px-2 py-1 inline-flex text-xs font-bold rounded-full ${u.role === 'ADMIN' || u.role === 'SUPER_ADMIN' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>{u.role}</span></td>
                       <td className="px-4 py-3 text-sm">
+                        <div className="font-medium text-gray-700">{u.station}</div>
+                        <div className="text-gray-500 text-xs">{u.region}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className={`px-2 py-1 inline-flex text-xs font-bold rounded-full ${u.role === 'ADMIN' || u.role === 'SUPER_ADMIN' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
+                          {u.role}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <button onClick={() => handleApproveUser(u.fnum)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-xs transition">
+                          Approve Access
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'requests' && (
+        <div className="bg-white rounded-xl shadow-sm border border-yellow-200 overflow-hidden max-w-6xl mx-auto">
+          <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
+            <Shield className="w-5 h-5 mr-2 text-yellow-400" /> HR Modification Requests
+          </div>
+          {loadingRequests ? (
+            <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Loading pending modifications...</div>
+          ) : modRequests.length === 0 ? (
+            <div className="p-8 text-center text-gray-500 font-medium">No pending profile modification requests.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Officer</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Requested Changes</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {modRequests.map((req) => (
+                    <tr key={req.id} className="hover:bg-yellow-50/50">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="font-extrabold text-blue-700">{req.current_name}</div>
+                        <div className="text-xs font-bold text-slate-500">{req.fnum} | {req.current_rank}</div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {req.requested_name && req.requested_name !== req.current_name && <div className="text-xs"><span className="font-bold text-slate-400">Name:</span> <span className="text-red-500 line-through mr-1">{req.current_name}</span> ➡️ <span className="text-green-600 font-bold">{req.requested_name}</span></div>}
+                        {req.requested_rank && req.requested_rank !== req.current_rank && <div className="text-xs"><span className="font-bold text-slate-400">Rank:</span> <span className="text-red-500 line-through mr-1">{req.current_rank}</span> ➡️ <span className="text-green-600 font-bold">{req.requested_rank}</span></div>}
+                        {req.requested_station && req.requested_station !== req.current_station && <div className="text-xs"><span className="font-bold text-slate-400">Station:</span> <span className="text-red-500 line-through mr-1">{req.current_station}</span> ➡️ <span className="text-green-600 font-bold">{req.requested_station}</span></div>}
+                        {req.requested_region && req.requested_region !== req.current_region && <div className="text-xs"><span className="font-bold text-slate-400">Region:</span> <span className="text-red-500 line-through mr-1">{req.current_region}</span> ➡️ <span className="text-green-600 font-bold">{req.requested_region}</span></div>}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm">
                         <div className="flex space-x-2">
-                          <button onClick={() => handleApproveUser(u.fnum)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded text-xs transition shadow-sm">Approve</button>
-                          <button onClick={() => setPendingRejectFnum(u.fnum)} className="bg-red-100 hover:bg-red-200 text-red-700 border border-red-300 font-bold py-1.5 px-3 rounded text-xs transition shadow-sm">Reject / Delete</button>
+                          <button onClick={() => handleReviewRequest(req.id || req.sn || req.request_id, "APPROVED")} className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
+                            <CheckCircle size={14} className="mr-1" /> Approve
+                          </button>
+                          <button onClick={() => handleReviewRequest(req.id || req.sn || req.request_id, "REJECTED")} className="bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
+                            <X size={14} className="mr-1" /> Reject
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -4320,38 +4380,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   });
   const [photoFile, setPhotoFile] = useState(null);
 
-  // 🟢 IDLE CURTAIN & WAVING FLAG STATES
-  const [isIdle, setIsIdle] = useState(false);
-  const idleTimerRef = useRef(null);
-  const IDLE_DELAY = 15000; // 15 seconds of inactivity drops the curtain (change to 60000 for 1 minute)
-
-  // Reset/Trigger idle timer on human activity
-  const handleUserActivity = () => {
-    if (isIdle) {
-      setIsIdle(false); // Lift the curtain instantly on touch/mouse move
-    }
-    clearTimeout(idleTimerRef.current);
-    idleTimerRef.current = setTimeout(() => {
-      // Only drop the curtain if they are on the main login page (not stuck halfway through typing a sign-up form)
-      if (mode === 'login') {
-        setIsIdle(true);
-      }
-    }, IDLE_DELAY);
-  };
-
-  useEffect(() => {
-    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
-    events.forEach(event => window.addEventListener(event, handleUserActivity));
-    
-    // Start initial timer
-    handleUserActivity();
-
-    return () => {
-      events.forEach(event => window.removeEventListener(event, handleUserActivity));
-      clearTimeout(idleTimerRef.current);
-    };
-  }, [mode]);
-
   const availablePositions = [
     ...POSITIONS.ADMIN, 
     ...POSITIONS.RPC, 
@@ -4569,35 +4597,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4 relative overflow-hidden">
-      
-      {/* 🟢 IDLE FLAG CURTAIN OVERLAY */}
-      <div className={`absolute inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center transition-all duration-700 ease-in-out cursor-pointer ${
-        isIdle ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 -translate-y-full pointer-events-none'
-      }`} onClick={() => setIsIdle(false)}>
-        
-        {/* Faint waving flag background watermark effect */}
-        <div className="absolute inset-0 uganda-flag-wave opacity-20 mix-blend-overlay"></div>
-        
-        <div className="relative z-10 text-center space-y-6 p-8 max-w-xl">
-          <img 
-            src="/upf_badge.png" 
-            alt="UPF Flag Emblem" 
-            className="w-32 h-32 mx-auto object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.8)] contrast-200 brightness-90 animate-pulse" 
-          />
-          <div className="space-y-2">
-            <h1 className="text-3xl font-extrabold text-white tracking-widest uppercase drop-shadow-md">Uganda Police Force</h1>
-            <h2 className="text-sm font-bold text-blue-400 tracking-wider uppercase">Kampala Metropolitan Police • Central Command</h2>
-          </div>
-          <div className="pt-6">
-            <span className="inline-block bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-widest py-3 px-6 rounded-full border border-white/20 shadow-xl backdrop-blur-md animate-bounce">
-              ⚡ Touch mouse or click anywhere to open terminal
-            </span>
-          </div>
-        </div>
-      </div>
-      {/* 🟢 END IDLE CURTAIN */}
-
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative">
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
         <div className="bg-slate-900 p-6 text-center relative">
           <img 
@@ -4805,22 +4805,9 @@ const DashboardLayout = ({
     return saved ? JSON.parse(saved) : 0;
   });
 
-  // 🟢 NEW: Formal Reason State for Revoking Active Users
-  const [pendingRevoke, setPendingRevoke] = useState(false);
-  const [revokeReason, setRevokeReason] = useState('Violation of Official Secrets Act');
-  const [customRevokeReason, setCustomRevokeReason] = useState('');
-
-  const OFFICIAL_REASONS = [
-    "Offensive communication",
-    "Violation of Official Secrets Act",
-    "Not authorized by Superintending Commander",
-    "Transferred / Administrative Disciplinary Action",
-    "Duplicate / Ghost Account",
-    "Custom typed narrative"
-  ];
-
   // 🟢 LIVE DATABASE HEARTBEAT & ONLINE ROSTER SYNC
   const [realOnlineUsers, setRealOnlineUsers] = useState([]);
+
   useEffect(() => {
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -5362,12 +5349,17 @@ const DashboardLayout = ({
     <X size={14} className="mr-1"/> Close Profile
   </button>
   
-{selectedUserDetail.isSystemUser && (
+  {selectedUserDetail.isSystemUser && (
     currentUser.role === 'SUPER_ADMIN' || 
     (currentUser.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser.region === selectedUserDetail.region)
   ) && (
     <button 
-      onClick={() => setPendingRevoke(true)} 
+      onClick={() => {
+         if (window.confirm(`Are you absolutely sure you want to revoke all system access for ${selectedUserDetail.name}?`)) {
+            onRevokeUser(selectedUserDetail.fnum);
+            setSelectedUserDetail(null);
+         }
+      }} 
       className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm"
     >
       Revoke Access
@@ -5389,51 +5381,6 @@ const DashboardLayout = ({
 
           </div>
       )}
-
-      {/* 🟢 NEW: REVOKE ACTIVE USER OVERLAY MODAL */}
-          {pendingRevoke && (
-            <div className="absolute inset-0 z-[300] bg-slate-900/90 backdrop-blur-sm flex justify-center items-center p-4">
-              <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 border-t-4 border-red-600 animate-in zoom-in duration-200">
-                <h3 className="font-extrabold text-slate-900 mb-2 flex items-center text-lg">
-                  <ShieldAlert className="mr-2 text-red-600"/> Security Revocation Notice
-                </h3>
-                <p className="text-sm text-slate-500 mb-4">Please select the official administrative reason for revoking access for <span className="font-bold text-slate-800">{selectedUserDetail?.name}</span>.</p>
-                
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Category of Revocation</label>
-                <select 
-                  value={revokeReason} 
-                  onChange={(e) => setRevokeReason(e.target.value)} 
-                  className="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 focus:ring-2 focus:ring-red-500 outline-none mb-4"
-                >
-                  {OFFICIAL_REASONS.map(reason => <option key={reason} value={reason}>{reason}</option>)}
-                </select>
-
-                {revokeReason === "Custom typed narrative" && (
-                  <textarea 
-                    placeholder="Enter detailed administrative comment here..." 
-                    value={customRevokeReason} 
-                    onChange={(e) => setCustomRevokeReason(e.target.value)}
-                    className="w-full p-3 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none mb-4 min-h-[100px]"
-                  />
-                )}
-
-                <div className="flex space-x-3 mt-2">
-                  <button onClick={() => setPendingRevoke(false)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-3 rounded-lg transition-colors text-sm">Cancel</button>
-                  <button onClick={() => {
-                    const finalReason = revokeReason === 'Custom typed narrative' ? customRevokeReason : revokeReason;
-                    if (!finalReason || finalReason.trim() === '') {
-                      alert("A valid administrative reason is required.");
-                      return;
-                    }
-                    onRevokeUser(selectedUserDetail.fnum, finalReason);
-                    setPendingRevoke(false);
-                    setSelectedUserDetail(null);
-                    setCustomRevokeReason('');
-                  }} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg shadow-md transition-colors text-sm">Execute Revocation</button>
-                </div>
-              </div>
-            </div>
-          )}
 
       {/* 🟢 FULL SCREEN IMAGE MODAL FOR SELECTED USER */}
       {viewingProfileImage && (
@@ -5787,18 +5734,15 @@ const App = () => {
     }
   };
 
-// 🟢 CAPTURES REASON FOR REVOKING ACTIVE USERS
-  const handleRevokeUser = async (fnum, reason) => {
+  const handleRevokeUser = async (fnum) => {
+    if (!window.confirm(`Are you sure you want to revoke access for ${fnum}?`)) return;
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      
-      // 🟢 Passes the reason securely as a URL parameter
-      await fetch(`${API_URL}/api/v1/users/${encodeURIComponent(fnum)}/revoke?reason=${encodeURIComponent(reason)}`, {
+      await fetch(`${API_URL}/api/v1/users/${fnum}/revoke`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${token}` }
       });
-      
       setUsers(users.filter(u => u.fnum !== fnum));
     } catch (err) {
       console.error("Failed to revoke user:", err);
