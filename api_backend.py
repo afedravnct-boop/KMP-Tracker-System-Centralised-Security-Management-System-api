@@ -1921,6 +1921,17 @@ def create_modification_request(data: dict, db: Session = Depends(get_db), curre
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
+# Example of how your backend query should look now:
+@router.delete("/users/{fnum}/revoke")
+def revoke_user(fnum: str, reason: str = None, db: Session = Depends(get_db)):
+    # Instead of deleting, we flag them as revoked and save the reason
+    db.execute(
+        "UPDATE users SET status = 'REVOKED', comments = :reason WHERE fnum = :fnum",
+        {"reason": reason or "No reason provided", "fnum": fnum}
+    )
+    db.commit()
+    return {"message": "User access revoked and logged."}
+
 @app.patch("/api/v1/requests/{req_id}")
 def update_modification_request_status(
     req_id: int, 

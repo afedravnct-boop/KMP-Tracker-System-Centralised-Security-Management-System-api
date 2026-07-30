@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAlert, Inbox, Calendar, Filter, Clock, ArrowLeft } from 'lucide-react';
+import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAlert, Inbox, Filter, Clock, ArrowLeft, Eye, X, Edit3 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
-  const [activeTab, setActiveTab] = useState('dispatch'); // 'dispatch' or 'inbox'
+  const [activeTab, setActiveTab] = useState('dispatch'); // 'dispatch', 'inbox', 'outbox'
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- EXISTING DISPATCH STATE ---
+  // --- DISPATCH STATE ---
   const [formData, setFormData] = useState({
     targetAudience: 'ALL_USERS',
     targetRegion: 'ALL',
@@ -20,17 +20,21 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
     sendEmail: false
   });
 
-  // --- NEW INBOX STATE ---
+  // --- INBOX & OUTBOX STATE ---
   const [inboxMessages, setInboxMessages] = useState([]);
+  const [outboxMessages, setOutboxMessages] = useState([]);
   const [isLoadingInbox, setIsLoadingInbox] = useState(false);
-  const [dateFilter, setDateFilter] = useState('all'); // 'all', 'today', 'recent', 'old', 'custom'
+  const [dateFilter, setDateFilter] = useState('all'); 
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
 
-  // --- EXISTING LOGIC ---
+  // --- READ RECEIPTS STATE ---
+  const [viewingReceiptsFor, setViewingReceiptsFor] = useState(null);
+  const [receiptsData, setReceiptsData] = useState([]);
+  const [loadingReceipts, setLoadingReceipts] = useState(false);
+
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
-    
     if (name === 'targetAudience') {
       setFormData({ 
         ...formData, 
@@ -53,7 +57,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
     setNotification({ type: 'info', text: 'Transmitting encrypted broadcast...' });
 
     try {
-      const token = localStorage.getItem('kmp_authToken');
+      const token = sessionStorage.getItem('kmp_authToken');
       const response = await fetch(`${API_URL}/api/v1/communications`, {
         method: "POST",
         headers: {
@@ -79,6 +83,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
 
       setNotification({ type: 'success', text: '✅ Broadcast successfully dispatched to targeted terminals.' });
       setFormData({ ...formData, subject: '', message: '', sendEmail: false, targetAudience: 'ALL_USERS', targetRegion: 'ALL' });
+      
+      if (activeTab === 'outbox' || activeTab === 'inbox') fetchMessages();
+      
     } catch (err) {
       console.error(err);
       setNotification({ type: 'error', text: `❌ ${err.message}` });
@@ -88,13 +95,10 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
     }
   };
 
-  // --- NEW INBOX LOGIC ---
-  const fetchInbox = async () => {
+  const fetchMessages = async () => {
     setIsLoadingInbox(true);
     try {
-      const token = localStorage.getItem('kmp_authToken');
-      
-      // Calculate Date Ranges
+      const token = sessionStorage.getItem('kmp_authToken');
       const today = new Date();
       let start = '';
       let end = '';
@@ -110,13 +114,12 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
       } else if (dateFilter === 'old') {
           const sevenDaysAgo = new Date(today);
           sevenDaysAgo.setDate(today.getDate() - 7);
-          end = sevenDaysAgo.toISOString().split('T')[0]; // Older than 7 days
+          end = sevenDaysAgo.toISOString().split('T')[0]; 
       } else if (dateFilter === 'custom') {
           start = customStartDate;
           end = customEndDate;
       }
 
-      // Build URL with parameters
       let url = `${API_URL}/api/v1/Admin_Communication`;
       const params = new URLSearchParams();
       if (start) params.append('start_date', start);
@@ -132,24 +135,37 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
 
       if (response.ok) {
         const data = await response.json();
-        setInboxMessages(data);
+        const items = Array.isArray(data) ? data : (data.data || data.items || []);
+        setInboxMessages(items);
+        setOutboxMessages(items.filter(msg => msg.sender_fnum === currentUser.fnum));
       } else {
-        console.error("Failed to fetch inbox messages");
+        console.error("Failed to fetch messages");
       }
     } catch (err) {
-      console.error("Network error fetching inbox:", err);
+      console.error("Network error fetching messages:", err);
     } finally {
       setIsLoadingInbox(false);
     }
   };
 
+  const fetchReceipts = async (commId) => {
+    setViewingReceiptsFor(commId);
+    setLoadingReceipts(true);
+    try {
+      const token = sessionStorage.getItem('kmp_authToken');
+      const res = await fetch(`${API_URL}/api/v1/communications/${commId}/readers`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if(res.ok) setReceiptsData(await res.json());
+    } catch(e) { console.error(e); } finally { setLoadingReceipts(false); }
+  };
+
   useEffect(() => {
-    if (activeTab === 'inbox') {
-      fetchInbox();
+    if (activeTab === 'inbox' || activeTab === 'outbox') {
+      fetchMessages();
     }
   }, [activeTab, dateFilter, customStartDate, customEndDate]);
 
-  // Helper to color-code message types
   const getPriorityStyle = (type) => {
     switch(type) {
       case 'CRITICAL_ALERT': return 'bg-red-100 text-red-800 border-red-300';
@@ -160,6 +176,35 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
 
   return (
     <div className="p-6 w-full max-w-[1920px] mx-auto space-y-6 relative z-10">
+      
+      {/* 🟢 READ RECEIPTS MODAL */}
+      {viewingReceiptsFor && (
+        <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-300">
+                <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
+                   <h3 className="font-bold flex items-center text-sm"><Eye size={16} className="mr-2 text-blue-400"/> Read Receipts Tracker</h3>
+                   <button onClick={() => setViewingReceiptsFor(null)} className="hover:bg-slate-700 p-1 rounded"><X size={18}/></button>
+                </div>
+                <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar bg-slate-50">
+                   {loadingReceipts ? (
+                      <p className="text-xs text-center text-gray-500 font-bold animate-pulse py-4">Fetching ledgers...</p>
+                   ) : receiptsData.length === 0 ? (
+                      <p className="text-xs text-center text-gray-500 font-medium py-4">No officers have acknowledged this dispatch yet.</p>
+                   ) : (
+                       <div className="space-y-2">
+                          {receiptsData.map((r, i) => (
+                             <div key={i} className="flex justify-between items-center text-xs p-3 bg-white rounded shadow-sm border border-gray-100">
+                                <div><span className="font-extrabold text-slate-800 block">{r.name}</span><span className="font-mono text-[9px] text-gray-400">{r.fnum}</span></div>
+                                <span className="text-xs text-green-600 font-bold bg-green-50 px-2 py-1 rounded border border-green-200">Read: {r.read_at}</span>
+                             </div>
+                          ))}
+                       </div>
+                   )}
+                </div>
+            </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
         
         {/* HEADER */}
@@ -172,10 +217,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
             </div>
           </div>
 
-          {/* 🟢 RETURN NAVIGATION BUTTON */}
           <button
-            onClick={() => setCurrentPage('home')} // Change to 'home' if that is your default landing page
-            className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-all border border-slate-700 shadow-sm"
+            onClick={() => setCurrentPage('home')} 
+            className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-all border border-slate-700 shadow-sm shrink-0"
           >
             <ArrowLeft size={16} />
             <span>Return to Dashboard</span>
@@ -183,25 +227,29 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
         </div>
 
         {/* TAB NAVIGATION */}
-        <div className="flex border-b border-gray-200 bg-slate-50">
+        <div className="flex border-b border-gray-200 bg-slate-50 overflow-x-auto">
           <button 
             onClick={() => setActiveTab('dispatch')} 
-            className={`flex-1 py-4 font-bold flex items-center justify-center transition-all ${activeTab === 'dispatch' ? 'bg-white border-b-2 border-blue-600 text-blue-500 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
+            className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max ${activeTab === 'dispatch' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
           >
-            <Send className="w-5 h-5 mr-2" /> Dispatch Console
+            <Edit3 className="w-5 h-5 mr-2" /> Dispatch Console
           </button>
           <button 
             onClick={() => setActiveTab('inbox')} 
-            className={`flex-1 py-4 font-bold flex items-center justify-center transition-all ${activeTab === 'inbox' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
+            className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max ${activeTab === 'inbox' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
           >
             <Inbox className="w-5 h-5 mr-2" /> Command Inbox
+          </button>
+          <button 
+            onClick={() => setActiveTab('outbox')} 
+            className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max ${activeTab === 'outbox' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
+          >
+            <Send className="w-5 h-5 mr-2" /> Outbox (Sent)
           </button>
         </div>
 
         <div className="p-8">
-          {/* ========================================================= */}
-          {/* TAB 1: DISPATCH CONSOLE (Original Logic)                    */}
-          {/* ========================================================= */}
+          
           {activeTab === 'dispatch' && (
             <>
               {notification && (
@@ -281,13 +329,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
             </>
           )}
 
-          {/* ========================================================= */}
-          {/* TAB 2: COMMAND INBOX                                      */}
-          {/* ========================================================= */}
-          {activeTab === 'inbox' && (
+          {(activeTab === 'inbox' || activeTab === 'outbox') && (
             <div className="space-y-6">
               
-              {/* Filter Controls */}
               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-col md:flex-row gap-4 items-end">
                 <div className="flex-1 w-full">
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><Filter size={14} className="mr-1"/> Time Filter</label>
@@ -314,29 +358,28 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                 )}
               </div>
 
-              {/* Messages List */}
               {isLoadingInbox ? (
                 <div className="flex justify-center items-center py-20 text-slate-400 font-bold animate-pulse">
-                  <Inbox className="w-6 h-6 mr-2" /> Syncing Inbox...
+                  <Inbox className="w-6 h-6 mr-2" /> Syncing network...
                 </div>
-              ) : inboxMessages.length === 0 ? (
+              ) : (activeTab === 'inbox' ? inboxMessages : outboxMessages).length === 0 ? (
                 <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-12 text-center">
                   <CheckCircle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                  <h3 className="text-lg font-bold text-slate-600">Inbox Clear</h3>
+                  <h3 className="text-lg font-bold text-slate-600">Box Clear</h3>
                   <p className="text-sm text-slate-500 mt-1">No communications found for the selected time period.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {inboxMessages.map((msg) => (
+                  {(activeTab === 'inbox' ? inboxMessages : outboxMessages).map((msg) => (
                     <div key={msg.id} className="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
-                      {/* Message Header */}
+                      
                       <div className="bg-slate-50 px-5 py-3 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2">
                         <div className="flex items-center space-x-3">
                           <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getPriorityStyle(msg.message_type)}`}>
-                            {msg.message_type.replace('_', ' ')}
+                            {msg.message_type?.replace('_', ' ')}
                           </span>
-                          <span className="text-xs font-bold text-slate-500 bg-slate-200 px-2 py-1 rounded">
-                            TO: {msg.target_audience.replace('_', ' ')} {msg.target_audience === 'SPECIFIC_REGION' ? `(${msg.target_region})` : ''}
+                          <span className="text-xs font-bold text-slate-500 bg-slate-200 px-2 py-1 rounded border border-slate-300">
+                            TO: {msg.target_audience?.replace('_', ' ')} {msg.target_audience === 'SPECIFIC_REGION' ? `(${msg.target_region})` : ''}
                           </span>
                         </div>
                         <div className="flex items-center text-xs font-bold text-slate-400">
@@ -344,21 +387,28 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                         </div>
                       </div>
 
-                      {/* Message Body */}
                       <div className="p-5">
                         <h3 className="text-lg font-extrabold text-slate-800 mb-3">{msg.subject}</h3>
-                        {/* Render HTML safely from ReactQuill */}
                         <div 
                           className="prose prose-sm max-w-none text-slate-700" 
                           dangerouslySetInnerHTML={{ __html: msg.message }} 
                         />
                       </div>
 
-                      {/* Message Footer */}
-                      <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center text-xs text-slate-500">
-                        <span className="font-bold mr-2">Dispatched By:</span> 
-                        {msg.sender_name} <span className="ml-1 text-slate-400">({msg.sender_fnum})</span>
+                      <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                        <div>
+                          <span className="font-bold mr-2">Dispatched By:</span> 
+                          {msg.sender_name} <span className="ml-1 text-slate-400">({msg.sender_fnum})</span>
+                        </div>
+                        
+                        <button 
+                          onClick={() => fetchReceipts(msg.id)} 
+                          className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-1.5 px-3 rounded transition-colors flex items-center border border-blue-200"
+                        >
+                          <Eye size={14} className="mr-1" /> View Read Receipts
+                        </button>
                       </div>
+
                     </div>
                   ))}
                 </div>
@@ -373,4 +423,3 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
 };
 
 export default Admin_Communication;
-// Forcing Vercel to sync
