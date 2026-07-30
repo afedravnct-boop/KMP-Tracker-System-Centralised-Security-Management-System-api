@@ -4425,6 +4425,38 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   const [lockoutEnd, setLockoutEnd] = useState(null);
   const [timeLeft, setTimeLeft] = useState(0);
 
+  // 🟢 NEW: LOGIN SCREEN IDLE CURTAIN STATE
+  const [isLoginIdle, setIsLoginIdle] = useState(false);
+
+  // 🟢 NEW: LOGIN SCREEN IDLE DETECTOR
+  useEffect(() => {
+    let timeout;
+    const IDLE_TIME = 30000; // Drops curtain after 30 seconds of idle time
+
+    const resetIdle = () => {
+      if (isLoginIdle) setIsLoginIdle(false);
+      clearTimeout(timeout);
+      timeout = setTimeout(() => setIsLoginIdle(true), IDLE_TIME);
+    };
+
+    // Listen for any activity to wake up the screen
+    window.addEventListener('mousemove', resetIdle);
+    window.addEventListener('keydown', resetIdle);
+    window.addEventListener('click', resetIdle);
+    window.addEventListener('scroll', resetIdle);
+
+    resetIdle(); // Initialize the timer on mount
+
+    return () => {
+      window.removeEventListener('mousemove', resetIdle);
+      window.removeEventListener('keydown', resetIdle);
+      window.removeEventListener('click', resetIdle);
+      window.removeEventListener('scroll', resetIdle);
+      clearTimeout(timeout);
+    };
+  }, [isLoginIdle]);
+
+  // Handle Lockout countdown
   useEffect(() => {
     if (!lockoutEnd) return;
     const interval = setInterval(() => {
@@ -4628,8 +4660,62 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative">
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative overflow-hidden">
+      
+      {/* 🟢 CSS FOR WAVING POLICE FLAG ANIMATION */}
+      <style>{`
+        @keyframes fabricWave {
+          0% { background-position: 0% 0%; }
+          100% { background-position: 200% 0%; }
+        }
+        @keyframes flagFlutter {
+          0%, 100% { transform: perspective(800px) rotateY(-4deg) rotateX(1deg); }
+          50% { transform: perspective(800px) rotateY(4deg) rotateX(-1deg); }
+        }
+        .waving-police-flag {
+          background: 
+            linear-gradient(105deg, 
+              rgba(0,0,0,0.5) 0%, rgba(255,255,255,0.1) 15%, 
+              rgba(0,0,0,0.5) 35%, rgba(255,255,255,0.1) 55%, 
+              rgba(0,0,0,0.5) 75%, rgba(255,255,255,0.1) 100%),
+            #1e3a8a; /* Deep Police Blue Base */
+          background-size: 200% 100%;
+          animation: fabricWave 3s infinite linear;
+          box-shadow: inset 0 0 100px rgba(0,0,0,0.9);
+        }
+        .flag-content {
+          animation: flagFlutter 4s infinite ease-in-out;
+        }
+      `}</style>
+
+      {/* 🟢 THE ANIMATED WAVING POLICE FLAG IDLE CURTAIN */}
+      <div 
+        className={`absolute inset-0 z-50 flex flex-col items-center justify-center transition-transform duration-1000 ease-in-out shadow-2xl waving-police-flag ${
+          isLoginIdle ? 'translate-y-0' : '-translate-y-full'
+        }`}
+      >
+        <div className="flag-content relative z-10 flex flex-col items-center">
+          <img 
+            src="/upf_badge.png" 
+            alt="UPF Emblem" 
+            className="w-48 h-48 mb-6 drop-shadow-[0_15px_25px_rgba(0,0,0,0.6)] object-contain contrast-125"
+            onError={(e) => { e.target.style.display = 'none'; }}
+          />
+          <h2 className="text-4xl sm:text-5xl font-extrabold text-white tracking-[0.2em] uppercase drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] text-center">
+            Uganda Police Force
+          </h2>
+          <h3 className="text-xl sm:text-2xl font-bold text-blue-200 mt-2 tracking-widest uppercase drop-shadow-md">
+            KMP Network
+          </h3>
+          <p className="mt-8 text-sm font-bold text-white bg-black/50 px-6 py-2.5 rounded-full border border-blue-400/30 backdrop-blur-md shadow-[inset_0_2px_4px_rgba(255,255,255,0.1)] flex items-center">
+            <Lock size={16} className="mr-2 text-blue-300" /> Security Standby Mode
+          </p>
+        </div>
+      </div>
+      {/* 🟢 END OF CURTAIN */}
+
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
+        
         <div className="bg-slate-900 p-6 text-center relative">
           <img 
             src="/upf_badge.png" 
@@ -5794,7 +5880,14 @@ const handleRevokeUser = async (fnum) => {
   const IdleWarningModal = () => showIdleWarning && (
     <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[500] flex justify-center items-center p-4 animate-in zoom-in duration-300">
       <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center border-2 border-red-500">
-        <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4 animate-bounce" />
+        
+        {/* 🟢 REPLACED TRIANGLE WITH UPF EMBLEM */}
+        <img 
+          src="/upf_badge.png" 
+          alt="UPF Emblem" 
+          className="w-20 h-20 mx-auto mb-4 object-contain animate-pulse drop-shadow-md contrast-125" 
+        />
+        
         <h2 className="text-2xl font-extrabold text-slate-900 mb-2">Session Timeout Warning</h2>
         <p className="text-slate-600 font-medium mb-6">Your connection to the KMP network has been idle. For security purposes, you will be logged out in:</p>
         <div className="text-5xl font-mono font-extrabold text-red-600 mb-8">{idleCountdown}s</div>
