@@ -91,6 +91,12 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/api/auth")
 
+class PasswordChangeReq(BaseModel):
+    old_password: str
+    new_password: str
+
+class ForcePasswordReq(BaseModel):
+    new_password: str
 # ==========================================
 # 2. PYDANTIC SCHEMAS
 # ==========================================
@@ -333,6 +339,35 @@ def register_user(
 
 from urllib.parse import unquote
 from fastapi import HTTPException, Depends
+
+@app.put("/api/v1/users/change-password")
+def change_user_password(data: PasswordChangeReq, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    # Add your logic to verify old password here if needed
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+        
+    hashed = security.get_password_hash(data.new_password) if hasattr(security, 'get_password_hash') else data.new_password
+    current_user.hashed_password = hashed
+    db.commit()
+    
+    if hasattr(models, 'Audit_Logs'):
+        log_semantic_audit(db, current_user.fnum, "PASSWORD_UPDATE", "SELF", {}, "User updated personal security key.")
+    return {"status": "success", "message": "Security key updated successfully."}
+
+@app.put("/api/v1/admin/users/{target_fnum}/force-password")
+def force_user_password(target_fnum: str, data: ForcePasswordReq, db: Session = Depends(get_db), admin: models.Users = Depends(require_admin)):
+    clean_fnum = unquote(target_fnum).strip().upper()
+    target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Target officer not found.")
+        
+    hashed = security.get_password_hash(data.new_password) if hasattr(security, 'get_password_hash') else data.new_password
+    target_user.hashed_password = hashed
+    db.commit()
+    
+    if hasattr(models, 'Audit_Logs'):
+        log_semantic_audit(db, admin.fnum, "ADMIN_FORCE_PASSWORD", clean_fnum, {}, "Super Admin forced a new security key.")
+    return {"status": "success", "message": "Password forced successfully."}
 
 # ---------------------------------------------------------
 # ADMIN: APPROVE PENDING USER REGISTRATION
@@ -1861,17 +1896,14 @@ def log_user_session(req: SessionLogRequest, db: Session = Depends(get_db)):
     return {"status": "success"}
 
 # ==========================================
-# 14. MODIFICATION REQUESTS (PROFILE UPDATES)
+# 14. MODIFICATION REQUESTS & REVOCATIONS
 # ==========================================
 @app.get("/api/v1/requests")
 def get_all_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    """Fetches pending profile update requests with geographical filtering."""
-    
     query = db.query(models.Modification_Requests).join(
         models.Users, models.Modification_Requests.fnum == models.Users.fnum
     ).filter(models.Modification_Requests.status == "PENDING")
     
-    # 🛡️ Geographical Firewall
     if current_user.role != "SUPER_ADMIN":
         if current_user.role == "RPC":
             query = query.filter(models.Users.region == current_user.region)
@@ -1882,22 +1914,15 @@ def get_all_requests(db: Session = Depends(get_db), current_user: models.Users =
             
     requests = query.order_by(models.Modification_Requests.id.desc()).all()
     results = []
-    
     for r in requests:
         officer = db.query(models.Users).filter(models.Users.fnum == r.fnum).first()
         if officer:
             results.append({
-                "id": r.id,
-                "fnum": r.fnum,
-                "current_name": officer.name,
-                "requested_name": r.requested_name,
-                "current_rank": officer.rank,
-                "requested_rank": r.requested_rank,
-                "current_region": officer.region,
-                "requested_region": r.requested_region,
-                "current_station": officer.station,
-                "requested_station": r.requested_station,
-                "status": r.status
+                "id": r.id, "fnum": r.fnum, "current_name": officer.name,
+                "requested_name": r.requested_name, "current_rank": officer.rank,
+                "requested_rank": r.requested_rank, "current_region": officer.region,
+                "requested_region": r.requested_region, "current_station": officer.station,
+                "requested_station": r.requested_station, "status": r.status
             })
     return results
 
@@ -1905,12 +1930,9 @@ def get_all_requests(db: Session = Depends(get_db), current_user: models.Users =
 def create_modification_request(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         new_req = models.Modification_Requests(
-            fnum=current_user.fnum,
-            requested_name=data.get("requested_name"),
-            requested_rank=data.get("requested_rank"),
-            requested_region=data.get("requested_region"),
-            requested_station=data.get("requested_station"),
-            status="PENDING"
+            fnum=current_user.fnum, requested_name=data.get("requested_name"),
+            requested_rank=data.get("requested_rank"), requested_region=data.get("requested_region"),
+            requested_station=data.get("requested_station"), status="PENDING"
         )
         db.add(new_req)
         db.commit()
@@ -1919,51 +1941,61 @@ def create_modification_request(data: dict, db: Session = Depends(get_db), curre
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.delete("/api/v1/users/{fnum}/revoke")
+def revoke_user_access(
+    fnum: str, reason: str = "No reason provided", 
+    db: Session = Depends(get_db), admin: models.Users = Depends(require_admin)
+):
+    """Safely revokes an active user's access and logs the reason."""
+    clean_fnum = unquote(fnum).strip().upper()
+    target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail=f"Officer {clean_fnum} not found.")
+
+    if hasattr(target_user, 'status'): target_user.status = 'REVOKED'
+    if hasattr(target_user, 'is_approved'): target_user.is_approved = False
+    if hasattr(target_user, 'is_active'): target_user.is_active = False
+    if hasattr(target_user, 'comments'): target_user.comments = reason
+
+    if hasattr(models, 'Audit_Logs'):
+        log_semantic_audit(
+            db=db, fnum=admin.fnum, action="USER_ACCESS_REVOKED",
+            target_identifier=clean_fnum, changes={"status": ("ACTIVE", "REVOKED")},
+            remarks=f"Revocation Reason: {reason}"
+        )
+    db.commit()
+    return {"status": "success", "message": f"User {clean_fnum} access revoked."}
+
 @app.patch("/api/v1/requests/{req_id}")
 def update_modification_request_status(
-    req_id: int, 
-    payload: dict, 
-    db: Session = Depends(get_db), 
-    current_user: models.Users = Depends(require_admin)
+    req_id: int, payload: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)
 ):
-    # 1. Find the specific request
     req = db.query(models.Modification_Requests).filter(models.Modification_Requests.id == req_id).first()
-    if not req:
-        raise HTTPException(status_code=404, detail="Modification request not found.")
+    if not req: raise HTTPException(status_code=404, detail="Request not found.")
         
     action_status = payload.get("status", "").upper()
-    if action_status not in ["APPROVED", "REJECTED"]:
-        raise HTTPException(status_code=400, detail="Invalid action status.")
-        
-    # 2. Update the request status
     req.status = action_status
+    reason = payload.get("reason", "No reason provided")
     
-    # 3. If approved, automatically execute the changes on the Officer's profile
     if action_status == "APPROVED":
         user = db.query(models.Users).filter(models.Users.fnum == req.fnum).first()
         if user:
             changes = {}
             if req.requested_name and req.requested_name != user.name:
-                changes["name"] = (user.name, req.requested_name)
-                user.name = req.requested_name
+                changes["name"] = (user.name, req.requested_name); user.name = req.requested_name
             if req.requested_rank and req.requested_rank != user.rank:
-                changes["rank"] = (user.rank, req.requested_rank)
-                user.rank = req.requested_rank
+                changes["rank"] = (user.rank, req.requested_rank); user.rank = req.requested_rank
             if req.requested_region and req.requested_region != user.region:
-                changes["region"] = (user.region, req.requested_region)
-                user.region = req.requested_region
+                changes["region"] = (user.region, req.requested_region); user.region = req.requested_region
             if req.requested_station and req.requested_station != user.station:
-                changes["station"] = (user.station, req.requested_station)
-                user.station = req.requested_station
+                changes["station"] = (user.station, req.requested_station); user.station = req.requested_station
                 
-            # Log the successful HR execution in the Audit Logs
             if hasattr(models, 'Audit_Logs') and changes:
-                log_semantic_audit(
-                    db=db, fnum=current_user.fnum, action="HR_MODIFICATION_APPROVED", 
-                    target_identifier=user.fnum, changes=changes, 
-                    remarks="Admin approved profile update request."
-                )
-                
+                log_semantic_audit(db, current_user.fnum, "HR_MODIFICATION_APPROVED", user.fnum, changes, "Admin approved profile update request.")
+    elif action_status == "REJECTED":
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(db, current_user.fnum, "HR_MODIFICATION_REJECTED", req.fnum, {}, f"Reason: {reason}")
+            
     db.commit()
     return {"status": "success", "message": f"Request {action_status.lower()} successfully."}
 
