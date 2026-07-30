@@ -5,7 +5,7 @@ import 'react-quill-new/dist/quill.snow.css';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
-const AdminCommunication = ({ currentUser, users, setCurrentPage }) => {
+const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   const [activeTab, setActiveTab] = useState('dispatch'); // 'dispatch', 'inbox', 'outbox'
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
