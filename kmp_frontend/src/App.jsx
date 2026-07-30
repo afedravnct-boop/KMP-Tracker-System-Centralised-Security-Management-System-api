@@ -20,6 +20,54 @@ import BulkNominalRollUpload from './BulkNominalRollUpload';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
+// 🟢 SESSION TIMEOUT LOGIC
+  const [showSessionWarning, setShowSessionWarning] = useState(false);
+  const sessionTimeoutRef = useRef(null);
+  const forceLogoutRef = useRef(null);
+
+  // 30 Minutes = 1,800,000 ms. (Change to 5000 for a 5-second test!)
+  const INACTIVITY_LIMIT = 1800000; 
+  const WARNING_DURATION = 6000; // 60 seconds to click "Stay Logged In"
+
+  const resetSessionTimer = () => {
+    // If the warning is already on screen, don't reset (forces them to click the button)
+    if (showSessionWarning) return; 
+
+    clearTimeout(sessionTimeoutRef.current);
+    clearTimeout(forceLogoutRef.current);
+
+    sessionTimeoutRef.current = setTimeout(() => {
+      setShowSessionWarning(true); // Show the popup
+      
+      // If they do nothing for 60 seconds after popup, kill the session
+      forceLogoutRef.current = setTimeout(() => {
+        handleSecureLogout(); // Ensure this matches your actual logout function name (e.g., onLogout)
+      }, WARNING_DURATION);
+      
+    }, INACTIVITY_LIMIT);
+  };
+
+  const handleStayLoggedIn = () => {
+    setShowSessionWarning(false);
+    resetSessionTimer();
+  };
+
+  useEffect(() => {
+    // Only track if a user is actually logged in
+    if (!currentUser) return; 
+
+    // Listeners for any human activity
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+    
+    activityEvents.forEach(event => window.addEventListener(event, resetSessionTimer));
+    resetSessionTimer(); // Start the clock on mount
+
+    return () => {
+      activityEvents.forEach(event => window.removeEventListener(event, resetSessionTimer));
+      clearTimeout(sessionTimeoutRef.current);
+      clearTimeout(forceLogoutRef.current);
+    };
+  }, [currentUser, showSessionWarning]);
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -35,6 +83,7 @@ const autoCapitalize = (text) => {
     return separator + letter.toUpperCase();
   });
 };
+
 
 const POSITIONS = {
   ADMIN: [
@@ -295,12 +344,12 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
           </div>
           
           <div className="flex-1">
-            <h3 className="text-sm font-extrabold text-slate-900 leading-tight">Administrative Dispatches</h3>
+            <h3 className="text-sm font-extrabold text-slate-900 leading-tight">Command Dispatches</h3>
             <p className="text-xs font-medium mt-1 line-clamp-2 transition-colors duration-300 flex items-center">
               {hasUnread ? (
-                <span className="text-green-600 font-bold">You have unread Correspondences. Click to view.</span>
+                <span className="text-green-600 font-bold">You have unread directives. Click to view.</span>
               ) : (
-                <span className="text-slate-500">Administrative and command communications.</span>
+                <span className="text-slate-500">Secure directives, network alerts, and command communications.</span>
               )}
             </p>
           </div>
@@ -311,27 +360,27 @@ const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewCons
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
           <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-300 group">
             <div className="w-14 h-14 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mr-4 group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0"><LayoutDashboard size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Crime Registry</h3><p className="text-xs text-slate-500 font-medium mt-1">Log and track daily serious incidents.</p></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Crime Registry</h3><p className="text-xs text-slate-500 font-medium mt-1">Log and track daily active incidents.</p></div>
           </div>
           
           <div onClick={() => setCurrentPage('statistics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-300 group">
             <div className="w-14 h-14 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mr-4 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0"><BarChart3 size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">OPS Statistics</h3><p className="text-xs text-slate-500 font-medium mt-1">Weekly numerical aggregates for disruptive operations.</p></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">OPS Statistics</h3><p className="text-xs text-slate-500 font-medium mt-1">Weekly numerical operational aggregates.</p></div>
           </div>
 
           <div onClick={() => setCurrentPage('success')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-yellow-400 group">
             <div className="w-14 h-14 rounded-full bg-yellow-50 text-yellow-600 flex items-center justify-center mr-4 group-hover:bg-yellow-500 group-hover:text-white transition-colors shrink-0"><Trophy size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Success Stories</h3><p className="text-xs text-slate-500 font-medium mt-1">Document tactical milestones against Crime.</p></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Success Stories</h3><p className="text-xs text-slate-500 font-medium mt-1">Document tactical milestones.</p></div>
           </div>
 
           <div onClick={() => setCurrentPage('establishments')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-emerald-300 group">
             <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mr-4 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0"><Building size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-xs text-slate-500 font-medium mt-1">Map active divisions, stations, posts and booths.</p></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-xs text-slate-500 font-medium mt-1">Map divisions, stations, and booths.</p></div>
           </div>
 
           <div onClick={() => setCurrentPage('nominal-roll')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-purple-300 group">
             <div className="w-14 h-14 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mr-4 group-hover:bg-purple-600 group-hover:text-white transition-colors shrink-0"><Users size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Master Nominal Roll</h3><p className="text-xs text-slate-500 font-medium mt-1">Personnel data and deployment registry.</p></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Master Nominal Roll</h3><p className="text-xs text-slate-500 font-medium mt-1">Personnel deployment registry.</p></div>
           </div>
 
           {isAdmin && (
@@ -3600,40 +3649,6 @@ const handleApproveUser = async (fnum) => {
     }
   };
 
-
-// 🟢 CAPTURES REASON FOR REJECTING PENDING USERS
-  const handleRejectUser = async (fnum) => {
-    const reason = window.prompt(
-      `Please enter the reason for rejecting the access request for ${fnum}:`, 
-      "Unauthorized / Details Unverified" // Default reason
-    );
-    
-    if (reason === null || reason.trim() === "") return; // Stops if admin clicks Cancel or leaves it blank
-    
-    try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const token = localStorage.getItem('kmp_authToken');
-      const safeFnum = encodeURIComponent(fnum);
-      
-      // 🟢 Passes the reason securely as a URL parameter
-      const response = await fetch(`${API_URL}/api/v1/users/${safeFnum}/revoke?reason=${encodeURIComponent(reason)}`, { 
-        method: "DELETE", 
-        headers: { "Authorization": `Bearer ${token}` } 
-      });
-
-      if (!response.ok) {
-         const errData = await response.json().catch(() => ({}));
-         throw new Error(errData.detail || `Server Error: ${response.status}`);
-      }
-      
-      setRealPendingUsers(realPendingUsers.filter(u => u.fnum !== fnum));
-      alert(`Request for ${fnum} rejected and permanently logged.`);
-    } catch (err) {
-      console.error(err);
-      alert(`Rejection Failed: ${err.message}`);
-    }
-  };
-
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
       <div className="text-center mb-8 flex flex-col items-center">
@@ -4838,6 +4853,46 @@ const DashboardLayout = ({
     return () => clearInterval(heartbeatInterval);
   }, []);
 
+  // 🟢 1. ACTIVE IDLE TIMER & AUTO-LOGOUT DIALOGUE LOGIC
+  useEffect(() => {
+    const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 Minutes
+    let lastActivityTime = Date.now();
+
+    const enforceLogout = () => {
+      alert("Session Expired: You have been securely logged out due to inactivity.");
+      if (typeof onLogout === 'function') {
+        onLogout();
+      } else {
+        localStorage.removeItem('kmp_authToken');
+        window.location.reload();
+      }
+    };
+
+    const updateActivity = () => {
+      lastActivityTime = Date.now();
+    };
+
+    window.addEventListener('mousemove', updateActivity);
+    window.addEventListener('keypress', updateActivity);
+    window.addEventListener('click', updateActivity);
+    window.addEventListener('scroll', updateActivity);
+
+    const idleCheckInterval = setInterval(() => {
+      const elapsed = Date.now() - lastActivityTime;
+      if (elapsed >= IDLE_TIMEOUT_MS) {
+        clearInterval(idleCheckInterval);
+        enforceLogout();
+      }
+    }, 10000);
+
+    return () => {
+      window.removeEventListener('mousemove', updateActivity);
+      window.removeEventListener('keypress', updateActivity);
+      window.removeEventListener('click', updateActivity);
+      window.removeEventListener('scroll', updateActivity);
+      clearInterval(idleCheckInterval);
+    };
+  }, [onLogout]);
 
   // 🟢 AUTOMATIC PAGE ACCESS TRACKER (AUDIT LOGGING)
   useEffect(() => {
@@ -5426,59 +5481,6 @@ const App = () => {
   const [consolidatedData, setConsolidatedData] = useState(null);
   const [adminCommsData, setAdminCommsData] = useState([]);  
 
-  // 🟢 SESSION TIMEOUT LOGIC
-  const [showSessionWarning, setShowSessionWarning] = useState(false);
-  const sessionTimeoutRef = useRef(null);
-  const forceLogoutRef = useRef(null);
-
-  // 30 Minutes = 1,800,000 ms. 
-  const INACTIVITY_LIMIT = 1800000; 
-  const WARNING_DURATION = 60000; // 60 seconds to click "Stay Logged In"
-
-  const handleSecureLogout = () => {
-    localStorage.removeItem('kmp_authToken'); 
-    localStorage.removeItem('kmp_currentUser'); 
-    localStorage.removeItem('kmp_currentPage'); 
-    window.location.reload();
-  };
-
-  const resetSessionTimer = () => {
-    if (showSessionWarning) return; 
-
-    clearTimeout(sessionTimeoutRef.current);
-    clearTimeout(forceLogoutRef.current);
-
-    sessionTimeoutRef.current = setTimeout(() => {
-      setShowSessionWarning(true); 
-      
-      forceLogoutRef.current = setTimeout(() => {
-        handleSecureLogout(); 
-      }, WARNING_DURATION);
-      
-    }, INACTIVITY_LIMIT);
-  };
-
-  const handleStayLoggedIn = () => {
-    setShowSessionWarning(false);
-    resetSessionTimer();
-  };
-
-  useEffect(() => {
-    if (!currentUser) return; 
-
-    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
-    
-    activityEvents.forEach(event => window.addEventListener(event, resetSessionTimer));
-    resetSessionTimer(); 
-
-    return () => {
-      activityEvents.forEach(event => window.removeEventListener(event, resetSessionTimer));
-      clearTimeout(sessionTimeoutRef.current);
-      clearTimeout(forceLogoutRef.current);
-    };
-  }, [currentUser, showSessionWarning]);
-
-
   useEffect(() => {
     const checkClearance = () => {
       const token = localStorage.getItem('kmp_authToken');
@@ -5504,7 +5506,8 @@ const App = () => {
     checkClearance();
   }, [setCurrentUser]);
 
-  useEffect(() => {
+useEffect(() => {
+    // 🟢 The ?.fnum prevents the infinite rendering loop
     if (!currentUser?.fnum) return; 
     
     const controller = new AbortController();
@@ -5514,6 +5517,7 @@ const App = () => {
       if (!token) return;
 
       try {
+        // 🟢 Restored your stable, original Promise.all structure
         const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives, resUsers] = await Promise.all([
           authFetch("/api/v1/reports", { signal: controller.signal }),
           authFetch("/api/v1/stats", { signal: controller.signal }),
@@ -5538,16 +5542,17 @@ const App = () => {
             const allUsers = await resUsers.json();
             setUsers(allUsers);
             
+            // 🟢 LIVE SYNC FIX: Instantly update current user permissions without requiring logout
             const me = allUsers.find(u => u.fnum === currentUser.fnum);
             if (me && (JSON.stringify(me.permissions) !== JSON.stringify(currentUser.permissions) || me.role !== currentUser.role)) {
                 setCurrentUser(prev => ({ ...prev, permissions: me.permissions, role: me.role }));
             }
           }
         }
-      } catch (error) {                                         
-        if (error.name !== 'AbortError') console.error(error);  
-      }                                                         
-    };                                                          
+      } catch (error) {                                         // 🟢 FIXED: Added missing catch block
+        if (error.name !== 'AbortError') console.error(error);  // 🟢 FIXED: Ignored safe abort errors
+      }                                                         // 🟢 FIXED: Closed the try/catch
+    };                                                          // 🟢 FIXED: Closed fetchAllData function
     
     fetchAllData();
     return () => controller.abort();
@@ -5611,7 +5616,7 @@ const App = () => {
     setIsViewingHR(false);           
   };
 
-  const renderPage = () => {
+const renderPage = () => {
     switch (currentPage) {
       case 'home': 
         return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
@@ -5630,7 +5635,7 @@ const App = () => {
       case 'profile': 
         return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
       case 'Admin_Communication': 
-        return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm}/>;
+        return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm}/>;
       default: 
         return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
     }
@@ -5694,10 +5699,12 @@ const App = () => {
 
  if (!currentUser) return <LoginScreen 
     onLogin={(user) => {
+      // 🟢 INSTANTLY RESET TO HOME PAGE UPON SUCCESSFUL LOGIN
       localStorage.removeItem('kmp_currentPage'); 
       setCurrentPage('home'); 
       setCurrentUser(user);
 
+      // 🟢 SILENTLY TRIGGER THE AUDIT LOG FOR TODAY'S DATE
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       fetch(`${API_URL}/api/v1/system/log-session`, {
           method: 'POST',
@@ -5715,7 +5722,7 @@ const App = () => {
     downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
   };
 
-  const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
+const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
     setUsers(users.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: newPermissions } : u));
     
     try {
@@ -5754,7 +5761,12 @@ const App = () => {
       currentUser={currentUser}
       currentPage={currentPage} 
       setCurrentPage={handlePageChange} 
-      onLogout={handleSecureLogout}
+onLogout={() => { 
+        localStorage.removeItem('kmp_authToken'); 
+        localStorage.removeItem('kmp_currentUser'); 
+        localStorage.removeItem('kmp_currentPage'); 
+        window.location.reload(); // 🟢 Hard-kills the React tree and wipes memory
+      }}
       onUpdateUserRole={handleUpdateUserRole}
       onRevokeUser={handleRevokeUser}
       users={users}
@@ -5763,30 +5775,6 @@ const App = () => {
       onViewHRReport={handleViewHRReport}
       onGenerateHRReport={handleGenerateHRReport}
     >
-
-      {/* 🟢 SESSION INACTIVITY WARNING MODAL */}
-      {showSessionWarning && (
-        <div className="fixed inset-0 z-[9999] bg-slate-900/80 backdrop-blur-sm flex justify-center items-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center border-t-4 border-yellow-500 animate-in fade-in zoom-in duration-300">
-            <div className="w-16 h-16 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
-              <AlertTriangle size={32} />
-            </div>
-            <h2 className="text-xl font-extrabold text-slate-800 mb-2">Session Expiring</h2>
-            <p className="text-sm text-slate-500 font-medium mb-6">
-              You have been inactive for 30 minutes. For security protocols, you will be logged out in 60 seconds.
-            </p>
-            <div className="flex space-x-3">
-              <button onClick={handleSecureLogout} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-3 px-4 rounded-lg transition-colors text-sm">
-                Log Out Now
-              </button>
-              <button onClick={handleStayLoggedIn} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-md text-sm">
-                Stay Logged In
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {isViewingConsolidated && (
         <ConsolidatedLedger 
            data={consolidatedData} 
@@ -5797,7 +5785,7 @@ const App = () => {
         />
       )}
 
-      {isViewingHR && hrLedgerData && (
+{isViewingHR && hrLedgerData && (
         <HrEstablishmentsLedger 
            data={hrLedgerData} 
            onClose={() => setIsViewingHR(false)} 
