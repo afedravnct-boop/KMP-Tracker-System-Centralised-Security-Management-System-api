@@ -1057,30 +1057,30 @@ async def bulk_upload_nominal_roll(
         df = pd.read_excel(io.BytesIO(contents))
         
         # 3. 🔥 ULTRA-FORGIVING HEADERS
-        # This strips all spaces, dashes, and makes everything lowercase 
-        # (e.g., "Force Number", "F-NUM", "f_num" ALL become "forcenumber" or "fnum")
+        # Strips all spaces, dashes, and special characters
         df.columns = df.columns.str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
         
-        # 4. The Smart Mapping Dictionary
+        # 4. The Smart Mapping Dictionary - NOW MAPPED TO EXACT DATABASE COLUMNS
         header_map = {
-            "forcenumber": "fnum", "fnumber": "fnum", "fnum": "fnum", "force": "fnum",
+            "sn": "sn", "serial": "sn", "serialnumber": "sn",
+            "forcenumber": "f_num", "fnumber": "f_num", "fnum": "f_num", "force": "f_num", "fno": "f_num",
             "rank": "rank",
             "name": "name", "fullname": "name", "officername": "name",
             "sex": "sex", "gender": "sex",
             "position": "position", "role": "position", "title": "position",
             "dob": "dob", "dateofbirth": "dob",
             "doe": "doe", "dateofenlistment": "doe",
-            "dopost": "dopost", "dateofpost": "dopost",
-            "dopro": "dopro", "dateofpromotion": "dopro",
+            "dopost": "do_post", "dateofpost": "do_post",
+            "dopro": "do_pro", "dateofpromotion": "do_pro",
             "contact": "contact", "phone": "contact", "phonenumber": "contact", "telephone": "contact",
-            "educlevel": "educlevel", "education": "educlevel", "educationlevel": "educlevel",
+            "educlevel": "educ_level", "education": "educ_level", "educationlevel": "educ_level",
             "ipps": "ipps", "ippsnumber": "ipps", "ippsno": "ipps",
             "tin": "tin", "tinnumber": "tin", "tinno": "tin",
             "nin": "nin", "nationalid": "nin", "nid": "nin",
-            "homedist": "homedist", "homedistrict": "homedist", "district": "homedist",
+            "homedist": "home_dist", "homedistrict": "home_dist", "district": "home_dist",
             "tribe": "tribe", "ethnicity": "tribe",
-            "accno": "accno", "accountnumber": "accno", "accountno": "accno", "account": "accno",
-            "bankbranch": "bankbranch", "bank": "bankbranch", "branch": "bankbranch",
+            "accno": "acc_no", "accountnumber": "acc_no", "accountno": "acc_no", "account": "acc_no",
+            "bankbranch": "bank_branch", "bank": "bank_branch", "branch": "bank_branch",
             "station": "station", "dutystation": "station",
             "region": "region", "command": "region",
             "section": "section", "department": "section",
@@ -1097,27 +1097,29 @@ async def bulk_upload_nominal_roll(
         records_skipped = 0
         
         # 6. Fetch existing Force Numbers to prevent duplicates
-        fnum_col = getattr(models.Nominal_Roll, 'fnum', getattr(models.Nominal_Roll, 'f_num', None))
+        fnum_col = getattr(models.Nominal_Roll, 'f_num', getattr(models.Nominal_Roll, 'fnum', None))
         existing_fnums = {u[0] for u in db.query(fnum_col).all()} if fnum_col else set()
         
-        # 7. Get valid column names from the Database
+        # 7. Get valid column names from the Database schema
         valid_keys = [c.name for c in models.Nominal_Roll.__table__.columns]
 
         for index, row in df.iterrows():
             row_dict = row.to_dict()
-            fnum_val = str(row_dict.get('fnum', '')).strip().upper()
             
-            # Skip empty rows
+            # Look for f_num (the new mapping) or fallback to fnum
+            fnum_val = str(row_dict.get('f_num', row_dict.get('fnum', ''))).strip().upper()
+            
+            # Skip completely empty rows
             if not fnum_val or fnum_val.lower() in ['none', 'nan', 'nat', '']:
                 continue 
                 
-            # Skip duplicates
+            # Skip duplicates based on force number
             if fnum_val in existing_fnums:
                 records_skipped += 1
                 continue
             
-            # Clean Dates
-            for date_col in ['dob', 'doe', 'dopost', 'dopro']:
+            # Clean Dates (Now matching the snake_case dictionary outputs)
+            for date_col in ['dob', 'doe', 'do_post', 'do_pro']:
                 if date_col in row_dict and row_dict[date_col]:
                     val = row_dict[date_col]
                     if isinstance(val, datetime):
@@ -1129,13 +1131,13 @@ async def bulk_upload_nominal_roll(
                         except ValueError:
                             pass 
             
-            # 🟢 F-NUM FAILSAFE: Some databases use f_num instead of fnum. This catches both!
-            if 'f_num' in valid_keys and 'fnum' not in valid_keys:
+            # Final DB Safety Check: Ensure the force number maps to the exact column name your DB uses
+            if 'f_num' in valid_keys:
                 row_dict['f_num'] = fnum_val
-            else:
+            elif 'fnum' in valid_keys:
                 row_dict['fnum'] = fnum_val
             
-            # Build and Save
+            # Build and Save - Filtering out columns that don't exist in the database
             clean_row = {k: v for k, v in row_dict.items() if k in valid_keys and v is not None}
             new_record = models.Nominal_Roll(**clean_row)
             new_record.last_updated_by = current_user.fnum
