@@ -1071,7 +1071,7 @@ async def bulk_upload_nominal_roll(
             "dob": "dob", "dateofbirth": "dob",
             "doe": "doe", "dateofenlistment": "doe",
             "dopost": "dopost", "do_post": "dopost", "dateofpost": "dopost",
-            "dopro": "dopro", "dopro": "dopro", "dateofpromotion": "dopro",
+            "dopro": "dopro", "dopro": "do_pro", "dateofpromotion": "dopro",
             "contact": "contact", "phone": "contact", "phonenumber": "contact", "telephone": "contact",
             "educlevel": "educlevel", "educ_level": "educlevel", "education": "educlevel", "educationlevel": "educlevel",
             "ipps": "ipps", "ippsnumber": "ipps", "ippsno": "ipps",
