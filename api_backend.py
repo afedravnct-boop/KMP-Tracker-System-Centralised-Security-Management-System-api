@@ -1001,7 +1001,7 @@ def archive_personnel(fnum: str, request_data: ArchiveRequest, db: Session = Dep
         raise HTTPException(status_code=500, detail=f"Failed to migrate record: {str(e)}")
 
 # ---------------------------------------------------------
-# ADMIN: EXCEL BULK UPLOAD FOR NOMINAL ROLL
+# ADMIN: EXCEL BULK UPLOAD FOR NOMINAL ROLL (AUTO-SCANNER)
 # ---------------------------------------------------------
 @app.post("/api/v1/nominal-roll/bulk-upload")
 async def bulk_upload_nominal_roll(
@@ -1009,34 +1009,46 @@ async def bulk_upload_nominal_roll(
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    # 1. Security Check
     if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC", "Deputy Commander"]:
         raise HTTPException(status_code=403, detail="Clearance Denied: Unauthorized for bulk HR uploads.")
 
     if not file.filename.endswith(('.xlsx', '.xls')):
-        raise HTTPException(status_code=400, detail="Invalid file format. Please upload an Excel (.xlsx or .xls) file.")
+        raise HTTPException(status_code=400, detail="Invalid file format.")
 
     try:
-        # 2. Read the Excel File
         contents = await file.read()
-        df = pd.read_excel(io.BytesIO(contents))
+        excel_file = io.BytesIO(contents)
         
-        # 3. 🔥 ULTRA-FORGIVING HEADERS
-        # This strips all spaces, dashes, and makes everything lowercase 
-        # (e.g., "Force Number", "F-NUM", "f_num" ALL become "forcenumber" or "fnum")
+        # Load workbook
+        xls = pd.ExcelFile(excel_file)
+        target_df = None
+        
+        # 🟢 Multi-Sheet & Multi-Row Scanner
+        for sheet_name in xls.sheet_names:
+            temp_df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+            
+            for row_idx in range(min(15, len(temp_df))): # Scans first 15 rows
+                row_values = [str(val).strip().lower() for val in temp_df.iloc[row_idx].values]
+                if any(k in row_values for k in ['fnum', 'f-number', 'force number', 'f_num', 'forcenumber']):
+                    target_df = pd.read_excel(xls, sheet_name=sheet_name, skiprows=row_idx)
+                    break
+            if target_df is not None:
+                break
+                
+        if target_df is None:
+            target_df = pd.read_excel(xls, sheet_name=0)
+
+        df = target_df
+        
+        # Clean headers
         df.columns = df.columns.str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
         
-        # 4. The Smart Mapping Dictionary
         header_map = {
-            "forcenumber": "fnum", "fnumber": "fnum", "fnum": "fnum", "force": "fnum",
-            "rank": "rank",
-            "name": "name", "fullname": "name", "officername": "name",
-            "sex": "sex", "gender": "sex",
-            "position": "position", "role": "position", "title": "position",
-            "dob": "dob", "dateofbirth": "dob",
-            "doe": "doe", "dateofenlistment": "doe",
-            "dopost": "dopost", "dateofpost": "dopost",
-            "dopro": "dopro", "dateofpromotion": "dopro",
+            "forcenumber": "fnum", "fnumber": "fnum", "fnum": "fnum", "force": "fnum", "f_num": "fnum",
+            "rank": "rank", "name": "name", "fullname": "name", "officername": "name",
+            "sex": "sex", "gender": "sex", "position": "position", "role": "position", "title": "position",
+            "dob": "dob", "dateofbirth": "dob", "doe": "doe", "dateofenlistment": "doe",
+            "dopost": "dopost", "dateofpost": "dopost", "dopro": "dopro", "dateofpromotion": "dopro",
             "contact": "contact", "phone": "contact", "phonenumber": "contact", "telephone": "contact",
             "educlevel": "educlevel", "education": "educlevel", "educationlevel": "educlevel",
             "ipps": "ipps", "ippsnumber": "ipps", "ippsno": "ipps",
@@ -1055,33 +1067,31 @@ async def bulk_upload_nominal_roll(
         
         df.rename(columns=header_map, inplace=True)
         
-        # 5. Clean empty cells
+        if 'fnum' not in df.columns:
+            raise HTTPException(status_code=400, detail="Excel layout error: Could not locate a Force Number column.")
+
         df = df.where(pd.notnull(df), None)
         
         records_added = 0
         records_skipped = 0
         
-        # 6. Fetch existing Force Numbers to prevent duplicates
-        fnum_col = getattr(models.Nominal_Roll, 'fnum', getattr(models.Nominal_Roll, 'f_num', None))
-        existing_fnums = {u[0] for u in db.query(fnum_col).all()} if fnum_col else set()
+        db_model = getattr(models, 'nominal_roll', getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None)))
+        fnum_col = getattr(db_model, 'fnum', getattr(db_model, 'f_num', None))
+        existing_fnums = {str(u[0]).strip().upper() for u in db.query(fnum_col).all() if u[0]} if fnum_col else set()
         
-        # 7. Get valid column names from the Database
-        valid_keys = [c.name for c in models.Nominal_Roll.__table__.columns]
+        valid_keys = [c.name for c in db_model.__table__.columns]
 
         for index, row in df.iterrows():
             row_dict = row.to_dict()
             fnum_val = str(row_dict.get('fnum', '')).strip().upper()
             
-            # Skip empty rows
-            if not fnum_val or fnum_val.lower() in ['none', 'nan', 'nat', '']:
+            if not fnum_val or fnum_val in ['NONE', 'NAN', 'NAT', 'FNUM', 'FORCE NUMBER', '']:
                 continue 
                 
-            # Skip duplicates
             if fnum_val in existing_fnums:
                 records_skipped += 1
                 continue
             
-            # Clean Dates
             for date_col in ['dob', 'doe', 'dopost', 'dopro']:
                 if date_col in row_dict and row_dict[date_col]:
                     val = row_dict[date_col]
@@ -1094,15 +1104,13 @@ async def bulk_upload_nominal_roll(
                         except ValueError:
                             pass 
             
-            # 🟢 F-NUM FAILSAFE: Some databases use f_num instead of fnum. This catches both!
             if 'f_num' in valid_keys and 'fnum' not in valid_keys:
                 row_dict['f_num'] = fnum_val
             else:
                 row_dict['fnum'] = fnum_val
             
-            # Build and Save
             clean_row = {k: v for k, v in row_dict.items() if k in valid_keys and v is not None}
-            new_record = models.Nominal_Roll(**clean_row)
+            new_record = db_model(**clean_row)
             new_record.last_updated_by = current_user.fnum
             db.add(new_record)
             
@@ -1111,12 +1119,6 @@ async def bulk_upload_nominal_roll(
 
         db.commit()
         
-        if hasattr(models, 'Audit_Logs'):
-            log_semantic_audit(
-                db, current_user.fnum, "HR_BULK_UPLOAD", "SYSTEM", 
-                {}, f"Uploaded {records_added} personnel. Skipped {records_skipped} duplicates."
-            )
-            
         return {
             "status": "success", 
             "message": f"Successfully imported {records_added} officers. Skipped {records_skipped} duplicates."

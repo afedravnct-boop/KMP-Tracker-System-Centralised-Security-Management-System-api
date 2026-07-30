@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAlert, Inbox, Calendar, Filter, Clock } from 'lucide-react';
+import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAlert, Inbox, Calendar, Filter, Clock, ArrowLeft } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -171,6 +171,15 @@ const AdminCommunication = ({ currentUser, users }) => {
               <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider">Secure Directive & Notification Network</p>
             </div>
           </div>
+
+          {/* 🟢 RETURN NAVIGATION BUTTON */}
+          <button
+            onClick={() => setCurrentPage('reports')} // Change to 'home' if that is your default landing page
+            className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-all border border-slate-700 shadow-sm"
+          >
+            <ArrowLeft size={16} />
+            <span>Return to Dashboard</span>
+          </button>
         </div>
 
         {/* TAB NAVIGATION */}

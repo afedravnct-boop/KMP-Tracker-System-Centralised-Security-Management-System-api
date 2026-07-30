@@ -35,6 +35,8 @@ const autoCapitalize = (text) => {
   });
 };
 
+const [isFullScreen, setIsFullScreen] = useState(false);
+
 const POSITIONS = {
   ADMIN: [
     "System Manager", "IGP", "DIGP", "Director OPS", "Director CT", "Director CI", 
@@ -3092,23 +3094,23 @@ const handleFormSubmit = async (e) => {
              <MetricCard title="Total Personnel" value={metricsData.total} colorClass="text-blue-700" />
              <MetricCard title="Male Officers" value={metricsData.male} colorClass="text-indigo-600" />
              <MetricCard title="Female Officers" value={metricsData.female} colorClass="text-pink-600" />
-             <MetricCard title="Active Stations" value={Object.keys(metricsData.stations).length} colorClass="text-emerald-600" />
+             <MetricCard title="Stations" value={Object.keys(metricsData.stations).length} colorClass="text-emerald-600" />
           </div>
         )}
       </div>
 
    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-5 space-y-5">
 
           {/* 🟢 Bulk Excel Upload with Required Schema Preview */}
           {(currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'RPC') && (
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div>
                 <h4 className="font-bold text-gray-800 text-sm flex items-center">
-                  <Upload className="w-4 h-4 mr-2 text-blue-600" /> Batch Excel Import
+                  <Upload className="w-4 h-4 mr-2 text-blue-600" /> Batch Excel Import Existing Nominal Roll
                 </h4>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Ensure your Excel file uses these exact column headers for consistency:
+                  Upload your existing Nominal roll, Ensure your column headers are exactly as below for consistency:
                 </p>
               </div>
 
@@ -3412,7 +3414,7 @@ const handleFormSubmit = async (e) => {
                        <select value={metricCategory} onChange={e => setMetricCategory(e.target.value)} className="border border-indigo-300 rounded p-1 text-sm font-bold text-indigo-700 outline-none bg-white">
                           <option value="RANK">Rank Breakdown</option>
                           <option value="UNIT">Unit / Station Breakdown</option>
-                          <option value="AGE">Age Demographics</option>
+                          <option value="AGE">Age Demographics Breakdown</option>
                           <option value="SEX">Sex Distribution</option>
                        </select>
                     </div>
@@ -4862,9 +4864,10 @@ const DashboardLayout = ({
   const [selectedUserDetail, setSelectedUserDetail] = useState(null);
   const [viewingProfileImage, setViewingProfileImage] = useState(null);
   const [newForcePassword, setNewForcePassword] = useState(''); // 🟢 ADDED FOR MODAL
+  const [isFullScreen, setIsFullScreen] = useState(false);
   
   const [lastViewedId, setLastViewedId] = useState(() => {
-
+  
     const saved = localStorage.getItem('last_viewed_comm_id');
     return saved ? JSON.parse(saved) : 0;
   });
@@ -4902,15 +4905,15 @@ const DashboardLayout = ({
     return () => clearInterval(heartbeatInterval);
   }, []);
 
-// 🟢 ACTIVE IDLE TIMER & AUTO-LOGOUT DIALOGUE LOGIC
+// 🟢 1. ACTIVE IDLE TIMER & AUTO-LOGOUT DIALOGUE LOGIC
   useEffect(() => {
-    const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // Exactly 30 Minutes
+    const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 Minutes
     let lastActivityTime = Date.now();
-    let hasWarned = false;
 
     const enforceLogout = () => {
-      // This triggers the explicit dialog box you want
+      // 🟢 This explicitly fires the browser popup dialog you requested
       alert("Session Expired: You have been securely logged out due to inactivity.");
+      
       if (typeof onLogout === 'function') {
         onLogout();
       } else {
@@ -4921,20 +4924,18 @@ const DashboardLayout = ({
 
     const updateActivity = () => {
       lastActivityTime = Date.now();
-      hasWarned = false; 
     };
 
-    // Attach activity listeners across the entire window
+    // Attach activity listeners
     window.addEventListener('mousemove', updateActivity);
     window.addEventListener('keypress', updateActivity);
     window.addEventListener('click', updateActivity);
     window.addEventListener('scroll', updateActivity);
 
-    // Check interval running every 10 seconds
+    // Background check interval running every 10 seconds
     const idleCheckInterval = setInterval(() => {
       const elapsed = Date.now() - lastActivityTime;
       
-      // Final Timeout Reached -> Triggers the alert popup
       if (elapsed >= IDLE_TIMEOUT_MS) {
         clearInterval(idleCheckInterval);
         enforceLogout();
@@ -5087,6 +5088,9 @@ return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
       <div className={`bg-cyan-900 text-white transition-all duration-300 ${sidebarOpen ? 'w-72' : 'w-15'} flex flex-col h-full shadow-2xl z-20`}>
         
+{/* 🟢 3. SIDEBAR WRAPPER (Collapses if isFullScreen is true) */}
+      <div className={`transition-all duration-300 flex flex-col bg-slate-900 border-r border-slate-700 ${isFullScreen ? 'hidden w-0' : 'w-64 md:w-72 flex-shrink-0'}`}>
+        
         {/* --- HEADER --- */}
         <div className="p-4 flex items-center justify-between border-b border-slate-500">
           {sidebarOpen && (
@@ -5116,7 +5120,6 @@ return (
                 onClick={() => {
                   setCurrentPage(item.id);
                   if (item.id === 'Admin_Communication') {
-                    // Safely check if latestCommId exists. If not, fallback to Date.now() to prevent crashes.
                     const safeId = typeof latestCommId !== 'undefined' ? latestCommId : Date.now();
                     setLastViewedId(safeId);
                     localStorage.setItem('last_viewed_comm_id', JSON.stringify(safeId));
@@ -5139,7 +5142,9 @@ return (
               </button>
             ))}
           </nav>
-{sidebarOpen && ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) && (
+
+          {/* 🟢 SYSTEM ADMIN CLEARANCE BLOCK */}
+          {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.system_admin) && (
             <div className="px-4 space-y-3">
               <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
                 <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access, Modifications & Approvals</div>
@@ -5149,27 +5154,16 @@ return (
                 >
                   Manage Pending Users & Logs
                 </button>
-                
-                {currentUser?.role === 'SUPER_ADMIN' && (
-                  <button
-                    onClick={handleExportLogs}
-                    className="w-full mt-6 text-xs py-4 rounded transition font-bold bg-slate-900 hover:bg-slate-950 text-slate-300 border border-slate-700 flex items-center justify-center"
-                  >
-                    <Download size={14} className="mr-2 text-blue-400"/> Export Audit Logs
-                  </button>
-                )}
               </div>
 
               <div className="rounded-lg p-4 bg-slate-800">
                 <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
-                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Connections ({realOnlineUsers.length})</span>
-                  <span className="bg-slate-800 px-2 py-2 rounded-full text-xs"></span>
+                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Connections ({realOnlineUsers?.length || 0})</span>
                 </button>
                 
                 {showOnline && (
                   <div className="mt-4 space-y-2 border-t border-slate-700 pt-4 max-h-40 overflow-y-auto custom-scrollbar pr-1">
-                    {/* DYNAMICALLY RENDERS ALL LIVE USERS */}
-{realOnlineUsers.map((user) => (
+                    {realOnlineUsers.map((user) => (
                       <div key={user.fnum} onClick={() => { setSelectedUserDetail({ ...user, isSystemUser: true, isReadOnly: true }); setNewForcePassword(''); }} className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between group">
                         <div className="flex items-center space-x-3">
                           {user.profile_photo_path ? (
@@ -5182,14 +5176,18 @@ return (
                             <span className="text-slate-400 text-[9px] uppercase tracking-wider">{user.station}</span>
                           </div>
                         </div>
-                        {/* Pulsing Green Dot */}
                         <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e] animate-pulse"></div>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
+            </div> 
+          )}
 
+          {/* 🟢 GLOBAL ROSTER VISIBILITY BLOCK (Appears only if cleared) */}
+          {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) && (
+            <div className="px-4 mt-3 space-y-3">
               <div className="rounded-lg p-3 bg-slate-800 border border-slate-700">
                 <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400">
                   <span className="flex items-center"><Users size={16} className="mr-2"/> 👥 System Roster</span>
@@ -5212,13 +5210,11 @@ return (
                                 {u.name?.charAt(0) || 'U'}
                               </div>
                             )}
-                            
                             <div>
                               <span className="font-bold text-white block truncate w-28">{u.name}</span>
                               <span className="text-slate-400 font-mono text-[9px]">{u.fnum}</span>
                             </div>
                           </div>
-
                           <div className="text-[9px] px-1.5 py-0.5 bg-slate-800 rounded text-slate-300 font-bold uppercase border border-slate-700 group-hover:bg-blue-900 group-hover:text-blue-100 transition-colors">
                             {String(u.role || 'USER').replace('_ADMIN', '')}
                           </div>
@@ -5227,14 +5223,11 @@ return (
                  </div>
                 )}
               </div>
-            </div> 
+            </div>
           )}
 
+          {/* 🟢 REPORTS & LEDGERS BLOCK */}
           {sidebarOpen && (
-            ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || 
-            currentUser.permissions?.consolidated || 
-            currentUser.permissions?.export_data
-          ) && (
             <div className="px-4 mt-4 space-y-3">
               <div className="bg-slate-800 rounded-lg p-3 border border-yellow-600/30">
                 <div className="text-sm font-bold text-yellow-500 mb-3 flex items-center"><Shield size={16} className="mr-2"/> ⚙️ Reports & Ledgers</div>
@@ -5246,18 +5239,30 @@ return (
                       <button onClick={onViewHRReport} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center">
                         <Eye size={14} className="mr-1"/> View
                       </button>
-                      <button onClick={onGenerateHRReport} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded transition flex items-center justify-center">
-                        <Download size={14} className="mr-1"/> Export
-                      </button>
+
+                      {/* 🟢 DATABASE EXPORT PRIVILEGE (Appears only if cleared) */}
+                      {(['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.export_data) && (
+                        <button onClick={onGenerateHRReport} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded transition flex items-center justify-center">
+                          <Download size={14} className="mr-1"/> Export
+                        </button>
+                      )}
                     </div>
                   </div>
                                     
-{(['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.consolidated) && (
+                  {/* 🟢 CONSOLIDATED LEDGER ACCESS (Appears only if cleared) */}
+                  {(['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.consolidated) && (
                     <button 
                       onClick={onViewConsolidated}
                       className="w-full text-xs py-2 rounded transition flex items-center justify-center font-bold mt-3 bg-slate-900 hover:bg-slate-950 text-blue-400 border border-blue-900"
                     >
                       <Eye size={14} className="mr-2"/> Consolidated Entries
+                    </button>
+                  )}
+                  
+                  {/* 🟢 AUDIT LOG EXPORT (Appears only if cleared) */}
+                  {(['SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.export_data) && (
+                    <button onClick={handleExportLogs} className="w-full mt-2 text-xs py-2 rounded transition font-bold bg-slate-900 hover:bg-slate-950 text-slate-300 border border-slate-700 flex items-center justify-center">
+                      <Download size={14} className="mr-2 text-blue-400"/> Export Audit Logs
                     </button>
                   )}
                 </div>
@@ -5266,37 +5271,48 @@ return (
           )}
         </div>
 
-<div className="p-4 border-t border-slate-700 bg-slate-950">
-          {/* 🟢 THE FIX: Change onClick to setCurrentPage('profile') so it routes to the editable page! */}
+        {/* --- USER PROFILE FOOTER --- */}
+        <div className="p-4 border-t border-slate-700 bg-slate-950 shrink-0">
           <div className="flex items-center mb-4 px-2 cursor-pointer hover:bg-slate-800 p-2 rounded transition-colors" onClick={() => setCurrentPage('profile')}>
              <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm shadow overflow-hidden">
                {currentUser?.profile_photo_path ? (
                  <img src={currentUser.profile_photo_path} alt="" className="w-full h-full object-cover" onError={(e) => { e.target.style.display='none'; }} />
-               ) : null}
-               {!currentUser?.profile_photo_path && (currentUser?.name?.charAt(0) || 'A')}
+               ) : (currentUser?.name?.charAt(0) || 'A')}
              </div>
              {sidebarOpen && (
-               <div className="ml-3">
-                 <div className="text-sm font-bold leading-tight truncate w-40">{currentUser?.name || 'Guest'}</div>
-                 <div className="text-xs font-bold text-green-400 uppercase">{currentUser?.role || 'N/A'} • {currentUser?.station || 'N/A'}</div>
+               <div className="ml-3 flex-1 overflow-hidden">
+                 <div className="text-sm font-bold leading-tight truncate">{currentUser?.name || 'Guest'}</div>
+                 <div className="text-xs font-bold text-green-400 uppercase truncate">{currentUser?.role || 'N/A'} • {currentUser?.station || 'N/A'}</div>
                </div>
              )}
           </div>
-          <button onClick={onLogout} className="flex items-center w-full px-4 py-2 text-red-400 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-red-900">
+          <button onClick={onLogout} className="flex items-center w-full px-4 py-2 text-red-400 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-red-900 justify-center">
              <LogOut size={18} />
              {sidebarOpen && <span className="ml-3 font-medium text-sm">Secure Logout</span>}
           </button>
         </div>
       </div>
 
-      <main className="flex-1 overflow-y-auto bg-gray-50 w-full relative">
+      {/* 🟢 MAIN CONTENT AREA WITH FULL-SCREEN TOGGLE BUTTON */}
+      <main className="flex-1 overflow-y-auto bg-gray-50 w-full relative flex flex-col">
+        
+        {/* Full Screen Floating Toggle */}
+        <div className="absolute top-4 right-6 z-50">
+          <button 
+            onClick={() => setIsFullScreen(!isFullScreen)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-bold shadow-md transition-colors flex items-center gap-2 border border-blue-800"
+          >
+            {isFullScreen ? '🗗 Exit Full Screen' : '⛶ Full Screen'}
+          </button>
+        </div>
+
         <div className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.03]">
           <img 
-  src="/upf_badge.png" 
-  alt="watermark" 
-  className="w-1/2 max-w-2xl grayscale object-contain contrast-200 brightness-75 drop-shadow-sm" 
-  onError={(e) => { e.target.style.display = 'none'; }} 
-/>
+            src="/upf_badge.png" 
+            alt="watermark" 
+            className="w-1/2 max-w-2xl grayscale object-contain contrast-200 brightness-75 drop-shadow-sm" 
+            onError={(e) => { e.target.style.display = 'none'; }} 
+          />
         </div>
         
         {React.Children.map(children, child => 
