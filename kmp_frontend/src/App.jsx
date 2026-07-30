@@ -285,127 +285,34 @@ const relevantComms = safeComms.filter(c => {
       <div className={isInboxFullScreen ? "fixed inset-0 z-[100] bg-gray-100 flex flex-col p-4 sm:p-8 animate-in fade-in zoom-in duration-200" : "w-full"}>
         <div className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col ${isInboxFullScreen ? 'flex-1 shadow-2xl' : ''}`}>
           
-          <div className="bg-slate-900 text-white px-4 py-3 flex justify-between items-center shrink-0">
-            <h3 className="font-bold text-sm flex items-center tracking-wider">
-              <div className="relative flex items-center justify-center mr-3">
-                <Bell size={16} className={hasUnread ? "text-green-400" : "text-slate-400"} />
-                {hasUnread && (
-                  <>
-                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping" />
-                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full" />
-                  </>
-                )}
-              </div>
-              Administrative Communication {isInboxFullScreen && "(Full Screen Mode)"}
-            </h3>
-            <button onClick={() => setIsInboxFullScreen(!isInboxFullScreen)} className="text-gray-400 hover:text-white p-1.5 rounded transition-colors bg-slate-800 hover:bg-slate-700 border border-slate-600 flex items-center" title="Toggle Full Screen">
-              {isInboxFullScreen ? <><Minimize2 size={16} className="mr-1"/> Close</> : <Maximize2 size={16}/>}
-            </button>
-          </div>
-          
-          <div className={`p-0 overflow-y-auto custom-scrollbar bg-slate-50 flex-1 ${isInboxFullScreen ? 'max-h-none' : 'max-h-[350px]'}`}>
-            {relevantComms.length === 0 ? (
-              <div className="p-6 text-center text-xs font-bold text-slate-400 uppercase">No active directives.</div>
-            ) : (
-              <div className="divide-y divide-slate-200">
-                {(isInboxExpanded ? relevantComms : relevantComms.slice(0, 1)).map((comm) => (
-                  <div key={comm.id} className={`p-4 transition-all duration-500 ${
-                    comm.acknowledged 
-                      ? 'bg-gray-50 border-l-4 border-l-gray-300 opacity-70 grayscale-[30%]' 
-                      : `hover:bg-slate-100 ${ 
-                          comm.message_type === 'CRITICAL_ALERT' ? 'border-l-4 border-l-red-500 bg-red-50/40' : 
-                          comm.message_type === 'ASSIGNMENT' ? 'border-l-4 border-l-yellow-500 bg-yellow-50/40' : 
-                          'border-l-4 border-l-blue-500 bg-blue-50/40'
-                        }`
-                  }`}>
-                    
-                    <div className="cursor-pointer" onClick={() => setExpandedComm(expandedComm === comm.id ? null : comm.id)}>
-                        <div className="flex justify-between items-start mb-1">
-                          <div className="flex items-center space-x-2">
-                            <span className={`text-xs font-extrabold px-2 py-0.5 rounded-sm uppercase tracking-wider ${
-                              comm.message_type === 'CRITICAL_ALERT' ? 'bg-red-100 text-red-700' : 
-                              comm.message_type === 'ASSIGNMENT' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'
-                            }`}>{comm.message_type.replace('_', ' ')}</span>
-                            
-                            {comm.acknowledged && (
-                              <span className="text-[9px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded border border-green-200 flex items-center">
-                                <CheckCircle size={10} className="mr-1"/> READ
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-xs font-bold text-slate-400">{comm.created_at}</span>
-                        </div>
-                        <div className="flex justify-between items-center mt-2">
-                           <h4 className={`text-sm leading-tight ${
-                             comm.acknowledged 
-                               ? 'font-medium text-slate-500 line-through decoration-slate-400' 
-                               : 'font-extrabold text-slate-900'
-                           }`}>
-                             {comm.subject}
-                           </h4>
-                           <span className={`text-[9px] font-bold px-2 py-1 rounded ml-2 whitespace-nowrap transition-colors ${
-                              expandedComm === comm.id ? 'bg-slate-200 text-slate-600' : 'bg-blue-100 text-blue-700'
-                           }`}>{expandedComm === comm.id ? 'Close' : 'Read Dispatch'}</span>
-                        </div>
-                    </div>
-                    
-                    {expandedComm === comm.id && (
-                        <div className="mt-3 pt-3 border-t border-slate-200 animate-in fade-in slide-in-from-top-2">
-                            <div className={`text-xs font-medium ql-editor p-0 ${comm.acknowledged ? 'text-slate-500' : 'text-slate-700'}`} dangerouslySetInnerHTML={{ __html: comm.message }} />
-                            
-                            <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center">
-<div className="text-[9px] font-bold text-slate-400 uppercase">
-    Dispatched by: {comm.sender_name}
-    {(
-      ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||
-      currentUser?.position?.includes('Divisional Commander') ||
-      currentUser?.position?.includes('Deputy') ||
-      currentUser?.position?.includes('RPC')
-    ) && (
-      <button 
-        onClick={() => fetchReceipts(comm.id)} 
-        className="ml-3 text-blue-600 hover:text-blue-800 underline font-bold cursor-pointer"
-      >
-        View Receipts
-      </button>
-    )}
+{/* 🟢 ADMIN COMMAND DISPATCH WIDGET (~3cm height, replaces the giant inline inbox) */}
+<div 
+  onClick={() => setCurrentPage('Admin_Communication')} 
+  className="h-28 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-green-400 group relative overflow-hidden"
+>
+  {/* 🟢 Pulsing Green Notification Dot (Only shows if there are unread messages) */}
+  {hasUnread && (
+    <>
+      <div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping"></div>
+      <div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full"></div>
+    </>
+  )}
+  
+  <div className="w-14 h-14 rounded-full bg-slate-900 text-white flex items-center justify-center mr-4 group-hover:bg-slate-800 transition-colors shrink-0">
+    <RadioReceiver size={24} className={hasUnread ? "text-green-400 animate-pulse" : "text-slate-400"} />
   </div>
-                                {comm.acknowledged ? (
-                                    <span className="text-xs font-extrabold text-green-600 flex items-center bg-green-50 px-2 py-1 rounded border border-green-200">
-                                       <CheckCircle size={12} className="mr-1"/> Acknowledged
-                                    </span>
-                                ) : (
-                                    <button onClick={() => onAcknowledgeComm(comm.id)} className="text-xs bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded font-bold shadow-sm transition flex items-center">
-                                        Acknowledge Receipt
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                  </div>
-                ))}
-{/* 🛡️ THE FIX: Toggle Button to Expand/Collapse Inbox */}
-                {relevantComms.length > 1 && (
-                  <div 
-                    onClick={() => setIsInboxExpanded(!isInboxExpanded)}
-                    className="p-3 bg-slate-200/50 text-center text-xs font-extrabold text-slate-600 hover:bg-slate-200 cursor-pointer transition-colors tracking-widest uppercase"
-                  >
-                    {isInboxExpanded ? "Collapse Inbox" : `View ${relevantComms.length - 1} Older Dispatches`}
-                  </div>
-                )}
-
-              </div>
-            )}
-          </div>
-          {isAdmin && (
-             <div className="bg-white p-1 border-t border-slate-200 shrink-0">
-               <button onClick={() => setCurrentPage('Admin_Communication')} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-3 rounded-lg transition-colors flex items-center justify-center">
-                 <MessageSquare size={14} className="mr-2"/> Open Dispatch Console
-               </button>
-             </div>
-          )}
-        </div>
-      </div>
+  
+  <div className="flex-1">
+    <h3 className="text-sm font-extrabold text-slate-900 leading-tight">Command Dispatches</h3>
+    <p className="text-xs font-medium mt-1 line-clamp-2 transition-colors duration-300 flex items-center">
+      {hasUnread ? (
+        <span className="text-green-600 font-bold">You have unread directives. Click to view.</span>
+      ) : (
+        <span className="text-slate-500">Secure directives, network alerts, and command communications.</span>
+      )}
+    </p>
+  </div>
+</div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
           <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-300 group">
@@ -4985,7 +4892,7 @@ const DashboardLayout = ({
 
   const navItems = [
     { 
-      name: '🏠 Home Dashboard', 
+      name: 'Home Dashboard', 
       id: 'home', 
       icon: (
         <div className="relative flex items-center justify-center">
@@ -4995,17 +4902,17 @@ const DashboardLayout = ({
         </div>
       )
     },
-    { name: '📋 Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> },
-    { name: '📊 Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> },
-    { name: '⛓️‍💥 Success Stories', id: 'success', icon: <Trophy size={20} /> },
-    { name: '🏢 Establishments', id: 'establishments', icon: <Building size={20} /> },
-    { name: '👥 Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> },
+    { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> },
+    { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> },
+    { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> },
+    { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> },
+    { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> },
   ];
 
   if (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)) {
      navItems.push({ 
-       name: ' Admin Dispatch', 
-       id: 'Admin Official Communication', 
+       name: ' Official Admin Dispatch', 
+       id: 'Admin_Communication', 
        icon: <Bell size={20} />
      });
   }
@@ -5075,13 +4982,17 @@ const DashboardLayout = ({
   return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
       
-      {/* 🟢 SIDEBAR WRAPPER (Collapses if isFullScreen is true) */}
-      <div className={`transition-all duration-300 flex flex-col bg-slate-900 border-r border-slate-700 ${isFullScreen ? 'hidden w-0' : 'w-64 md:w-72 flex-shrink-0'}`}>
+{/* 🟢 SIDEBAR WRAPPER (Collapses to edge on 3-bar click, disappears entirely on Full Screen) */}
+      <div className={`transition-all duration-300 flex flex-col bg-slate-900 border-r border-slate-700 flex-shrink-0 overflow-hidden ${
+        isFullScreen 
+          ? 'hidden w-0' 
+          : (sidebarOpen ? 'w-64 md:w-72' : 'w-16')
+      }`}>
         
         {/* --- HEADER --- */}
-        <div className="p-4 flex items-center justify-between border-b border-slate-500">
+        <div className={`p-4 flex items-center border-b border-slate-500 transition-all ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
           {sidebarOpen && (
-            <div className="flex items-center">
+            <div className="flex items-center min-w-max">
               <img 
                 src="/upf_badge.png" 
                 alt="UPF Logo" 
@@ -5091,14 +5002,14 @@ const DashboardLayout = ({
               <span className="font-bold text-0.5g tracking-wider">KMP TRACKER SYSTEM</span>
             </div>
           )}
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-500 rounded text-slate-150 transition-colors">
-            <Menu size={10} />
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-500 rounded text-slate-150 transition-colors shrink-0">
+            <Menu size={sidebarOpen ? 14 : 20} />
           </button>
         </div>
         
         {/* --- NAVIGATION LIST --- */}
-        <div className="flex-1 overflow-y-auto py-2 custom-scrollbar">
-          {sidebarOpen && <div className="px-6 mb-2 text-xs font-bold text-orange-500 uppercase tracking-wider">📋 Select Domain Category</div>}
+        <div className="flex-1 overflow-y-auto py-2 custom-scrollbar overflow-x-hidden">
+          {sidebarOpen && <div className="px-6 mb-2 text-xs font-bold text-orange-500 uppercase tracking-wider min-w-max">📋 Select Domain Category</div>}
           
           <nav className="space-y-1 mb-8">
             {navItems.map((item) => (
@@ -5112,17 +5023,17 @@ const DashboardLayout = ({
                     localStorage.setItem('last_viewed_comm_id', JSON.stringify(safeId));
                   }
                 }}
-                className={`w-full flex items-center px-6 py-3 transition-colors text-left ${
+                className={`w-full flex items-center py-3 transition-colors text-left ${sidebarOpen ? 'px-6' : 'px-0 justify-center'} ${
                   currentPage === item.id ? 'bg-blue-600 border-l-4 border-yellow-400 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white border-l-4 border-transparent'
                 }`}
               >
-                <div className="min-w-[24px]">{item.icon}</div>
+                <div className="min-w-[24px] flex justify-center shrink-0">{item.icon}</div>
                 
                 {sidebarOpen && (
-                  <span className={`ml-3 font-medium text-sm flex items-center justify-between flex-1 ${item.id === 'home' && hasUnreadComms ? 'text-green-200 font-extrabold animate-pulse' : ''}`}>
+                  <span className={`ml-3 font-medium text-sm flex items-center justify-between flex-1 min-w-max ${item.id === 'home' && hasUnreadComms ? 'text-green-200 font-extrabold animate-pulse' : ''}`}>
                     {item.name}
                     {item.id === 'home' && hasUnreadComms && (
-                      <span className="text-[9px] bg-green-200/20 text-green-200 border border-green-200 px-1.5 py-0.5 rounded uppercase tracking-wider">New Dispatch</span>
+                      <span className="text-[9px] bg-green-200/20 text-green-200 border border-green-200 px-1.5 py-0.5 rounded uppercase tracking-wider ml-2">New Dispatch</span>
                     )}
                   </span>
                 )}
@@ -5132,9 +5043,9 @@ const DashboardLayout = ({
 
           {/* 🟢 SYSTEM ADMIN CLEARANCE BLOCK */}
           {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.system_admin) && (
-            <div className="px-4 space-y-3">
+            <div className="px-4 space-y-3 min-w-max">
               <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
-                <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access, Modifications & Approvals</div>
+                <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
                 <button 
                   onClick={() => setCurrentPage('approvals')} 
                   className={`w-full text-xs py-4 rounded transition font-medium ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}
@@ -5145,7 +5056,7 @@ const DashboardLayout = ({
 
               <div className="rounded-lg p-4 bg-slate-800">
                 <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
-                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Online Connections ({realOnlineUsers?.length || 0})</span>
+                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Online ({realOnlineUsers?.length || 0})</span>
                 </button>
                 
                 {showOnline && (
@@ -5172,9 +5083,9 @@ const DashboardLayout = ({
             </div> 
           )}
 
-          {/* 🟢 GLOBAL ROSTER VISIBILITY BLOCK (Appears only if cleared) */}
+          {/* 🟢 GLOBAL ROSTER VISIBILITY BLOCK */}
           {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) && (
-            <div className="px-4 mt-3 space-y-3">
+            <div className="px-4 mt-3 space-y-3 min-w-max">
               <div className="rounded-lg p-3 bg-slate-800 border border-slate-700">
                 <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400">
                   <span className="flex items-center"><Users size={16} className="mr-2"/> 👥 System Roster</span>
@@ -5184,11 +5095,7 @@ const DashboardLayout = ({
                 {showAllUsers && (
                  <div className="mt-3 space-y-2 border-t border-slate-700 pt-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
                     {users?.map(u => (
-                       <div 
-                         key={u.fnum} 
-                         onClick={() => { setSelectedUserDetail({ ...u, isSystemUser: true, isReadOnly: false }); setNewForcePassword(''); }} 
-                         className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-blue-500 cursor-pointer transition-all flex items-center justify-between group"
-                       >
+                       <div key={u.fnum} onClick={() => { setSelectedUserDetail({ ...u, isSystemUser: true, isReadOnly: false }); setNewForcePassword(''); }} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-blue-500 cursor-pointer transition-all flex items-center justify-between group">
                           <div className="flex items-center space-x-2">
                             {u.profile_photo_path ? (
                               <img src={u.profile_photo_path} alt="" className="w-7 h-7 rounded-full object-cover border border-slate-600 group-hover:border-blue-400" onError={(e) => { e.target.style.display='none'; }} />
@@ -5215,10 +5122,9 @@ const DashboardLayout = ({
 
           {/* 🟢 REPORTS & LEDGERS BLOCK */}
           {sidebarOpen && (
-            <div className="px-4 mt-4 space-y-3">
+            <div className="px-4 mt-4 space-y-3 min-w-max pb-4">
               <div className="bg-slate-800 rounded-lg p-3 border border-yellow-600/30">
                 <div className="text-sm font-bold text-yellow-500 mb-3 flex items-center"><Shield size={16} className="mr-2"/> ⚙️ Reports & Ledgers</div>
-                
                 <div className="space-y-4">
                   <div>
                     <span className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1 block">HR & Establishments</span>
@@ -5226,8 +5132,6 @@ const DashboardLayout = ({
                       <button onClick={onViewHRReport} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center">
                         <Eye size={14} className="mr-1"/> View
                       </button>
-
-                      {/* 🟢 DATABASE EXPORT PRIVILEGE (Appears only if cleared) */}
                       {(['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.export_data) && (
                         <button onClick={onGenerateHRReport} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded transition flex items-center justify-center">
                           <Download size={14} className="mr-1"/> Export
@@ -5235,18 +5139,11 @@ const DashboardLayout = ({
                       )}
                     </div>
                   </div>
-                                    
-                  {/* 🟢 CONSOLIDATED LEDGER ACCESS (Appears only if cleared) */}
                   {(['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.consolidated) && (
-                    <button 
-                      onClick={onViewConsolidated}
-                      className="w-full text-xs py-2 rounded transition flex items-center justify-center font-bold mt-3 bg-slate-900 hover:bg-slate-950 text-blue-400 border border-blue-900"
-                    >
+                    <button onClick={onViewConsolidated} className="w-full text-xs py-2 rounded transition flex items-center justify-center font-bold mt-3 bg-slate-900 hover:bg-slate-950 text-blue-400 border border-blue-900">
                       <Eye size={14} className="mr-2"/> Consolidated Entries
                     </button>
                   )}
-                  
-                  {/* 🟢 AUDIT LOG EXPORT (Appears only if cleared) */}
                   {(['SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.export_data) && (
                     <button onClick={handleExportLogs} className="w-full mt-2 text-xs py-2 rounded transition font-bold bg-slate-900 hover:bg-slate-950 text-slate-300 border border-slate-700 flex items-center justify-center">
                       <Download size={14} className="mr-2 text-blue-400"/> Export Audit Logs
@@ -5259,28 +5156,28 @@ const DashboardLayout = ({
         </div>
 
         {/* --- USER PROFILE FOOTER --- */}
-        <div className="p-4 border-t border-slate-700 bg-slate-950 shrink-0">
-          <div className="flex items-center mb-4 px-2 cursor-pointer hover:bg-slate-800 p-2 rounded transition-colors" onClick={() => setCurrentPage('profile')}>
-             <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm shadow overflow-hidden">
+        <div className={`p-4 border-t border-slate-700 bg-slate-950 shrink-0 flex flex-col transition-all ${sidebarOpen ? '' : 'items-center'}`}>
+          <div className={`flex items-center cursor-pointer hover:bg-slate-800 rounded transition-colors ${sidebarOpen ? 'mb-4 px-2 p-2' : 'justify-center p-2 mb-3'}`} onClick={() => setCurrentPage('profile')}>
+             <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm shadow overflow-hidden shrink-0">
                {currentUser?.profile_photo_path ? (
                  <img src={currentUser.profile_photo_path} alt="" className="w-full h-full object-cover" onError={(e) => { e.target.style.display='none'; }} />
                ) : (currentUser?.name?.charAt(0) || 'A')}
              </div>
              {sidebarOpen && (
-               <div className="ml-3 flex-1 overflow-hidden">
+               <div className="ml-3 flex-1 overflow-hidden min-w-max">
                  <div className="text-sm font-bold leading-tight truncate">{currentUser?.name || 'Guest'}</div>
                  <div className="text-xs font-bold text-green-400 uppercase truncate">{currentUser?.role || 'N/A'} • {currentUser?.station || 'N/A'}</div>
                </div>
              )}
           </div>
-          <button onClick={onLogout} className="flex items-center w-full px-4 py-2 text-red-400 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-red-900 justify-center">
+          <button onClick={onLogout} className={`flex items-center w-full py-2 text-red-400 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-red-900 ${sidebarOpen ? 'px-4 justify-start' : 'px-0 justify-center'}`}>
              <LogOut size={18} />
-             {sidebarOpen && <span className="ml-3 font-medium text-sm">Secure Logout</span>}
+             {sidebarOpen && <span className="ml-3 font-medium text-sm min-w-max">Secure Logout</span>}
           </button>
         </div>
       </div>
 
-      {/* 🟢 MAIN CONTENT AREA WITH FULL-SCREEN TOGGLE BUTTON */}
+{/* 🟢 MAIN CONTENT AREA */}
       <main className="flex-1 overflow-y-auto bg-gray-50 w-full relative flex flex-col">
         
         {/* Full Screen Floating Toggle */}
@@ -5293,7 +5190,11 @@ const DashboardLayout = ({
           </button>
         </div>
 
-        <div className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.03]">
+        {/* 🇺🇬 FAINT WAVING UGANDA FLAG BACKGROUND WATERMARK */}
+        <div className="absolute inset-0 pointer-events-none z-0 uganda-flag-wave opacity-[0.03] mix-blend-multiply"></div>
+
+        {/* Existing UPF Badge Watermark */}
+        <div className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.02]">
           <img 
             src="/upf_badge.png" 
             alt="watermark" 
@@ -5373,8 +5274,11 @@ const DashboardLayout = ({
                 </div>
               </div>
 
-              {/* 3. ACCESS CONTROLS */}
-              {selectedUserDetail.isSystemUser && !selectedUserDetail.isReadOnly && (
+{/* 3. STRICT HIERARCHICAL ACCESS CONTROLS */}
+{selectedUserDetail.isSystemUser && !selectedUserDetail.isReadOnly && (
+  currentUser.role === 'SUPER_ADMIN' || 
+  (currentUser.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser.region === selectedUserDetail.region)
+) && (
                 <>
                   <h4 className="font-extrabold text-sm text-gray-900 border-b pb-2 flex items-center mb-4 mt-6">
                     <Shield size={16} className="mr-2 text-red-600"/> 
@@ -5449,16 +5353,32 @@ const DashboardLayout = ({
               )}
             </div>
 
-            {/* 🟢 RESTORED MODAL FOOTER */}
-            <div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center rounded-b-xl shrink-0">
-              <button 
-                onClick={() => setSelectedUserDetail(null)} 
-                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center border border-gray-300"
-              >
-                <X size={14} className="mr-1"/> Close Profile
-              </button>
-              
-              {selectedUserDetail.isSystemUser && (
+{/* 🟢 REGION-LOCKED MODAL FOOTER */}
+<div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center rounded-b-xl shrink-0">
+  <button 
+    onClick={() => setSelectedUserDetail(null)} 
+    className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center border border-gray-300"
+  >
+    <X size={14} className="mr-1"/> Close Profile
+  </button>
+  
+  {selectedUserDetail.isSystemUser && (
+    currentUser.role === 'SUPER_ADMIN' || 
+    (currentUser.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser.region === selectedUserDetail.region)
+  ) && (
+    <button 
+      onClick={() => {
+         if (window.confirm(`Are you absolutely sure you want to revoke all system access for ${selectedUserDetail.name}?`)) {
+            onRevokeUser(selectedUserDetail.fnum);
+            setSelectedUserDetail(null);
+         }
+      }} 
+      className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm"
+    >
+      Revoke Access
+    </button>
+  )}
+</div>
                 <button 
                   onClick={() => {
                      if (window.confirm(`Are you absolutely sure you want to revoke all system access for ${selectedUserDetail.name}?`)) {

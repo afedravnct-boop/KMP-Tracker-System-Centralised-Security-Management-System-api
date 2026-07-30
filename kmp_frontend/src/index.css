@@ -7,14 +7,6 @@
   min-height: 100vh;
   background-color: #F0F2F6;
 }
-/* ... rest of your CSS ... */
-
-/* index.css additions */
-.dashboard-container {
-  display: flex;
-  min-height: 100vh;
-  background-color: #F0F2F6;
-}
 
 .sidebar {
   width: 250px;
@@ -37,7 +29,7 @@
 }
 
 .sidebar-nav button.active {
-  background-color: #E6E8F1;
+  background-color: #E0F2FE;
   font-weight: bold;
 }
 
@@ -115,4 +107,31 @@
   padding: 12px;
   border-bottom: 1px solid #eee;
   text-align: left;
+}
+
+/* 🟢 UGANDA FLAG WAVING BACKGROUND ANIMATION */
+@keyframes flagWave {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.uganda-flag-wave {
+  background: linear-gradient(
+    135deg, 
+    #000000 0%, #000000 16.6%, 
+    #FCDC04 16.6%, #FCDC04 33.3%, 
+    #D90000 33.3%, #D90000 50%, 
+    #000000 50%, #000000 66.6%, 
+    #FCDC04 66.6%, #FCDC04 83.3%, 
+    #D90000 83.3%, #D90000 100%
+  );
+  background-size: 400% 400%;
+  animation: flagWave 15s ease infinite;
 }
