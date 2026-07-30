@@ -5,7 +5,7 @@ import 'react-quill-new/dist/quill.snow.css';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
-const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
+const AdminCommunication = ({ currentUser, users, setCurrentPage }) => {
   const [activeTab, setActiveTab] = useState('dispatch'); // 'dispatch', 'inbox', 'outbox'
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -57,7 +57,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
     setNotification({ type: 'info', text: 'Transmitting encrypted broadcast...' });
 
     try {
-      const token = sessionStorage.getItem('kmp_authToken');
+      const token = localStorage.getItem('kmp_authToken');
       const response = await fetch(`${API_URL}/api/v1/communications`, {
         method: "POST",
         headers: {
@@ -84,7 +84,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
       setNotification({ type: 'success', text: '✅ Broadcast successfully dispatched to targeted terminals.' });
       setFormData({ ...formData, subject: '', message: '', sendEmail: false, targetAudience: 'ALL_USERS', targetRegion: 'ALL' });
       
-      if (activeTab === 'outbox' || activeTab === 'inbox') fetchMessages();
+      // Refresh outbox if active
+      if (activeTab === 'outbox') fetchMessages();
       
     } catch (err) {
       console.error(err);
@@ -98,7 +99,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   const fetchMessages = async () => {
     setIsLoadingInbox(true);
     try {
-      const token = sessionStorage.getItem('kmp_authToken');
+      const token = localStorage.getItem('kmp_authToken');
       const today = new Date();
       let start = '';
       let end = '';
@@ -135,9 +136,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
 
       if (response.ok) {
         const data = await response.json();
-        const items = Array.isArray(data) ? data : (data.data || data.items || []);
-        setInboxMessages(items);
-        setOutboxMessages(items.filter(msg => msg.sender_fnum === currentUser.fnum));
+        setInboxMessages(data);
+        // Filter outbox to show ONLY messages dispatched by the current user
+        setOutboxMessages(data.filter(msg => msg.sender_fnum === currentUser.fnum));
       } else {
         console.error("Failed to fetch messages");
       }
@@ -152,7 +153,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
     setViewingReceiptsFor(commId);
     setLoadingReceipts(true);
     try {
-      const token = sessionStorage.getItem('kmp_authToken');
+      const token = localStorage.getItem('kmp_authToken');
       const res = await fetch(`${API_URL}/api/v1/communications/${commId}/readers`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -226,7 +227,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
           </button>
         </div>
 
-        {/* TAB NAVIGATION */}
+        {/* 🟢 TAB NAVIGATION */}
         <div className="flex border-b border-gray-200 bg-slate-50 overflow-x-auto">
           <button 
             onClick={() => setActiveTab('dispatch')} 
@@ -250,6 +251,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
 
         <div className="p-8">
           
+          {/* ========================================================= */}
+          {/* TAB 1: DISPATCH CONSOLE                                   */}
+          {/* ========================================================= */}
           {activeTab === 'dispatch' && (
             <>
               {notification && (
@@ -329,9 +333,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
             </>
           )}
 
+          {/* ========================================================= */}
+          {/* TAB 2 & 3: COMMAND INBOX AND OUTBOX                       */}
+          {/* ========================================================= */}
           {(activeTab === 'inbox' || activeTab === 'outbox') && (
             <div className="space-y-6">
               
+              {/* Filter Controls */}
               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-col md:flex-row gap-4 items-end">
                 <div className="flex-1 w-full">
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><Filter size={14} className="mr-1"/> Time Filter</label>
@@ -358,6 +366,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                 )}
               </div>
 
+              {/* Messages List */}
               {isLoadingInbox ? (
                 <div className="flex justify-center items-center py-20 text-slate-400 font-bold animate-pulse">
                   <Inbox className="w-6 h-6 mr-2" /> Syncing network...
@@ -373,13 +382,14 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                   {(activeTab === 'inbox' ? inboxMessages : outboxMessages).map((msg) => (
                     <div key={msg.id} className="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
                       
+                      {/* Message Header */}
                       <div className="bg-slate-50 px-5 py-3 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2">
                         <div className="flex items-center space-x-3">
                           <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getPriorityStyle(msg.message_type)}`}>
-                            {msg.message_type?.replace('_', ' ')}
+                            {msg.message_type.replace('_', ' ')}
                           </span>
                           <span className="text-xs font-bold text-slate-500 bg-slate-200 px-2 py-1 rounded border border-slate-300">
-                            TO: {msg.target_audience?.replace('_', ' ')} {msg.target_audience === 'SPECIFIC_REGION' ? `(${msg.target_region})` : ''}
+                            TO: {msg.target_audience.replace('_', ' ')} {msg.target_audience === 'SPECIFIC_REGION' ? `(${msg.target_region})` : ''}
                           </span>
                         </div>
                         <div className="flex items-center text-xs font-bold text-slate-400">
@@ -387,6 +397,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                         </div>
                       </div>
 
+                      {/* Message Body */}
                       <div className="p-5">
                         <h3 className="text-lg font-extrabold text-slate-800 mb-3">{msg.subject}</h3>
                         <div 
@@ -395,6 +406,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                         />
                       </div>
 
+                      {/* Message Footer (🟢 Read Receipts Universally Accessible!) */}
                       <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
                         <div>
                           <span className="font-bold mr-2">Dispatched By:</span> 

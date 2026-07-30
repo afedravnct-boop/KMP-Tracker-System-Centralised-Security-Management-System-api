@@ -53,7 +53,7 @@ const POSITIONS = {
 
 function usePersistentState(key, initialValue) {
   const [state, setState] = useState(() => {
-    const saved = sessionStorage.getItem(key);
+    const saved = localStorage.getItem(key);
     if (saved) {
       try { return JSON.parse(saved); } catch (e) { return initialValue; }
     }
@@ -169,7 +169,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
 
 
 
-const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], onMasterExport, onViewConsolidated, adminCommsData, onAcknowledgeComm }) => {
+const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewConsolidated, adminCommsData, onAcknowledgeComm }) => {
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
   const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role);
   
@@ -182,56 +182,8 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 
   const today = new Date().getDay();
   const isEndOfWeek = today === 5 || today === 6 || today === 0;
-
-  // 🟢 DYNAMIC WEEKLY COMPLIANCE CHECK
-  const userStation = (currentUser.station || '').trim().toUpperCase();
-  
-  const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-  
-  const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => 
-    (r.station || '').trim().toUpperCase() === userStation && new Date(r.date).getTime() >= sevenDaysAgo
-  );
-
-  const hasSubmittedStats = (Array.isArray(stats) ? stats : []).some(s => 
-    (s.station || '').trim().toUpperCase() === userStation && new Date(s.date).getTime() >= sevenDaysAgo
-  );
-
-  const hasSubmittedThisWeek = hasSubmittedReport || hasSubmittedStats;
-
-  // STRICT ROLE & POSITION TARGETING
-  const allowedRoles = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'];
-  const userRole = (currentUser.role || '').toUpperCase();
-  const userPosition = (currentUser.position || '').toUpperCase();
-  
-  const isTargetOfficer = 
-    allowedRoles.includes(userRole) || 
-    userPosition.includes('RPC') || 
-    userPosition.includes('COMMANDER') || 
-    userPosition.includes('DATA OFFICER');
-
-  const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && isTargetOfficer;
-  const showComplianceSuccess = isEndOfWeek && hasSubmittedThisWeek && isTargetOfficer;
-
-  // 🟢 COMPLIANCE TIMED FOLDING STATES (1 min wide, 4 min folded, 5 min pause)
-  const [isBannerFolded, setIsBannerFolded] = useState(false);
-
-  useEffect(() => {
-    if (!showComplianceWarning) return;
-
-    let timer;
-    const runCycle = () => {
-      setIsBannerFolded(false); // Wide state (1 Minute)
-      timer = setTimeout(() => {
-        setIsBannerFolded(true); // Folded state (4 Minutes)
-        timer = setTimeout(() => {
-          runCycle(); 
-        }, 240000); // 4 minutes folded
-      }, 60000); // 1 minute wide
-    };
-
-    runCycle();
-    return () => clearTimeout(timer);
-  }, [showComplianceWarning]);
+  const hasSubmittedThisWeek = false; 
+  const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && !isAdmin;
 
   const [viewingReceiptsFor, setViewingReceiptsFor] = useState(null);
   const [receiptsData, setReceiptsData] = useState([]);
@@ -241,7 +193,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
     setViewingReceiptsFor(commId);
     setLoadingReceipts(true);
     try {
-      const token = sessionStorage.getItem('kmp_authToken');
+      const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const res = await fetch(`${API_URL}/api/v1/communications/${commId}/readers`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -297,50 +249,16 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
         </div>
       )}
 
-      {/* 🔴 DYNAMIC WIDE / FOLDED COMPLIANCE WARNING */}
+      {/* 🟢 COMPLIANCE WARNING */}
       {showComplianceWarning && (
-        <div className={`transition-all duration-700 ease-in-out overflow-hidden rounded-xl shadow-lg border-2 ${
-          isBannerFolded 
-            ? 'bg-red-600 border-red-400 p-3 max-w-xs mx-auto cursor-pointer hover:bg-red-700' 
-            : 'bg-red-600 border-red-400 p-4 w-full animate-pulse'
-        }`}
-        onClick={() => isBannerFolded && setIsBannerFolded(false)}
-        title={isBannerFolded ? "Click to expand compliance reminder" : ""}
-        >
-          {isBannerFolded ? (
-            <div className="flex items-center justify-center space-x-2 text-white font-extrabold text-xs tracking-wider uppercase">
-              <span className="flex h-3 w-3 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-400"></span>
-              </span>
-              <span>⚠️ Compliance Overdue: Click to View Reminder</span>
-            </div>
-          ) : (
-            <div className="flex flex-col md:flex-row items-center justify-between text-white font-extrabold">
-              <div className="flex items-center text-sm mb-3 md:mb-0">
-                <AlertTriangle className="mr-3 w-6 h-6 shrink-0 text-yellow-300 animate-bounce" />
-                <span>COMPLIANCE ALERT: Your weekly Disruptive OPS Statistics or Crime entries are overdue for {currentUser.station}. Please submit daily or weekly records immediately to maintain command standing.</span>
-              </div>
-              <div className="flex space-x-2 shrink-0">
-                <button onClick={(e) => { e.stopPropagation(); setIsBannerFolded(true); }} className="bg-red-800 text-white px-3 py-2 rounded font-bold shadow text-xs hover:bg-red-900 transition">
-                  Fold Now
-                </button>
-                <button onClick={() => setCurrentPage('statistics')} className="bg-white text-red-700 px-4 py-2 rounded font-bold shadow text-xs hover:bg-gray-100 transition">
-                  Go to Statistics
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 🟢 COMPLIANCE APPRECIATION BANNER */}
-      {showComplianceSuccess && (
-        <div className="bg-emerald-600 text-white font-extrabold p-4 rounded-xl shadow-lg flex items-center justify-between border-2 border-emerald-400">
-          <div className="flex items-center text-sm">
-            <CheckCircle className="mr-3 w-6 h-6 shrink-0 text-emerald-200" />
-            <span>COMMAND COMMENDATION: Thank you, {currentUser.rank} {currentUser.name}, for duly filing your weekly tactical returns for {currentUser.station}. Command records reflect full compliance.</span>
+        <div className="bg-red-600 text-white font-extrabold p-4 rounded-xl shadow-lg flex flex-col md:flex-row items-center justify-between animate-pulse border-2 border-red-400">
+          <div className="flex items-center text-sm mb-3 md:mb-0">
+            <AlertTriangle className="mr-3 w-6 h-6 shrink-0 text-yellow-300" />
+            <span>COMPLIANCE ALERT: Your weekly Disruptive OPS Statistics are overdue. Please submit them immediately.</span>
           </div>
+          <button onClick={() => setCurrentPage('statistics')} className="bg-white text-red-700 px-4 py-2 rounded font-bold shadow text-xs hover:bg-gray-100 transition shrink-0 whitespace-nowrap">
+            Go to Statistics
+          </button>
         </div>
       )}
 
@@ -355,7 +273,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
       {/* 🟢 WELCOME BANNER */}
       <div className="w-full">
         <h3 className="text-center text-sm font-bold text-slate-600 bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-            Welcome, <span className="text-blue-700">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
+           Welcome, <span className="text-blue-700">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
         </h3>   
       </div>
 
@@ -440,7 +358,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
     </div>
   );
 };
-
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -4072,7 +3989,7 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
       }
 
       if (data.new_token) {
-          sessionStorage.setItem('kmp_authToken', data.new_token);
+          localStorage.setItem('kmp_authToken', data.new_token);
       }
 
       setCurrentUser({
@@ -4591,7 +4508,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         const data = await response.json();
 
         if (response.ok) {
-          sessionStorage.setItem('kmp_authToken', data.access_token);
+          localStorage.setItem('kmp_authToken', data.access_token);
           onLogin({ 
               fnum: data.fnum || 'A/2408', 
               rank: data.rank || 'AIP',
@@ -4665,17 +4582,16 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         <div className="relative z-10 text-center space-y-6 p-8 max-w-xl">
           <img 
             src="/upf_badge.png" 
-            alt="UPF Flag Emblem.png" 
+            alt="UPF Flag Emblem" 
             className="w-32 h-32 mx-auto object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.8)] contrast-200 brightness-90 animate-pulse" 
           />
           <div className="space-y-2">
-            <h1 className="text-3xl font-extrabold text-white tracking-wide uppercase drop-shadow-md">Uganda Police Force</h1>
-            <h2 className="text-sm font-bold text-blue-400 tracking-wider uppercase">Kampala Metropolitan Police </h2>
-            <h3 className="text-sm font-bold text-blue-400 tracking-wider uppercase">Police Tracker System - Centralised Security Data Management System</h3>
+            <h1 className="text-3xl font-extrabold text-white tracking-widest uppercase drop-shadow-md">Uganda Police Force</h1>
+            <h2 className="text-sm font-bold text-blue-400 tracking-wider uppercase">Kampala Metropolitan Police • Central Command</h2>
           </div>
           <div className="pt-6">
-            <span className="inline-block bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wide py-3 px-6 rounded-full border border-white/20 shadow-xl backdrop-blur-md animate-bounce">
-              Touch mouse or click anywhere to open Log in page
+            <span className="inline-block bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-widest py-3 px-6 rounded-full border border-white/20 shadow-xl backdrop-blur-md animate-bounce">
+              ⚡ Touch mouse or click anywhere to open terminal
             </span>
           </div>
         </div>
@@ -4861,9 +4777,20 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 // --- MAIN LAYOUT COMPONENT ---
 // ====================================================================
 const DashboardLayout = ({ 
-  currentUser, currentPage, setCurrentPage, children, onLogout, 
-  onGenerateOpsReport, onViewOpsReport, onGenerateHRReport, onViewHRReport,
-  onViewConsolidated, users, onRevokeUser, onUpdateUserRole, Admin_Communication 
+  currentUser, 
+  currentPage, 
+  setCurrentPage, 
+  children, 
+  onLogout, 
+  onGenerateOpsReport, 
+  onViewOpsReport,     
+  onGenerateHRReport, 
+  onViewHRReport,
+  onViewConsolidated, 
+  users, 
+  onRevokeUser, 
+  onUpdateUserRole, 
+  Admin_Communication 
 }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showOnline, setShowOnline] = useState(false);
@@ -4878,7 +4805,7 @@ const DashboardLayout = ({
     return saved ? JSON.parse(saved) : 0;
   });
 
-  // 🟢 Formal Reason State for Revoking Active Users
+  // 🟢 NEW: Formal Reason State for Revoking Active Users
   const [pendingRevoke, setPendingRevoke] = useState(false);
   const [revokeReason, setRevokeReason] = useState('Violation of Official Secrets Act');
   const [customRevokeReason, setCustomRevokeReason] = useState('');
@@ -4923,6 +4850,7 @@ const DashboardLayout = ({
     const heartbeatInterval = setInterval(syncHeartbeat, 60000);
     return () => clearInterval(heartbeatInterval);
   }, []);
+
 
   // 🟢 AUTOMATIC PAGE ACCESS TRACKER (AUDIT LOGGING)
   useEffect(() => {
@@ -4989,6 +4917,20 @@ const DashboardLayout = ({
      });
   }
 
+  const connectionUserProfiles = {
+    "AIP System MGR": { fnum: 'A/2408', rank: 'AIP', ipps: '950010', position: 'System Manager', region: 'KMP HEADQUARTERS', station: 'KMP HEADQUARTERS', email: 'afedravnct@gmail.com', phone: '0779302872', profile_photo_path: '' },
+    "Standard Officer": { fnum: '63034', rank: 'SGT', ipps: '100432', position: 'Data Officer KAWEMPE', region: 'KMP NORTH', station: 'KAWEMPE', email: 'std.officer@upf.go.ug', phone: '+256772888222', profile_photo_path: 'https://upf-s3-bucket.s3.amazonaws.com/profiles/u1234.jpg' }
+  };
+
+  const inspectActiveUser = (alias) => {
+    const profile = connectionUserProfiles[alias] || { fnum: 'N/A', rank: 'Officer', ipps: 'N/A', position: alias, region: currentUser.region, station: currentUser.station, email: 'N/A', phone: 'N/A', profile_photo_path: '' };
+    setSelectedUserDetail({ name: alias, ...profile, isSystemUser: false });
+  };
+
+  const inspectSystemUser = (user) => {
+    setSelectedUserDetail({ ...user, isSystemUser: true });
+  };
+
   const handleExportLogs = async () => {
     try {
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -5040,9 +4982,11 @@ const DashboardLayout = ({
   return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
       
-      {/* 🟢 SIDEBAR WRAPPER */}
+{/* 🟢 SIDEBAR WRAPPER (Collapses to edge on 3-bar click, disappears entirely on Full Screen) */}
       <div className={`transition-all duration-300 flex flex-col bg-slate-900 border-r border-slate-700 flex-shrink-0 overflow-hidden ${
-        isFullScreen ? 'hidden w-0' : (sidebarOpen ? 'w-64 md:w-72' : 'w-16')
+        isFullScreen 
+          ? 'hidden w-0' 
+          : (sidebarOpen ? 'w-64 md:w-72' : 'w-16')
       }`}>
         
         {/* --- HEADER --- */}
@@ -5233,7 +5177,7 @@ const DashboardLayout = ({
         </div>
       </div>
 
-      {/* 🟢 MAIN CONTENT AREA */}
+{/* 🟢 MAIN CONTENT AREA */}
       <main className="flex-1 overflow-y-auto bg-gray-50 w-full relative flex flex-col">
         
         {/* Full Screen Floating Toggle */}
@@ -5269,6 +5213,7 @@ const DashboardLayout = ({
       {/* USER ACCESS MANAGEMENT MODAL */}
       {selectedUserDetail && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in">
+          
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-y-auto max-h-[95vh] custom-scrollbar flex flex-col">
             
             <div className="bg-slate-900 text-white p-4 flex justify-between items-center shrink-0">
@@ -5282,7 +5227,7 @@ const DashboardLayout = ({
             </div>
             
             <div className="p-6">
-              {/* 1. Header & Photo */}
+                     {/* 1. Header & Photo */}
               <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-gray-100">
                 <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-2xl overflow-hidden shadow-sm border-2 border-blue-500">
                   {selectedUserDetail.profile_photo_path ? (
@@ -5329,11 +5274,11 @@ const DashboardLayout = ({
                 </div>
               </div>
 
-              {/* 3. STRICT HIERARCHICAL ACCESS CONTROLS */}
-              {selectedUserDetail.isSystemUser && !selectedUserDetail.isReadOnly && (
-                currentUser.role === 'SUPER_ADMIN' || 
-                (currentUser.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser.region === selectedUserDetail.region)
-              ) && (
+{/* 3. STRICT HIERARCHICAL ACCESS CONTROLS */}
+{selectedUserDetail.isSystemUser && !selectedUserDetail.isReadOnly && (
+  currentUser.role === 'SUPER_ADMIN' || 
+  (currentUser.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser.region === selectedUserDetail.region)
+) && (
                 <>
                   <h4 className="font-extrabold text-sm text-gray-900 border-b pb-2 flex items-center mb-4 mt-6">
                     <Shield size={16} className="mr-2 text-red-600"/> 
@@ -5408,75 +5353,87 @@ const DashboardLayout = ({
               )}
             </div>
 
-            {/* 🟢 REGION-LOCKED MODAL FOOTER */}
-            <div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center rounded-b-xl shrink-0">
-              <button 
-                onClick={() => setSelectedUserDetail(null)} 
-                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center border border-gray-300"
-              >
-                <X size={14} className="mr-1"/> Close Profile
-              </button>
-              
-              {selectedUserDetail.isSystemUser && (
-                currentUser.role === 'SUPER_ADMIN' || 
-                (currentUser.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser.region === selectedUserDetail.region)
-              ) && (
+{/* 🟢 REGION-LOCKED MODAL FOOTER */}
+<div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center rounded-b-xl shrink-0">
+  <button 
+    onClick={() => setSelectedUserDetail(null)} 
+    className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center border border-gray-300"
+  >
+    <X size={14} className="mr-1"/> Close Profile
+  </button>
+  
+{selectedUserDetail.isSystemUser && (
+    currentUser.role === 'SUPER_ADMIN' || 
+    (currentUser.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser.region === selectedUserDetail.region)
+  ) && (
+    <button 
+      onClick={() => setPendingRevoke(true)} 
+      className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm"
+    >
+      Revoke Access
+    </button>
+  )}
+</div>
                 <button 
-                  onClick={() => setPendingRevoke(true)} 
+                  onClick={() => {
+                     if (window.confirm(`Are you absolutely sure you want to revoke all system access for ${selectedUserDetail.name}?`)) {
+                        onRevokeUser(selectedUserDetail.fnum);
+                        setSelectedUserDetail(null);
+                     }
+                  }} 
                   className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm"
                 >
                   Revoke Access
                 </button>
-              )}
             </div>
+
           </div>
-        </div>
       )}
 
       {/* 🟢 NEW: REVOKE ACTIVE USER OVERLAY MODAL */}
-      {pendingRevoke && (
-        <div className="absolute inset-0 z-[300] bg-slate-900/90 backdrop-blur-sm flex justify-center items-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 border-t-4 border-red-600 animate-in zoom-in duration-200">
-            <h3 className="font-extrabold text-slate-900 mb-2 flex items-center text-lg">
-              <ShieldAlert className="mr-2 text-red-600"/> Security Revocation Notice
-            </h3>
-            <p className="text-sm text-slate-500 mb-4">Please select the official administrative reason for revoking access for <span className="font-bold text-slate-800">{selectedUserDetail?.name}</span>.</p>
-            
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Category of Revocation</label>
-            <select 
-              value={revokeReason} 
-              onChange={(e) => setRevokeReason(e.target.value)} 
-              className="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 focus:ring-2 focus:ring-red-500 outline-none mb-4"
-            >
-              {OFFICIAL_REASONS.map(reason => <option key={reason} value={reason}>{reason}</option>)}
-            </select>
+          {pendingRevoke && (
+            <div className="absolute inset-0 z-[300] bg-slate-900/90 backdrop-blur-sm flex justify-center items-center p-4">
+              <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 border-t-4 border-red-600 animate-in zoom-in duration-200">
+                <h3 className="font-extrabold text-slate-900 mb-2 flex items-center text-lg">
+                  <ShieldAlert className="mr-2 text-red-600"/> Security Revocation Notice
+                </h3>
+                <p className="text-sm text-slate-500 mb-4">Please select the official administrative reason for revoking access for <span className="font-bold text-slate-800">{selectedUserDetail?.name}</span>.</p>
+                
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Category of Revocation</label>
+                <select 
+                  value={revokeReason} 
+                  onChange={(e) => setRevokeReason(e.target.value)} 
+                  className="w-full p-3 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 focus:ring-2 focus:ring-red-500 outline-none mb-4"
+                >
+                  {OFFICIAL_REASONS.map(reason => <option key={reason} value={reason}>{reason}</option>)}
+                </select>
 
-            {revokeReason === "Custom typed narrative" && (
-              <textarea 
-                placeholder="Enter detailed administrative comment here..." 
-                value={customRevokeReason} 
-                onChange={(e) => setCustomRevokeReason(e.target.value)}
-                className="w-full p-3 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none mb-4 min-h-[100px]"
-              />
-            )}
+                {revokeReason === "Custom typed narrative" && (
+                  <textarea 
+                    placeholder="Enter detailed administrative comment here..." 
+                    value={customRevokeReason} 
+                    onChange={(e) => setCustomRevokeReason(e.target.value)}
+                    className="w-full p-3 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none mb-4 min-h-[100px]"
+                  />
+                )}
 
-            <div className="flex space-x-3 mt-2">
-              <button onClick={() => setPendingRevoke(false)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-3 rounded-lg transition-colors text-sm">Cancel</button>
-              <button onClick={() => {
-                const finalReason = revokeReason === 'Custom typed narrative' ? customRevokeReason : revokeReason;
-                if (!finalReason || finalReason.trim() === '') {
-                  alert("A valid administrative reason is required.");
-                  return;
-                }
-                onRevokeUser(selectedUserDetail.fnum, finalReason);
-                setPendingRevoke(false);
-                setSelectedUserDetail(null);
-                setCustomRevokeReason('');
-              }} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg shadow-md transition-colors text-sm">Execute Revocation</button>
+                <div className="flex space-x-3 mt-2">
+                  <button onClick={() => setPendingRevoke(false)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-3 rounded-lg transition-colors text-sm">Cancel</button>
+                  <button onClick={() => {
+                    const finalReason = revokeReason === 'Custom typed narrative' ? customRevokeReason : revokeReason;
+                    if (!finalReason || finalReason.trim() === '') {
+                      alert("A valid administrative reason is required.");
+                      return;
+                    }
+                    onRevokeUser(selectedUserDetail.fnum, finalReason);
+                    setPendingRevoke(false);
+                    setSelectedUserDetail(null);
+                    setCustomRevokeReason('');
+                  }} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg shadow-md transition-colors text-sm">Execute Revocation</button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
       {/* 🟢 FULL SCREEN IMAGE MODAL FOR SELECTED USER */}
       {viewingProfileImage && (
@@ -5532,7 +5489,7 @@ const App = () => {
   const WARNING_DURATION = 60000; // 60 seconds to click "Stay Logged In"
 
   const handleSecureLogout = () => {
-    sessionStorage.removeItem('kmp_authToken'); 
+    localStorage.removeItem('kmp_authToken'); 
     localStorage.removeItem('kmp_currentUser'); 
     localStorage.removeItem('kmp_currentPage'); 
     window.location.reload();
@@ -5590,7 +5547,7 @@ const App = () => {
         setCurrentUser(parsedUser);
       } catch (error) {
         console.error("Failed to parse cached user:", error);
-        sessionStorage.removeItem('kmp_authToken');
+        localStorage.removeItem('kmp_authToken');
         localStorage.removeItem('kmp_currentUser');
       }
       
@@ -5776,7 +5733,7 @@ const App = () => {
 
   if (currentUser && !currentUser.region) {
     localStorage.removeItem('kmp_currentUser');
-    sessionStorage.removeItem('kmp_authToken');
+    localStorage.removeItem('kmp_authToken');
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
         <h2 className="text-2xl font-bold text-red-600 mb-2">Ghost Session Detected</h2>
@@ -5830,12 +5787,13 @@ const App = () => {
     }
   };
 
-  // 🟢 CAPTURES REASON FOR REVOKING ACTIVE USERS
+// 🟢 CAPTURES REASON FOR REVOKING ACTIVE USERS
   const handleRevokeUser = async (fnum, reason) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       
+      // 🟢 Passes the reason securely as a URL parameter
       await fetch(`${API_URL}/api/v1/users/${encodeURIComponent(fnum)}/revoke?reason=${encodeURIComponent(reason)}`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${token}` }
