@@ -5,7 +5,7 @@ import 'react-quill-new/dist/quill.snow.css';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
-const AdminCommunication = ({ currentUser, users }) => {
+const AdminCommunication = ({ currentUser, users, setCurrentPage }) => {
   const [activeTab, setActiveTab] = useState('dispatch'); // 'dispatch' or 'inbox'
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -167,14 +167,14 @@ const AdminCommunication = ({ currentUser, users }) => {
           <div className="flex items-center">
             <RadioReceiver className="w-6 h-6 mr-3 text-green-400 animate-pulse" />
             <div>
-              <h2 className="text-xl font-extrabold tracking-wide">Command Communication Hub</h2>
-              <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider">Secure Directive & Notification Network</p>
+              <h2 className="text-xl font-extrabold tracking-wide">Official Administrative Communication</h2>
+              <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider">Secure Directives, Messages & Notification Channel</p>
             </div>
           </div>
 
           {/* 🟢 RETURN NAVIGATION BUTTON */}
           <button
-            onClick={() => setCurrentPage('reports')} // Change to 'home' if that is your default landing page
+            onClick={() => setCurrentPage('home')} // Change to 'home' if that is your default landing page
             className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-all border border-slate-700 shadow-sm"
           >
             <ArrowLeft size={16} />

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { authFetch } from './api';
 import { 
   LayoutDashboard, BarChart3, Trophy, UserPlus, LogOut, Menu, 
@@ -167,6 +167,55 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
     </>
   );
 };
+
+// 🟢 SESSION TIMEOUT LOGIC
+  const [showSessionWarning, setShowSessionWarning] = useState(false);
+  const sessionTimeoutRef = useRef(null);
+  const forceLogoutRef = useRef(null);
+
+  // 30 Minutes = 1,800,000 ms. (Change to 5000 for a 5-second test!)
+  const INACTIVITY_LIMIT = 1800000; 
+  const WARNING_DURATION = 6000; // 60 seconds to click "Stay Logged In"
+
+  const resetSessionTimer = () => {
+    // If the warning is already on screen, don't reset (forces them to click the button)
+    if (showSessionWarning) return; 
+
+    clearTimeout(sessionTimeoutRef.current);
+    clearTimeout(forceLogoutRef.current);
+
+    sessionTimeoutRef.current = setTimeout(() => {
+      setShowSessionWarning(true); // Show the popup
+      
+      // If they do nothing for 60 seconds after popup, kill the session
+      forceLogoutRef.current = setTimeout(() => {
+        handleSecureLogout(); // Ensure this matches your actual logout function name (e.g., onLogout)
+      }, WARNING_DURATION);
+      
+    }, INACTIVITY_LIMIT);
+  };
+
+  const handleStayLoggedIn = () => {
+    setShowSessionWarning(false);
+    resetSessionTimer();
+  };
+
+  useEffect(() => {
+    // Only track if a user is actually logged in
+    if (!currentUser) return; 
+
+    // Listeners for any human activity
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+    
+    activityEvents.forEach(event => window.addEventListener(event, resetSessionTimer));
+    resetSessionTimer(); // Start the clock on mount
+
+    return () => {
+      activityEvents.forEach(event => window.removeEventListener(event, resetSessionTimer));
+      clearTimeout(sessionTimeoutRef.current);
+      clearTimeout(forceLogoutRef.current);
+    };
+  }, [currentUser, showSessionWarning]);
 
 const HomeDashboard = ({ currentUser, setCurrentPage, onMasterExport, onViewConsolidated, adminCommsData, onAcknowledgeComm }) => {
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
