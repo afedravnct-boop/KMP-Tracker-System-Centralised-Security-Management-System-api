@@ -1,125 +1,8 @@
-/* Add these at the top of your custom index.css */
-@import "tailwindcss";
-
-/* Your existing custom styles follow below */
-.dashboard-container {
-  display: flex;
-  min-height: 100vh;
-  background-color: #F0F2F6;
-}
-
-.sidebar {
-  width: 250px;
-  background-color: #ffffff;
-  border-right: 1px solid #E6E8F1;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-}
-
-.sidebar-nav button {
-  width: 100%;
-  padding: 10px;
-  margin-bottom: 5px;
-  text-align: left;
-  background: none;
-  border: none;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.sidebar-nav button.active {
-  background-color: #E0F2FE;
-  font-weight: bold;
-}
-
-.main-content {
-  flex-grow: 1;
-  padding: 20px;
-}
-
-.header-title {
-  text-align: center;
-  margin-bottom: 30px;
-}
-
-.split-layout {
-  display: flex;
-  gap: 20px;
-}
-
-.left-panel {
-  flex: 1.2;
-  background: white;
-  padding: 20px;
-  border-radius: 8px;
-}
-
-.right-panel {
-  flex: 1.8;
-  background: white;
-  padding: 20px;
-  border-radius: 8px;
-}
-
-.entry-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.entry-form input, .entry-form textarea, .entry-form select {
-  padding: 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-
-.submit-btn {
-  padding: 12px;
-  background-color: #004B87;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.metrics-row {
-  display: flex;
-  gap: 15px;
-  margin-bottom: 20px;
-}
-
-.metric-card {
-  background: #F8F9FA;
-  padding: 15px;
-  border-radius: 6px;
-  border: 1px solid #E6E8F1;
-  flex: 1;
-  text-align: center;
-}
-
-.kmp-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.kmp-table th, .kmp-table td {
-  padding: 12px;
-  border-bottom: 1px solid #eee;
-  text-align: left;
-}
-
 /* 🟢 HORIZONTAL BLACK & WHITE WAVING BACKGROUND ANIMATION */
 @keyframes flagWaveBg {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 .uganda-flag-wave {
@@ -134,31 +17,26 @@
   animation: flagWaveBg 15s ease infinite;
 }
 
-/* 🟢 3D PERSPECTIVE WAVING ANIMATION FOR UPF FLAG EMBLEM */
-@keyframes flagWave3D {
-  0% { transform: perspective(500px) rotateY(0deg) skewX(0deg); }
-  25% { transform: perspective(500px) rotateY(6deg) skewX(3deg); }
-  50% { transform: perspective(500px) rotateY(0deg) skewX(0deg); }
-  75% { transform: perspective(500px) rotateY(-6deg) skewX(-3deg); }
-  100% { transform: perspective(500px) rotateY(0deg) skewX(0deg); }
-}
-
-/* 🟢 REALISTIC WIND-BLOWN FLAG WAVING ANIMATION */
+/* 🟢 REALISTIC WIND-BLOWN FLAG WAVING ANIMATION FOR THE EMBLEM */
 @keyframes flagWindBlow {
   0% {
     transform: perspective(400px) rotateY(0deg) rotateZ(0deg) scaleX(1);
   }
   20% {
-    transform: perspective(400px) rotateY(-12deg) rotateZ(1deg) scaleX(0.97) skewY(1deg);
+    /* Dramatic turn with pronounced ripple */
+    transform: perspective(400px) rotateY(-25deg) rotateZ(3deg) scaleX(0.9) skewY(6deg);
   }
   40% {
-    transform: perspective(400px) rotateY(8deg) rotateZ(-1deg) scaleX(1.02) skewY(-1deg);
+    /* Snapshot of the wave crest passing through the image */
+    transform: perspective(400px) rotateY(18deg) rotateZ(-2deg) scaleX(1.05) skewY(-5deg);
   }
   60% {
-    transform: perspective(400px) rotateY(-15deg) rotateZ(1.5deg) scaleX(0.95) skewY(2deg);
+    /* Another dramatic turn, twisting the corners */
+    transform: perspective(400px) rotateY(-28deg) rotateZ(4deg) scaleX(0.85) skewY(7deg);
   }
   80% {
-    transform: perspective(400px) rotateY(10deg) rotateZ(-1deg) scaleX(1.01) skewY(-1deg);
+    /* A softer rebound ripple */
+    transform: perspective(400px) rotateY(15deg) rotateZ(-1deg) scaleX(1.02) skewY(-3deg);
   }
   100% {
     transform: perspective(400px) rotateY(0deg) rotateZ(0deg) scaleX(1);
@@ -166,11 +44,8 @@
 }
 
 .animate-flag-wave {
-  animation: flagWindBlow 3s ease-in-out infinite;
+  /* Increased to 5s for smoother propagation of the more complex wave */
+  animation: flagWindBlow 5s ease-in-out infinite; 
+  /* Crucial: 'left center' keeps the left edge rigid, like it's mounted on a pole */
   transform-origin: left center;
-}
-
-/* 🟢 SCREEN OUT WHITE BACKGROUND FROM BADGE/EMBLEM */
-.transparent-badge {
-  mix-blend-mode: screen;
 }
