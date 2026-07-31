@@ -3662,7 +3662,7 @@ const DashboardLayout = ({
     };
   }, [onLogout]);
 
-  // 🟢 AUTOMATIC PAGE ACCESS TRACKER -> ROUTED CORRECTLY TO ACTIVITY_LOGS TABLE
+// 🟢 AUTOMATIC PAGE ACCESS TRACKER -> ROUTED CORRECTLY TO ACTIVITY_LOGS TABLE
   useEffect(() => {
     if (!currentUser?.fnum || !currentPage) return;
     const token = localStorage.getItem('kmp_authToken');
@@ -3674,6 +3674,7 @@ const DashboardLayout = ({
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({
+        fnum: currentUser.fnum,  // 🟢 ADDED: This is what your database was missing!
         action: 'MODULE_ACCESS',
         module: currentPage.toUpperCase(),
         details: `Accessed the ${currentPage.toUpperCase()} module.`
