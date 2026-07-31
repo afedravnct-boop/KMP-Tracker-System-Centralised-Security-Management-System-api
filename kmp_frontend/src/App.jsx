@@ -3313,6 +3313,676 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   );
 };
 
+
+
+
+
+// ====================================================================
+// --- MAIN LAYOUT COMPONENT ---
+// ====================================================================
+const DashboardLayout = ({ 
+  currentUser, 
+  currentPage, 
+  setCurrentPage, 
+  children, 
+  onLogout, 
+  onGenerateOpsReport, 
+  onViewOpsReport,     
+  onGenerateHRReport, 
+  onViewHRReport,
+  onViewConsolidated, 
+  users, 
+  onRevokeUser, 
+  onUpdateUserRole, 
+  Admin_Communication 
+}) => {
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [showOnline, setShowOnline] = useState(false);
+  const [showAllUsers, setShowAllUsers] = useState(false);
+  const [selectedUserDetail, setSelectedUserDetail] = useState(null);
+  const [viewingProfileImage, setViewingProfileImage] = useState(null);
+  const [newForcePassword, setNewForcePassword] = useState('');
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  
+  const [lastViewedId, setLastViewedId] = useState(() => {
+    const saved = localStorage.getItem('last_viewed_comm_id');
+    return saved ? JSON.parse(saved) : 0;
+  });
+
+  // 🟢 LIVE DATABASE HEARTBEAT & ONLINE ROSTER SYNC
+  const [realOnlineUsers, setRealOnlineUsers] = useState([]);
+
+  useEffect(() => {
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
+    const syncHeartbeat = async () => {
+      const currentToken = localStorage.getItem('kmp_authToken');
+      if (!currentToken) return;
+
+      try {
+        await fetch(`${API_URL}/api/v1/users/heartbeat`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${currentToken}` }
+        });
+
+        const response = await fetch(`${API_URL}/api/v1/users/online`, {
+          headers: { 'Authorization': `Bearer ${currentToken}` }
+        });
+        
+        if (response.ok) {
+          setRealOnlineUsers(await response.json());
+        }
+      } catch (err) {
+        console.warn("Heartbeat sync paused...");
+      }
+    };
+
+    syncHeartbeat();
+    const heartbeatInterval = setInterval(syncHeartbeat, 60000);
+    return () => clearInterval(heartbeatInterval);
+  }, []);
+
+  // 🟢 ADVANCED IDLE TIMER & WARNING SCREEN
+  const [showIdleWarning, setShowIdleWarning] = useState(false);
+  const [idleCountdown, setIdleCountdown] = useState(60);
+
+  useEffect(() => {
+    let lastActivityTime = Date.now();
+    let warningTimer;
+    let logoutTimer;
+    let countdownInterval;
+
+    const IDLE_LIMIT = 29 * 60 * 1000; // 29 minutes before warning
+    const WARNING_WINDOW = 60 * 1000; // 60 seconds of warning countdown
+
+    const resetTimers = () => {
+      if (showIdleWarning) return; // Don't reset if the warning is already on screen
+      lastActivityTime = Date.now();
+      
+      clearTimeout(warningTimer);
+      clearTimeout(logoutTimer);
+      clearInterval(countdownInterval);
+
+      warningTimer = setTimeout(() => {
+        setShowIdleWarning(true);
+        setIdleCountdown(WARNING_WINDOW / 1000);
+        
+        countdownInterval = setInterval(() => {
+          setIdleCountdown(prev => {
+            if (prev <= 1) {
+              clearInterval(countdownInterval);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+
+      }, IDLE_LIMIT);
+
+      logoutTimer = setTimeout(() => {
+        alert("Session Expired: You have been securely logged out due to inactivity.");
+        if (typeof onLogout === 'function') onLogout();
+        else { localStorage.removeItem('kmp_authToken'); window.location.reload(); }
+      }, IDLE_LIMIT + WARNING_WINDOW);
+    };
+
+    const handleUserActivity = () => resetTimers();
+
+    window.addEventListener('mousemove', handleUserActivity);
+    window.addEventListener('keypress', handleUserActivity);
+    window.addEventListener('click', handleUserActivity);
+    window.addEventListener('scroll', handleUserActivity);
+
+    resetTimers();
+
+    return () => {
+      window.removeEventListener('mousemove', handleUserActivity);
+      window.removeEventListener('keypress', handleUserActivity);
+      window.removeEventListener('click', handleUserActivity);
+      window.removeEventListener('scroll', handleUserActivity);
+      clearTimeout(warningTimer);
+      clearTimeout(logoutTimer);
+      clearInterval(countdownInterval);
+    };
+  }, [onLogout, showIdleWarning]);
+
+  // 🟢 AUTOMATIC PAGE ACCESS TRACKER (AUDIT LOGGING)
+  useEffect(() => {
+    if (!currentUser?.fnum || !currentPage) return;
+    
+    const token = localStorage.getItem('kmp_authToken');
+    if (!token) return;
+
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+    
+    fetch(`${API_URL}/api/v1/audit-logs`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        event_type: 'MODULE_ACCESS',
+        target_user: 'SYSTEM',
+        details: `Officer ${currentUser.name} accessed the ${currentPage.toUpperCase()} module.`
+      })
+    }).catch(e => console.warn("Audit log silent fail"));
+    
+  }, [currentPage, currentUser?.fnum]);
+
+  const safeSidebarComms = Array.isArray(Admin_Communication) ? Admin_Communication : (Admin_Communication?.data || Admin_Communication?.items || []);
+  const relevantComms = safeSidebarComms.filter(c => {
+    if (currentUser?.role === 'SUPER_ADMIN') return true;
+    const audience = c.target_audience || c.audience || 'ALL_USERS';
+    const region = c.target_region || c.region;
+    if (audience === 'ALL_USERS' || audience === 'ALL') return true;
+    if (audience === 'ADMINS_ONLY' && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role)) return true;
+    if (audience === 'RPC_ONLY' && ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role)) return true;
+    if (audience === 'SPECIFIC_REGION' && region === currentUser?.region) return true;
+    return false;
+  });
+
+  const hasUnreadComms = relevantComms.some(c => !c.acknowledged);
+
+  const navItems = [
+    { 
+      name: 'Home Dashboard', 
+      id: 'home', 
+      icon: (
+        <div className="relative flex items-center justify-center">
+          <Home size={20} />
+          {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping" />}
+          {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full" />}
+        </div>
+      )
+    },
+    { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> },
+    { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> },
+    { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> },
+    { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> },
+    { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> },
+  ];
+
+  if (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)) {
+     navItems.push({ 
+       name: ' Official Admin Dispatch', 
+       id: 'Admin_Communication', 
+       icon: <Bell size={20} />
+     });
+  }
+
+  const handleExportLogs = async () => {
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const token = localStorage.getItem('kmp_authToken');
+      
+      const response = await fetch(`${API_URL}/api/v1/audit-logs`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!response.ok) throw new Error("Security Clearance Denied");
+
+      const logs = await response.json();
+      const headers = ["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"];
+      
+      const csvRows = logs.map(log => {
+        const safeDetails = log.details ? log.details.replace(/"/g, '""') : "";
+        return [
+          log.id, 
+          log.event_type || "N/A", 
+          log.target_user || "N/A",
+          log.status || "N/A",
+          `"${safeDetails}"`, 
+          log.created_at || "Unknown Time",
+          log.user_fnum || "SYSTEM"
+        ];
+      });
+
+      const csvContent = [headers, ...csvRows].map(e => e.join(",")).join("\n");
+      const blob = new Blob(['\uFEFF', csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.style.display = 'none';
+      link.setAttribute("href", url);
+      link.setAttribute("download", `KMP_Command_Audit_Logs_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      
+      setTimeout(() => {
+         document.body.removeChild(link);
+         window.URL.revokeObjectURL(url);
+      }, 2000);
+      
+    } catch (error) {
+      console.error("Download failed:", error);
+      alert("Failed to download logs. You may not have Super Admin clearance.");
+    }
+  };
+
+  // 🟢 IDLE MODAL COMPONENT
+  const IdleWarningModal = () => showIdleWarning && (
+    <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[500] flex justify-center items-center p-4 animate-in zoom-in duration-300">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center border-2 border-red-500">
+        <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4 animate-bounce" />
+        <h2 className="text-2xl font-extrabold text-slate-900 mb-2">Session Timeout Warning</h2>
+        <p className="text-slate-600 font-medium mb-6">Your connection to the KMP network has been idle. For security purposes, you will be logged out in:</p>
+        <div className="text-5xl font-mono font-extrabold text-red-600 mb-8">{idleCountdown}s</div>
+        <button 
+          onClick={() => setShowIdleWarning(false)} 
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all text-lg"
+        >
+          I am still here (Extend Session)
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+      
+      <div className={`transition-all duration-300 flex flex-col bg-slate-900 border-r border-slate-700 flex-shrink-0 overflow-hidden ${
+        isFullScreen 
+          ? 'hidden w-0' 
+          : (sidebarOpen ? 'w-64 md:w-72' : 'w-16')
+      }`}>
+        
+        <div className={`p-4 flex items-center border-b border-slate-500 transition-all ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
+          {sidebarOpen && (
+            <div className="flex items-center min-w-max">
+              <img 
+                src="/upf_badge.png" 
+                alt="UPF Logo" 
+                className="w-4 h-4 mr-0.5 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+                onError={(e) => { e.target.style.display = 'none'; }} 
+              />
+              <span className="font-bold text-0.5g tracking-wider">KMP TRACKER SYSTEM</span>
+            </div>
+          )}
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-500 rounded text-slate-150 transition-colors shrink-0">
+            <Menu size={sidebarOpen ? 14 : 20} />
+          </button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto py-2 custom-scrollbar overflow-x-hidden">
+          {sidebarOpen && <div className="px-6 mb-2 text-xs font-bold text-orange-500 uppercase tracking-wider min-w-max">📋 Select Domain Category</div>}
+          
+          <nav className="space-y-1 mb-8">
+            {navItems.map((item) => (
+              <button 
+                key={item.id} 
+                onClick={() => {
+                  setCurrentPage(item.id);
+                  if (item.id === 'Admin_Communication') {
+                    const safeId = typeof latestCommId !== 'undefined' ? latestCommId : Date.now();
+                    setLastViewedId(safeId);
+                    localStorage.setItem('last_viewed_comm_id', JSON.stringify(safeId));
+                  }
+                }}
+                className={`w-full flex items-center py-3 transition-colors text-left ${sidebarOpen ? 'px-6' : 'px-0 justify-center'} ${
+                  currentPage === item.id ? 'bg-blue-600 border-l-4 border-yellow-400 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white border-l-4 border-transparent'
+                }`}
+              >
+                <div className="min-w-[24px] flex justify-center shrink-0">{item.icon}</div>
+                
+                {sidebarOpen && (
+                  <span className={`ml-3 font-medium text-sm flex items-center justify-between flex-1 min-w-max ${item.id === 'home' && hasUnreadComms ? 'text-green-200 font-extrabold animate-pulse' : ''}`}>
+                    {item.name}
+                    {item.id === 'home' && hasUnreadComms && (
+                      <span className="text-[9px] bg-green-200/20 text-green-200 border border-green-200 px-1.5 py-0.5 rounded uppercase tracking-wider ml-2">New Dispatch</span>
+                    )}
+                  </span>
+                )}
+              </button>
+            ))}
+          </nav>
+
+          {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.system_admin) && (
+            <div className="px-4 space-y-3 min-w-max">
+              <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
+                <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
+                <button 
+                  onClick={() => setCurrentPage('approvals')} 
+                  className={`w-full text-xs py-4 rounded transition font-medium ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}
+                >
+                  Manage Pending Users & Logs
+                </button>
+              </div>
+
+              <div className="rounded-lg p-4 bg-slate-800">
+                <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
+                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Online ({realOnlineUsers?.length || 0})</span>
+                </button>
+                
+                {showOnline && (
+                  <div className="mt-4 space-y-2 border-t border-slate-700 pt-4 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                    {realOnlineUsers.map((user) => (
+                      <div key={user.fnum} onClick={() => { setSelectedUserDetail({ ...user, isSystemUser: true, isReadOnly: true }); setNewForcePassword(''); }} className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between group">
+                        <div className="flex items-center space-x-3">
+                          {user.profile_photo_path ? (
+                            <img src={user.profile_photo_path} alt="" className="w-7 h-7 rounded-full border border-green-400 object-cover shadow-sm group-hover:border-green-300 transition-colors" onError={(e) => { e.target.style.display='none'; }} />
+                          ) : (
+                            <div className="w-7 h-7 bg-green-600 rounded-full flex items-center justify-center text-white font-bold shadow-sm">{user.name?.charAt(0) || 'U'}</div>
+                          )}
+                          <div>
+                            <span className="font-bold text-white block truncate w-32">{user.name} {user.fnum === currentUser.fnum ? '(You)' : ''}</span>
+                            <span className="text-slate-400 text-[9px] uppercase tracking-wider">{user.station}</span>
+                          </div>
+                        </div>
+                        <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e] animate-pulse"></div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div> 
+          )}
+
+          {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) && (
+            <div className="px-4 mt-3 space-y-3 min-w-max">
+              <div className="rounded-lg p-3 bg-slate-800 border border-slate-700">
+                <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400">
+                  <span className="flex items-center"><Users size={16} className="mr-2"/> 👥 System Roster</span>
+                  <span className="bg-slate-900 px-2 py-0.5 rounded-full text-xs text-white border border-slate-600">{users?.length || 0}</span>
+                </button>
+                
+                {showAllUsers && (
+                 <div className="mt-3 space-y-2 border-t border-slate-700 pt-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                    {users?.map(u => (
+                       <div key={u.fnum} onClick={() => { setSelectedUserDetail({ ...u, isSystemUser: true, isReadOnly: false }); setNewForcePassword(''); }} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-blue-500 cursor-pointer transition-all flex items-center justify-between group">
+                          <div className="flex items-center space-x-2">
+                            {u.profile_photo_path ? (
+                              <img src={u.profile_photo_path} alt="" className="w-7 h-7 rounded-full object-cover border border-slate-600 group-hover:border-blue-400" onError={(e) => { e.target.style.display='none'; }} />
+                            ) : (
+                              <div className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-xs border border-slate-600 group-hover:border-blue-400 group-hover:text-blue-300">
+                                {u.name?.charAt(0) || 'U'}
+                              </div>
+                            )}
+                            <div>
+                              <span className="font-bold text-white block truncate w-28">{u.name}</span>
+                              <span className="text-slate-400 font-mono text-[9px]">{u.fnum}</span>
+                            </div>
+                          </div>
+                          <div className="text-[9px] px-1.5 py-0.5 bg-slate-800 rounded text-slate-300 font-bold uppercase border border-slate-700 group-hover:bg-blue-900 group-hover:text-blue-100 transition-colors">
+                            {String(u.role || 'USER').replace('_ADMIN', '')}
+                          </div>
+                       </div>
+                    ))}
+                 </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {sidebarOpen && (
+            <div className="px-4 mt-4 space-y-3 min-w-max pb-4">
+              <div className="bg-slate-800 rounded-lg p-3 border border-yellow-600/30">
+                <div className="text-sm font-bold text-yellow-500 mb-3 flex items-center"><Shield size={16} className="mr-2"/> ⚙️ Reports & Ledgers</div>
+                <div className="space-y-4">
+                  <div>
+                    <span className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1 block">HR & Establishments</span>
+                    <div className="flex space-x-2">
+                      <button onClick={onViewHRReport} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center">
+                        <Eye size={14} className="mr-1"/> View
+                      </button>
+                      {(['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.export_data) && (
+                        <button onClick={onGenerateHRReport} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded transition flex items-center justify-center">
+                          <Download size={14} className="mr-1"/> Export
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {(['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.consolidated) && (
+                    <button onClick={onViewConsolidated} className="w-full text-xs py-2 rounded transition flex items-center justify-center font-bold mt-3 bg-slate-900 hover:bg-slate-950 text-blue-400 border border-blue-900">
+                      <Eye size={14} className="mr-2"/> Consolidated Entries
+                    </button>
+                  )}
+                  {(['SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.export_data) && (
+                    <button onClick={handleExportLogs} className="w-full mt-2 text-xs py-2 rounded transition font-bold bg-slate-900 hover:bg-slate-950 text-slate-300 border border-slate-700 flex items-center justify-center">
+                      <Download size={14} className="mr-2 text-blue-400"/> Export Audit Logs
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className={`p-4 border-t border-slate-700 bg-slate-950 shrink-0 flex flex-col transition-all ${sidebarOpen ? '' : 'items-center'}`}>
+          <div className={`flex items-center cursor-pointer hover:bg-slate-800 rounded transition-colors ${sidebarOpen ? 'mb-4 px-2 p-2' : 'justify-center p-2 mb-3'}`} onClick={() => setCurrentPage('profile')}>
+             <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm shadow overflow-hidden shrink-0">
+               {currentUser?.profile_photo_path ? (
+                 <img src={currentUser.profile_photo_path} alt="" className="w-full h-full object-cover" onError={(e) => { e.target.style.display='none'; }} />
+               ) : (currentUser?.name?.charAt(0) || 'A')}
+             </div>
+             {sidebarOpen && (
+               <div className="ml-3 flex-1 overflow-hidden min-w-max">
+                 <div className="text-sm font-bold leading-tight truncate">{currentUser?.name || 'Guest'}</div>
+                 <div className="text-xs font-bold text-green-400 uppercase truncate">{currentUser?.role || 'N/A'} • {currentUser?.station || 'N/A'}</div>
+               </div>
+             )}
+          </div>
+          <button onClick={onLogout} className={`flex items-center w-full py-2 text-red-400 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-red-900 ${sidebarOpen ? 'px-4 justify-start' : 'px-0 justify-center'}`}>
+             <LogOut size={18} />
+             {sidebarOpen && <span className="ml-3 font-medium text-sm min-w-max">Secure Logout</span>}
+          </button>
+        </div>
+      </div>
+
+      <main className="flex-1 overflow-y-auto bg-gray-50 w-full relative flex flex-col">
+        <IdleWarningModal /> 
+        <div className="absolute top-4 right-6 z-50">
+          <button 
+            onClick={() => setIsFullScreen(!isFullScreen)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-bold shadow-md transition-colors flex items-center gap-2 border border-blue-800"
+          >
+            {isFullScreen ? '🗗 Exit Full Screen' : '⛶ Full Screen'}
+          </button>
+        </div>
+
+        <div className="absolute inset-0 pointer-events-none z-0 uganda-flag-wave opacity-[0.03] mix-blend-multiply"></div>
+
+        <div className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.02]">
+          <img 
+            src="/upf_badge.png" 
+            alt="watermark" 
+            className="w-1/2 max-w-2xl grayscale object-contain contrast-200 brightness-75 drop-shadow-sm" 
+            onError={(e) => { e.target.style.display = 'none'; }} 
+          />
+        </div>
+        
+        {React.Children.map(children, child => 
+          (React.isValidElement(child) && typeof child.type !== 'string') 
+            ? React.cloneElement(child, { setSidebarOpen }) 
+            : child
+        )}  
+      </main>
+
+      {selectedUserDetail && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in">
+          
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-y-auto max-h-[95vh] custom-scrollbar flex flex-col">
+            
+            <div className="bg-slate-900 text-white p-4 flex justify-between items-center shrink-0">
+              <h3 className="font-bold flex items-center text-sm">
+                <Shield size={18} className="text-blue-400 mr-2" /> 
+                ACCESS CLEARANCE MATRIX
+              </h3>
+              <button onClick={() => setSelectedUserDetail(null)} className="text-slate-400 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6">
+              <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-gray-100">
+                <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-2xl overflow-hidden shadow-sm border-2 border-blue-500">
+                  {selectedUserDetail.profile_photo_path ? (
+                     <img 
+                       src={selectedUserDetail.profile_photo_path} 
+                       alt="Profile" 
+                       className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" 
+                       onClick={() => setViewingProfileImage(selectedUserDetail.profile_photo_path)} 
+                     />
+                  ) : (selectedUserDetail.name?.charAt(0) || 'U')}
+                </div>
+              </div>
+
+              <h4 className="text-xs font-bold text-slate-800 mb-3 uppercase tracking-wider">Comprehensive Profile</h4>
+              <div className="grid grid-cols-2 gap-4 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-inner">
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">IPPS Number</label>
+                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.ipps || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Official Title</label>
+                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.position || 'N/A'}</div>
+                </div>
+                <div className="col-span-2">
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Command Chain (Region / Division)</label>
+                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.region || 'N/A'} / {selectedUserDetail.division || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Email Contact</label>
+                  <div className="text-xs font-bold text-slate-800 break-words">{selectedUserDetail.email || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Phone Number</label>
+                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.phone || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Sex</label>
+                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.sex || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">System Role</label>
+                  <div className="text-xs font-extrabold text-blue-700">{selectedUserDetail.role || 'USER'}</div>
+                </div>
+              </div>
+
+              {selectedUserDetail.isSystemUser && !selectedUserDetail.isReadOnly && (
+                currentUser.role === 'SUPER_ADMIN' || 
+                (currentUser.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser.region === selectedUserDetail.region)
+              ) && (
+                <>
+                  <h4 className="font-extrabold text-sm text-gray-900 border-b pb-2 flex items-center mb-4 mt-6">
+                    <Shield size={16} className="mr-2 text-red-600"/> 
+                    Component Admin Clearances
+                  </h4>
+                  <div className="space-y-3 bg-white p-4 rounded-lg border border-red-100 shadow-sm">
+                    
+                    <label className="flex items-center space-x-3 cursor-pointer group">
+                      <input type="checkbox" className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500" defaultChecked={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newRole = e.target.checked ? 'ADMIN' : 'USER'; onUpdateUserRole(selectedUserDetail.fnum, newRole, selectedUserDetail.permissions || {}); }} />
+                      <div className="flex-1">
+                        <div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">System Administrator</div>
+                        <div className="text-xs text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit Logs.</div>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center space-x-3 cursor-pointer group">
+                      <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500" checked={Boolean(selectedUserDetail.permissions?.consolidated) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), consolidated: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
+                      <div className="flex-1">
+                        <div className="text-sm font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">Consolidated Ledger Access</div>
+                        <div className="text-xs text-slate-500 font-medium">Allows viewing the cross-domain master Excel overlays.</div>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center space-x-3 cursor-pointer group">
+                      <input type="checkbox" className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500" checked={Boolean(selectedUserDetail.permissions?.export_data) || ['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), export_data: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
+                      <div className="flex-1">
+                        <div className="text-sm font-bold text-slate-800 group-hover:text-purple-700 transition-colors">Database Export Privilege</div>
+                        <div className="text-xs text-slate-500 font-medium">Allows downloading raw .xlsx database files to local device.</div>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center space-x-3 cursor-pointer group">
+                      <input type="checkbox" className="w-4 h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500" checked={Boolean(selectedUserDetail.permissions?.view_global_roster) || ['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)} disabled={['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), view_global_roster: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
+                      <div className="flex-1">
+                        <div className="text-sm font-bold text-slate-800 group-hover:text-orange-700 transition-colors">Global Roster Visibility</div>
+                        <div className="text-xs text-slate-500 font-medium">Allows viewing personnel from ALL regions in the System Roster.</div>
+                      </div>
+                    </label>
+                  </div>
+
+                  {currentUser.role === 'SUPER_ADMIN' && (
+                    <div className="mt-6 bg-red-50 p-4 rounded-lg border border-red-200 shadow-sm">
+                      <h4 className="font-extrabold text-xs text-red-800 border-b border-red-200 pb-2 mb-3 flex items-center">
+                        <Lock size={14} className="mr-2" /> Super Admin: Issue New Password
+                      </h4>
+                      <div className="flex space-x-2">
+                        <input type="text" placeholder="Type new password (min 6 chars)" value={newForcePassword} onChange={(e) => setNewForcePassword(e.target.value)} className="flex-1 text-sm border-red-300 rounded shadow-sm p-2 outline-none focus:ring-2 focus:ring-red-500 font-mono" />
+                        <button onClick={async () => {
+                            if (newForcePassword.length < 6) return alert('Password must be at least 6 characters.');
+                            try {
+                              const token = localStorage.getItem('kmp_authToken');
+                              const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+                              const res = await fetch(`${API_URL}/api/v1/admin/users/${selectedUserDetail.fnum}/force-password`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                body: JSON.stringify({ new_password: newForcePassword })
+                              });
+                              if (!res.ok) throw new Error(await res.text());
+                              alert(`Password successfully changed for ${selectedUserDetail.name}.`);
+                              setNewForcePassword('');
+                            } catch (err) { alert('Error: ' + err.message); }
+                          }}
+                          className="bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2 rounded text-xs transition border border-red-800 shrink-0"
+                        >
+                          Set Password
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center rounded-b-xl shrink-0">
+              <button 
+                onClick={() => setSelectedUserDetail(null)} 
+                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center border border-gray-300"
+              >
+                <X size={14} className="mr-1"/> Close Profile
+              </button>
+              
+              {selectedUserDetail.isSystemUser && (
+                currentUser.role === 'SUPER_ADMIN' || 
+                (currentUser.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser.region === selectedUserDetail.region)
+              ) && (
+                <button 
+                  onClick={() => {
+                     if (window.confirm(`Are you absolutely sure you want to revoke all system access for ${selectedUserDetail.name}?`)) {
+                        onRevokeUser(selectedUserDetail.fnum);
+                        setSelectedUserDetail(null);
+                     }
+                  }} 
+                  className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm"
+                >
+                  Revoke Access
+                </button>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {viewingProfileImage && (
+        <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingProfileImage(null)}>
+          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg">
+            <X size={24}/>
+          </button>
+          <img 
+            src={viewingProfileImage} 
+            alt="Full Profile" 
+            className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" 
+            onClick={(e) => e.stopPropagation()} 
+          />
+        </div>
+      )}
+
+    </div>
+  );
+};
+
 const App = () => {
   const [currentUser, setCurrentUser] = usePersistentState('kmp_currentUser', null);
   const [currentPage, setCurrentPage] = usePersistentState('kmp_currentPage', 'home');
@@ -3351,11 +4021,16 @@ const App = () => {
       const token = localStorage.getItem('kmp_authToken');
       if (!token) return;
       try {
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives, resUsers] = await Promise.all([
-          authFetch("/api/v1/reports", { signal: controller.signal }), authFetch("/api/v1/stats", { signal: controller.signal }),
-          authFetch("/api/v1/stories", { signal: controller.signal }), authFetch("/api/v1/nominal-roll", { signal: controller.signal }),
-          authFetch("/api/v1/Admin_Communication", { signal: controller.signal }), authFetch("/api/v1/establishments", { signal: controller.signal }),
-          authFetch("/api/v1/nominal-roll-archive", { signal: controller.signal }), authFetch("/api/v1/users", { signal: controller.signal })
+          authFetch(`${API_URL}/api/v1/reports`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/stats`, { signal: controller.signal }),
+          authFetch(`${API_URL}/api/v1/stories`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/nominal-roll`, { signal: controller.signal }),
+          authFetch(`${API_URL}/api/v1/Admin_Communication`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/establishments`, { signal: controller.signal }),
+          authFetch(`${API_URL}/api/v1/nominal-roll-archive`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/users`, { signal: controller.signal })
         ]);
 
         if (!controller.signal.aborted) {
@@ -3392,6 +4067,7 @@ const App = () => {
   const handleAcknowledgeComm = async (commId) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const response = await fetch(`${API_URL}/api/v1/communications/${commId}/acknowledge`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
       if (response.ok) setAdminCommsData(prevData => prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c));
     } catch (err) { console.error("Failed to acknowledge receipt", err); }
@@ -3416,7 +4092,8 @@ const App = () => {
 
   const handleViewHRReport = async () => {
     try {
-      const res = await authFetch("/api/v1/reports/establishments-json");
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const res = await authFetch(`${API_URL}/api/v1/reports/establishments-json`);
       if (!res.ok) throw new Error("Security clearance rejected or server error.");
       const data = await res.json(); setHrLedgerData(data); setIsViewingHR(true);
     } catch (err) { alert("Cannot load HR ledger data. Ensure your session is active and you have network connectivity."); }
@@ -3429,7 +4106,8 @@ const App = () => {
       const start = lastWeek.toISOString().split('T')[0];
 
       try {
-          const response = await authFetch(`/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
+          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+          const response = await authFetch(`${API_URL}/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
           if (!response.ok) throw new Error("Backend failed to compile ledger.");
           const data = await response.json(); setConsolidatedData(data); setIsViewingConsolidated(true);
       } catch (err) { alert("Failed to load Consolidated Ledger. Check Python terminal for errors."); }
@@ -3451,6 +4129,7 @@ const App = () => {
  if (!currentUser) return <LoginScreen 
     onLogin={(user) => {
       localStorage.removeItem('kmp_currentPage'); setCurrentPage('home'); setCurrentUser(user);
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       fetch(`${API_URL}/api/v1/system/log-session`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fnum: user.fnum }) }).catch(e => console.error(e));
     }} 
     onForgot={() => {}} onSignup={(u) => setPendingUsers([...pendingUsers, u])} pendingUsers={pendingUsers} activeUsers={users} 
@@ -3462,6 +4141,7 @@ const App = () => {
     setUsers(users.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: newPermissions } : u));
     try {
       const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       await fetch(`${API_URL}/api/v1/users/${fnum}/access`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify({ role: newRole, permissions: newPermissions }) });
     } catch (err) { console.error("Failed to save permissions to database:", err); }
   };
@@ -3473,6 +4153,7 @@ const App = () => {
 
     try {
       const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       await fetch(`${API_URL}/api/v1/users/${encodeURIComponent(fnum)}/revoke?reason=${encodeURIComponent(reason)}`, {
         method: "DELETE", headers: { "Authorization": `Bearer ${token}` }
       });
