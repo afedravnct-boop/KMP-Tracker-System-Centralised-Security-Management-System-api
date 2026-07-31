@@ -3596,17 +3596,17 @@ const DashboardLayout = ({
 // ====================================================================
 const WorkspaceSecurityCurtain = () => {
   const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
-  const [isReadingMode, setIsReadingMode] = useState(false);
+  const [isReadingMode, setIsReadingMode] = useState(false); // 🟢 Toggle for reading / busy mode
   const idleTimerRef = useRef(null);
 
   useEffect(() => {
-    // 🟢 SET TO 3 SECONDS FOR IMMEDIATE TESTING (Change back to 60000 later)
-    const IDLE_TIMEOUT_MS = 3000; 
+    const IDLE_TIMEOUT_MS = 60000; // 60 seconds
 
     const handleUserActivity = () => {
+      // If reading mode is active, do not trigger idle timeout
       if (isReadingMode) return;
+
       setIsWorkspaceIdle(false);
-      
       clearTimeout(idleTimerRef.current);
       idleTimerRef.current = setTimeout(() => {
         if (!isReadingMode) {
@@ -3635,12 +3635,12 @@ const WorkspaceSecurityCurtain = () => {
 
   return (
     <>
-      {/* Reading Mode Toggle Button */}
+      {/* 🟢 READING MODE TOGGLE BUTTON (Placed floating on screen or in navigation header) */}
       <div className="fixed bottom-6 right-6 z-[9990]">
         <button
           onClick={() => {
             setIsReadingMode(!isReadingMode);
-            setIsWorkspaceIdle(false);
+            setIsWorkspaceIdle(false); // Clear idle if turning on reading mode
           }}
           className={`flex items-center space-x-2 px-4 py-2 rounded-full shadow-2xl font-bold text-xs uppercase tracking-wider transition-all duration-300 border ${
             isReadingMode 
@@ -3656,36 +3656,38 @@ const WorkspaceSecurityCurtain = () => {
       {/* Full-Screen Security Curtain Overlay */}
       <div 
         className={`fixed inset-0 w-screen h-screen z-[99999] flex flex-col items-center justify-center transition-transform duration-700 ease-in-out shadow-2xl overflow-hidden ${
-          isWorkspaceIdle && !isReadingMode ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-full opacity-0 pointer-events-none'
+          isWorkspaceIdle && !isReadingMode ? 'translate-y-0' : '-translate-y-full pointer-events-none'
         }`}
         style={{ backgroundColor: '#0f172a' }}
       >
-        {/* Top Uganda Flag Stripes */}
         <div className="absolute top-0 w-full h-2.5 bg-[#000000]"></div>
         <div className="absolute top-2.5 w-full h-2.5 bg-[#facc15]"></div>
         <div className="absolute top-5 w-full h-2.5 bg-[#dc2626]"></div>
 
-        {/* 🟢 Background waving animation from CSS */}
-        <div className="absolute inset-0 w-full h-full opacity-10 uganda-flag-wave"></div>
+        <div className="absolute inset-0 w-full h-full opacity-10 bg-center bg-no-repeat bg-cover uganda-flag-wave"></div>
 
-        <div className="relative z-10 flex flex-col items-center text-center">
+        <div className="relative z-10 flex flex-col items-center text-center p-6">
           <img 
             src="/UPF Flag Emblem.png" 
             alt="UPF Waving Flag Emblem" 
-            className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] animate-flag-wave object-contain rounded-xl shadow-2xl"
+            className="w-80 h-48 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] animate-flag-wave transparent-badge object-contain rounded-xl"
             onError={(e) => { e.target.style.display = 'none'; }}
           />
-          <h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md">
-            KMP SECURITY DATA MANAGEMENT SYSTEM
-          </h2>
-          <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
+          <h2 className="text-3xl font-extrabold text-white tracking-wide uppercase drop-shadow-md">KMP SECURITY DATA MANAGEMENT SYSTEM</h2>
+          <p className="text-yellow-400 mt-3 text-base font-bold tracking-wide uppercase">
+            Confidential Workspace Locked Due to Inactivity
+          </p>
+          <p className="text-slate-400 mt-1.5 text-sm">
+            Move your cursor, click, or press any key to restore secure terminal session.
+          </p>
+
+          <p className="text-blue-300 mt-4 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center">
             <Lock size={14} className="mr-2" /> 
             <Globe size={14} className="mx-2 animate-spin text-yellow-400" style={{ animationDuration: '4s' }} /> 
             KMP-CSDMS Standby Mode
           </p>
         </div>
 
-        {/* Bottom Uganda Flag Stripes */}
         <div className="absolute bottom-5 w-full h-2.5 bg-[#dc2626]"></div> 
         <div className="absolute bottom-2.5 w-full h-2.5 bg-[#facc15]"></div> 
         <div className="absolute bottom-0 w-full h-2.5 bg-[#000000]"></div> 
