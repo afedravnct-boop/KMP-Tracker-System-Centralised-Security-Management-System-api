@@ -3264,9 +3264,12 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
               className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] animate-flag-wave object-contain rounded-xl border border-slate-600 shadow-2xl"
               onError={(e) => { e.target.style.display = 'none'; }}
             />
-            <h2 className="text-3xl font-extrabold text-white tracking-widest uppercase drop-shadow-md">KMP Network</h2>
+            <h2 className="text-3xl font-extrabold text-white tracking-widest uppercase drop-shadow-md">KMP SECURITY DATA MANAGEMENT SYSTEM</h2>
             <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center">
-              <Lock size={14} className="mr-2" /> Security Standby Mode
+              <Lock size={14} className="mr-2" /> 
+              {/* 🟢 SPINNING GLOBE/INTERNET SYMBOL */}
+              <Globe size={14} className="mx-2 animate-spin text-yellow-400" style={{ animationDuration: '4s' }} /> 
+              KMP-CSDMS Standby Mode
             </p>
           </div>
 
