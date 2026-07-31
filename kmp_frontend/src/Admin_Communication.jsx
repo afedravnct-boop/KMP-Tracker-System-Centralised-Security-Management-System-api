@@ -64,7 +64,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
       const response = await fetch(`${API_URL}/api/v1/communications`, {
         method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
-          sender_fnum: currentUser.fnum, 
           sender_name: currentUser.name, 
           target_audience: formData.targetAudience,
           target_region: formData.targetRegion, 

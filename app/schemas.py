@@ -239,7 +239,7 @@ class ModificationRequestCreate(BaseModel):
 
 class ModificationRequestReview(BaseModel):
     status: str # "APPROVED" or "REJECTED"
-    reason: Optional[str] = None # 🟢 Added to capture the rejection reason from the frontend prompt
+    reason: Optional[str] = None # 🟢 Captures rejection reason from the frontend prompt
 
 class ModificationRequestResponse(BaseModel):
     id: int
@@ -260,7 +260,7 @@ class Admin_CommunicationCreate(BaseModel):
     sender_name: str
     target_audience: str
     target_region: Optional[str] = None
-    target_fnum: Optional[str] = None # 🟢 ADDED THIS LINE
+    target_fnum: Optional[str] = None 
     message_type: str
     subject: str
     message: str
@@ -276,10 +276,12 @@ class LogResponse(BaseModel):
     
     model_config = ConfigDict(from_attributes=True)
 
-class SessionLogRequest(BaseModel): # 🟢 ADDED: Missing Schema for Dashboard Access Audit Log
+class SessionLogRequest(BaseModel): # 🟢 Dashboard Access Audit Log
     fnum: str
 
+# 🟢 FIXED: This now perfectly matches the 4 fields your React frontend is sending!
 class ActivityLogReq(BaseModel):
+    fnum: str
     action: str
     module: str
     details: str

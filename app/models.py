@@ -15,9 +15,9 @@ def get_eat_time():
 # ==========================================
 class Crime_Reports(Base):
     __tablename__ = "crime_reports"
-    
     __table_args__ = (
         UniqueConstraint('sd_ref', 'station', name='uix_sd_station'),
+        {'extend_existing': True}
     )
 
     id = Column(Integer, primary_key=True, index=True)
@@ -39,6 +39,7 @@ class Crime_Reports(Base):
 
 class Suspect_Lockup(Base):
     __tablename__ = "suspect_lockup"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     sd_ref = Column(Integer, ForeignKey("crime_reports.sn")) 
@@ -58,6 +59,8 @@ class Suspect_Lockup(Base):
 # ==========================================
 class Operational_Statistics(Base):
     __tablename__ = "operational_statistics"
+    __table_args__ = {'extend_existing': True}
+    
     id = Column(Integer, primary_key=True, index=True)
     sn = Column(Integer, index=True, unique=True)
     region = Column(String, index=True)
@@ -80,6 +83,7 @@ class Operational_Statistics(Base):
 class Success_Stories(Base):
     __tablename__ = "success_stories"
     __table_args__ = {'extend_existing': True}
+    
     sn = Column(Integer, primary_key=True) 
     date = Column(String)
     time = Column(String)
@@ -96,6 +100,8 @@ class Success_Stories(Base):
 # ==========================================
 class Establishments(Base):
     __tablename__ = "establishments"
+    __table_args__ = {'extend_existing': True}
+    
     id = Column(Integer, primary_key=True, index=True)
     region = Column(String, index=True)
     division = Column(String, index=True)
@@ -119,10 +125,12 @@ class Establishments(Base):
 # ==========================================
 class Nominal_Roll(Base):
     __tablename__ = "nominal_roll"
+    __table_args__ = {'extend_existing': True}
+    
     id = Column(Integer, primary_key=True, index=True)
     sn = Column(Integer, index=True, unique=True)
     
-    # MAPPED COLUMNS: Python uses the exact keys React sends, but connects safely to Postgres underscores
+    # MAPPED COLUMNS: Python uses exact keys React sends, connects to Postgres safely
     fnum = Column("f_num", String, unique=True, index=True)
     rank = Column(String)
     name = Column(String)
@@ -156,6 +164,7 @@ class Nominal_Roll(Base):
 class Nominal_Roll_Archive(Base):
     __tablename__ = "nominal_roll_archive"
     __table_args__ = {'extend_existing': True}
+    
     id = Column(Integer, primary_key=True, index=True) 
     sn = Column(Integer, index=True)
     fnum = Column(String) 
@@ -192,6 +201,8 @@ class Nominal_Roll_Archive(Base):
 # ==========================================
 class Users(Base):
     __tablename__ = "users"
+    __table_args__ = {'extend_existing': True}
+    
     id = Column(Integer, primary_key=True, index=True)
     fnum = Column("fNum", String, unique=True, index=True)   
     rank = Column(String)
@@ -218,6 +229,7 @@ class Users(Base):
 class Modification_Requests(Base):
     __tablename__ = "modification_requests"
     __table_args__ = {'extend_existing': True} 
+    
     id = Column(Integer, primary_key=True, index=True)
     fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True) 
     requested_rank = Column(String, nullable=True)
@@ -232,6 +244,7 @@ class Modification_Requests(Base):
 class Audit_Logs(Base):
     __tablename__ = "audit_logs"
     __table_args__ = {'extend_existing': True} 
+    
     id = Column(Integer, primary_key=True, index=True)
     event_type = Column(String)
     target_user = Column(String) 
@@ -240,21 +253,25 @@ class Audit_Logs(Base):
     created_at = Column(DateTime, default=get_eat_time)
     user_fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
 
+# 🟢 ACTIVITY LOGS (Perfectly matched to NeonDB columns: id, fnum, action, module, details, created_at)
 class Activity_Logs(Base):
     __tablename__ = "activity_logs"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     fnum = Column(String, index=True)
     action = Column(String, nullable=True)
     module = Column(String, nullable=True)
     details = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=get_eat_time)  # Changed to get_eat_time for consistency
 
 # ==========================================
 # 9. ADMIN COMMUNICATION
 # ==========================================
 class Admin_Communication(Base):
     __tablename__ = "Admin_Communication"
+    __table_args__ = {'extend_existing': True}
+    
     id = Column(Integer, primary_key=True, index=True)
     msg_ref = Column(String, index=True, nullable=True)
     sender_fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
@@ -273,6 +290,7 @@ class Admin_Communication(Base):
 # ==========================================
 class Communication_Reads(Base):
     __tablename__ = "communication_reads"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     comm_id = Column(Integer, index=True)
@@ -281,6 +299,7 @@ class Communication_Reads(Base):
 
 class Password_Reset_Requests(Base):
     __tablename__ = "password_reset_requests"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), nullable=False)
