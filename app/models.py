@@ -1,17 +1,14 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, UniqueConstraint, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from app.database import Base, LogsBase
+from app.database import Base
 from datetime import datetime
-from datetime import datetime, timedelta
-from sqlalchemy import Column, DateTime
 import pytz
-from starlette.middleware.base import BaseHTTPMiddleware
 
 def get_eat_time():
     # Explicitly set to Africa/Nairobi (which is EAT)
     eat = pytz.timezone('Africa/Nairobi')
-    return datetime.now(eat)
+    return datetime.now(eat).replace(tzinfo=None)
 
 # ==========================================
 # 1. LIVE CRIME REGISTRY
@@ -54,7 +51,7 @@ class Suspect_Lockup(Base):
     mental_health_status = Column(String, nullable=True)
     photo_url = Column(String, nullable=True) 
 
-    crime_report = relationship(Crime_Reports, back_populates="suspect_details")
+    crime_report = relationship("Crime_Reports", back_populates="suspect_details")
 
 # ==========================================
 # 2. DISRUPTIVE OPS STATISTICS
@@ -259,10 +256,12 @@ class Activity_Logs(Base):
 class Admin_Communication(Base):
     __tablename__ = "Admin_Communication"
     id = Column(Integer, primary_key=True, index=True)
+    msg_ref = Column(String, index=True, nullable=True)
     sender_fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
     sender_name = Column(String)
     target_audience = Column(String, index=True)
     target_region = Column(String, index=True, nullable=True)
+    target_fnum = Column(String, index=True, nullable=True)
     message_type = Column(String)
     subject = Column(String)
     message = Column(Text)
@@ -280,7 +279,6 @@ class Communication_Reads(Base):
     fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
     read_at = Column(DateTime(timezone=True), server_default=func.now())
 
-# 🟢 FIXED: Updated table name and schema to match api_backend.py logic
 class Password_Reset_Requests(Base):
     __tablename__ = "password_reset_requests"
 

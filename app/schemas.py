@@ -38,6 +38,10 @@ class UserUpdate(BaseModel):
     profile_photo_path: Optional[str] = None
     password: Optional[str] = None
 
+class UserAccessUpdate(BaseModel): # 🟢 ADDED: Missing Schema for Access Matrix Update
+    role: str
+    permissions: dict
+
 # ==========================================
 # 1. LIVE CRIME REGISTRY
 # ==========================================
@@ -170,6 +174,9 @@ class NominalRollResponse(NominalRollCreate):
     
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
+class ArchiveRequest(BaseModel): # 🟢 ADDED: Missing Schema for Archiving Personnel
+    archive_reason: str
+
 # ==========================================
 # 6. USER ACCOUNTS
 # ==========================================
@@ -248,6 +255,17 @@ class ModificationRequestResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
+class Admin_CommunicationCreate(BaseModel):
+    sender_fnum: str
+    sender_name: str
+    target_audience: str
+    target_region: Optional[str] = None
+    target_fnum: Optional[str] = None # 🟢 ADDED THIS LINE
+    message_type: str
+    subject: str
+    message: str
+    send_email: bool = False
+
 class LogResponse(BaseModel):
     id: int
     user_fnum: str
@@ -257,3 +275,11 @@ class LogResponse(BaseModel):
     timestamp: datetime
     
     model_config = ConfigDict(from_attributes=True)
+
+class SessionLogRequest(BaseModel): # 🟢 ADDED: Missing Schema for Dashboard Access Audit Log
+    fnum: str
+
+class ActivityLogReq(BaseModel):
+    action: str
+    module: str
+    details: str

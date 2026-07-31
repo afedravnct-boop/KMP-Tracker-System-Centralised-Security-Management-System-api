@@ -168,6 +168,14 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
   const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role);
   
+  const hasNominalClearance = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
+                              (currentUser?.position || '').toUpperCase().includes('HR') ||
+                              currentUser?.permissions?.view_nominal_roll || 
+                              currentUser?.permissions?.upload_hr;
+
+  const renderPage = () => {
+    switch (currentPage) { 
+
   const rawComms = adminCommsData || [];
   const safeComms = Array.isArray(rawComms) ? rawComms : (rawComms.data || rawComms.items || []);
 
@@ -189,13 +197,14 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 
   const hasSubmittedThisWeek = hasSubmittedReport || hasSubmittedStats;
 
-  const allowedRoles = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'];
+  // 🟢 FIX 4: Explicitly target the exact requested officers for compliance alerts
   const userRole = (currentUser.role || '').toUpperCase();
   const userPosition = (currentUser.position || '').toUpperCase();
+  const targetRoles = ['RPC', 'DEPUTY RPC', 'DPC', 'HR OFFICER', 'DATA OFFICER', 'DATA ASSISTANT OFFICER'];
   
   const isTargetOfficer = 
-    allowedRoles.includes(userRole) || userPosition.includes('RPC') || 
-    userPosition.includes('COMMANDER') || userPosition.includes('DATA OFFICER');
+    ['ADMIN', 'SUPER_ADMIN'].includes(userRole) || 
+    targetRoles.some(pos => userPosition.includes(pos));
 
   const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && isTargetOfficer;
   const showComplianceSuccess = isEndOfWeek && hasSubmittedThisWeek && isTargetOfficer;
@@ -241,6 +250,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
     if (audience === 'ADMINS_ONLY' && isAdmin) return true;
     if (audience === 'RPC_ONLY' && isRPC) return true;
     if (audience === 'SPECIFIC_REGION' && region === currentUser.region) return true;
+    if (audience === 'SPECIFIC_USER' && c.target_fnum === currentUser.fnum) return true;
     return false;
   }).slice(0, 5);
   
@@ -264,9 +274,9 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
                    ) : (
                        <div className="space-y-2">
                           {receiptsData.map((r, i) => (
-                             <div key={i} className="flex justify-between items-center text-xs p-3 bg-white rounded shadow-sm">
+                             <div key={i} className="flex justify-between items-center text-xs p-3 bg-white rounded shadow-sm border border-slate-100">
                                 <div><span className="font-extrabold text-slate-800 block">{r.name}</span><span className="font-mono text-[9px] text-gray-400">{r.fnum}</span></div>
-                                <span className="text-xs text-green-600 font-bold bg-green-50 px-2 py-1 rounded">Read: {r.read_at}</span>
+                                <span className="text-xs text-green-600 font-bold bg-green-50 px-2 py-1 rounded border border-green-200">Read: {r.read_at}</span>
                              </div>
                           ))}
                        </div>
@@ -331,23 +341,21 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
         </h3>   
       </div>
 
-      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && (
-        <div onClick={() => setCurrentPage('Admin_Communication')} className="h-28 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-green-400 group relative overflow-hidden">
-          {hasUnread && (
-            <><div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping"></div>
-              <div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full"></div></>
-          )}
-          <div className="w-14 h-14 rounded-full bg-slate-900 text-white flex items-center justify-center mr-4 group-hover:bg-slate-800 transition-colors shrink-0">
-            <RadioReceiver size={24} className={hasUnread ? "text-green-400 animate-pulse" : "text-slate-400"} />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-sm font-extrabold text-slate-900 leading-tight">Command Dispatches</h3>
-            <p className="text-xs font-medium mt-1 line-clamp-2 transition-colors duration-300 flex items-center">
-              {hasUnread ? <span className="text-green-600 font-bold">You have unread directives. Click to view.</span> : <span className="text-slate-500">Secure directives, network alerts, and command communications.</span>}
-            </p>
-          </div>
+      <div onClick={() => setCurrentPage('Admin_Communication')} className="h-28 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-green-400 group relative overflow-hidden mb-4">
+        {hasUnread && (
+          <><div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping"></div>
+            <div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full"></div></>
+        )}
+        <div className="w-14 h-14 rounded-full bg-slate-900 text-white flex items-center justify-center mr-4 group-hover:bg-slate-800 transition-colors shrink-0">
+          <RadioReceiver size={24} className={hasUnread ? "text-green-400 animate-pulse" : "text-slate-400"} />
         </div>
-      )}
+        <div className="flex-1">
+          <h3 className="text-sm font-extrabold text-slate-900 leading-tight">Command Dispatches & Alerts</h3>
+          <p className="text-xs font-medium mt-1 line-clamp-2 transition-colors duration-300 flex items-center">
+            {hasUnread ? <span className="text-green-600 font-bold">You have unread Correspondences. Click to view.</span> : <span className="text-slate-500">Secure directives, network alerts, and command communications.</span>}
+          </p>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
           <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-300 group">
@@ -370,10 +378,12 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
             <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-xs text-slate-500 font-medium mt-1">Map divisions, stations, posts and booths.</p></div>
           </div>
 
-          <div onClick={() => setCurrentPage('nominal-roll')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-purple-300 group">
-            <div className="w-14 h-14 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mr-4 group-hover:bg-purple-600 group-hover:text-white transition-colors shrink-0"><Users size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Master Nominal Roll</h3><p className="text-xs text-slate-500 font-medium mt-1">Personnel data and deployment registry.</p></div>
-          </div>
+          {hasNominalClearance && (
+            <div onClick={() => setCurrentPage('nominal-roll')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-purple-300 group">
+              <div className="w-14 h-14 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mr-4 group-hover:bg-purple-600 group-hover:text-white transition-colors shrink-0"><Users size={24} /></div>
+              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Master Nominal Roll</h3><p className="text-xs text-slate-500 font-medium mt-1">Personnel data and deployment registry.</p></div>
+            </div>
+          )}
 
           {isAdmin && (
             <div onClick={() => setCurrentPage('approvals')} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-slate-500 group">
@@ -569,7 +579,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     }
   };
 
-  const handleFormSubmit = async (e) => {
+const handleFormSubmit = async (e) => {
     e.preventDefault();
     const token = localStorage.getItem('kmp_authToken');
     if (!token) return setNotification("Error: Security token missing. Please log out and log back in.");
@@ -585,35 +595,37 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
       if (isDuplicate) return setNotification(`Error: This specific ${formData.ref_type} entry or identical narrative already exists at ${formData.station}.`);
 
-      const exactNextSN = reports.length > 0 ? Math.max(...reports.map(r => r.sn)) + 1 : 1;
       const finalOffence = formData.offence === 'Other' ? formData.customOffence : formData.offence;
       
+      // 🟢 FIX 2: We no longer send `exactNextSN`. Let the backend DB handle the ID assignment!
       const apiPayload = {
-        sn: exactNextSN, sd_ref: final_reference, region: formData.region, station: formData.station,
+        sd_ref: final_reference, region: formData.region, station: formData.station,
         date: formData.date, time: formData.time, offence: finalOffence, narrative: formData.narrative,
         status: formData.status, suspects: formData.suspectDetails.length, 
         last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails
       };
       
       try {
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const response = await fetch(`${API_URL}/api/v1/reports`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify(apiPayload)
         });
         
+        const resData = await response.json().catch(() => ({}));
+        
         if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.detail || "Neon Database rejected the entry.");
+            throw new Error(resData.detail || "Neon Database rejected the entry.");
         }
         
-        setReports([apiPayload, ...reports]);
-        setNotification(`Case SN ${apiPayload.sn} (Ref: ${apiPayload.sd_ref}) successfully registered!`);
-        setFormData({ 
-          ...formData, sd_ref: '', ref_type: 'SD Ref:', ref_number: '', 
-          time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs', 
-          offence: '', customOffence: '', narrative: '', suspectDetails: [], sn: null, updateText: '' 
-        });
+        // 🟢 FIX 2: Grab the auto-generated SN and ID from the backend response
+        const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
+        setReports([newReportLocal, ...reports]);
+        setNotification(`Case SN ${newReportLocal.sn} (Ref: ${newReportLocal.sd_ref}) successfully registered!`);
+        
+        // 🟢 FIX 3: Force complete reset of the form states!
+        handleOperationToggle('new');
 
       } catch (err) {
         setNotification(`❌ Error: ${err.message}`);
@@ -633,6 +645,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       delete updatedRecord.updateText; delete updatedRecord.ref_type; delete updatedRecord.ref_number;
       
       try {
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const response = await fetch(`${API_URL}/api/v1/reports/${formData.sn}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
@@ -2119,6 +2132,12 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
   };
 
+  // 🟢 CLEANED UP CLEARANCE CHECK: Now safely placed before the return
+  const canUploadHR = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role) || 
+                      (currentUser?.position || '').toUpperCase().includes('HR') ||
+                      currentUser?.permissions?.upload_hr || 
+                      currentUser?.permissions?.export_data;
+
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
       <div className="text-center mb-8 flex flex-col items-center">
@@ -2147,16 +2166,43 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
         )}
       </div>
 
-   <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-5 space-y-5">
-          {(currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'RPC') && (
+
+          {canUploadHR && (
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div>
-                <h4 className="font-bold text-gray-800 text-sm flex items-center"><Upload className="w-4 h-4 mr-2 text-blue-600" /> Batch Excel Import Existing Nominal Roll</h4>
+                <h4 className="font-bold text-gray-800 text-sm flex items-center">
+                  <Upload className="w-4 h-4 mr-2 text-blue-600" /> Batch Excel Import Existing Nominal Roll
+                </h4>
                 <p className="text-xs text-gray-500 mt-0.5">Upload your existing Nominal roll, Ensure your column headers are exactly as below for consistency:</p>
               </div>
               <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-mono text-slate-700 flex flex-wrap gap-1.5">
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">sn</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">fnum</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">rank</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">name</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">sex</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">position</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dob</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">doe</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dopost</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dopro</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">contact</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">educlevel</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">ipps</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">tin</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">nin</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">homedist</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">tribe</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">accno</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">bankbranch</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">station</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">district</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">region</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">section</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dir</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">status</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">sn</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">fnum</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">rank</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">name</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">sex</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">position</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dob</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">doe</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dopost</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dopro</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">contact</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">educlevel</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">ipps</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">tin</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">nin</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">homedist</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">tribe</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">accno</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">bankbranch</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">station</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">district</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">region</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">section</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dir</span>
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">status</span>
               </div>
               <BulkNominalRollUpload onUploadSuccess={() => window.location.reload()} />
             </div>
@@ -2539,33 +2585,34 @@ const AdminApprovals = ({ currentUser }) => {
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Action</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {realPendingUsers.map(u => (
-                    <tr key={u.fnum} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 text-sm flex items-center space-x-3">
-                        {u.profile_photo_path ? (
-                          <img src={u.profile_photo_path} alt="" className="w-10 h-10 rounded-full bg-slate-100 object-cover border border-gray-200" onError={(e) => { e.target.style.display='none'; }} />
-                        ) : (
-                          <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold">{u.name?.charAt(0) || 'U'}</div>
-                        )}
-                        <div>
-                          <div className="font-bold text-gray-900">{u.name} ({u.fnum})</div>
-                          <div className="text-gray-500 text-xs">Rank: {u.rank} | IPPS: {u.ipps}</div>
-                        </div>
+<tbody className="bg-white divide-y divide-gray-200">
+                {loadingLogs ? (
+                   <tr><td colSpan="5" className="p-8 text-center text-sm text-gray-500 font-bold animate-pulse">Decrypting server logs...</td></tr>
+                ) : audit_logs.length === 0 ? (
+                  <tr><td colSpan="5" className="p-4 text-center text-sm text-gray-500">No recent security events logged in main database.</td></tr>
+                ) : (
+                  audit_logs.map((log) => (
+                    <tr key={log.id} className="hover:bg-slate-50">
+                      {/* 🟢 FIX 5: Force 24-hour time format using en-GB standards */}
+                      <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">
+                        {log.created_at ? new Date(log.created_at).toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : 'Unknown Time'}
                       </td>
-                      <td className="px-4 py-3 text-sm">
-                        <div className="font-medium text-gray-700">{u.station}</div>
-                        <div className="text-gray-500 text-xs">{u.region}</div>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-extrabold text-blue-700">
+                        {log.user_fnum}
                       </td>
-                      <td className="px-4 py-3 text-sm">
-                        <span className={`px-2 py-1 inline-flex text-xs font-bold rounded-full ${u.role === 'ADMIN' || u.role === 'SUPER_ADMIN' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>{u.role}</span>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm">
+                        <span className="font-extrabold text-slate-800 uppercase text-xs">{log.event_type}</span>
                       </td>
-                      <td className="px-4 py-3 text-sm">
-                        <button onClick={() => handleApproveUser(u.fnum)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-xs transition">Approve Access</button>
+                       <td className="px-4 py-3 text-sm text-gray-600 font-medium">
+                        {log.target_user || 'N/A'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {log.details}
                       </td>
                     </tr>
-                  ))}
-                </tbody>
+                  ))
+                )}
+              </tbody>
               </table>
             </div>
           )}
@@ -3385,25 +3432,29 @@ const DashboardLayout = ({
   // 🟢 ADVANCED IDLE TIMER & WARNING SCREEN
   const [showIdleWarning, setShowIdleWarning] = useState(false);
   const [idleCountdown, setIdleCountdown] = useState(60);
+  
+  const isWarningActive = useRef(false);
+  const resetIdleTimersRef = useRef(null);
 
   useEffect(() => {
-    let lastActivityTime = Date.now();
     let warningTimer;
     let logoutTimer;
     let countdownInterval;
+    let activityThrottle;
 
-    const IDLE_LIMIT = 29 * 60 * 1000; // 29 minutes before warning
-    const WARNING_WINDOW = 60 * 1000; // 60 seconds of warning countdown
+    const IDLE_LIMIT = 29 * 60 * 1000; 
+    const WARNING_WINDOW = 60 * 1000; 
 
-    const resetTimers = () => {
-      if (showIdleWarning) return; // Don't reset if the warning is already on screen
-      lastActivityTime = Date.now();
-      
+    const startTimers = () => {
       clearTimeout(warningTimer);
       clearTimeout(logoutTimer);
       clearInterval(countdownInterval);
 
+      isWarningActive.current = false;
+      setShowIdleWarning(false);
+
       warningTimer = setTimeout(() => {
+        isWarningActive.current = true;
         setShowIdleWarning(true);
         setIdleCountdown(WARNING_WINDOW / 1000);
         
@@ -3416,24 +3467,42 @@ const DashboardLayout = ({
             return prev - 1;
           });
         }, 1000);
-
       }, IDLE_LIMIT);
 
       logoutTimer = setTimeout(() => {
+        clearInterval(countdownInterval);
+        isWarningActive.current = false;
+        setShowIdleWarning(false);
+        
         alert("Session Expired: You have been securely logged out due to inactivity.");
-        if (typeof onLogout === 'function') onLogout();
-        else { localStorage.removeItem('kmp_authToken'); window.location.reload(); }
+        if (typeof onLogout === 'function') {
+            onLogout();
+        } else {
+            localStorage.removeItem('kmp_authToken'); 
+            window.location.reload(); 
+        }
       }, IDLE_LIMIT + WARNING_WINDOW);
     };
 
-    const handleUserActivity = () => resetTimers();
+    resetIdleTimersRef.current = startTimers;
+
+    const handleUserActivity = () => {
+      if (isWarningActive.current) return;
+      
+      if (!activityThrottle) {
+         activityThrottle = setTimeout(() => {
+            startTimers();
+            activityThrottle = null;
+         }, 1000); 
+      }
+    };
 
     window.addEventListener('mousemove', handleUserActivity);
     window.addEventListener('keypress', handleUserActivity);
     window.addEventListener('click', handleUserActivity);
     window.addEventListener('scroll', handleUserActivity);
 
-    resetTimers();
+    startTimers();
 
     return () => {
       window.removeEventListener('mousemove', handleUserActivity);
@@ -3443,31 +3512,27 @@ const DashboardLayout = ({
       clearTimeout(warningTimer);
       clearTimeout(logoutTimer);
       clearInterval(countdownInterval);
+      clearTimeout(activityThrottle);
     };
-  }, [onLogout, showIdleWarning]);
+  }, [onLogout]);
 
-  // 🟢 AUTOMATIC PAGE ACCESS TRACKER (AUDIT LOGGING)
+  // 🟢 AUTOMATIC PAGE ACCESS TRACKER -> ROUTED CORRECTLY TO ACTIVITY_LOGS TABLE
   useEffect(() => {
     if (!currentUser?.fnum || !currentPage) return;
-    
     const token = localStorage.getItem('kmp_authToken');
     if (!token) return;
 
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
     
-    fetch(`${API_URL}/api/v1/audit-logs`, {
+    fetch(`${API_URL}/api/v1/activity-logs`, {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({
-        event_type: 'MODULE_ACCESS',
-        target_user: 'SYSTEM',
-        details: `Officer ${currentUser.name} accessed the ${currentPage.toUpperCase()} module.`
+        action: 'MODULE_ACCESS',
+        module: currentPage.toUpperCase(),
+        details: `Accessed the ${currentPage.toUpperCase()} module.`
       })
-    }).catch(e => console.warn("Audit log silent fail"));
-    
+    }).catch(e => console.warn("Activity log silent fail"));
   }, [currentPage, currentUser?.fnum]);
 
   const safeSidebarComms = Array.isArray(Admin_Communication) ? Admin_Communication : (Admin_Communication?.data || Admin_Communication?.items || []);
@@ -3479,10 +3544,17 @@ const DashboardLayout = ({
     if (audience === 'ADMINS_ONLY' && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role)) return true;
     if (audience === 'RPC_ONLY' && ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role)) return true;
     if (audience === 'SPECIFIC_REGION' && region === currentUser?.region) return true;
+    if (audience === 'SPECIFIC_USER' && c.target_fnum === currentUser?.fnum) return true;
     return false;
   });
 
   const hasUnreadComms = relevantComms.some(c => !c.acknowledged);
+
+  const hasNominalClearance = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
+                              (currentUser?.position || '').toUpperCase().includes('HR') ||
+                              currentUser?.permissions?.view_nominal_roll || 
+                              currentUser?.permissions?.upload_hr || 
+                              currentUser?.permissions?.system_admin;
 
   const navItems = [
     { 
@@ -3496,20 +3568,13 @@ const DashboardLayout = ({
         </div>
       )
     },
+    { name: 'Command Communications', id: 'Admin_Communication', icon: <Bell size={20} /> },
     { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> },
     { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> },
     { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> },
     { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> },
-    { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> },
+    ...(hasNominalClearance ? [{ name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> }] : []),
   ];
-
-  if (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)) {
-     navItems.push({ 
-       name: ' Official Admin Dispatch', 
-       id: 'Admin_Communication', 
-       icon: <Bell size={20} />
-     });
-  }
 
   const handleExportLogs = async () => {
     try {
@@ -3559,7 +3624,6 @@ const DashboardLayout = ({
     }
   };
 
-  // 🟢 IDLE MODAL COMPONENT
   const IdleWarningModal = () => showIdleWarning && (
     <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[500] flex justify-center items-center p-4 animate-in zoom-in duration-300">
       <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center border-2 border-red-500">
@@ -3568,7 +3632,9 @@ const DashboardLayout = ({
         <p className="text-slate-600 font-medium mb-6">Your connection to the KMP network has been idle. For security purposes, you will be logged out in:</p>
         <div className="text-5xl font-mono font-extrabold text-red-600 mb-8">{idleCountdown}s</div>
         <button 
-          onClick={() => setShowIdleWarning(false)} 
+          onClick={() => {
+            if (resetIdleTimersRef.current) resetIdleTimersRef.current();
+          }} 
           className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all text-lg"
         >
           I am still here (Extend Session)
@@ -3877,6 +3943,23 @@ const DashboardLayout = ({
                       </div>
                     </label>
 
+                    {/* 🟢 NOMINAL ROLL ACCESS CHECKBOX IN MATRIX */}
+                    <label className="flex items-center space-x-3 cursor-pointer group">
+                      <input type="checkbox" className="w-4 h-4 text-blue-500 rounded border-gray-300 focus:ring-blue-500" 
+                        checked={Boolean(selectedUserDetail.permissions?.view_nominal_roll) || String(selectedUserDetail.role || '').includes('ADMIN')} 
+                        disabled={String(selectedUserDetail.role || '').includes('ADMIN')} 
+                        onChange={(e) => { 
+                          const newPerms = { ...(selectedUserDetail.permissions || {}), view_nominal_roll: e.target.checked }; 
+                          setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); 
+                          onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); 
+                        }} 
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">Nominal Roll Access</div>
+                        <div className="text-xs text-slate-500 font-medium">Grants standard users clearance to view the personnel registry.</div>
+                      </div>
+                    </label>
+
                     <label className="flex items-center space-x-3 cursor-pointer group">
                       <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500" checked={Boolean(selectedUserDetail.permissions?.consolidated) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), consolidated: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
                       <div className="flex-1">
@@ -4085,7 +4168,7 @@ const App = () => {
       case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
       case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
       case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
-      case 'Admin_Communication': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm}/>;
+case 'Admin_Communication': return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} />;
       default: return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
     }
   };
