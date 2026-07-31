@@ -10,4 +10,4 @@ venv/
 env/
 
 # Uploads directory
-uploads/
+uploads/"node_modules/" 
