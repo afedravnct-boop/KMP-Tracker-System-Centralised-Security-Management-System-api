@@ -109,7 +109,7 @@
   text-align: left;
 }
 
-/* 🟢 UGANDA FLAG WAVING BACKGROUND ANIMATION */
+/* 🟢 HORIZONTAL BLACK & WHITE WAVING BACKGROUND ANIMATION */
 @keyframes flagWaveBg {
   0% {
     background-position: 0% 50%;
@@ -124,16 +124,14 @@
 
 .uganda-flag-wave {
   background: linear-gradient(
-    135deg, 
-    #000000 0%, #000000 16.6%, 
-    #FCDC04 16.6%, #FCDC04 33.3%, 
-    #D90000 33.3%, #D90000 50%, 
-    #000000 50%, #000000 66.6%, 
-    #FCDC04 66.6%, #FCDC04 83.3%, 
-    #D90000 83.3%, #D90000 100%
+    to right, 
+    #000000 0%, #000000 25%, 
+    #ffffff 25%, #ffffff 50%, 
+    #000000 50%, #000000 75%, 
+    #ffffff 75%, #ffffff 100%
   );
-  background-size: 150% 150%;
-  animation: flagWaveBg 20s ease infinite;
+  background-size: 200% 200%;
+  animation: flagWaveBg 15s ease infinite;
 }
 
 /* 🟢 3D PERSPECTIVE WAVING ANIMATION FOR UPF FLAG EMBLEM */

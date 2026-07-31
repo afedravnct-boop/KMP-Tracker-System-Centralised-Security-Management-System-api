@@ -6,7 +6,7 @@ import {
   Award, Maximize2, Minimize2, Activity, User, Lock, 
   AlertTriangle, RadioReceiver, Eye, X, Building, Image, 
   Camera, Users, Home, Unlock, Send, Archive, PieChart,
-  Bell, MessageSquare, Upload, ArrowLeft
+  Bell, MessageSquare, Upload, ArrowLeft, Globe, WifiOff, Wifi
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReactQuill from 'react-quill-new';
@@ -16,6 +16,7 @@ import ConsolidatedLedger from './ConsolidatedLedger';
 import HrEstablishmentsLedger from './HrEstablishmentsLedger';
 import Admin_Communication from './Admin_Communication';
 import BulkNominalRollUpload from './BulkNominalRollUpload';
+import { syncOfflineQueue, getOfflineQueueCount } from './utils/offlineSync';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -41,13 +42,60 @@ const POSITIONS = {
     "KMP Commander", "Deputy KMP Commander",
     "KMP CID Commander", "KMP CI Commander", "KMP Operations Commander", 
     "KMP Traffic & Road Safety Commander", "KMP 999 eru commander", 
-    "999 ERU Regional Data Officer", "KMP SFC Coordinator",
+    "999 ERU Regional Data Officer", "Regional HR Officer", "KMP SFC Coordinator",
     "Data Officer", "Data Assistant Officer"
   ],
   RPC: [
     "KMP South Commander", "KMP North Commander", "KMP East Commander", "Deputy Commander KMP south", "Deputy Commander KMP North", "Deputy Commander KMP East"
   ]
 };
+
+const NetworkStatusBadge = () => {
+  const [queueCount, setQueueCount] = useState(0);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const updateStatus = () => {
+      setIsOnline(navigator.onLine);
+      setQueueCount(getOfflineQueueCount());
+    };
+
+    updateStatus();
+
+    window.addEventListener('online', updateStatus);
+    window.addEventListener('offline', updateStatus);
+    
+    // Check queue count periodically
+    const interval = setInterval(updateStatus, 5000);
+
+    return () => {
+      window.removeEventListener('online', updateStatus);
+      window.removeEventListener('offline', updateStatus);
+      clearInterval(interval);
+    };
+  }, []);
+
+  return (
+    <div className="flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-bold border shadow-sm">
+      {isOnline ? (
+        <span className="flex items-center text-green-600 bg-green-50 border-green-200 px-2.5 py-1 rounded-full">
+          <Wifi size={14} className="mr-1.5" /> Live Sync Active
+        </span>
+      ) : (
+        <span className="flex items-center text-amber-600 bg-amber-50 border-amber-200 px-2.5 py-1 rounded-full animate-pulse">
+          <WifiOff size={14} className="mr-1.5" /> Offline Mode
+        </span>
+      )}
+
+      {queueCount > 0 && (
+        <span className="bg-red-600 text-white px-2 py-0.5 rounded-full text-[10px] shadow">
+          {queueCount} Queued
+        </span>
+      )}
+    </div>
+  );
+};
+
 
 function usePersistentState(key, initialValue) {
   const [state, setState] = useState(() => {
@@ -3264,7 +3312,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
               className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] animate-flag-wave object-contain rounded-xl border border-slate-600 shadow-2xl"
               onError={(e) => { e.target.style.display = 'none'; }}
             />
-            <h2 className="text-3xl font-extrabold text-white tracking-widest uppercase drop-shadow-md">KMP SECURITY DATA MANAGEMENT SYSTEM</h2>
+            <h2 className="text-3xl font-extrabold text center-white tracking-wide uppercase drop-shadow-md">KMP SECURITY DATA MANAGEMENT SYSTEM</h2>
             <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center">
               <Lock size={14} className="mr-2" /> 
               {/* 🟢 SPINNING GLOBE/INTERNET SYMBOL */}
@@ -3544,21 +3592,24 @@ const DashboardLayout = ({
 // ====================================================================
 // --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN COMPONENT ---
 // ====================================================================
-// ====================================================================
-// --- FULL-SCREEN WORKSPACE SECURITY IDLE CURTAIN ---
-// ====================================================================
 const WorkspaceSecurityCurtain = () => {
   const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
+  const [isReadingMode, setIsReadingMode] = useState(false); // 🟢 Toggle for reading / busy mode
   const idleTimerRef = useRef(null);
 
   useEffect(() => {
-    const IDLE_TIMEOUT_MS = 60000; // 60 seconds of inactivity
+    const IDLE_TIMEOUT_MS = 60000; // 60 seconds
 
     const handleUserActivity = () => {
+      // If reading mode is active, do not trigger idle timeout
+      if (isReadingMode) return;
+
       setIsWorkspaceIdle(false);
       clearTimeout(idleTimerRef.current);
       idleTimerRef.current = setTimeout(() => {
-        setIsWorkspaceIdle(true);
+        if (!isReadingMode) {
+          setIsWorkspaceIdle(true);
+        }
       }, IDLE_TIMEOUT_MS);
     };
 
@@ -3578,43 +3629,68 @@ const WorkspaceSecurityCurtain = () => {
       window.removeEventListener('scroll', handleUserActivity, true);
       window.removeEventListener('touchstart', handleUserActivity, true);
     };
-  }, []);
+  }, [isReadingMode]);
 
   return (
-    <div 
-      className={`fixed inset-0 w-screen h-screen z-[99999] flex flex-col items-center justify-center transition-transform duration-700 ease-in-out shadow-2xl overflow-hidden ${
-        isWorkspaceIdle ? 'translate-y-0' : '-translate-y-full pointer-events-none'
-      }`}
-      style={{ backgroundColor: '#0f172a' }}
-    >
-      {/* Top Warning Bars */}
-      <div className="absolute top-0 w-full h-2.5 bg-[#000000]"></div>
-      <div className="absolute top-2.5 w-full h-2.5 bg-[#facc15]"></div>
-      <div className="absolute top-5 w-full h-2.5 bg-[#dc2626]"></div>
-
-      <div className="absolute inset-0 w-full h-full opacity-10 bg-center bg-no-repeat bg-cover" style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}></div>
-
-      <div className="relative z-10 flex flex-col items-center text-center p-6">
-        <img 
-          src="/UPF Flag Emblem.png" 
-          alt="UPF Waving Flag Emblem" 
-          className="w-80 h-48 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] animate-flag-wave transparent-badge object-contain rounded-xl"
-          onError={(e) => { e.target.style.display = 'none'; }}
-        />
-        <h2 className="text-4xl font-extrabold text-white tracking-widest uppercase drop-shadow-md">KMP Security Standby</h2>
-        <p className="text-yellow-400 mt-3 text-base font-bold tracking-wide uppercase">
-          Confidential Workspace Locked Due to Inactivity
-        </p>
-        <p className="text-slate-400 mt-1.5 text-sm">
-          Move your cursor, click, or press any key to restore secure terminal session.
-        </p>
+    <>
+      {/* 🟢 READING MODE TOGGLE BUTTON (Placed floating on screen or in navigation header) */}
+      <div className="fixed bottom-6 right-6 z-[9990]">
+        <button
+          onClick={() => {
+            setIsReadingMode(!isReadingMode);
+            setIsWorkspaceIdle(false); // Clear idle if turning on reading mode
+          }}
+          className={`flex items-center space-x-2 px-4 py-2 rounded-full shadow-2xl font-bold text-xs uppercase tracking-wider transition-all duration-300 border ${
+            isReadingMode 
+              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)]' 
+              : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
+          }`}
+        >
+          <span className={`h-2.5 w-2.5 rounded-full ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-500'}`}></span>
+          <span>{isReadingMode ? '📖 Reading Mode Active' : '🛡️ Standard Idle Guard'}</span>
+        </button>
       </div>
 
-      {/* Bottom Warning Bars */}
-      <div className="absolute bottom-5 w-full h-2.5 bg-[#dc2626]"></div> 
-      <div className="absolute bottom-2.5 w-full h-2.5 bg-[#facc15]"></div> 
-      <div className="absolute bottom-0 w-full h-2.5 bg-[#000000]"></div> 
-    </div>
+      {/* Full-Screen Security Curtain Overlay */}
+      <div 
+        className={`fixed inset-0 w-screen h-screen z-[99999] flex flex-col items-center justify-center transition-transform duration-700 ease-in-out shadow-2xl overflow-hidden ${
+          isWorkspaceIdle && !isReadingMode ? 'translate-y-0' : '-translate-y-full pointer-events-none'
+        }`}
+        style={{ backgroundColor: '#0f172a' }}
+      >
+        <div className="absolute top-0 w-full h-2.5 bg-[#000000]"></div>
+        <div className="absolute top-2.5 w-full h-2.5 bg-[#facc15]"></div>
+        <div className="absolute top-5 w-full h-2.5 bg-[#dc2626]"></div>
+
+        <div className="absolute inset-0 w-full h-full opacity-10 bg-center bg-no-repeat bg-cover uganda-flag-wave"></div>
+
+        <div className="relative z-10 flex flex-col items-center text-center p-6">
+          <img 
+            src="/UPF Flag Emblem.png" 
+            alt="UPF Waving Flag Emblem" 
+            className="w-80 h-48 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] animate-flag-wave transparent-badge object-contain rounded-xl"
+            onError={(e) => { e.target.style.display = 'none'; }}
+          />
+          <h2 className="text-3xl font-extrabold text-white tracking-wide uppercase drop-shadow-md">KMP SECURITY DATA MANAGEMENT SYSTEM</h2>
+          <p className="text-yellow-400 mt-3 text-base font-bold tracking-wide uppercase">
+            Confidential Workspace Locked Due to Inactivity
+          </p>
+          <p className="text-slate-400 mt-1.5 text-sm">
+            Move your cursor, click, or press any key to restore secure terminal session.
+          </p>
+
+          <p className="text-blue-300 mt-4 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center">
+            <Lock size={14} className="mr-2" /> 
+            <Globe size={14} className="mx-2 animate-spin text-yellow-400" style={{ animationDuration: '4s' }} /> 
+            KMP-CSDMS Standby Mode
+          </p>
+        </div>
+
+        <div className="absolute bottom-5 w-full h-2.5 bg-[#dc2626]"></div> 
+        <div className="absolute bottom-2.5 w-full h-2.5 bg-[#facc15]"></div> 
+        <div className="absolute bottom-0 w-full h-2.5 bg-[#000000]"></div> 
+      </div>
+    </>
   );
 };
 
@@ -4328,6 +4404,35 @@ case 'Admin_Communication': return <Admin_Communication currentUser={currentUser
     } catch (err) { console.error("Failed to revoke user:", err); }
   };
 
+  // 🟢 BACKGROUND AUTO-SYNC LISTENER
+  useEffect(() => {
+    const handleOnlineStatus = async () => {
+      if (navigator.onLine) {
+        const token = localStorage.getItem('kmp_authToken');
+        if (token) {
+          const remaining = await syncOfflineQueue(token);
+          if (remaining === 0 && getOfflineQueueCount() === 0) {
+            console.log('All offline queue records successfully synced with central database.');
+          }
+        }
+      }
+    };
+
+    window.addEventListener('online', handleOnlineStatus);
+    
+    // Periodically check and sync if online
+    const syncInterval = setInterval(() => {
+      if (navigator.onLine) {
+        handleOnlineStatus();
+      }
+    }, 30000); // Checks every 30 seconds
+
+    return () => {
+      window.removeEventListener('online', handleOnlineStatus);
+      clearInterval(syncInterval);
+    };
+  }, []);
+
   return (
     <DashboardLayout 
       currentUser={currentUser} currentPage={currentPage} setCurrentPage={handlePageChange} 
@@ -4340,6 +4445,9 @@ case 'Admin_Communication': return <Admin_Communication currentUser={currentUser
       <div className={(isViewingConsolidated || isViewingHR) ? 'hidden' : 'block w-full h-full'}>
         {renderPage()}
       </div>
+
+      {/* 🟢 FULL-SCREEN IDLE SECURITY CURTAIN OVERLAY */}
+      <WorkspaceSecurityCurtain />
     </DashboardLayout>
   );
 };
