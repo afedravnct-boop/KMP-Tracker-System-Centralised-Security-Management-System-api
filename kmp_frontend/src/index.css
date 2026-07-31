@@ -145,8 +145,30 @@
   100% { transform: perspective(500px) rotateY(0deg) skewX(0deg); }
 }
 
+/* 🟢 REALISTIC WIND-BLOWN FLAG WAVING ANIMATION */
+@keyframes flagWindBlow {
+  0% {
+    transform: perspective(400px) rotateY(0deg) rotateZ(0deg) scaleX(1);
+  }
+  20% {
+    transform: perspective(400px) rotateY(-12deg) rotateZ(1deg) scaleX(0.97) skewY(1deg);
+  }
+  40% {
+    transform: perspective(400px) rotateY(8deg) rotateZ(-1deg) scaleX(1.02) skewY(-1deg);
+  }
+  60% {
+    transform: perspective(400px) rotateY(-15deg) rotateZ(1.5deg) scaleX(0.95) skewY(2deg);
+  }
+  80% {
+    transform: perspective(400px) rotateY(10deg) rotateZ(-1deg) scaleX(1.01) skewY(-1deg);
+  }
+  100% {
+    transform: perspective(400px) rotateY(0deg) rotateZ(0deg) scaleX(1);
+  }
+}
+
 .animate-flag-wave {
-  animation: flagWave3D 3.5s ease-in-out infinite;
+  animation: flagWindBlow 3s ease-in-out infinite;
   transform-origin: left center;
 }
 
