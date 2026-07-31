@@ -1976,24 +1976,24 @@ def get_system_activity_logs(db: Session = Depends(get_logs_db), current_user: m
 @app.post("/api/v1/activity-logs")
 def create_system_activity_log(data: dict, db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        page = data.get("page_accessed", data.get("module", "UNKNOWN"))
-        act = data.get("action", "ACCESSED MODULE")
+        page = data.get("module", data.get("page_accessed", "UNKNOWN"))
+        act = data.get("action", "PAGE_ACCESS")
+        details = data.get("details", f"Officer {current_user.name} ({current_user.fnum}) accessed {page}")
         
         new_activity = models.Activity_Logs(
             fnum=current_user.fnum,
             action=act,
             module=page,
-            details=f"Officer {current_user.name} ({current_user.fnum}) executed {act} on {page}",
+            details=details,
             created_at=datetime.utcnow()
         )
         db.add(new_activity)
         db.commit()
-        return {"status": "logged in database"}
+        return {"status": "success"}
     except Exception as e:
         db.rollback()
-        error_msg = f"DATABASE ERROR writing to Activity Logs: {str(e)}"
-        print(error_msg) 
-        return {"status": "error", "detail": error_msg}
+        print(f"Activity Log Error: {str(e)}")
+        return {"status": "error", "detail": str(e)}
 
 @app.post("/api/v1/audit-logs")
 def create_audit_log(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):

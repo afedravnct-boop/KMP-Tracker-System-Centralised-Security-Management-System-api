@@ -3675,25 +3675,22 @@ const DashboardLayout = ({
 
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
     
+    // Automatically log page access matching the backend activity_logs columns
     fetch(`${API_URL}/api/v1/activity-logs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-body: JSON.stringify({
-    sender_fnum: currentUser.fnum,    // 🟢 Matches backend
-    sender_name: currentUser.name,    // 🟢 Matches backend
-    target_audience: formData.target_audience,
-    target_region: formData.target_region,
-    message_type: formData.message_type,
-    subject: formData.subject,
-    message: formData.message,
-    send_email: formData.send_email
-})
+      body: JSON.stringify({
+        fnum: currentUser.fnum,
+        action: 'PAGE_ACCESS',
+        module: currentPage,
+        details: `Officer ${currentUser.name} (${currentUser.fnum}) accessed module ${currentPage}`
+      })
+    })
+    .then(res => res.json())
+    .catch(err => console.error("Activity log error:", err));
 
+  }, [currentPage, currentUser]);
 
-  fetch(`${API_URL}/api/v1/activity-logs`, {
-    method: 'POST',
-    body: JSON.stringify({ ... })
-});
   const safeSidebarComms = Array.isArray(Admin_Communication) ? Admin_Communication : (Admin_Communication?.data || Admin_Communication?.items || []);
   const relevantComms = safeSidebarComms.filter(c => {
     if (currentUser?.role === 'SUPER_ADMIN') return true;
@@ -3745,7 +3742,6 @@ body: JSON.stringify({
       });
 
       if (!response.ok) throw new Error("Security Clearance Denied");
-
       const logs = await response.json();
       const headers = ["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"];
       
