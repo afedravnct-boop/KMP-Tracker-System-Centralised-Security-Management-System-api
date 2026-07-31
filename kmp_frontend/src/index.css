@@ -1,7 +1,7 @@
-/* Add these at the top of your custom index.css */
+/* 🟢 TAILWIND IMPORT */
 @import "tailwindcss";
 
-/* Your existing custom styles follow below */
+/* 🟢 BASE DASHBOARD STYLES */
 .dashboard-container {
   display: flex;
   min-height: 100vh;
@@ -109,7 +109,11 @@
   text-align: left;
 }
 
-/* 🟢 HORIZONTAL BLACK & WHITE WAVING BACKGROUND ANIMATION */
+/* =========================================================
+   🟢 CURTAIN ANIMATIONS
+   ========================================================= */
+
+/* 1. The universal horizontal panning animation */
 @keyframes flagWaveBg {
   0% {
     background-position: 0% 50%;
@@ -122,6 +126,7 @@
   }
 }
 
+/* 2. The Uganda Flag Gradient Background */
 .uganda-flag-wave {
   background: linear-gradient(
     to right, 
@@ -134,43 +139,11 @@
   animation: flagWaveBg 15s ease infinite;
 }
 
-/* 🟢 3D PERSPECTIVE WAVING ANIMATION FOR UPF FLAG EMBLEM */
-@keyframes flagWave3D {
-  0% { transform: perspective(500px) rotateY(0deg) skewX(0deg); }
-  25% { transform: perspective(500px) rotateY(6deg) skewX(3deg); }
-  50% { transform: perspective(500px) rotateY(0deg) skewX(0deg); }
-  75% { transform: perspective(500px) rotateY(-6deg) skewX(-3deg); }
-  100% { transform: perspective(500px) rotateY(0deg) skewX(0deg); }
-}
-
-/* 🟢 REALISTIC WIND-BLOWN FLAG WAVING ANIMATION */
-@keyframes flagWindBlow {
-  0% {
-    transform: perspective(400px) rotateY(0deg) rotateZ(0deg) scaleX(1);
-  }
-  20% {
-    transform: perspective(400px) rotateY(-12deg) rotateZ(1deg) scaleX(0.97) skewY(1deg);
-  }
-  40% {
-    transform: perspective(400px) rotateY(8deg) rotateZ(-1deg) scaleX(1.02) skewY(-1deg);
-  }
-  60% {
-    transform: perspective(400px) rotateY(-15deg) rotateZ(1.5deg) scaleX(0.95) skewY(2deg);
-  }
-  80% {
-    transform: perspective(400px) rotateY(10deg) rotateZ(-1deg) scaleX(1.01) skewY(-1deg);
-  }
-  100% {
-    transform: perspective(400px) rotateY(0deg) rotateZ(0deg) scaleX(1);
-  }
-}
-
-.animate-flag-wave {
-  animation: flagWindBlow 3s ease-in-out infinite;
-  transform-origin: left center;
-}
-
-/* 🟢 SCREEN OUT WHITE BACKGROUND FROM BADGE/EMBLEM */
-.transparent-badge {
-  mix-blend-mode: screen;
+/* 3. The UPF Emblem PNG Waving (Identical method to the flag) */
+.png-flag-wave {
+  background-image: url('/UPF Flag Emblem.png');
+  background-size: 150% auto;
+  background-position: center;
+  background-repeat: no-repeat;
+  animation: flagWaveBg 15s ease infinite;
 }

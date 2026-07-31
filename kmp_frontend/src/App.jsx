@@ -3653,48 +3653,42 @@ const WorkspaceSecurityCurtain = () => {
         </button>
       </div>
 
-      {/* Full-Screen Security Curtain Overlay */}
+{/* Full-Screen Security Curtain Overlay */}
       <div 
         className={`fixed inset-0 w-screen h-screen z-[99999] flex flex-col items-center justify-center transition-transform duration-700 ease-in-out shadow-2xl overflow-hidden ${
-          isWorkspaceIdle && !isReadingMode ? 'translate-y-0' : '-translate-y-full pointer-events-none'
+          isWorkspaceIdle && !isReadingMode ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-full opacity-0 pointer-events-none'
         }`}
         style={{ backgroundColor: '#0f172a' }}
       >
+        {/* Top Uganda Flag Stripes */}
         <div className="absolute top-0 w-full h-2.5 bg-[#000000]"></div>
         <div className="absolute top-2.5 w-full h-2.5 bg-[#facc15]"></div>
         <div className="absolute top-5 w-full h-2.5 bg-[#dc2626]"></div>
 
-        <div className="absolute inset-0 w-full h-full opacity-10 bg-center bg-no-repeat bg-cover uganda-flag-wave"></div>
+        {/* 🟢 The Uganda Flag Background (Using flagWaveBg) */}
+        <div className="absolute inset-0 w-full h-full opacity-10 uganda-flag-wave"></div>
 
-        <div className="relative z-10 flex flex-col items-center text-center p-6">
-          <img 
-            src="/UPF Flag Emblem.png" 
-            alt="UPF Waving Flag Emblem" 
-            className="w-80 h-48 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] animate-flag-wave transparent-badge object-contain rounded-xl"
-            onError={(e) => { e.target.style.display = 'none'; }}
-          />
-          <h2 className="text-3xl font-extrabold text-white tracking-wide uppercase drop-shadow-md">KMP SECURITY DATA MANAGEMENT SYSTEM</h2>
-          <p className="text-yellow-400 mt-3 text-base font-bold tracking-wide uppercase">
-            Confidential Workspace Locked Due to Inactivity
-          </p>
-          <p className="text-slate-400 mt-1.5 text-sm">
-            Move your cursor, click, or press any key to restore secure terminal session.
-          </p>
-
-          <p className="text-blue-300 mt-4 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center">
+        <div className="relative z-10 flex flex-col items-center text-center">
+          
+          {/* 🟢 REPLACED THE <img> WITH A <div> */}
+          {/* This now waves exactly like the Uganda flag background does! */}
+          <div className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] png-flag-wave rounded-xl shadow-2xl border border-slate-600/50"></div>
+          
+          <h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md">
+            KMP SECURITY DATA MANAGEMENT SYSTEM
+          </h2>
+          <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
             <Lock size={14} className="mr-2" /> 
             <Globe size={14} className="mx-2 animate-spin text-yellow-400" style={{ animationDuration: '4s' }} /> 
             KMP-CSDMS Standby Mode
           </p>
         </div>
 
+        {/* Bottom Uganda Flag Stripes */}
         <div className="absolute bottom-5 w-full h-2.5 bg-[#dc2626]"></div> 
         <div className="absolute bottom-2.5 w-full h-2.5 bg-[#facc15]"></div> 
         <div className="absolute bottom-0 w-full h-2.5 bg-[#000000]"></div> 
       </div>
-    </>
-  );
-};
 
   const safeSidebarComms = Array.isArray(Admin_Communication) ? Admin_Communication : (Admin_Communication?.data || Admin_Communication?.items || []);
   const relevantComms = safeSidebarComms.filter(c => {
@@ -4247,6 +4241,35 @@ const App = () => {
   const [consolidatedData, setConsolidatedData] = useState(null);
   const [adminCommsData, setAdminCommsData] = useState([]);  
 
+  // 🟢 BACKGROUND AUTO-SYNC LISTENER
+  useEffect(() => {
+    const handleOnlineStatus = async () => {
+      if (navigator.onLine) {
+        const token = localStorage.getItem('kmp_authToken');
+        if (token) {
+          const remaining = await syncOfflineQueue(token);
+          if (remaining === 0 && getOfflineQueueCount() === 0) {
+            console.log('All offline queue records successfully synced with central database.');
+          }
+        }
+      }
+    };
+
+    window.addEventListener('online', handleOnlineStatus);
+    
+    // Periodically check and sync if online
+    const syncInterval = setInterval(() => {
+      if (navigator.onLine) {
+        handleOnlineStatus();
+      }
+    }, 30000); // Checks every 30 seconds
+
+    return () => {
+      window.removeEventListener('online', handleOnlineStatus);
+      clearInterval(syncInterval);
+    };
+  }, []);
+
   useEffect(() => {
     const checkClearance = () => {
       const token = localStorage.getItem('kmp_authToken');
@@ -4405,35 +4428,6 @@ case 'Admin_Communication': return <Admin_Communication currentUser={currentUser
       alert(`Access revoked for ${fnum}. Reason logged in Audit Trail.`);
     } catch (err) { console.error("Failed to revoke user:", err); }
   };
-
-  // 🟢 BACKGROUND AUTO-SYNC LISTENER
-  useEffect(() => {
-    const handleOnlineStatus = async () => {
-      if (navigator.onLine) {
-        const token = localStorage.getItem('kmp_authToken');
-        if (token) {
-          const remaining = await syncOfflineQueue(token);
-          if (remaining === 0 && getOfflineQueueCount() === 0) {
-            console.log('All offline queue records successfully synced with central database.');
-          }
-        }
-      }
-    };
-
-    window.addEventListener('online', handleOnlineStatus);
-    
-    // Periodically check and sync if online
-    const syncInterval = setInterval(() => {
-      if (navigator.onLine) {
-        handleOnlineStatus();
-      }
-    }, 30000); // Checks every 30 seconds
-
-    return () => {
-      window.removeEventListener('online', handleOnlineStatus);
-      clearInterval(syncInterval);
-    };
-  }, []);
 
   return (
     <> {/* 🟢 Added React Fragment wrapper */}
