@@ -3423,6 +3423,96 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 // ====================================================================
 // --- MAIN LAYOUT COMPONENT ---
 // ====================================================================
+// ====================================================================
+// --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN COMPONENT ---
+// ====================================================================
+const WorkspaceSecurityCurtain = () => {
+  const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
+  const [isReadingMode, setIsReadingMode] = useState(false);
+  const idleTimerRef = useRef(null);
+
+  useEffect(() => {
+    const IDLE_TIMEOUT_MS = 60000;
+
+    const handleUserActivity = () => {
+      if (isReadingMode) return;
+      setIsWorkspaceIdle(false);
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(() => {
+        if (!isReadingMode) setIsWorkspaceIdle(true);
+      }, IDLE_TIMEOUT_MS);
+    };
+
+    handleUserActivity();
+
+    window.addEventListener('mousemove', handleUserActivity, true);
+    window.addEventListener('keydown', handleUserActivity, true);
+    window.addEventListener('mousedown', handleUserActivity, true);
+    window.addEventListener('scroll', handleUserActivity, true);
+    window.addEventListener('touchstart', handleUserActivity, true);
+
+    return () => {
+      clearTimeout(idleTimerRef.current);
+      window.removeEventListener('mousemove', handleUserActivity, true);
+      window.removeEventListener('keydown', handleUserActivity, true);
+      window.removeEventListener('mousedown', handleUserActivity, true);
+      window.removeEventListener('scroll', handleUserActivity, true);
+      window.removeEventListener('touchstart', handleUserActivity, true);
+    };
+  }, [isReadingMode]);
+
+  return (
+    <>
+      <div className="fixed bottom-6 right-6 z-[9990]">
+        <button
+          onClick={() => {
+            setIsReadingMode(!isReadingMode);
+            setIsWorkspaceIdle(false);
+          }}
+          className={`flex items-center space-x-2 px-4 py-2 rounded-full shadow-2xl font-bold text-xs uppercase tracking-wider transition-all duration-300 border ${
+            isReadingMode 
+              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)]' 
+              : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
+          }`}
+        >
+          <span className={`h-2.5 w-2.5 rounded-full ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-500'}`}></span>
+          <span>{isReadingMode ? '📖 Reading Mode Active' : '🛡️ Standard Idle Guard'}</span>
+        </button>
+      </div>
+
+      <div 
+        className={`fixed inset-0 w-screen h-screen z-[99999] flex flex-col items-center justify-center transition-transform duration-700 ease-in-out shadow-2xl overflow-hidden ${
+          isWorkspaceIdle && !isReadingMode ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-full opacity-0 pointer-events-none'
+        }`}
+        style={{ backgroundColor: '#0f172a' }}
+      >
+        <div className="absolute top-0 w-full h-2.5 bg-[#000000]"></div>
+        <div className="absolute top-2.5 w-full h-2.5 bg-[#facc15]"></div>
+        <div className="absolute top-5 w-full h-2.5 bg-[#dc2626]"></div>
+
+        <div className="absolute inset-0 w-full h-full opacity-10 uganda-flag-wave"></div>
+
+        <div className="relative z-10 flex flex-col items-center text-center">
+          <div className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] png-flag-wave rounded-xl shadow-2xl border border-slate-600/50"></div>
+          
+          <h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md">
+            KMP SECURITY DATA MANAGEMENT SYSTEM
+          </h2>
+          <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
+            <Lock size={14} className="mr-2" /> 
+            <Globe size={14} className="mx-2 animate-spin text-yellow-400" style={{ animationDuration: '4s' }} /> 
+            KMP-CSDMS Standby Mode
+          </p>
+        </div>
+
+        <div className="absolute bottom-5 w-full h-2.5 bg-[#dc2626]"></div> 
+        <div className="absolute bottom-2.5 w-full h-2.5 bg-[#facc15]"></div> 
+        <div className="absolute bottom-0 w-full h-2.5 bg-[#000000]"></div> 
+      </div>
+    </>
+  );
+};
+
 const DashboardLayout = ({ 
   currentUser, 
   currentPage, 
@@ -3591,104 +3681,7 @@ const DashboardLayout = ({
     }).catch(e => console.warn("Activity log silent fail"));
   }, [currentPage, currentUser?.fnum]);
 
-// ====================================================================
-// --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN COMPONENT ---
-// ====================================================================
-const WorkspaceSecurityCurtain = () => {
-  const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
-  const [isReadingMode, setIsReadingMode] = useState(false); // 🟢 Toggle for reading / busy mode
-  const idleTimerRef = useRef(null);
 
-  useEffect(() => {
-    const IDLE_TIMEOUT_MS = 60000; // 60 seconds
-
-    const handleUserActivity = () => {
-      // If reading mode is active, do not trigger idle timeout
-      if (isReadingMode) return;
-
-      setIsWorkspaceIdle(false);
-      clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = setTimeout(() => {
-        if (!isReadingMode) {
-          setIsWorkspaceIdle(true);
-        }
-      }, IDLE_TIMEOUT_MS);
-    };
-
-    handleUserActivity();
-
-    window.addEventListener('mousemove', handleUserActivity, true);
-    window.addEventListener('keydown', handleUserActivity, true);
-    window.addEventListener('mousedown', handleUserActivity, true);
-    window.addEventListener('scroll', handleUserActivity, true);
-    window.addEventListener('touchstart', handleUserActivity, true);
-
-    return () => {
-      clearTimeout(idleTimerRef.current);
-      window.removeEventListener('mousemove', handleUserActivity, true);
-      window.removeEventListener('keydown', handleUserActivity, true);
-      window.removeEventListener('mousedown', handleUserActivity, true);
-      window.removeEventListener('scroll', handleUserActivity, true);
-      window.removeEventListener('touchstart', handleUserActivity, true);
-    };
-  }, [isReadingMode]);
-
-  return (
-    <>
-      {/* 🟢 READING MODE TOGGLE BUTTON (Placed floating on screen or in navigation header) */}
-      <div className="fixed bottom-6 right-6 z-[9990]">
-        <button
-          onClick={() => {
-            setIsReadingMode(!isReadingMode);
-            setIsWorkspaceIdle(false); // Clear idle if turning on reading mode
-          }}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-full shadow-2xl font-bold text-xs uppercase tracking-wider transition-all duration-300 border ${
-            isReadingMode 
-              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)]' 
-              : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
-          }`}
-        >
-          <span className={`h-2.5 w-2.5 rounded-full ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-500'}`}></span>
-          <span>{isReadingMode ? '📖 Reading Mode Active' : '🛡️ Standard Idle Guard'}</span>
-        </button>
-      </div>
-
-{/* Full-Screen Security Curtain Overlay */}
-      <div 
-        className={`fixed inset-0 w-screen h-screen z-[99999] flex flex-col items-center justify-center transition-transform duration-700 ease-in-out shadow-2xl overflow-hidden ${
-          isWorkspaceIdle && !isReadingMode ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-full opacity-0 pointer-events-none'
-        }`}
-        style={{ backgroundColor: '#0f172a' }}
-      >
-        {/* Top Uganda Flag Stripes */}
-        <div className="absolute top-0 w-full h-2.5 bg-[#000000]"></div>
-        <div className="absolute top-2.5 w-full h-2.5 bg-[#facc15]"></div>
-        <div className="absolute top-5 w-full h-2.5 bg-[#dc2626]"></div>
-
-        {/* 🟢 The Uganda Flag Background (Using flagWaveBg) */}
-        <div className="absolute inset-0 w-full h-full opacity-10 uganda-flag-wave"></div>
-
-        <div className="relative z-10 flex flex-col items-center text-center">
-          
-          {/* 🟢 REPLACED THE <img> WITH A <div> */}
-          {/* This now waves exactly like the Uganda flag background does! */}
-          <div className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] png-flag-wave rounded-xl shadow-2xl border border-slate-600/50"></div>
-          
-          <h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md">
-            KMP SECURITY DATA MANAGEMENT SYSTEM
-          </h2>
-          <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
-            <Lock size={14} className="mr-2" /> 
-            <Globe size={14} className="mx-2 animate-spin text-yellow-400" style={{ animationDuration: '4s' }} /> 
-            KMP-CSDMS Standby Mode
-          </p>
-        </div>
-
-        {/* Bottom Uganda Flag Stripes */}
-        <div className="absolute bottom-5 w-full h-2.5 bg-[#dc2626]"></div> 
-        <div className="absolute bottom-2.5 w-full h-2.5 bg-[#facc15]"></div> 
-        <div className="absolute bottom-0 w-full h-2.5 bg-[#000000]"></div> 
-      </div>
 
   const safeSidebarComms = Array.isArray(Admin_Communication) ? Admin_Communication : (Admin_Communication?.data || Admin_Communication?.items || []);
   const relevantComms = safeSidebarComms.filter(c => {
@@ -4430,7 +4423,7 @@ case 'Admin_Communication': return <Admin_Communication currentUser={currentUser
   };
 
   return (
-    <> {/* 🟢 Added React Fragment wrapper */}
+    <>
       <DashboardLayout 
         currentUser={currentUser} currentPage={currentPage} setCurrentPage={handlePageChange} 
         onLogout={() => { localStorage.removeItem('kmp_authToken'); localStorage.removeItem('kmp_currentUser'); localStorage.removeItem('kmp_currentPage'); window.location.reload(); }}
