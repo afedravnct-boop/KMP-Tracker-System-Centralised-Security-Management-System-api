@@ -418,6 +418,46 @@ async def upload_profile_photo(
     finally:
         file.file.close()
 
+# ---------------------------------------------------------
+# ACTIVITY LOGGING (SESSIONS & PAGE CLICKS)
+# ---------------------------------------------------------
+@app.post("/api/v1/system/log-session")
+def log_user_session(req: schemas.SessionLogRequest, db: Session = Depends(get_db)):
+    try:
+        new_log = models.Activity_Logs(
+            fnum=req.fnum,
+            action="LOGIN_SESSION",
+            module="SYSTEM_AUTH",
+            details="Officer successfully authenticated and initiated a secure session."
+        )
+        db.add(new_log)
+        
+        user = db.query(models.Users).filter(models.Users.fnum == req.fnum).first()
+        if user:
+            user.last_active_at = get_eat_time()
+            
+        db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/activity-logs")
+def create_activity_log(req: schemas.ActivityLogReq, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        new_log = models.Activity_Logs(
+            fnum=current_user.fnum,
+            action=req.action,
+            module=req.module,
+            details=req.details
+        )
+        db.add(new_log)
+        db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.put("/api/v1/users/profile/update")
 def update_user_profile(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     new_fnum = data.get("fnum", "").strip().upper()
@@ -749,7 +789,11 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
         new_record.last_updated_by = current_user.fnum
         
         db.add(new_record)
-        db.flush() 
+        db.commit()          # Commit to generate the ID
+        db.refresh(new_record)
+        
+        new_record.sn = new_record.id # 🟢 FIX 2: Set SN to equal ID natively in the backend
+        db.commit()
         
         for s in suspects_data:
             new_suspect = models.Suspect_Lockup(
@@ -764,7 +808,9 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
                 photo_url=s.get('photo_url') 
             )
             db.add(new_suspect)
-        return {"status": "success"}
+        
+        # 🟢 FIX 2: Return the native IDs to the frontend so it immediately renders
+        return {"status": "success", "id": new_record.id, "sn": new_record.sn}
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=400, detail="Duplicate Reference for this station.")
@@ -1029,8 +1075,18 @@ async def bulk_upload_nominal_roll(
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    # 1. Security Check
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC", "Deputy Commander"]:
+    # 🟢 FIX 6: Security Check using explicit dynamic permissions
+    position = (current_user.position or "").upper()
+    perms = current_user.permissions or {}
+    
+    is_cleared = (
+        current_user.role in ["ADMIN", "SUPER_ADMIN"] or
+        "HR" in position or
+        perms.get("upload_hr", False) or
+        perms.get("export_data", False)
+    )
+    
+    if not is_cleared:
         raise HTTPException(status_code=403, detail="Clearance Denied: Unauthorized for bulk HR uploads.")
 
     if not file.filename.endswith(('.xlsx', '.xls')):
@@ -1206,16 +1262,48 @@ async def upload_file(
     finally:
         file.file.close()
 
-# ==========================================
-# 10. COMMUNICATIONS
-# ==========================================
 @app.post("/api/v1/communications")
-def create_admin_communication(comm: Admin_CommunicationCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+def create_admin_communication(
+    comm: Admin_CommunicationCreate, 
+    background_tasks: BackgroundTasks, 
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user) # 🟢 We pull the current user to analyze their rank/station
+):
     try:
+        # 1. 🟢 DYNAMIC ORIGIN TAG GENERATOR
+        pos = (current_user.position or "OFFICER").upper().strip()
+        stat = (current_user.station or "HQ").upper().strip().replace(" ", "")
+        reg = (current_user.region or "KMP").upper().strip().replace(" ", "")
+
+        if pos in ["IGP", "DIGP"]:
+            origin_tag = "UPF/HQTRS/GENPOL"
+        elif "DIRECTOR OPS" in pos or "DIRECTOR OPERATIONS" in pos:
+            origin_tag = "UPF/HQTRS/OPS"
+        elif pos.startswith("DIRECTOR "):
+            abbrev = pos.replace("DIRECTOR ", "").strip()
+            if abbrev == "LOGISTICS & ENGINEERING": abbrev = "L&E"
+            origin_tag = f"UPF/HQTRS/{abbrev}"
+        elif current_user.region == "KMP HEADQUARTERS" or current_user.station == "KMP HEADQUARTERS":
+            clean_pos = "COMD KMP" if pos == "KMP COMMANDER" else pos.replace(" ", "")
+            origin_tag = f"UPF/OPS/KMP/HQTRS/{clean_pos}"
+        elif "RPC" in pos or "DEPUTY COMMANDER" in pos or ("COMMANDER" in pos and "DIV" not in pos):
+            clean_pos = pos.replace("KMP SOUTH COMMANDER", "RPC KMP SOUTH").replace("KMP NORTH COMMANDER", "RPC KMP NORTH").replace("KMP EAST COMMANDER", "RPC KMP EAST")
+            origin_tag = f"UPF/OPS/{reg}/RHQTRS/{clean_pos}"
+        else:
+            clean_pos_stat = f"{pos.replace(' ', '')}{stat}"
+            origin_tag = f"UPF/OPS/{reg}/DHQTRS/{clean_pos_stat}"
+            
+        # 2. Sequence Calculation (Check how many messages have this exact origin tag)
+        count = db.query(models.Admin_Communication).filter(models.Admin_Communication.msg_ref.like(f"{origin_tag}/%")).count()
+        generated_msg_ref = f"{origin_tag}/{count + 1:03d}"
+
+        # 3. Save to Database
         db_comm = models.Admin_Communication(
+            msg_ref=generated_msg_ref, # 🟢 Save the generated reference
             sender_fnum=comm.sender_fnum, sender_name=comm.sender_name,
             target_audience=comm.target_audience, target_region=comm.target_region,
-            message_type=comm.message_type, subject=comm.subject, message=comm.message
+            target_fnum=comm.target_fnum, message_type=comm.message_type, 
+            subject=comm.subject, message=comm.message
         )
         db.add(db_comm)
         db.commit()
@@ -1223,23 +1311,24 @@ def create_admin_communication(comm: Admin_CommunicationCreate, background_tasks
 
         if comm.send_email:
             query = db.query(models.Users.email).filter(models.Users.email.isnot(None))
-            if comm.target_audience == 'ADMINS_ONLY':
-                query = query.filter(models.Users.role.in_(['ADMIN', 'SUPER_ADMIN']))
-            elif comm.target_audience == 'RPC_ONLY':
-                query = query.filter(models.Users.role == 'RPC')
-            elif comm.target_audience == 'SPECIFIC_REGION':
-                query = query.filter(models.Users.region == comm.target_region)
+            if comm.target_audience == 'ADMINS_ONLY': query = query.filter(models.Users.role.in_(['ADMIN', 'SUPER_ADMIN']))
+            elif comm.target_audience == 'RPC_ONLY': query = query.filter(models.Users.role == 'RPC')
+            elif comm.target_audience == 'SPECIFIC_REGION': query = query.filter(models.Users.region == comm.target_region)
+            elif comm.target_audience == 'SPECIFIC_USER': query = query.filter(models.Users.fnum == comm.target_fnum)
                 
             emails = [u[0] for u in query.all()]
             if emails:
                 html_body = f"""
                 <div style="font-family: Arial, sans-serif; padding: 20px;">
                     <h2 style="color: #b91c1c;">[{comm.message_type.replace('_', ' ')}] {comm.subject}</h2>
-                    <p><strong>From:</strong> {comm.sender_name} ({comm.sender_fnum})</p>
+                    <p style="font-family: monospace; font-size: 14px; background: #f1f5f9; padding: 8px; border: 1px solid #cbd5e1;">
+                       <strong>Command Ref:</strong> {generated_msg_ref}
+                    </p>
+                    <p><strong>Dispatched By:</strong> {comm.sender_name} ({comm.sender_fnum})</p>
                     <hr/>
                     <div>{comm.message}</div>
                     <hr/>
-                    <p style="font-size: 10px; color: gray;">Automated dispatch from KMP Tracker.</p>
+                    <p style="font-size: 10px; color: gray;">Automated dispatch from KMP Tracker System.</p>
                 </div>
                 """
                 def send_email_sync():
@@ -1247,10 +1336,11 @@ def create_admin_communication(comm: Admin_CommunicationCreate, background_tasks
                 
                 background_tasks.add_task(send_email_sync)
 
-        return {"status": "success", "id": db_comm.id}
+        return {"status": "success", "id": db_comm.id, "msg_ref": generated_msg_ref}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/v1/Admin_Communication")
 def get_admin_communications(
@@ -1263,49 +1353,38 @@ def get_admin_communications(
         visibility_conditions = [
             models.Admin_Communication.target_audience == "ALL",
             models.Admin_Communication.target_audience == "ALL_USERS",
-            models.Admin_Communication.sender_fnum == current_user.fnum
+            models.Admin_Communication.sender_fnum == current_user.fnum, 
+            and_(models.Admin_Communication.target_audience == "SPECIFIC_USER", models.Admin_Communication.target_fnum == current_user.fnum)
         ]
-        if current_user.role == "ADMIN":
-            visibility_conditions.append(models.Admin_Communication.target_audience == "ADMINS_ONLY")
-        if current_user.role == "RPC":
-            visibility_conditions.append(models.Admin_Communication.target_audience == "RPC_ONLY")
+        if current_user.role == "ADMIN": visibility_conditions.append(models.Admin_Communication.target_audience == "ADMINS_ONLY")
+        if current_user.role == "RPC": visibility_conditions.append(models.Admin_Communication.target_audience == "RPC_ONLY")
             
-        visibility_conditions.append(
-            and_(
-                models.Admin_Communication.target_audience == "SPECIFIC_REGION",
-                models.Admin_Communication.target_region == current_user.region
-            )
-        )
+        visibility_conditions.append(and_(models.Admin_Communication.target_audience == "SPECIFIC_REGION", models.Admin_Communication.target_region == current_user.region))
         query = query.filter(or_(*visibility_conditions))
 
-    if start_date:
-        query = query.filter(models.Admin_Communication.created_at >= start_date)
-    if end_date:
-        query = query.filter(models.Admin_Communication.created_at <= f"{end_date} 23:59:59")
+    if start_date: query = query.filter(models.Admin_Communication.created_at >= start_date)
+    if end_date: query = query.filter(models.Admin_Communication.created_at <= f"{end_date} 23:59:59")
 
     comms = query.order_by(models.Admin_Communication.created_at.desc()).all()
     
-    read_records = db.query(models.Communication_Reads.comm_id).filter(
-        models.Communication_Reads.fnum == current_user.fnum
-    ).all()
+    read_records = db.query(models.Communication_Reads.comm_id).filter(models.Communication_Reads.fnum == current_user.fnum).all()
     read_comm_ids = {r[0] for r in read_records} 
-    
     eat_tz = pytz.timezone("Africa/Kampala")
-    clean_comms = []
     
+    clean_comms = []
     for c in comms:
         is_read = c.id in read_comm_ids
         local_time = c.created_at
         if local_time:
-            if local_time.tzinfo is None:
-                local_time = pytz.utc.localize(local_time)
+            if local_time.tzinfo is None: local_time = pytz.utc.localize(local_time)
             formatted_time = local_time.astimezone(eat_tz).strftime("%Y-%m-%d %H:%M")
-        else:
-            formatted_time = "Unknown Time"
+        else: formatted_time = "Unknown Time"
             
         clean_comms.append({
-            "id": c.id, "sender_fnum": c.sender_fnum, "sender_name": c.sender_name,
+            "id": c.id, "msg_ref": getattr(c, 'msg_ref', 'UPF/UNKNOWN/000'), # 🟢 RETURN REF
+            "sender_fnum": c.sender_fnum, "sender_name": c.sender_name,
             "target_audience": c.target_audience, "target_region": c.target_region,
+            "target_fnum": getattr(c, 'target_fnum', None), 
             "message_type": c.message_type, "subject": c.subject, "message": c.message,
             "created_at": formatted_time, "acknowledged": is_read
         })
