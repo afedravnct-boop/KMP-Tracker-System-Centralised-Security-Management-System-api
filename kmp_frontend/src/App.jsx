@@ -3675,41 +3675,25 @@ const DashboardLayout = ({
 
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
     
-    // 1. First fetch call (Communications/Dispatch)
-    fetch(`${API_URL}/api/v1/communications`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({
-        sender_fnum: currentUser.fnum,
-        sender_name: currentUser.name,
-        target_audience: formData.target_audience,
-        target_region: formData.target_region,
-        message_type: formData.message_type,
-        subject: formData.subject,
-        message: formData.message,
-        send_email: formData.send_email
-      })
-    })
-    .then(res => res.json())
-    .catch(err => console.error("Communication error:", err));
-
-    // 2. Second fetch call (Activity Log)
     fetch(`${API_URL}/api/v1/activity-logs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ 
-        fnum: currentUser.fnum, 
-        action: 'PAGE_ACCESS', 
-        module: currentPage, 
-        details: `User accessed ${currentPage}` 
-      })
-    })
-    .then(res => res.json())
-    .catch(err => console.error("Activity log error:", err));
+body: JSON.stringify({
+    sender_fnum: currentUser.fnum,    // 🟢 Matches backend
+    sender_name: currentUser.name,    // 🟢 Matches backend
+    target_audience: formData.target_audience,
+    target_region: formData.target_region,
+    message_type: formData.message_type,
+    subject: formData.subject,
+    message: formData.message,
+    send_email: formData.send_email
+})
 
-  }, [currentPage, currentUser]); // 🟢 Properly close useEffect here
 
-  // 🟢 Helper variables and navigation setup sit cleanly OUTSIDE the useEffect
+  fetch(`${API_URL}/api/v1/activity-logs`, {
+    method: 'POST',
+    body: JSON.stringify({ ... })
+});
   const safeSidebarComms = Array.isArray(Admin_Communication) ? Admin_Communication : (Admin_Communication?.data || Admin_Communication?.items || []);
   const relevantComms = safeSidebarComms.filter(c => {
     if (currentUser?.role === 'SUPER_ADMIN') return true;
