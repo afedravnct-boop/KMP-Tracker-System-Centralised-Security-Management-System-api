@@ -3690,7 +3690,10 @@ body: JSON.stringify({
 })
 
 
-
+  fetch(`${API_URL}/api/v1/activity-logs`, {
+    method: 'POST',
+    body: JSON.stringify({ ... })
+});
   const safeSidebarComms = Array.isArray(Admin_Communication) ? Admin_Communication : (Admin_Communication?.data || Admin_Communication?.items || []);
   const relevantComms = safeSidebarComms.filter(c => {
     if (currentUser?.role === 'SUPER_ADMIN') return true;
