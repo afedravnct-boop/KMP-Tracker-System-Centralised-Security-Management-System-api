@@ -1,6 +1,16 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, EmailStr
 from typing import Optional
 from datetime import datetime
+
+# ==========================================
+# 0. PASSWORD MANAGEMENT SCHEMAS
+# ==========================================
+class PasswordChangeReq(BaseModel):
+    old_password: str
+    new_password: str
+
+class ForcePasswordReq(BaseModel):
+    new_password: str
 
 class UserCreate(BaseModel):
     fnum: str
@@ -17,6 +27,16 @@ class UserCreate(BaseModel):
     password: str
     role: str
     photoUrl: Optional[str] = None
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    rank: Optional[str] = None
+    region: Optional[str] = None
+    station: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    profile_photo_path: Optional[str] = None
+    password: Optional[str] = None
 
 # ==========================================
 # 1. LIVE CRIME REGISTRY
@@ -200,10 +220,9 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 # ==========================================
-# 7. SYSTEM AUDIT LOGS
+# 7. SYSTEM AUDIT LOGS & HR REQUESTS
 # ==========================================
 
-# --- HR Modification Requests Ledger ---
 class ModificationRequestCreate(BaseModel):
     fnum: str
     requestedRank: Optional[str] = Field(None, validation_alias="requested_rank")
@@ -213,6 +232,7 @@ class ModificationRequestCreate(BaseModel):
 
 class ModificationRequestReview(BaseModel):
     status: str # "APPROVED" or "REJECTED"
+    reason: Optional[str] = None # 🟢 Added to capture the rejection reason from the frontend prompt
 
 class ModificationRequestResponse(BaseModel):
     id: int
@@ -228,7 +248,6 @@ class ModificationRequestResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
-# --- System Audit Ledger ---
 class LogResponse(BaseModel):
     id: int
     user_fnum: str
@@ -238,16 +257,3 @@ class LogResponse(BaseModel):
     timestamp: datetime
     
     model_config = ConfigDict(from_attributes=True)
-
-from typing import Optional
-from pydantic import BaseModel
-
-class UserUpdate(BaseModel):
-    name: Optional[str] = None
-    rank: Optional[str] = None
-    region: Optional[str] = None
-    station: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    profile_photo_path: Optional[str] = None
-    password: Optional[str] = None

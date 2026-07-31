@@ -1,6 +1,3 @@
-// ====================================================================
-// --- PART 1: IMPORTS, CONSTANTS, UTILITIES & HOME DASHBOARD ---
-// ====================================================================
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { authFetch } from './api';
 import { 
@@ -103,7 +100,6 @@ const downloadWithAuth = async (url, filename) => {
       document.body.appendChild(link);
       link.click();
       
-      // 🛡️ THE FIX: Wait 2 seconds before destroying the link so the browser can catch it!
       setTimeout(() => {
           document.body.removeChild(link);
           window.URL.revokeObjectURL(downloadUrl);
@@ -172,7 +168,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
   const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role);
   
-  const commsData = adminCommsData || [];
   const rawComms = adminCommsData || [];
   const safeComms = Array.isArray(rawComms) ? rawComms : (rawComms.data || rawComms.items || []);
 
@@ -182,7 +177,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const today = new Date().getDay();
   const isEndOfWeek = today === 5 || today === 6 || today === 0;
 
-  // 🟢 DYNAMIC WEEKLY COMPLIANCE CHECK
   const userStation = (currentUser.station || '').trim().toUpperCase();
   const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
   
@@ -206,7 +200,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && isTargetOfficer;
   const showComplianceSuccess = isEndOfWeek && hasSubmittedThisWeek && isTargetOfficer;
 
-  // 🟢 COMPLIANCE TIMED FOLDING STATES
   const [isBannerFolded, setIsBannerFolded] = useState(false);
 
   useEffect(() => {
@@ -256,7 +249,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8 relative z-10 animate-in fade-in duration-300">
       
-      {/* RECEIPTS MODAL */}
       {viewingReceiptsFor && (
         <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4">
             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-300">
@@ -284,7 +276,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
         </div>
       )}
 
-      {/* DYNAMIC WIDE / FOLDED COMPLIANCE WARNING */}
       {showComplianceWarning && (
         <div className={`transition-all duration-700 ease-in-out overflow-hidden rounded-xl shadow-lg border-2 ${
           isBannerFolded ? 'bg-red-600 border-red-400 p-3 max-w-xs mx-auto cursor-pointer hover:bg-red-700' : 'bg-red-600 border-red-400 p-4 w-full animate-pulse'
@@ -350,9 +341,9 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
             <RadioReceiver size={24} className={hasUnread ? "text-green-400 animate-pulse" : "text-slate-400"} />
           </div>
           <div className="flex-1">
-            <h3 className="text-sm font-extrabold text-slate-900 leading-tight">Administrative Dispatches</h3>
+            <h3 className="text-sm font-extrabold text-slate-900 leading-tight">Command Dispatches</h3>
             <p className="text-xs font-medium mt-1 line-clamp-2 transition-colors duration-300 flex items-center">
-              {hasUnread ? <span className="text-green-600 font-bold">You have unread Correspondences. Click to view.</span> : <span className="text-slate-500">Administrative and command communications.</span>}
+              {hasUnread ? <span className="text-green-600 font-bold">You have unread directives. Click to view.</span> : <span className="text-slate-500">Secure directives, network alerts, and command communications.</span>}
             </p>
           </div>
         </div>
@@ -366,7 +357,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
           
           <div onClick={() => setCurrentPage('statistics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-300 group">
             <div className="w-14 h-14 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mr-4 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0"><BarChart3 size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">OPS Statistics</h3><p className="text-xs text-slate-500 font-medium mt-1">Weekly numerical aggregates for disruptive operations.</p></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">OPS Statistics</h3><p className="text-xs text-slate-500 font-medium mt-1">Weekly numerical aggregates for operations.</p></div>
           </div>
 
           <div onClick={() => setCurrentPage('success')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-yellow-400 group">
@@ -376,7 +367,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 
           <div onClick={() => setCurrentPage('establishments')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-emerald-300 group">
             <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mr-4 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0"><Building size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-xs text-slate-500 font-medium mt-1">Map active divisions, stations, posts and booths.</p></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-xs text-slate-500 font-medium mt-1">Map divisions, stations, posts and booths.</p></div>
           </div>
 
           <div onClick={() => setCurrentPage('nominal-roll')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-purple-300 group">
@@ -409,9 +400,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   );
 };
 
-// ====================================================================
-// --- PART 2: CRIME / INCIDENT REGISTRY & DISRUPTIVE OPS STATISTICS ---
-// ====================================================================
+
 
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
@@ -424,51 +413,27 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   const [updateSearch, setUpdateSearch] = useState('');
 
-  const [customStartDate, setCustomStartDate] = useState('');
-  const [customEndDate, setCustomEndDate] = useState('');
-
   const [showLockup, setShowLockup] = useState(false);
   const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' });
 
   const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
 
   const [formData, setFormData] = useState({
-    sn: null,
-    sd_ref: '',
-    ref_type: 'SD Ref:', // PERFECTED CASING AND COLON
-    ref_number: '',
-    region: currentUser.region,
-    station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
-    date: getTodayString(),
-    time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-    offence: '', 
-    customOffence: '',
-    narrative: '',
-    status: 'ACTIVE INVESTIGATION',
-    suspectDetails: [],
-    updateText: ''
+    sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
+    region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+    date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+    offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
   });
 
   const handleOperationToggle = (mode) => {
     setOperation(mode);
     setNotification(null);
-    
     if (mode === 'new') {
       setFormData({
-        sn: null,
-        sd_ref: '',
-        ref_type: 'SD Ref:',
-        ref_number: '',
-        region: currentUser.region,
-        station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
-        date: getTodayString(),
-        time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-        offence: '', 
-        customOffence: '',
-        narrative: '',
-        status: 'ACTIVE INVESTIGATION',
-        suspectDetails: [],
-        updateText: ''
+        sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
+        region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+        date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+        offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
       });
       setUpdateSearch(''); 
     }
@@ -476,45 +441,22 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
   const populateUpdateCrimeForm = (caseData) => {
     setFormData({ 
-      ...caseData, 
-      sd_ref: caseData.sdRef || caseData.sd_ref, 
-      offence: caseData.offence || 'Other',
-      customOffence: '',
-      suspectDetails: caseData.suspectDetails || [], 
-      updateText: '' 
+      ...caseData, sd_ref: caseData.sdRef || caseData.sd_ref, offence: caseData.offence || 'Other',
+      customOffence: '', suspectDetails: caseData.suspectDetails || [], updateText: '' 
     });
-  };
-
-  const handleSmartExport = (scope, value) => {
-    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-    let url = `${API_URL}/api/v1/reports/export?timeframe=all`;
-    if (scope && value) {
-        url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
-    }
-    window.open(url, '_blank');
   };
 
   const filteredReports = useMemo(() => {
     if (!Array.isArray(reports)) return [];
-
     return reports.filter(r => {
-      // 1. Normalize the strings to prevent case/space mismatch
       const dbRegion = (r.region || '').trim().toUpperCase();
       const dbStation = (r.station || '').trim().toUpperCase();
       const selectedRegion = (filterRegion || '').trim().toUpperCase();
       const selectedStation = (filterStation || '').trim().toUpperCase();
 
-      // 2. REGION CHECK: If a specific region is chosen, strictly enforce it
-      if (selectedRegion !== 'ALL REGIONS' && selectedRegion !== '') {
-        if (dbRegion !== selectedRegion) return false;
-      }
-
-      // 3. STATION CHECK: If a specific station is chosen, strictly enforce it
-      if (selectedStation !== 'ALL STATIONS' && selectedStation !== '') {
-        if (dbStation !== selectedStation) return false;
-      }
+      if (selectedRegion !== 'ALL REGIONS' && selectedRegion !== '' && dbRegion !== selectedRegion) return false;
+      if (selectedStation !== 'ALL STATIONS' && selectedStation !== '' && dbStation !== selectedStation) return false;
       
-      // 4. SEARCH QUERY MATCHING
       if (searchQuery) {
         const query = searchQuery.toLowerCase().trim();
         const textMatch = 
@@ -524,7 +466,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         if (!textMatch) return false;
       }
       
-      // 5. DATE MATCHING
       if (dateFilter && dateFilter !== 'ALL TIME') {
         if (dateFilter === 'TODAY') {
           const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
@@ -547,8 +488,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           if (diffDays > 120) return false;
         }
       }
-
-      // If it survives all the checks above, it belongs in the table!
       return true;
     });
   }, [reports, filterRegion, filterStation, searchQuery, dateFilter]);
@@ -592,14 +531,12 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       ...formData,
       suspectDetails: [...formData.suspectDetails, { ...newSuspect, id: Date.now() }]
     });
-    // Fix the typo and add photo_url reset
     setNewSuspect({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' }); 
   };
 
   const handleRemoveSuspect = (id) => {
     setFormData({
-      ...formData,
-      suspectDetails: formData.suspectDetails.filter(s => s.id !== id)
+      ...formData, suspectDetails: formData.suspectDetails.filter(s => s.id !== id)
     });
   };
 
@@ -613,15 +550,10 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       uploadData.append("case_id", formData.sd_ref || "NEW_CASE");
 
       try {
-        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const token = localStorage.getItem('kmp_authToken');
-        
         const response = await fetch(`${API_URL}/api/v1/investigation/upload/`, {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${token}` },
-          body: uploadData,
+          method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: uploadData,
         });
-        
         const data = await response.json();
         if (data.full_s3_url || data.cloud_storage_path) {
           setNewSuspect({ ...newSuspect, photo_url: data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}` });
@@ -639,20 +571,11 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-
     const token = localStorage.getItem('kmp_authToken');
-    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-
-    if (!token) {
-        setNotification("Error: Security token missing. Please log out and log back in.");
-        return;
-    }
+    if (!token) return setNotification("Error: Security token missing. Please log out and log back in.");
     
     if (operation === 'new') {
-      // 1. COMBINE EXACT PREFIX (CRB:, DEF:, TAR:, GEF:, CID:, SD Ref:) WITH THE NUMBER
       const final_reference = `${formData.ref_type} ${formData.ref_number.toUpperCase()}`.trim();
-
-      // 2. CHECK IF THIS EXACT PREFIX + NUMBER COMBINATION EXISTS AT THIS SPECIFIC STATION
       const isDuplicate = reports.some(r => 
         r.station === formData.station && (
           (r.sd_ref || r.sdRef || '').trim().toLowerCase() === final_reference.toLowerCase() || 
@@ -660,36 +583,22 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         )
       );
 
-      if (isDuplicate) {
-        setNotification(`Error: This specific ${formData.ref_type} entry or identical narrative already exists at ${formData.station}.`);
-        return;
-      }
+      if (isDuplicate) return setNotification(`Error: This specific ${formData.ref_type} entry or identical narrative already exists at ${formData.station}.`);
 
       const exactNextSN = reports.length > 0 ? Math.max(...reports.map(r => r.sn)) + 1 : 1;
       const finalOffence = formData.offence === 'Other' ? formData.customOffence : formData.offence;
       
       const apiPayload = {
-        sn: exactNextSN,
-        sd_ref: final_reference, // 🟢 Saves the exact "Prefix: Number" string to the database
-        region: formData.region,
-        station: formData.station,
-        date: formData.date,
-        time: formData.time,
-        offence: finalOffence,
-        narrative: formData.narrative,
-        status: formData.status,
-        suspects: formData.suspectDetails.length, 
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})`, 
-        suspectDetails: formData.suspectDetails
+        sn: exactNextSN, sd_ref: final_reference, region: formData.region, station: formData.station,
+        date: formData.date, time: formData.time, offence: finalOffence, narrative: formData.narrative,
+        status: formData.status, suspects: formData.suspectDetails.length, 
+        last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails
       };
       
       try {
         const response = await fetch(`${API_URL}/api/v1/reports`, {
           method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}` 
-          },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify(apiPayload)
         });
         
@@ -698,70 +607,45 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
             throw new Error(errData.detail || "Neon Database rejected the entry.");
         }
         
-        const newReportLocal = { ...apiPayload };
-        setReports([newReportLocal, ...reports]);
-        setNotification(`Case SN ${newReportLocal.sn} (Ref: ${newReportLocal.sd_ref}) successfully registered!`);
-
+        setReports([apiPayload, ...reports]);
+        setNotification(`Case SN ${apiPayload.sn} (Ref: ${apiPayload.sd_ref}) successfully registered!`);
         setFormData({ 
-          ...formData, 
-          sd_ref: '', 
-          ref_type: 'SD Ref:', 
-          ref_number: '', 
+          ...formData, sd_ref: '', ref_type: 'SD Ref:', ref_number: '', 
           time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs', 
-          offence: '', 
-          customOffence: '', 
-          narrative: '', 
-          suspectDetails: [], 
-          sn: null, 
-          updateText: '' 
+          offence: '', customOffence: '', narrative: '', suspectDetails: [], sn: null, updateText: '' 
         });
 
       } catch (err) {
-        console.error("Save Error:", err);
         setNotification(`❌ Error: ${err.message}`);
       }
-      
     } else if (operation === 'update') {
-      if (!formData.sn) {
-        setNotification("Error: Please select a case from the list to update first.");
-        return;
-      }
+      if (!formData.sn) return setNotification("Error: Please select a case from the list to update first.");
 
       let updatedNarrative = formData.updateText 
         ? `${formData.narrative}<br/><br/><strong>[UPDATE ${new Date().toLocaleString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '')}]:</strong><br/>${formData.updateText}` 
         : formData.narrative;
         
       const updatedRecord = { 
-        ...formData, 
-        narrative: updatedNarrative,
-        sd_ref: formData.sd_ref, 
+        ...formData, narrative: updatedNarrative, sd_ref: formData.sd_ref, 
         suspects: (formData.suspects || 0) + formData.suspectDetails.length,
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})`, 
-        suspectDetails: formData.suspectDetails
+        last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails
       };
-      delete updatedRecord.updateText;
-      delete updatedRecord.ref_type; 
-      delete updatedRecord.ref_number;
+      delete updatedRecord.updateText; delete updatedRecord.ref_type; delete updatedRecord.ref_number;
       
       try {
         const response = await fetch(`${API_URL}/api/v1/reports/${formData.sn}`, {
           method: "PUT",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}` 
-          },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify(updatedRecord)
         });
 
         if (!response.ok) throw new Error("Failed to update record in database.");
 
-        const updatedReports = reports.map(r => r.sn === formData.sn ? updatedRecord : r);
-        setReports(updatedReports);
+        setReports(reports.map(r => r.sn === formData.sn ? updatedRecord : r));
         setNotification(`Case SN ${formData.sn} successfully updated!`);
         handleOperationToggle('new');
 
       } catch (err) {
-        console.error("Update Error:", err);
         setNotification("❌ Error: Could not update the record in the database.");
       }
     }
@@ -769,7 +653,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
-      
       {showLockup && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex justify-center items-center p-4 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh] border border-red-200">
@@ -809,9 +692,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                     <input type="text" value={newSuspect.residence} onChange={e => setNewSuspect({...newSuspect, residence: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. Bwaise Zone 2"/>
                   </div>
                 </div>
-                  
-                {/* 🟢 NEW MUGSHOT UPLOAD FIELD */}
-                <div className="md:col-span-3 bg-red-50 p-3 rounded-lg border border-red-100 mt-2">
+                
+                <div className="md:col-span-3 bg-red-50 p-3 rounded-lg border border-red-100">
                   <label className="block text-xs font-bold text-red-800 mb-2 flex items-center">
                     <Camera size={12} className="mr-1"/> Suspect Mugshot (Optional)
                   </label>
@@ -824,14 +706,11 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                       </div>
                     )}
                     <input 
-                      type="file" 
-                      accept="image/*" 
-                      onChange={handleSuspectPhotoUpload} 
+                      type="file" accept="image/*" onChange={handleSuspectPhotoUpload} 
                       className="text-xs file:mr-4 file:py-1.5 file:px-4 file:rounded file:border-0 file:text-xs file:font-bold file:bg-red-600 file:text-white hover:file:bg-red-700 w-full cursor-pointer" 
                     />
                   </div>
                 </div>
-                
                 <div className="flex justify-end mt-4">
                   <button type="button" onClick={handleAddSuspect} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded text-sm transition-colors flex items-center">
                     <PlusCircle size={16} className="mr-1"/> Add to Register
@@ -876,12 +755,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       )}
 
       <div className="text-center mb-8 flex flex-col items-center">
-        <img 
-  src="/upf_badge.png" 
-  alt="UPF Logo" 
-  className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
-  onError={(e) => { e.target.style.display = 'none'; }} 
-/>
+        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
         <h1 className="text-4xl text-red-500 mt-1 font-bold">Crime/Incident Registry</h1>
         <h2 className="text-xl text-red-300 mt-1 font-medium">Centralised Crime/Incident Compilation</h2>
       </div>
@@ -912,9 +786,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-white font-semibold flex items-center">
-                <Shield className="w-5 h-5 mr-2 text-blue-400" /> ⚙️ File Controls
-              </h3>
+              <h3 className="text-white font-semibold flex items-center"><Shield className="w-5 h-5 mr-2 text-blue-400" /> ⚙️ File Controls</h3>
             </div>
             
             <div className="p-5 space-y-6">
@@ -959,61 +831,34 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                    </div>
                 )}
                 
-<div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <label className="block text-xs font-bold text-gray-700 mb-1">File Reference Prefix & Number *</label>
                     {operation === 'update' ? (
                       <input type="text" name="sd_ref" value={formData.sd_ref} disabled required className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 font-bold text-blue-700 bg-gray-100 disabled:text-gray-500" />
                     ) : (
                       <div className="flex shadow-sm rounded-md w-full">
-                        <select 
-                          name="ref_type" 
-                          value={formData.ref_type || 'SD Ref:'} 
-                          onChange={handleInputChange} 
-                          className="bg-gray-100 border border-gray-300 text-gray-800 text-sm rounded-l-md px-3 py-2 font-bold focus:ring-blue-500 outline-none cursor-pointer"
-                        >
-                          <option value="SD Ref:">SD Ref:</option>
-                          <option value="CRB:">CRB:</option>
-                          <option value="DEF:">DEF:</option>
-                          <option value="GEF:">GEF:</option>
-                          <option value="TAR:">TAR:</option>
-                          <option value="CID:">CID:</option>
+                        <select name="ref_type" value={formData.ref_type || 'SD Ref:'} onChange={handleInputChange} className="bg-gray-100 border border-gray-300 text-gray-800 text-sm rounded-l-md px-3 py-2 font-bold focus:ring-blue-500 outline-none cursor-pointer">
+                          <option value="SD Ref:">SD Ref:</option><option value="CRB:">CRB:</option><option value="DEF:">DEF:</option>
+                          <option value="GEF:">GEF:</option><option value="TAR:">TAR:</option><option value="CID:">CID:</option>
                         </select>
-                        <input 
-                          type="text" 
-                          name="ref_number" 
-                          value={formData.ref_number || ''} 
-                          onChange={handleInputChange} 
-                          required 
-                          className="flex-1 text-sm border-gray-300 border-y border-r rounded-r-md p-2 focus:ring-blue-500 font-bold text-blue-700 uppercase outline-none" 
-                          placeholder="e.g. 04/27/06/2026" 
-                        />
+                        <input type="text" name="ref_number" value={formData.ref_number || ''} onChange={handleInputChange} required className="flex-1 text-sm border-gray-300 border-y border-r rounded-r-md p-2 focus:ring-blue-500 font-bold text-blue-700 uppercase outline-none" placeholder="e.g. 04/27/06/2026" />
                       </div>
                     )}
                   </div>
                 </div>
 
-<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
                     <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
-                        Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
-                      ) : (
-                        <option value={currentUser.region}>{currentUser.region}</option>
-                      )}
+                      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
                     </select>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
                     <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                      {operation === 'update' ? (
-                        <option value={formData.station}>{formData.station}</option>
-                      ) : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
-                        (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)
-                      ) : (
-                        <option value={currentUser.station}>{currentUser.station}</option>
-                      )}
+                      {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{currentUser.station}</option>}
                     </select>
                   </div>
                 </div>
@@ -1033,17 +878,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                   <label className="block text-xs font-bold text-gray-700 mb-1">Offence / Incident Type *</label>
                   <select name="offence" value={formData.offence} onChange={handleInputChange} required disabled={operation === 'update'} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
                     <option value="" disabled>-- Select Official Offence Category --</option>
-                    <option value="Murder">Murder</option>
-                    <option value="Aggravated Robbery">Aggravated Robbery</option>
-                    <option value="Theft">Theft</option>
-                    <option value="Assault">Assault</option>
-                    <option value="Burglary">Burglary</option>
-                    <option value="Defilement / Rape">Defilement / Rape</option>
-                    <option value="Traffic Accident (Fatal)">Traffic Accident (Fatal)</option>
-                    <option value="Traffic Accident (Minor)">Traffic Accident (Minor)</option>
-                    <option value="Fraud / Forgery">Fraud / Forgery</option>
-                    <option value="Drug Offenses">Drug Offenses</option>
-                    <option value="Other">Other (Specify Below)</option>
+                    <option value="Murder">Murder</option><option value="Aggravated Robbery">Aggravated Robbery</option><option value="Theft">Theft</option><option value="Assault">Assault</option><option value="Burglary">Burglary</option><option value="Defilement / Rape">Defilement / Rape</option><option value="Traffic Accident (Fatal)">Traffic Accident (Fatal)</option><option value="Traffic Accident (Minor)">Traffic Accident (Minor)</option><option value="Fraud / Forgery">Fraud / Forgery</option><option value="Drug Offenses">Drug Offenses</option><option value="Other">Other (Specify Below)</option>
                   </select>
                   {formData.offence === 'Other' && operation === 'new' && (
                     <input type="text" name="customOffence" required value={formData.customOffence} onChange={handleInputChange} placeholder="Type the specific offence here..." className="mt-2 w-full text-sm border-blue-400 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-blue-50" />
@@ -1052,39 +887,13 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
                 <div className="pb-8"> 
                   <label className="block text-xs font-bold text-gray-700 mb-1">{operation === 'update' ? 'Original Incident Narrative (Read-Only)' : 'Incident Narrative'}</label>
-                  <ReactQuill 
-                    theme="snow" 
-                    value={formData.narrative} 
-                    onChange={(content) => setFormData({ ...formData, narrative: autoCapitalize(content) })}
-                    readOnly={operation === 'update'}
-                    className={`bg-white rounded-md ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`}
-                    modules={{
-                      toolbar: [
-                        ['bold', 'italic', 'underline'], 
-                        [{ 'list': 'ordered'}, { 'list': 'bullet' }], 
-                        ['clean'] 
-                      ]
-                    }}
-                  />
+                  <ReactQuill theme="snow" value={formData.narrative} onChange={(content) => setFormData({ ...formData, narrative: autoCapitalize(content) })} readOnly={operation === 'update'} className={`bg-white rounded-md ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`} modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
                 </div>
 
                 {operation === 'update' && (
                   <div className="pb-8 mt-4"> 
                     <label className="block text-xs font-bold text-blue-700 mb-1">Append New Update / Action Taken *</label>
-                    <ReactQuill 
-                      theme="snow" 
-                      value={formData.updateText || ''} 
-                      onChange={(content) => setFormData({ ...formData, updateText: autoCapitalize(content) })}
-                      className="bg-white rounded-md border-blue-300"
-                      placeholder="Enter new developments here. Use the toolbar for numbering..."
-                      modules={{
-                        toolbar: [
-                          ['bold', 'italic', 'underline'],
-                          [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                          ['clean']
-                        ]
-                      }}
-                    />
+                    <ReactQuill theme="snow" value={formData.updateText || ''} onChange={(content) => setFormData({ ...formData, updateText: autoCapitalize(content) })} className="bg-white rounded-md border-blue-300" placeholder="Enter new developments here. Use the toolbar for numbering..." modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
                   </div>
                 )}
 
@@ -1092,10 +901,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Status</label>
                     <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2">
-                      <option>ACTIVE INVESTIGATION</option>
-                      <option>FORWARDED TO COURT</option>
-                      <option>CLOSED / CONVICTED</option>
-                      <option>ADR</option>
+                      <option>ACTIVE INVESTIGATION</option><option>FORWARDED TO COURT</option><option>CLOSED / CONVICTED</option><option>ADR</option>
                     </select>
                   </div>
                   
@@ -1126,55 +932,19 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
               <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
             </div>
-{/* 1. DYNAMIC REGION FILTER */}
-            <select 
-              value={filterRegion} 
-              onChange={(e) => { 
-                setFilterRegion(e.target.value); 
-                setFilterStation('ALL STATIONS'); // Instantly reset station when region changes
-              }} 
-              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
-            >
+            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
               {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <>
-                  <option value="ALL REGIONS">ALL REGIONS</option>
-                  {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
-                </>
-              ) : (
-                <option value={currentUser?.region}>{currentUser?.region}</option>
-              )}
+                <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+              ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
             </select>
-
-{/* 2. DYNAMIC STATION FILTER */}
-            <select 
-              value={filterStation} 
-              onChange={(e) => setFilterStation(e.target.value)} 
-              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
-            >
+            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
               {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <>
-                  <option value="ALL STATIONS">ALL STATIONS</option>
-                  {filterRegion === 'ALL REGIONS' 
-                    ? Array.from(new Set(Object.values(REGIONAL_HIERARCHY).flat())).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)
-                    : REGIONAL_HIERARCHY[filterRegion]?.map(stat => <option key={stat} value={stat}>{stat}</option>)
-                  }
-                </>
-              ) : (
-                <option value={currentUser?.station}>{currentUser?.station}</option>
-              )}
+                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
+              ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
             </select>   
           </div>
 
-          <ExpandableTableCard 
-            title="Crime/Incident Registry Ledger"
-            onToggle={(expanded) => {
-              if (setSidebarOpen) {
-                setSidebarOpen(!expanded); 
-              }
-            }}
-          >
+          <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
             <div className="overflow-x-auto w-full">
               <table className="min-w-full divide-y divide-gray-200 table-fixed w-full">
                 <thead className="bg-gray-50 sticky top-0 z-10">
@@ -1191,86 +961,47 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredReports.map((report) => (
                     <tr key={report.id || report.sn} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateCrimeForm(report); }}>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">
-    {report.id || report.sn}</td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">{report.id || report.sn}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-blue-700 align-top">{report.sdRef || report.sd_ref}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 align-top">{report.date}<br/><span className="text-xs text-gray-400">{report.time}</span></td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 align-top">{report.station} <br/><span className="text-xs text-gray-400">{report.region}</span></td>
                       <td className="px-4 py-4 text-sm text-gray-700 align-top w-1/3 max-w-[600px] whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
                         {report.offence && <div className="font-bold text-red-600 uppercase mb-1">{report.offence}</div>}
-                        <div 
-                          className="ql-editor p-0" 
-                          dangerouslySetInnerHTML={{ __html: report.narrative }} 
-                        />
-                        
+                        <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: report.narrative }} />
                         {report.suspectDetails && report.suspectDetails.length > 0 && (
-  <div className="mt-3 bg-red-50 border border-red-100 rounded-lg p-3 shadow-sm">
-    <span className="text-xs font-bold text-red-800 uppercase tracking-wider block mb-2 border-b border-red-200 pb-1">
-      Suspects in Custody ({report.suspectDetails.length}):
-    </span>
-    <ul className="space-y-2.5">
-      {report.suspectDetails.map((s, i) => (
-        <li key={i} className="text-xs text-red-900 font-medium flex items-start space-x-3 bg-white p-2 rounded border border-red-100 shadow-xs">
-          {/* Suspect Mugshot */}
-          <div className="shrink-0">
-            {s.photo_url ? (
-              <img src={s.photo_url} alt={s.name} className="w-12 h-12 rounded object-cover border border-red-200 shadow-xs" onError={(e) => { e.target.style.display = 'none'; }} />
-            ) : (
-              <div className="w-12 h-12 rounded bg-red-100 text-red-400 flex items-center justify-center font-bold text-[9px] border border-red-200 text-center p-0.5">
-                No Photo
-              </div>
-            )}
-          </div>
-
-          {/* Suspect Particulars */}
-          <div className="flex-1 min-w-0">
-            <div className="font-bold text-slate-900 uppercase">
-              {i + 1}. {s.name}
-            </div>
-            <div className="text-red-700 mt-0.5 space-y-0.5">
-              <div>
-                <span className="font-semibold">Particulars:</span> ({s.sex}{s.age ? `, ${s.age}yrs` : ''}{s.tribe ? `, ${s.tribe}` : ''})
-              </div>
-              {s.residence && (
-                <div><span className="font-semibold">Residence:</span> {s.residence}</div>
-              )}
-              {s.contact && (
-                <div><span className="font-semibold">Contact:</span> {s.contact}</div>
-              )}
-              {s.mental_health_status && s.mental_health_status !== 'NORMAL' && (
-                <div className="text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded text-xs inline-block mt-0.5 border border-amber-200">
-                  Mental Status: {s.mental_health_status}
-                </div>
-              )}
-            </div>
-          </div>
-        </li>
-      ))}
-    </ul>
-  </div>
-)}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-extrabold text-red-600 text-center align-top">{report.suspects || 0}</td>
-                      <td className="px-4 py-4 whitespace-nowrap align-top">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full 
-                          ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800' : ''}
-                          ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800' : ''}
-                          ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800' : ''}
-                          ${report.status.includes('ADR') ? 'bg-orange-100 text-orange-800' : ''}
-                        `}>
-                          {report.status}
-                        </span>
-                        {report.narrative.includes('[UPDATE') && (
-                          <div className="text-[9px] text-gray-400 mt-1 italic break-words max-w-[120px]">
-                            {report.narrative.split('[UPDATE').pop().split(']')[0].replace('by ', 'Update: ')}
+                          <div className="mt-3 bg-red-50 border border-red-100 rounded-lg p-3 shadow-sm">
+                            <span className="text-xs font-bold text-red-800 uppercase tracking-wider block mb-2 border-b border-red-200 pb-1">Suspects in Custody ({report.suspectDetails.length}):</span>
+                            <ul className="space-y-2.5">
+                              {report.suspectDetails.map((s, i) => (
+                                <li key={i} className="text-xs text-red-900 font-medium flex items-start space-x-3 bg-white p-2 rounded border border-red-100 shadow-xs">
+                                  <div className="shrink-0">
+                                    {s.photo_url ? <img src={s.photo_url} alt={s.name} className="w-12 h-12 rounded object-cover border border-red-200 shadow-xs" onError={(e) => { e.target.style.display = 'none'; }} /> : <div className="w-12 h-12 rounded bg-red-100 text-red-400 flex items-center justify-center font-bold text-[9px] border border-red-200 text-center p-0.5">No Photo</div>}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-bold text-slate-900 uppercase">{i + 1}. {s.name}</div>
+                                    <div className="text-red-700 mt-0.5 space-y-0.5">
+                                      <div><span className="font-semibold">Particulars:</span> ({s.sex}{s.age ? `, ${s.age}yrs` : ''}{s.tribe ? `, ${s.tribe}` : ''})</div>
+                                      {s.residence && <div><span className="font-semibold">Residence:</span> {s.residence}</div>}
+                                      {s.contact && <div><span className="font-semibold">Contact:</span> {s.contact}</div>}
+                                      {s.mental_health_status && s.mental_health_status !== 'NORMAL' && <div className="text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded text-xs inline-block mt-0.5 border border-amber-200">Mental Status: {s.mental_health_status}</div>}
+                                    </div>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
                           </div>
                         )}
                       </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm font-extrabold text-red-600 text-center align-top">{report.suspects || 0}</td>
+                      <td className="px-4 py-4 whitespace-nowrap align-top">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800' : ''} ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800' : ''} ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800' : ''} ${report.status.includes('ADR') ? 'bg-orange-100 text-orange-800' : ''}`}>
+                          {report.status}
+                        </span>
+                        {report.narrative.includes('[UPDATE') && <div className="text-[9px] text-gray-400 mt-1 italic break-words max-w-[120px]">{report.narrative.split('[UPDATE').pop().split(']')[0].replace('by ', 'Update: ')}</div>}
+                      </td>
                     </tr>
                   ))}
-                  {filteredReports.length === 0 && (
-                    <tr><td colSpan="7" className="text-center py-6 text-gray-500">No records found for this jurisdiction.</td></tr>
-                  )}
+                  {filteredReports.length === 0 && <tr><td colSpan="7" className="text-center py-6 text-gray-500">No records found for this jurisdiction.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -1281,9 +1012,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   );
 };
 
-// ====================================================================
-// --- PAGE 2: DISRUPTIVE OPS STATISTICS ---
-// ====================================================================
+
+
 const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -1291,25 +1021,14 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [updateSearch, setUpdateSearch] = useState('');
-  
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   
   const [formData, setFormData] = useState({
-    sn: null,
-    region: currentUser.region,
-    station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+    sn: null, region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
     date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
-    arrested: 0,
-    given_bond: 0,
-    cautioned: 0,
-    pending_court: 0,
-    taken_to_court: 0,
-    released: 0,
-    remanded: 0,
-    convicted: 0
+    arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0
   });
 
-  // Fully integrated date filtering matching the Crime Registry pattern
   const filteredStats = useMemo(() => {
     return (Array.isArray(stats) ? stats : []).filter(s => {
       if (filterRegion !== 'ALL REGIONS' && s.region !== filterRegion) return false;
@@ -1319,27 +1038,14 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
         const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
         if (s.date !== todayStr) return false;
       } else if (dateFilter === 'LAST 7 DAYS') {
-        const repDate = new Date(s.date);
-        const today = new Date();
-        const diffDays = Math.ceil(Math.abs(today - repDate) / (1000 * 60 * 60 * 24));
-        if (diffDays > 7) return false;
+        const repDate = new Date(s.date); const diffDays = Math.ceil(Math.abs(new Date() - repDate) / (1000 * 60 * 60 * 24)); if (diffDays > 7) return false;
       } else if (dateFilter === 'LAST 30 DAYS') {
-        const repDate = new Date(s.date);
-        const today = new Date();
-        const diffDays = Math.ceil(Math.abs(today - repDate) / (1000 * 60 * 60 * 24));
-        if (diffDays > 30) return false;
+        const repDate = new Date(s.date); const diffDays = Math.ceil(Math.abs(new Date() - repDate) / (1000 * 60 * 60 * 24)); if (diffDays > 30) return false;
       } else if (dateFilter === 'LAST 90 DAYS') {
-        const repDate = new Date(s.date);
-        const today = new Date();
-        const diffDays = Math.ceil(Math.abs(today - repDate) / (1000 * 60 * 60 * 24));
-        if (diffDays > 90) return false;
+        const repDate = new Date(s.date); const diffDays = Math.ceil(Math.abs(new Date() - repDate) / (1000 * 60 * 60 * 24)); if (diffDays > 90) return false;
       } else if (dateFilter === 'LAST 120 DAYS') {
-        const repDate = new Date(s.date);
-        const today = new Date();
-        const diffDays = Math.ceil(Math.abs(today - repDate) / (1000 * 60 * 60 * 24));
-        if (diffDays > 120) return false;
+        const repDate = new Date(s.date); const diffDays = Math.ceil(Math.abs(new Date() - repDate) / (1000 * 60 * 60 * 24)); if (diffDays > 120) return false;
       }
-
       return true;
     });
   }, [stats, filterRegion, filterStation, dateFilter]);
@@ -1357,35 +1063,25 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
 
   const totals = useMemo(() => {
     return filteredStats.reduce((acc, curr) => {
-      acc.arrested += (parseInt(curr.arrested) || 0);
-      acc.given_bond += (parseInt(curr.given_bond) || 0);
-      acc.cautioned += (parseInt(curr.cautioned) || 0);
-      acc.pending_court += (parseInt(curr.pending_court) || 0);
-      acc.taken_to_court += (parseInt(curr.taken_to_court) || 0);
-      acc.released += (parseInt(curr.released) || 0);
-      acc.remanded += (parseInt(curr.remanded) || 0);
-      acc.convicted += (parseInt(curr.convicted) || 0);
+      acc.arrested += (parseInt(curr.arrested) || 0); acc.given_bond += (parseInt(curr.given_bond) || 0);
+      acc.cautioned += (parseInt(curr.cautioned) || 0); acc.pending_court += (parseInt(curr.pending_court) || 0);
+      acc.taken_to_court += (parseInt(curr.taken_to_court) || 0); acc.released += (parseInt(curr.released) || 0);
+      acc.remanded += (parseInt(curr.remanded) || 0); acc.convicted += (parseInt(curr.convicted) || 0);
       return acc;
     }, { arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0 });
   }, [filteredStats]);
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
-    if (name === 'region') {
-      setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] });
-    } else {
-      setFormData({ ...formData, [name]: type === 'number' ? parseInt(value) || 0 : value });
-    }
+    if (name === 'region') setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] });
+    else setFormData({ ...formData, [name]: type === 'number' ? parseInt(value) || 0 : value });
   };
 
   const handleOperationToggle = (op) => {
-    setOperation(op);
-    setNotification(null);
+    setOperation(op); setNotification(null);
     if (op === 'new') {
       setFormData({
-        sn: null,
-        region: currentUser.region,
-        station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+        sn: null, region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
         date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
         arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0
       });
@@ -1393,110 +1089,52 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
     }
   };
 
-  const populateUpdateForm = (statData) => {
-    setFormData({ ...statData });
-  };
+  const populateUpdateForm = (statData) => setFormData({ ...statData });
 
   const handleFormSubmit = async (e) => { 
     e.preventDefault();
-
     const token = localStorage.getItem('kmp_authToken');
-    if (!token) {
-        setNotification("Error: Security token missing. Please log out and log back in.");
-        return;
-    }
+    if (!token) return setNotification("Error: Security token missing.");
     
-    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-
     if (operation === 'new') {
-      const isDuplicate = stats.some(s => 
-        s.station === formData.station && 
-        s.date === formData.date
-      );
-
-      if (isDuplicate) {
-        setNotification(`Error: Statistics for ${formData.station} on ${formData.date} are already logged. Please use 'Update Existing'.`);
-        return; 
-      }
+      const isDuplicate = stats.some(s => s.station === formData.station && s.date === formData.date);
+      if (isDuplicate) return setNotification(`Error: Statistics for ${formData.station} on ${formData.date} are already logged. Please use 'Update Existing'.`);
 
       const exactNextSN = stats.length > 0 ? Math.max(...stats.map(s => s.sn)) + 1 : 1;
-      const newStat = { 
-        sn: exactNextSN, 
-        ...formData,
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})`
-      };
+      const newStat = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       
       try {
         const response = await fetch(`${API_URL}/api/v1/stats`, {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}` 
-          },
-          body: JSON.stringify(newStat)
+          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newStat)
         });
-        
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
             throw new Error(errData.detail || "Neon Database rejected the entry.");
         }
-
-        setStats([newStat, ...stats]);
-        setNotification(`Statistics recorded for ${formData.station}!`);
-        
-        setFormData({ 
-          ...formData, 
-          arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, 
-          taken_to_court: 0, released: 0, remanded: 0, convicted: 0, 
-          sn: null 
-        });
-
-      } catch (err) {
-        console.error("Save Error:", err);
-        setNotification(`❌ Error: ${err.message}`);
-      }
+        setStats([newStat, ...stats]); setNotification(`Statistics recorded for ${formData.station}!`);
+        setFormData({ ...formData, arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0, sn: null });
+      } catch (err) { setNotification(`❌ Error: ${err.message}`); }
       
     } else if (operation === 'update') {
-      if (!formData.sn) {
-        setNotification("Error: Please select a record from the list to update first.");
-        return;
-      }
-
+      if (!formData.sn) return setNotification("Error: Please select a record from the list to update first.");
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
 
       try {
         const response = await fetch(`${API_URL}/api/v1/stats/${formData.sn}`, {
-          method: "PUT",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}` 
-          },
-          body: JSON.stringify(updatedRecord)
+          method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(updatedRecord)
         });
-
         if (!response.ok) throw new Error("Failed to update record in database.");
-
         const updatedStats = stats.map(s => s.sn === formData.sn ? updatedRecord : s);
-        setStats(updatedStats);
-        setNotification(`Statistics SN ${formData.sn} successfully updated!`);
-        
+        setStats(updatedStats); setNotification(`Statistics SN ${formData.sn} successfully updated!`);
         handleOperationToggle('new');
-
-      } catch (err) {
-        console.error("Update Error:", err);
-        setNotification("❌ Error: Could not update the record in the database.");
-      }
+      } catch (err) { setNotification("❌ Error: Could not update the record in the database."); }
     }
   };
 
   return (
     <div className="p-3 sm:p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
       <div className="text-center mb-8 flex flex-col items-center">
-        <img 
-  src="/upf_badge.png" 
-  alt="UPF Logo" 
-  className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
-/>
+        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm"/>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-700 tracking-tight">Disruptive OPS Statistics</h1>
         <h3 className="text-sm sm:text-lg text-blue-700 mt-2 font-medium">Weekly Numerical Aggregates</h3>
       </div>
@@ -1508,68 +1146,37 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
             </div>
             <div className="p-5 space-y-6">
               <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
-                  <PlusCircle className="w-4 h-4 inline mr-1" /> Register New
-                </button>
-                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
-                  <Edit className="w-4 h-4 inline mr-1" /> Update Existing
-                </button>
+                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
+                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
               </div>
-
-              {notification && (
-                <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
-                  {notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}
-                  <span className="text-sm font-medium">{notification}</span>
-                </div>
-              )}
-
+              {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{notification}</span></div>}
               {operation === 'update' && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Record to Update</label>
                   <input type="text" placeholder="Search by SN, Station, or Date..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
                   <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
-                    {availableUpdateStats.length === 0 ? (
-                      <div className="p-3 text-xs text-gray-500 text-center">No records found matching your search.</div>
-                    ) : (
-                      availableUpdateStats.map(s => (
+                    {availableUpdateStats.length === 0 ? <div className="p-3 text-xs text-gray-500 text-center">No records found matching your search.</div> : availableUpdateStats.map(s => (
                         <div key={s.sn} onClick={() => populateUpdateForm(s)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === s.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
                           <span className={formData.sn === s.sn ? 'text-blue-200' : 'text-gray-400'}>SN: {s.sn}</span> | <span className={formData.sn === s.sn ? 'text-white' : 'font-bold text-blue-700'}>{s.date}</span> | {s.station}
                         </div>
-                      ))
-                    )}
+                      ))}
                   </div>
                 </div>
               )}
-              
               <form onSubmit={handleFormSubmit} className="space-y-5">
-                {operation === 'update' && formData.sn && (
-                   <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
-                      Currently Editing Record SN: {formData.sn}
-                   </div>
-                )}
-                
-<div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+                {operation === 'update' && formData.sn && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing Record SN: {formData.sn}</div>}
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
                       <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                        {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
-                          Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
-                        ) : (
-                          <option value={currentUser.region}>{currentUser.region}</option>
-                        )}
+                        {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
                       </select>
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Station / Division *</label>
                       <select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                        {operation === 'update' ? (
-                          <option value={formData.station}>{formData.station}</option>
-                        ) : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
-                          (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)
-                        ) : (
-                          <option value={currentUser.station}>{currentUser.station}</option>
-                        )}
+                        {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{currentUser.station}</option>}
                       </select>
                     </div>
                     <div>
@@ -1578,55 +1185,19 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                     </div>
                   </div>
                 </div> 
-
                 <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                  <h4 className="text-sm font-bold text-blue-900 border-b border-blue-200 pb-2 mb-4 flex items-center">
-                    📊 Enter Weekly Metric Aggregates (8 Fields)
-                  </h4>
-                  
+                  <h4 className="text-sm font-bold text-blue-900 border-b border-blue-200 pb-2 mb-4 flex items-center">📊 Enter Weekly Metric Aggregates (8 Fields)</h4>
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Arrested</label>
-                      <input type="number" name="arrested" min="0" value={formData.arrested} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" />
-                    </div>
-                    
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Given Bond</label>
-                      <input type="number" name="given_bond" min="0" value={formData.given_bond} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" />
-                    </div>
-                    
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Cautioned</label>
-                      <input type="number" name="cautioned" min="0" value={formData.cautioned} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" />
-                    </div>
-                    
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Pending Court</label>
-                      <input type="number" name="pending_court" min="0" value={formData.pending_court} onChange={handleInputChange} className="w-full text-lg font-bold text-yellow-600 border-b-2 border-transparent focus:border-yellow-500 outline-none p-1 bg-transparent" />
-                    </div>
-                    
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Taken to Court</label>
-                      <input type="number" name="taken_to_court" min="0" value={formData.taken_to_court} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-600 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" />
-                    </div>
-                    
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Released by Court</label>
-                      <input type="number" name="released" min="0" value={formData.released} onChange={handleInputChange} className="w-full text-lg font-bold text-green-600 border-b-2 border-transparent focus:border-green-500 outline-none p-1 bg-transparent" />
-                    </div>
-                    
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Remanded</label>
-                      <input type="number" name="remanded" min="0" value={formData.remanded} onChange={handleInputChange} className="w-full text-lg font-bold text-red-600 border-b-2 border-transparent focus:border-red-500 outline-none p-1 bg-transparent" />
-                    </div>
-                    
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm">
-                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Convicted</label>
-                      <input type="number" name="convicted" min="0" value={formData.convicted} onChange={handleInputChange} className="w-full text-lg font-bold text-purple-600 border-b-2 border-transparent focus:border-purple-500 outline-none p-1 bg-transparent" />
-                    </div>
+                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Arrested</label><input type="number" name="arrested" min="0" value={formData.arrested} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
+                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Given Bond</label><input type="number" name="given_bond" min="0" value={formData.given_bond} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
+                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Cautioned</label><input type="number" name="cautioned" min="0" value={formData.cautioned} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
+                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Pending Court</label><input type="number" name="pending_court" min="0" value={formData.pending_court} onChange={handleInputChange} className="w-full text-lg font-bold text-yellow-600 border-b-2 border-transparent focus:border-yellow-500 outline-none p-1 bg-transparent" /></div>
+                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Taken to Court</label><input type="number" name="taken_to_court" min="0" value={formData.taken_to_court} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-600 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
+                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Released by Court</label><input type="number" name="released" min="0" value={formData.released} onChange={handleInputChange} className="w-full text-lg font-bold text-green-600 border-b-2 border-transparent focus:border-green-500 outline-none p-1 bg-transparent" /></div>
+                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Remanded</label><input type="number" name="remanded" min="0" value={formData.remanded} onChange={handleInputChange} className="w-full text-lg font-bold text-red-600 border-b-2 border-transparent focus:border-red-500 outline-none p-1 bg-transparent" /></div>
+                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Convicted</label><input type="number" name="convicted" min="0" value={formData.convicted} onChange={handleInputChange} className="w-full text-lg font-bold text-purple-600 border-b-2 border-transparent focus:border-purple-500 outline-none p-1 bg-transparent" /></div>
                   </div>
                 </div>
-
                 <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center">
                   {operation === 'new' ? '💾 Submit 8-Field Data Entry' : '💾 Save Updated Figures'}
                 </button>
@@ -1635,23 +1206,15 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
           </div>
         </div>
         
-<div className="lg:col-span-8 space-y-4">
-          
-          {/* 🟢 AREA METRICS BLOCK: Moved here from the left side */}
+        <div className="lg:col-span-8 space-y-4">
           <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
             <div className="absolute top-4 right-4 z-10">
               <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none cursor-pointer">
-                <option value="ALL TIME">ALL TIME</option>
-                <option value="TODAY">TODAY ONLY</option>
-                <option value="LAST 7 DAYS">LAST 7 DAYS</option>
-                <option value="LAST 30 DAYS">LAST 30 DAYS</option>
-                <option value="LAST 90 DAYS">LAST 90 DAYS</option>
-                <option value="LAST 120 DAYS">LAST 120 DAYS</option>
+                <option value="ALL TIME">ALL TIME</option><option value="TODAY">TODAY ONLY</option><option value="LAST 7 DAYS">LAST 7 DAYS</option>
+                <option value="LAST 30 DAYS">LAST 30 DAYS</option><option value="LAST 90 DAYS">LAST 90 DAYS</option><option value="LAST 120 DAYS">LAST 120 DAYS</option>
               </select>
             </div>
-            <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">
-              📋 Area Metrics ({filterRegion} - {dateFilter})
-            </h4>
+            <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
               <MetricCard title="Arrested" value={totals.arrested} colorClass="text-blue-700" />
               <MetricCard title="Given Bond" value={totals.given_bond} colorClass="text-indigo-600" />
@@ -1663,59 +1226,21 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
               <MetricCard title="Convicted" value={totals.convicted} colorClass="text-purple-600" />
             </div>
           </div>
-          {/* 🟢 END AREA METRICS BLOCK */}
 
           <div className="flex flex-col sm:flex-row gap-3">
-            {/* 1. DYNAMIC REGION FILTER */}
-            <select 
-              value={filterRegion} 
-              onChange={(e) => { 
-                setFilterRegion(e.target.value); 
-                setFilterStation('ALL STATIONS'); // Instantly reset station when region changes
-              }} 
-              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
-            >
+            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
               {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <>
-                  <option value="ALL REGIONS">ALL REGIONS</option>
-                  {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
-                </>
-              ) : (
-                <option value={currentUser?.region}>{currentUser?.region}</option>
-              )}
+                <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+              ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
             </select>
-
-            {/* 2. DYNAMIC STATION FILTER */}
-            <select 
-              value={filterStation} 
-              onChange={(e) => setFilterStation(e.target.value)} 
-              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
-            >
+            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
               {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <>
-                  <option value="ALL STATIONS">ALL STATIONS</option>
-                  {/* Only map the stations that belong to the currently selected Region */}
-                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] 
-                    ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
-                    : null
-                  }
-                </>
-              ) : (
-                <option value={currentUser?.station}>{currentUser?.station}</option>
-              )}
+                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
+              ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
             </select>   
           </div>
 
-          <ExpandableTableCard 
-            title="Weekly Metrics Breakdown Ledger"
-            onToggle={(expanded) => {
-              if (setSidebarOpen) {
-                setSidebarOpen(!expanded); 
-              }
-            }}
-          >
+          <ExpandableTableCard title="Weekly Metrics Breakdown Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
             <div className="overflow-x-auto w-full">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50 sticky top-0">
@@ -1762,9 +1287,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                       <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.convicted}</td>
                     </tr>
                   )}
-                  {filteredStats.length === 0 && (
-                    <tr><td colSpan="11" className="text-center py-6 text-gray-500">No statistics logged for this jurisdiction.</td></tr>
-                  )}
+                  {filteredStats.length === 0 && <tr><td colSpan="11" className="text-center py-6 text-gray-500">No statistics logged for this jurisdiction.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -1775,11 +1298,6 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
   );
 };
 
-
-// ====================================================================
-// --- PART 3: OPERATIONAL SUCCESS STORIES & REGIONAL ESTABLISHMENTS ---
-// ====================================================================
-
 const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
@@ -1788,27 +1306,16 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
   const [updateSearch, setUpdateSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
 
-  const safeStories = Array.isArray(stories) ? stories : [];
-
-  if (!stories) {
-    return <div className="p-4 text-gray-500">Loading mission logs...</div>;
-  }
+  if (!stories) return <div className="p-4 text-gray-500">Loading mission logs...</div>;
 
   const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
 
   const [formData, setFormData] = useState({
-    sn: null,
-    region: currentUser.region,
-    station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
-    date: getTodayString(),
-    time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-    narrative: '',
-    status: 'COMPLETED / SUCCESS',
-    updateText: '',
-    photo_url: ''
+    sn: null, region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+    date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+    narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: ''
   });
 
-  // Fully integrated date filtering matching the Crime Registry pattern
   const filteredStories = useMemo(() => {
     return (Array.isArray(stories) ? stories : []).filter(s => {
       if (filterRegion !== 'ALL REGIONS' && s.region !== filterRegion) return false;
@@ -1818,27 +1325,14 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
         const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
         if (s.date !== todayStr) return false;
       } else if (dateFilter === 'LAST 7 DAYS') {
-        const repDate = new Date(s.date);
-        const today = new Date();
-        const diffDays = Math.ceil(Math.abs(today - repDate) / (1000 * 60 * 60 * 24));
-        if (diffDays > 7) return false;
+        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 7) return false;
       } else if (dateFilter === 'LAST 30 DAYS') {
-        const repDate = new Date(s.date);
-        const today = new Date();
-        const diffDays = Math.ceil(Math.abs(today - repDate) / (1000 * 60 * 60 * 24));
-        if (diffDays > 30) return false;
+        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 30) return false;
       } else if (dateFilter === 'LAST 90 DAYS') {
-        const repDate = new Date(s.date);
-        const today = new Date();
-        const diffDays = Math.ceil(Math.abs(today - repDate) / (1000 * 60 * 60 * 24));
-        if (diffDays > 90) return false;
+        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 90) return false;
       } else if (dateFilter === 'LAST 120 DAYS') {
-        const repDate = new Date(s.date);
-        const today = new Date();
-        const diffDays = Math.ceil(Math.abs(today - repDate) / (1000 * 60 * 60 * 24));
-        if (diffDays > 120) return false;
+        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 120) return false;
       }
-
       return true;
     });
   }, [stories, filterRegion, filterStation, dateFilter]);
@@ -1856,11 +1350,8 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    if (name === 'region') {
-      setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] });
-    } else {
-      setFormData({ ...formData, [name]: value });
-    }
+    if (name === 'region') setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] });
+    else setFormData({ ...formData, [name]: value });
   };
 
   const handleExhibitUpload = async (e) => {
@@ -1874,10 +1365,7 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
       uploadData.append("narrative", formData.narrative || "Exhibit Upload");
 
       try {
-        const response = await authFetch("/api/v1/investigation/upload/", {
-          method: "POST",
-          body: uploadData,
-        });
+        const response = await authFetch("/api/v1/investigation/upload/", { method: "POST", body: uploadData });
         const data = await response.json();
         if (data.full_s3_url || data.cloud_storage_path) {
           setFormData({ ...formData, photo_url: data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}` });
@@ -1887,110 +1375,72 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
         }
       } catch (error) {
         console.warn("Backend unreachable, falling back to local Blob URL for UI testing.", error);
-        const localUrl = URL.createObjectURL(file);
-        setFormData({ ...formData, photo_url: localUrl });
+        setFormData({ ...formData, photo_url: URL.createObjectURL(file) });
         setNotification("Note: API offline. Using temporary local preview.");
       }
     }
   };
 
   const handleOperationToggle = (op) => {
-    setOperation(op);
-    setNotification(null);
+    setOperation(op); setNotification(null);
     if (op === 'new') {
       setFormData({
-        sn: null,
-        region: currentUser.region,
-        station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
-        date: getTodayString(),
-        time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-        narrative: '',
-        status: 'COMPLETED / SUCCESS',
-        updateText: '',
-        photo_url: ''
+        sn: null, region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+        date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+        narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: ''
       });
       setUpdateSearch('');
     }
   };
 
-  const populateUpdateForm = (storyData) => {
-    setFormData({ ...storyData, updateText: '' });
-  };
+  const populateUpdateForm = (storyData) => setFormData({ ...storyData, updateText: '' });
 
   const handleFormSubmit = (e) => {
     e.preventDefault();
 
     if (operation === 'new') {
       const cleanNewText = formData.narrative.replace(/<[^>]*>?/gm, '').trim().toLowerCase();
-      const isDuplicate = stories.some(s => 
-        s.narrative.replace(/<[^>]*>?/gm, '').trim().toLowerCase() === cleanNewText
-      );
+      const isDuplicate = stories.some(s => s.narrative.replace(/<[^>]*>?/gm, '').trim().toLowerCase() === cleanNewText);
 
-      if (isDuplicate) {
-        setNotification("Error: This exact success story has already been submitted to the ledger.");
-        return;
-      }
+      if (isDuplicate) return setNotification("Error: This exact success story has already been submitted to the ledger.");
 
       const exactNextSN = (stories && stories.length > 0) ? Math.max(...stories.map(s => s.sn)) + 1 : 1;
-      const newStory = { 
-        sn: exactNextSN, 
-        ...formData,
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})`
-      };
+      const newStory = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       delete newStory.updateText;
       
       authFetch("/api/v1/stories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newStory)
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newStory)
       }).catch(err => console.error("Cloud sync failed:", err));
 
       setStories([newStory, ...stories]);
       setNotification(`Success story SN ${newStory.sn} logged successfully!`);
       
     } else if (operation === 'update') {
-      if (!formData.sn) {
-        setNotification("Error: Please select a story from the list to update first.");
-        return;
-      }
+      if (!formData.sn) return setNotification("Error: Please select a story from the list to update first.");
 
       const updatedNarrative = formData.updateText 
         ? `${formData.narrative}\n<br/><br/><strong>[UPDATE ${new Date().toISOString().slice(0,16).replace('T', ' ')}]:</strong><br/>${formData.updateText}` 
         : formData.narrative;
         
-      const updatedRecord = { 
-        ...formData, 
-        narrative: updatedNarrative,
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})`
-      };
+      const updatedRecord = { ...formData, narrative: updatedNarrative, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       delete updatedRecord.updateText;
 
       authFetch(`/api/v1/stories/${formData.sn}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedRecord)
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord)
       }).catch(err => console.error("Cloud sync failed:", err));
 
-      const updatedStories = (stories || []).map(s => s.sn === formData.sn ? updatedRecord : s);
-      setStories(updatedStories);
+      setStories((stories || []).map(s => s.sn === formData.sn ? updatedRecord : s));
       setNotification(`Success story SN ${formData.sn} successfully updated!`);
     }
 
     setTimeout(() => setNotification(null), 4000);
-    if (operation === 'new') {
-      setFormData({ ...formData, time: '', narrative: '', sn: null, updateText: '', photo_url: '' });
-    }
+    if (operation === 'new') setFormData({ ...formData, time: '', narrative: '', sn: null, updateText: '', photo_url: '' });
   };
 
   return (
     <div className="p-3 sm:p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
       <div className="text-center mb-8 flex flex-col items-center">
-        <img 
-  src="/upf_badge.png" 
-  alt="UPF Logo" 
-  className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
-  onError={(e) => { e.target.style.display = 'none'; }} 
-/>
+        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }}/>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-700 tracking-tight">Operational Success Stories</h1>
         <h3 className="text-sm sm:text-lg text-amber-500 mt-2 font-medium">Highlighting UPF Anti-Crime Milestones</h3>
       </div>
@@ -2000,67 +1450,40 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="p-5 space-y-6">
               <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-yellow-600' : 'text-gray-600 hover:text-gray-900'}`}>
-                  <PlusCircle className="w-4 h-4 inline mr-1" /> Register New
-                </button>
-                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
-                  <Edit className="w-4 h-4 inline mr-1" /> Update Existing
-                </button>
+                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-yellow-600' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
+                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-green shadow text-white' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
               </div>
 
-              {notification && (
-                <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
-                  {notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}
-                  <span className="text-sm font-medium">{notification}</span>
-                </div>
-              )}
+              {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{notification}</span></div>}
 
               {operation === 'update' && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                   <label className="block text-xs font-bold text-yellow-800 mb-2">🔍 Search & Select Story to Update</label>
                   <input type="text" placeholder="Search by SN or Narrative..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-yellow-200 rounded outline-none focus:ring-2 focus:ring-yellow-400" />
                   <div className="max-h-40 overflow-y-auto bg-white border border-yellow-100 rounded custom-scrollbar">
-                    {availableUpdateStories.length === 0 ? (
-                      <div className="p-3 text-xs text-gray-500 text-center">No success stories found matching your search.</div>
-                    ) : (
-                      availableUpdateStories?.map(s => (
+                    {availableUpdateStories.length === 0 ? <div className="p-3 text-xs text-gray-500 text-center">No success stories found matching your search.</div> : availableUpdateStories?.map(s => (
                         <div key={s.sn} onClick={() => populateUpdateForm(s)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === s.sn ? 'bg-yellow-500 text-white font-bold' : 'hover:bg-yellow-50 text-gray-700'}`}>
                           <span className={formData.sn === s.sn ? 'text-yellow-100' : 'text-gray-400'}>SN: {s.sn}</span> | <span className={formData.sn === s.sn ? 'text-white' : 'font-bold text-yellow-700'}>{s.date}</span> | {s.station}
                         </div>
-                      ))
-                    )}
+                      ))}
                   </div>
                 </div>
               )}
 
               <form onSubmit={handleFormSubmit} className="space-y-4">
-                {operation === 'update' && formData.sn && (
-                   <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
-                     Currently Editing: SN {formData.sn}
-                   </div>
-                )}
+                {operation === 'update' && formData.sn && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing: SN {formData.sn}</div>}
 
-<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
                     <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
-                        Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
-                      ) : (
-                        <option value={currentUser.region}>{currentUser.region}</option>
-                      )}
+                      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
                     </select>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                      {operation === 'update' ? (
-                        <option value={formData.station}>{formData.station}</option>
-                      ) : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
-                        (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)
-                      ) : (
-                        <option value={currentUser.station}>{currentUser.station}</option>
-                      )}
+                    <select name="station" value={formData.station} onChange={handleInputChange}disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                      {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{currentUser.station}</option>}
                     </select>
                   </div>
                 </div>
@@ -2078,20 +1501,7 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
 
                 <div className="pb-8"> 
                   <label className="block text-xs font-bold text-gray-700 mb-1">{operation === 'update' ? 'Original Narrative (Read-Only)' : 'Success Report Narrative'}</label>
-                  <ReactQuill 
-                    theme="snow" 
-                    value={formData.narrative} 
-                    onChange={(content) => setFormData({ ...formData, narrative: autoCapitalize(content) })}
-                    readOnly={operation === 'update'}
-                    className={`bg-white rounded-md ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`}
-                    modules={{
-                      toolbar: [
-                        ['bold', 'italic', 'underline'],
-                        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                        ['clean'] 
-                      ]
-                    }}
-                  />
+                  <ReactQuill theme="snow" value={formData.narrative} onChange={(content) => setFormData({ ...formData, narrative: autoCapitalize(content) })} readOnly={operation === 'update'} className={`bg-white rounded-md ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`} modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
                 </div>
 
                 {operation === 'new' && (
@@ -2111,29 +1521,14 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
                 {operation === 'update' && (
                   <div className="pb-8 mt-4"> 
                     <label className="block text-xs font-bold text-yellow-700 mb-1">Append New Update / Progress *</label>
-                    <ReactQuill 
-                      theme="snow" 
-                      value={formData.updateText || ''} 
-                      onChange={(content) => setFormData({ ...formData, updateText: autoCapitalize(content) })}
-                      className="bg-white rounded-md border-yellow-300"
-                      placeholder="Enter new progress or updates here. Use the toolbar for numbering..."
-                      modules={{
-                        toolbar: [
-                          ['bold', 'italic', 'underline'],
-                          [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                          ['clean']
-                        ]
-                      }}
-                    />
+                    <ReactQuill theme="snow" value={formData.updateText || ''} onChange={(content) => setFormData({ ...formData, updateText: autoCapitalize(content) })} className="bg-white rounded-md border-yellow-300" placeholder="Enter new progress or updates here. Use the toolbar for numbering..." modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
                   </div>
                 )}
 
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">Status</label>
                   <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2">
-                    <option>COMPLETED / SUCCESS</option>
-                    <option>ONGOING / EXPLOITATION</option>
-                    <option>IN PROGRESS</option>
+                    <option>COMPLETED / SUCCESS</option><option>ONGOING / EXPLOITATION</option><option>IN PROGRESS</option>
                   </select>
                 </div>
 
@@ -2146,67 +1541,24 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
         </div>
 
         <div className="lg:col-span-7 space-y-4">
-          {/* Responsive filter row mirroring the Crime Registry setup */}
           <div className="flex flex-col sm:flex-row gap-3">
-{/* 1. DYNAMIC REGION FILTER */}
-            <select 
-              value={filterRegion} 
-              onChange={(e) => { 
-                setFilterRegion(e.target.value); 
-                setFilterStation('ALL STATIONS'); // Instantly reset station when region changes
-              }} 
-              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
-            >
+            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
               {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <>
-                  <option value="ALL REGIONS">ALL REGIONS</option>
-                  {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
-                </>
-              ) : (
-                <option value={currentUser?.region}>{currentUser?.region}</option>
-              )}
+                <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+              ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
             </select>
-
-            {/* 2. DYNAMIC STATION FILTER */}
-            <select 
-              value={filterStation} 
-              onChange={(e) => setFilterStation(e.target.value)} 
-              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
-            >
+            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
               {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <>
-                  <option value="ALL STATIONS">ALL STATIONS</option>
-                  {/* Only map the stations that belong to the currently selected Region */}
-                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] 
-                    ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
-                    : null
-                  }
-                </>
-              ) : (
-                <option value={currentUser?.station}>{currentUser?.station}</option>
-              )}
-            </select>                           
-              {/* Visible, functional Date Filter Dropdown */}
-              <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white outline-none w-full sm:w-auto">
-                <option value="ALL TIME">ALL TIME</option>
-                <option value="TODAY">TODAY ONLY</option>
-                <option value="LAST 7 DAYS">LAST 7 DAYS</option>
-                <option value="LAST 30 DAYS">LAST 30 DAYS</option>
-                <option value="LAST 90 DAYS">LAST 90 DAYS</option>
-                <option value="LAST 120 DAYS">LAST 120 DAYS</option>
-              </select>
+                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
+              ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+            </select>
+            <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white outline-none w-full sm:w-auto">
+              <option value="ALL TIME">ALL TIME</option><option value="TODAY">TODAY ONLY</option><option value="LAST 7 DAYS">LAST 7 DAYS</option>
+              <option value="LAST 30 DAYS">LAST 30 DAYS</option><option value="LAST 90 DAYS">LAST 90 DAYS</option><option value="LAST 120 DAYS">LAST 120 DAYS</option>
+            </select>
           </div>
           
-          <ExpandableTableCard 
-            title="Achievements Overview Ledger"
-            onToggle={(expanded) => {
-              if (setSidebarOpen) {
-                setSidebarOpen(!expanded); 
-              }
-            }}
-          >
+          <ExpandableTableCard title="Achievements Overview Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
             <div className="overflow-x-auto w-full">
               <table className="min-w-full divide-y divide-gray-200 table-fixed w-full">
                 <thead className="bg-gray-50 sticky top-0 z-10">
@@ -2235,15 +1587,11 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-500 font-medium align-top">{story.last_updated_by || "System Genesis"}</td>
                       <td className="px-4 py-4 whitespace-nowrap align-top">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${story.status.includes('COMPLETED') ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                          {story.status}
-                        </span>
+                        <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${story.status.includes('COMPLETED') ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{story.status}</span>
                       </td>
                     </tr>
                   ))}
-                  {filteredStories.length === 0 && (
-                    <tr><td colSpan="6" className="text-center py-6 text-gray-500">No success stories logged for this jurisdiction.</td></tr>
-                  )}
+                  {filteredStories.length === 0 && <tr><td colSpan="6" className="text-center py-6 text-gray-500">No success stories logged for this jurisdiction.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -2254,9 +1602,8 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
   );
 };
 
-// ====================================================================
-// --- PAGE 4: ESTABLISHMENTS PER REGION ---
-// ====================================================================
+
+
 const Establishments = ({ currentUser, establishments, setEstablishments, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -2267,21 +1614,9 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
   const [updateSearch, setUpdateSearch] = useState('');
 
   const [formData, setFormData] = useState({
-    id: null,
-    region: currentUser.region,
-    division: currentUser.division || '',
-    station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
-    personnel_in_station: 0,
-    sub_station: '',
-    personnel_in_sub_station: 0, 
-    post: '',
-    personnel_in_post: 0,
-    booths: 0,
-    location: '',
-    personnel_in_booth: 0,
-    installed_by: '',
-    status: 'OPERATIONAL',
-    comment: ''
+    id: null, region: currentUser.region, division: currentUser.division || '', station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+    personnel_in_station: 0, sub_station: '', personnel_in_sub_station: 0, post: '', personnel_in_post: 0,
+    booths: 0, location: '', personnel_in_booth: 0, installed_by: '', status: 'OPERATIONAL', comment: ''
   });
 
   const filteredEstablishments = useMemo(() => {
@@ -2305,152 +1640,64 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
-    
-    if (name === 'region') {
-      setFormData({ 
-        ...formData, 
-        region: value, 
-        division: REGIONAL_HIERARCHY[value]?.[0] || '',
-        station: REGIONAL_HIERARCHY[value]?.[0] || ''   
-      });
-    } else if (name === 'division') {
-      setFormData({ 
-        ...formData, 
-        division: value,
-        station: value 
-      });
-    } else {
-      setFormData({ ...formData, [name]: type === 'number' ? parseInt(value) || 0 : value });
-    }
+    if (name === 'region') setFormData({ ...formData, region: value, division: REGIONAL_HIERARCHY[value]?.[0] || '', station: REGIONAL_HIERARCHY[value]?.[0] || '' });
+    else if (name === 'division') setFormData({ ...formData, division: value, station: value });
+    else setFormData({ ...formData, [name]: type === 'number' ? parseInt(value) || 0 : value });
   };
 
   const handleOperationToggle = (op) => {
-    setOperation(op);
-    setNotification(null);
+    setOperation(op); setNotification(null);
     if (op === 'new') {
       setFormData({
-        id: null,
-        region: currentUser.region,
-        division: currentUser.division || '',
-        station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
-        personnel_in_station: 0,
-        sub_station: '', 
-        personnel_in_sub_station: 0,
-        post: '', 
-        personnel_in_post: 0, 
-        booths: 0, 
-        location: '', 
-        personnel_in_booth: 0, 
-        installed_by: '', 
-        status: 'OPERATIONAL', 
-        comment: ''
+        id: null, region: currentUser.region, division: currentUser.division || '', station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
+        personnel_in_station: 0, sub_station: '', personnel_in_sub_station: 0, post: '', personnel_in_post: 0, 
+        booths: 0, location: '', personnel_in_booth: 0, installed_by: '', status: 'OPERATIONAL', comment: ''
       });
       setUpdateSearch('');
     }
   };
 
-  const populateUpdateForm = (data) => {
-    setFormData({ ...data, division: data.division || '' });
-  };
+  const populateUpdateForm = (data) => setFormData({ ...data, division: data.division || '' });
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-
     const requiredFields = ['region', 'division', 'station', 'location'];
-    const isInvalid = requiredFields.some(field => !formData[field] || String(formData[field]).trim() === '');
+    if (requiredFields.some(field => !formData[field] || String(formData[field]).trim() === '')) return setNotification("Error: All required fields must be filled.");
 
-    if (isInvalid) {
-      setNotification("Error: All required fields must be filled.");
-      return; 
-    }
-
-    const isDuplicate = establishments.some(e => 
-      e.region === formData.region && 
-      e.station === formData.station && 
-      e.division === formData.division &&
-      e.id !== formData.id
-    );
-
-    if (isDuplicate && operation === 'new') {
-      setNotification("Error: An entry for this station already exists.");
-      return;
-    }
+    const isDuplicate = establishments.some(e => e.region === formData.region && e.station === formData.station && e.division === formData.division && e.id !== formData.id);
+    if (isDuplicate && operation === 'new') return setNotification("Error: An entry for this station already exists.");
 
     setIsSubmitting(true); 
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
     const token = localStorage.getItem('kmp_authToken');
 
     if (operation === 'new') {
-      const newEntry = { 
-        ...formData, 
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})`
-      };
-      delete newEntry.sn; 
-      delete newEntry.id;
+      const newEntry = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
+      delete newEntry.sn; delete newEntry.id;
       
       try {
         const response = await fetch(`${API_URL}/api/v1/establishments`, {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify(newEntry)
+          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newEntry)
         });
-
         if (!response.ok) throw new Error("Failed to post record");
         const savedData = await response.json();
-
-        setEstablishments([savedData, ...establishments]);
-        setNotification(`Establishment recorded for ${formData.station}!`);
-        
-        setFormData({ 
-          ...formData, 
-          division:'', station:'', personnel_in_station:0, sub_station: '', 
-          personnel_in_sub_station: 0, post: '', personnel_in_post: 0, 
-          booths: 0, location: '', personnel_in_booth: 0, 
-          installed_by: '', comment: '', id: null 
-        });
-
-      } catch (err) {
-        console.error("Cloud sync failed:", err);
-        setNotification("Error: Server rejected the data. Please check connection.");
-      } finally {
-        setIsSubmitting(false);
-      }
+        setEstablishments([savedData, ...establishments]); setNotification(`Establishment recorded for ${formData.station}!`);
+        setFormData({ ...formData, division:'', station:'', personnel_in_station:0, sub_station: '', personnel_in_sub_station: 0, post: '', personnel_in_post: 0, booths: 0, location: '', personnel_in_booth: 0, installed_by: '', comment: '', id: null });
+      } catch (err) { setNotification("Error: Server rejected the data. Please check connection."); } finally { setIsSubmitting(false); }
+      
     } else if (operation === 'update') {
-      if (!formData.id) {
-        setNotification("Error: Please select a record from the list to update first.");
-        setIsSubmitting(false);
-        return;
-      }
-
+      if (!formData.id) { setNotification("Error: Please select a record from the list to update first."); setIsSubmitting(false); return; }
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
 
       try {
         const response = await fetch(`${API_URL}/api/v1/establishments/${formData.id}`, {
-          method: "PUT",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify(updatedRecord)
+          method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(updatedRecord)
         });
-
         if (!response.ok) throw new Error("Failed to update record in database.");
-
-        const updatedEsts = establishments.map(e => e.id === formData.id ? updatedRecord : e);
-        setEstablishments(updatedEsts);
+        setEstablishments(establishments.map(e => e.id === formData.id ? updatedRecord : e));
         setNotification(`Establishment ID ${formData.id} successfully updated!`);
-        
         handleOperationToggle('new');
-
-      } catch (err) {
-        console.error("Update Error:", err);
-        setNotification("❌ Error: Could not update the record in the database.");
-      } finally {
-        setIsSubmitting(false);
-      }
+      } catch (err) { setNotification("❌ Error: Could not update the record in the database."); } finally { setIsSubmitting(false); }
     }
     
     setTimeout(() => setNotification(null), 4000);
@@ -2459,12 +1706,7 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
       <div className="text-center mb-8 flex flex-col items-center">
-        <img 
-          src="/upf_badge.png" 
-          alt="UPF Logo" 
-          className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
-          onError={(e) => { e.target.style.display = 'none'; }} 
-        />
+        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
         <h1 className="text-3xl font-extrabold text-gray-700 tracking-tight">Regional Establishments</h1>
         <h3 className="text-lg text-green-500 mt-2 font-medium">Divisions, Stations, Posts, Booths and Man-power Strength</h3>
       </div>
@@ -2521,14 +1763,9 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
                     <div className="col-span-2">
                       <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
                       <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster)} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                        {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? (
-                          Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
-                        ) : (
-                          <option value={currentUser.region}>{currentUser.region}</option>
-                        )}
+                        {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
                       </select>
                     </div>
-                    
                     <div className="col-span-2">
                       <label className="block text-xs font-bold text-gray-700 mb-1">DIVISION (Headquarter) *</label>
                       <select name="division" value={formData.division} onChange={handleInputChange} disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster)} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
@@ -2602,21 +1839,14 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
                         value={formData.comment || ''} 
                         onChange={(content) => setFormData({ ...formData, comment: autoCapitalize(content) })}
                         className="bg-white rounded-md"
-                        modules={{
-                          toolbar: [
-                            ['bold', 'italic', 'underline'],
-                            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                            ['clean']
-                          ]
-                        }}
+                        modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }}
                       />
                     </div>
                   </div>
                 </div>
 
                 <button 
-                  type="submit" 
-                  disabled={isSubmitting}
+                  type="submit" disabled={isSubmitting}
                   className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center disabled:bg-gray-400"
                 >
                   {isSubmitting ? 'Processing...' : (operation === 'new' ? '💾 Log New Establishment' : '💾 Save Updates')}
@@ -2628,55 +1858,19 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
         
         <div className="lg:col-span-8 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-{/* 1. DYNAMIC REGION FILTER */}
-            <select 
-              value={filterRegion} 
-              onChange={(e) => { 
-                setFilterRegion(e.target.value); 
-                setFilterStation('ALL STATIONS');
-              }} 
-              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
-            >
+            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
               {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <>
-                  <option value="ALL REGIONS">ALL REGIONS</option>
-                  {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
-                </>
-              ) : (
-                <option value={currentUser?.region}>{currentUser?.region}</option>
-              )}
+                <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+              ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
             </select>
-
-            {/* 2. DYNAMIC STATION FILTER */}
-            <select 
-              value={filterStation} 
-              onChange={(e) => setFilterStation(e.target.value)} 
-              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
-            >
+            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
               {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <>
-                  <option value="ALL STATIONS">ALL STATIONS</option>
-                  {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] 
-                    ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
-                    : null
-                  }
-                </>
-              ) : (
-                <option value={currentUser?.station}>{currentUser?.station}</option>
-              )}
+                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
+              ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
             </select>
           </div>
 
-          <ExpandableTableCard 
-            title="Regional Establishments Master Ledger"
-            onToggle={(expanded) => {
-              if (setSidebarOpen) {
-                setSidebarOpen(!expanded); 
-              }
-            }}
-          >
+          <ExpandableTableCard title="Regional Establishments Master Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
             <div className="overflow-x-auto w-full">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50 sticky top-0 z-10">
@@ -2720,9 +1914,7 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
                       </td>
                     </tr>
                   ))}
-                  {filteredEstablishments.length === 0 && (
-                    <tr><td colSpan="13" className="text-center py-6 text-gray-500">No establishments logged for this jurisdiction.</td></tr>
-                  )}
+                  {filteredEstablishments.length === 0 && <tr><td colSpan="13" className="text-center py-6 text-gray-500">No establishments logged for this jurisdiction.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -2734,9 +1926,6 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
 };
 
 
-// ====================================================================
-// --- PART 5: NOMINAL ROLL & ADMIN APPROVALS ---
-// ====================================================================
 
 const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Roll_archives, setNominal_Roll_archives, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
@@ -2760,7 +1949,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
   const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
-      // Safely normalize database strings and filter strings
       const dbRegion = (n.region || '').trim().toUpperCase();
       const dbStation = (n.station || '').trim().toUpperCase();
       const selRegion = (filterRegion || '').trim().toUpperCase();
@@ -2768,7 +1956,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
       if (selRegion !== 'ALL REGIONS' && selRegion !== '' && dbRegion !== selRegion) return false;
       if (selStation !== 'ALL STATIONS' && selStation !== '' && dbStation !== selStation) return false;
-      
       return true;
     });
   }, [Nominal_Rolls, filterRegion, filterStation]);
@@ -2779,7 +1966,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
     return Nominal_Roll_archives.filter(n => {
       if (isSuperAdmin) return true;
-
       const dbRegion = (n.region || '').trim().toUpperCase();
       const dbStation = (n.station || '').trim().toUpperCase();
       const selRegion = (filterRegion !== 'ALL REGIONS' ? filterRegion : currentUser.region || '').trim().toUpperCase();
@@ -2796,9 +1982,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && n.region !== currentUser.region) return false;
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
-        return (n.fnum && n.fnum.toLowerCase().includes(query)) || 
-               (n.name && n.name.toLowerCase().includes(query)) || 
-               (n.ipps && n.ipps.includes(query));
+        return (n.fnum && n.fnum.toLowerCase().includes(query)) || (n.name && n.name.toLowerCase().includes(query)) || (n.ipps && n.ipps.includes(query));
       }
       return true;
     });
@@ -2830,9 +2014,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                   else if (age < 40) key = '30-39 Years';
                   else if (age < 50) key = '40-49 Years';
                   else key = '50+ Years';
-              } else {
-                  key = 'Age Not Recorded';
-              }
+              } else key = 'Age Not Recorded';
           }
           else if (metricCategory === 'SEX') key = n.sex || 'Unknown';
           
@@ -2846,59 +2028,33 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    if (name === 'region') {
-      setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] || '' });
-    } else {
-      setFormData({ ...formData, [name]: value });
-    }
+    if (name === 'region') setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] || '' });
+    else setFormData({ ...formData, [name]: value });
   };
 
   const handleOperationToggle = (op) => {
-    setOperation(op);
-    setNotification(null);
+    setOperation(op); setNotification(null);
     if (op === 'new') {
       setFormData({
-        sn: null, fnum: '', rank: '', name: '', sex: 'MALE', position: '',
-        dob: '', doe: '', dopost: '', dopro: '', contact: '', educlevel: '',
-        ipps: '', tin: '', nin: '', homedist: '', tribe: '', accno: '', bankbranch: '',
-        station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
+        sn: null, fnum: '', rank: '', name: '', sex: 'MALE', position: '', dob: '', doe: '', dopost: '', dopro: '', contact: '', educlevel: '',
+        ipps: '', tin: '', nin: '', homedist: '', tribe: '', accno: '', bankbranch: '', station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
         district: '', region: currentUser.region, section: '', dir: '', status: 'ACTIVE'
       });
       setUpdateSearch('');
     }
   };
 
-  const populateUpdateForm = (data) => {
-    setFormData({ 
-      ...data,
-      fnum: data.fnum || data.f_num 
-    });
-  };
+  const populateUpdateForm = (data) => setFormData({ ...data, fnum: data.fnum || data.f_num });
 
   const handleArchivePersonnel = async () => {
-    if (!formData.fnum) {
-      alert("Missing Force Number. Cannot archive this record.");
-      return;
-    }
-    
-    const confirmMsg = `Are you sure you want to move ${formData.name} to archives?`;
-    if (!window.confirm(confirmMsg)) return;
+    if (!formData.fnum) return alert("Missing Force Number. Cannot archive this record.");
+    if (!window.confirm(`Are you sure you want to move ${formData.name} to archives?`)) return;
 
     try {
       setNotification("Moving record to archive...");
-      
       const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-
-      const response = await fetch(`${API_URL}/api/v1/nominal-roll/${encodeURIComponent(formData.fnum)}/archive`, {
-        method: "PUT", 
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}` 
-        },
-        body: JSON.stringify({ 
-          archive_reason: archiveReason 
-        })
+      const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(formData.fnum)}/archive`, {
+        method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify({ archive_reason: archiveReason })
       });
 
       if (!response.ok) {
@@ -2907,33 +2063,11 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       }
 
       const archivedRecord = {
-          sn: formData.sn,
-          fnum: formData.fnum,      
-          rank: formData.rank,
-          name: formData.name,
-          sex: formData.sex,
-          position: formData.position,
-          dob: formData.dob,
-          doe: formData.doe,
-          dopost: formData.dopost,    
-          dopro: formData.dopro,      
-          contact: formData.contact,
-          educlevel: formData.educlevel, 
-          ipps: formData.ipps,
-          tin: formData.tin,
-          nin: formData.nin,
-          homedist: formData.homedist,   
-          tribe: formData.tribe,
-          accno: formData.accno,         
-          bankbranch: formData.bankbranch,
-          station: formData.station,
-          district: formData.district,
-          region: formData.region,
-          section: formData.section,
-          dir: formData.dir,
-          status: "ARCHIVED", 
-          last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
-          archive_reason: archiveReason,
+          sn: formData.sn, fnum: formData.fnum, rank: formData.rank, name: formData.name, sex: formData.sex, position: formData.position,
+          dob: formData.dob, doe: formData.doe, dopost: formData.dopost, dopro: formData.dopro, contact: formData.contact, educlevel: formData.educlevel, 
+          ipps: formData.ipps, tin: formData.tin, nin: formData.nin, homedist: formData.homedist, tribe: formData.tribe, accno: formData.accno,         
+          bankbranch: formData.bankbranch, station: formData.station, district: formData.district, region: formData.region, section: formData.section,
+          dir: formData.dir, status: "ARCHIVED", last_updated_by: `${currentUser.name} (${currentUser.fnum})`, archive_reason: archiveReason,
           archive_date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]
       };
       
@@ -2941,107 +2075,61 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       setNominal_Rolls((Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => (n.fnum || n.f_num) !== formData.fnum));
       setNotification(`Officer ${formData.name} archived successfully.`);
       handleOperationToggle('new');
-      
-    } catch (error) {
-      console.error("Archive Error:", error);
-      setNotification("Error: Could not move to archive.");
-      alert(`Error archiving record: ${error.message}`);
-    }
+    } catch (error) { setNotification("Error: Could not move to archive."); alert(`Error archiving record: ${error.message}`); }
   };
 
   const handleFormSubmit = async (e) => { 
     e.preventDefault();
     const currentRolls = Array.isArray(Nominal_Rolls) ? Nominal_Rolls : [];
     const token = localStorage.getItem('kmp_authToken');
-    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
     
-    if (!token) {
-        setNotification("Error: Security token missing. Please log out and log back in.");
-        return;
-    }
+    if (!token) return setNotification("Error: Security token missing. Please log out and log back in.");
 
     if (formData.nin) {
         const cleanNin = formData.nin.toUpperCase().trim();
-        const ninRegex = /^C[MF][A-Z0-9]{12}$/;
-        
-        if (!ninRegex.test(cleanNin)) {
-            setNotification("⚠️ Error: National ID must start with CM or CF, be exactly 14 characters, and contain only letters and numbers.");
-            return; 
-        }
+        if (!/^C[MF][A-Z0-9]{12}$/.test(cleanNin)) return setNotification("⚠️ Error: National ID must start with CM or CF, be exactly 14 characters, and contain only letters and numbers.");
         formData.nin = cleanNin; 
     }
 
     if (operation === 'new') {
-
       const exactNextSN = currentRolls.length > 0 ? Math.max(...currentRolls.map(n => n.sn)) + 1 : 1;
       const newEntry = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       
       try {
         const response = await fetch(`${API_URL}/api/v1/nominal-roll`, {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}` 
-          },
-          body: JSON.stringify(newEntry)
+          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newEntry)
         });
-        
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
             throw new Error(errData.detail || "Database rejected the entry.");
         }
-        
-        setNominal_Rolls([newEntry, ...currentRolls]);
-        setNotification(`Officer ${formData.name} recorded successfully!`);
-        handleOperationToggle('new');
-        
-      } catch (err) {
-        console.error("Save Error:", err);
-        setNotification(`Error: ${err.message}`);
-      }
+        setNominal_Rolls([newEntry, ...currentRolls]); setNotification(`Officer ${formData.name} recorded successfully!`); handleOperationToggle('new');
+      } catch (err) { setNotification(`Error: ${err.message}`); }
       
     } else if (operation === 'update') {
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
-      
       try {
           const response = await fetch(`${API_URL}/api/v1/nominal-roll/${formData.sn}`, {
-            method: "PUT",
-            headers: { 
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${token}` 
-            },
-            body: JSON.stringify(updatedRecord)
+            method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(updatedRecord)
           });
-    
           if (!response.ok) throw new Error("Failed to update record.");
-    
           setNominal_Rolls(currentRolls.map(n => n.sn === formData.sn ? updatedRecord : n));
           setNotification(`Officer SN ${formData.sn} successfully updated!`);
-      } catch (err) {
-          console.error("Update Error:", err);
-          setNotification("Error: Could not update the record.");
-      }
+      } catch (err) { setNotification("Error: Could not update the record."); }
     }
   };
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
       <div className="text-center mb-8 flex flex-col items-center">
-        <img 
-          src="/upf_badge.png" 
-          alt="UPF Logo" 
-          className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
-          onError={(e) => { e.target.style.display = 'none'; }} 
-        />
+        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
         <h1 className="text-3xl font-extrabold text-gray-700 tracking-tight">Master Nominal Roll</h1>
         <h3 className="text-lg text-indigo-500 mt-2 font-medium">Man-Power Auditing & Deployment Registry</h3>
       </div>
       
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
         <div className="flex flex-col md:flex-row justify-between items-center mb-4 border-b pb-2">
-          <h3 className="font-bold text-slate-800 flex items-center">
-            <BarChart3 className="w-5 h-5 mr-2 text-blue-600"/> Personnel Metrics Dashboard
-          </h3>
+          <h3 className="font-bold text-slate-800 flex items-center"><BarChart3 className="w-5 h-5 mr-2 text-blue-600"/> Personnel Metrics Dashboard</h3>
           <div className="flex space-x-2 mt-2 md:mt-0">
              <button onClick={() => setViewMode('active')} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Active Roll</button>
              <button onClick={() => setViewMode('archive')} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'archive' ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Archived</button>
@@ -3059,51 +2147,17 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+   <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-5 space-y-5">
-
-          {/* 🟢 Bulk Excel Upload with Required Schema Preview */}
           {(currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'RPC') && (
             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
               <div>
-                <h4 className="font-bold text-gray-800 text-sm flex items-center">
-                  <Upload className="w-4 h-4 mr-2 text-blue-600" /> Batch Excel Import Existing Nominal Roll
-                </h4>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Upload your existing Nominal roll, Ensure your column headers are exactly as below for consistency:
-                </p>
+                <h4 className="font-bold text-gray-800 text-sm flex items-center"><Upload className="w-4 h-4 mr-2 text-blue-600" /> Batch Excel Import Existing Nominal Roll</h4>
+                <p className="text-xs text-gray-500 mt-0.5">Upload your existing Nominal roll, Ensure your column headers are exactly as below for consistency:</p>
               </div>
-
-{/* Exact Column Headers Badge List */}
-<div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-mono text-slate-700 flex flex-wrap gap-1.5">
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">id</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">sn</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold text-red-600">fnum</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">rank</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">name</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">sex</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">position</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dob</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">doe</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold text-red-600">dopost</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold text-red-600">dopro</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">contact</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold text-red-600">educlevel</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">ipps</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">tin</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">nin</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold text-red-600">homedist</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">tribe</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold text-red-600">accno</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold text-red-600">bankbranch</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">station</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">district</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">region</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">section</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dir</span>
-  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">status</span>
-</div>
-
+              <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-mono text-slate-700 flex flex-wrap gap-1.5">
+                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">sn</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">fnum</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">rank</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">name</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">sex</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">position</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dob</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">doe</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dopost</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dopro</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">contact</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">educlevel</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">ipps</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">tin</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">nin</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">homedist</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">tribe</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">accno</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">bankbranch</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">station</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">district</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">region</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">section</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dir</span><span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">status</span>
+              </div>
               <BulkNominalRollUpload onUploadSuccess={() => window.location.reload()} />
             </div>
           )}
@@ -3114,35 +2168,22 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
             </div>
             <div className="p-5 space-y-6">
               <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
-                  <PlusCircle className="w-4 h-4 inline mr-1" /> Register New
-                </button>
-                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
-                  <Edit className="w-4 h-4 inline mr-1" /> Update Existing
-                </button>
+                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
+                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
               </div>
 
-              {notification && (
-                <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
-                  {notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 min-w-[20px]" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 min-w-[20px]" />}
-                  <span className="text-sm font-medium">{notification}</span>
-                </div>
-              )}
+              {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 min-w-[20px]" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 min-w-[20px]" />}<span className="text-sm font-medium">{notification}</span></div>}
 
               {operation === 'update' && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Officer to Update</label>
                   <input type="text" placeholder="Search by Force No, Name, IPPS..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
                   <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
-                    {availableUpdateRolls.length === 0 ? (
-                      <div className="p-3 text-xs text-gray-500 text-center">No personnel found.</div>
-                    ) : (
-                      availableUpdateRolls.map(n => (
+                    {availableUpdateRolls.length === 0 ? <div className="p-3 text-xs text-gray-500 text-center">No personnel found.</div> : availableUpdateRolls.map(n => (
                         <div key={n.sn} onClick={() => populateUpdateForm(n)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === n.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
                           <span className={formData.sn === n.sn ? 'text-blue-200' : 'text-gray-400'}>F/NO: {n.fnum}</span> | <span className={formData.sn === n.sn ? 'text-white' : 'font-bold text-blue-700'}>{n.name}</span> | {n.station}
                         </div>
-                      ))
-                    )}
+                      ))}
                   </div>
                 </div>
               )}
@@ -3151,161 +2192,63 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                 
                 {operation === 'update' && (formData.sn || formData.fnum) && (
                    <div className="bg-red-50 p-4 rounded-lg border border-red-200 space-y-3 mb-6 shadow-sm">
-                      <h4 className="text-xs font-bold text-red-700 uppercase border-b border-red-200 pb-1 flex items-center">
-                         <AlertTriangle size={14} className="mr-2"/> Archive / Remove Personnel
-                      </h4>
+                      <h4 className="text-xs font-bold text-red-700 uppercase border-b border-red-200 pb-1 flex items-center"><AlertTriangle size={14} className="mr-2"/> Archive / Remove Personnel</h4>
                       <div className="flex space-x-2">
                          <select value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} className="flex-1 text-sm border-red-300 rounded shadow-sm border p-2 font-bold text-red-700 outline-none focus:ring-2 focus:ring-red-400">
-                            <option value="TRANSFERRED">Transferred</option>
-                            <option value="DEATH">Death</option>
-                            <option value="DISMISSAL">Dismissal</option>
-                            <option value="DESERTION">Desertion</option>
-                            <option value="RETIREMENT">Retirement</option>
+                            <option value="TRANSFERRED">Transferred</option><option value="DEATH">Death</option><option value="DISMISSAL">Dismissal</option><option value="DESERTION">Desertion</option><option value="RETIREMENT">Retirement</option>
                          </select>
-                         <button type="button" onClick={handleArchivePersonnel} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-bold text-sm shadow transition border border-red-800">
-                           Move to Archive
-                         </button>
+                         <button type="button" onClick={handleArchivePersonnel} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-bold text-sm shadow transition border border-red-800">Move to Archive</button>
                       </div>
                    </div>
                 )}
 
-                {operation === 'update' && (formData.sn || formData.fnum) && (
-                   <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
-                     Currently Editing Record: {formData.fnum}
-                   </div>
-                )}
+                {operation === 'update' && (formData.sn || formData.fnum) && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing Record: {formData.fnum}</div>}
                 
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
                   <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">1. Primary Identifiers</h4>
                   <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">F/NO. *</label>
-                      <input type="text" name="fnum" value={formData.fnum} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 uppercase" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">IPPS NO. *</label>
-                      <input type="text" name="ipps" value={formData.ipps} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">NAME *</label>
-                      <input type="text" name="name" value={formData.name} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 uppercase" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">RANK *</label>
-                      <input type="text" name="rank" value={formData.rank} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">SEX</label>
-                      <select name="sex" value={formData.sex} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white">
-                        <option>MALE</option><option>FEMALE</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">TIN NO.</label>
-                      <input type="text" name="tin" value={formData.tin} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">NIN</label>
-                      <input type="text" name="nin" value={formData.nin} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">F/NO. *</label><input type="text" name="fnum" value={formData.fnum} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 uppercase" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">IPPS NO. *</label><input type="text" name="ipps" value={formData.ipps} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div className="col-span-2"><label className="block text-xs font-bold text-gray-700 mb-1">NAME *</label><input type="text" name="name" value={formData.name} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 uppercase" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">RANK *</label><input type="text" name="rank" value={formData.rank} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">SEX</label><select name="sex" value={formData.sex} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white"><option>MALE</option><option>FEMALE</option></select></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">TIN NO.</label><input type="text" name="tin" value={formData.tin} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">NIN</label><input type="text" name="nin" value={formData.nin} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
                   </div>
                 </div>
 
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
                   <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">2. Service & Placement</h4>
                   <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">REGION *</label>
-                      <select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">
-                        {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">DUTY STATION *</label>
-                      <select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">
-                        {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
-                          (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)
-                        ) : (
-                          <option value={currentUser.station}>{currentUser.station}</option>
-                        )}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">POSITION *</label>
-                      <input type="text" name="position" value={formData.position} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">DISTRICT</label>
-                      <input type="text" name="district" value={formData.district} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">SECTION</label>
-                      <input type="text" name="section" value={formData.section} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">DIR (Directorate)</label>
-                      <input type="text" name="dir" value={formData.dir} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">REGION *</label><select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}</select></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">DUTY STATION *</label><select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : (<option value={currentUser.station}>{currentUser.station}</option>)}</select></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">POSITION *</label><input type="text" name="position" value={formData.position} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">DISTRICT</label><input type="text" name="district" value={formData.district} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">SECTION</label><input type="text" name="section" value={formData.section} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">DIR (Directorate)</label><input type="text" name="dir" value={formData.dir} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
                   </div>
                 </div>
 
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
                   <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">3. Dates & Demographics</h4>
                   <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">D.O.B</label>
-                      <input type="date" name="dob" value={formData.dob} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">D.O.E</label>
-                      <input type="date" name="doe" value={formData.doe} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">D.O. POST</label>
-                      <input type="date" name="dopost" value={formData.dopost} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">D.O. PRO</label>
-                      <input type="date" name="dopro" value={formData.dopro} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">CONTACT</label>
-                      <input type="text" name="contact" value={formData.contact} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">EDUC LEVEL</label>
-                      <input type="text" name="educlevel" value={formData.educlevel} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">HOME DIST</label>
-                      <input type="text" name="homedist" value={formData.homedist} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">TRIBE</label>
-                      <input type="text" name="tribe" value={formData.tribe} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O.B</label><input type="date" name="dob" value={formData.dob} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O.E</label><input type="date" name="doe" value={formData.doe} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O. POST</label><input type="date" name="dopost" value={formData.dopost} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O. PRO</label><input type="date" name="dopro" value={formData.dopro} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div className="col-span-2"><label className="block text-xs font-bold text-gray-700 mb-1">CONTACT</label><input type="text" name="contact" value={formData.contact} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">EDUC LEVEL</label><input type="text" name="educlevel" value={formData.educlevel} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">HOME DIST</label><input type="text" name="homedist" value={formData.homedist} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">TRIBE</label><input type="text" name="tribe" value={formData.tribe} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
                   </div>
                 </div>
 
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
                   <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">4. Financial & Status</h4>
                   <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">ACC. NO</label>
-                      <input type="text" name="accno" value={formData.accno} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">BANK & BRANCH</label>
-                      <input type="text" name="bankbranch" value={formData.bankbranch} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">STATUS</label>
-                      <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white font-bold">
-                        <option>ACTIVE</option>
-                        <option>ON LEAVE</option>
-                        <option>SUSPENDED</option>
-                      </select>
-                    </div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">ACC. NO</label><input type="text" name="accno" value={formData.accno} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">BANK & BRANCH</label><input type="text" name="bankbranch" value={formData.bankbranch} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    <div className="col-span-2"><label className="block text-xs font-bold text-gray-700 mb-1">STATUS</label><select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white font-bold"><option>ACTIVE</option><option>ON LEAVE</option><option>SUSPENDED</option></select></div>
                   </div>
                 </div>
 
@@ -3319,49 +2262,15 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
         
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-            {/* 1. 100% DYNAMIC REGION FILTER */}
-            <select 
-              value={filterRegion} 
-              onChange={(e) => { 
-                setFilterRegion(e.target.value); 
-                setFilterStation('ALL STATIONS'); // Instantly reset station when region changes
-              }} 
-              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
-            >
+            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
               {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <>
-                  <option value="ALL REGIONS">ALL REGIONS</option>
-                  {/* Combines hardcoded KMP regions with ANY new region found in the database */}
-                  {Array.from(new Set([
-                    ...Object.keys(REGIONAL_HIERARCHY), 
-                    ...(Nominal_Rolls || []).map(n => n.region).filter(Boolean)
-                  ])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}
-                </>
-              ) : (
-                <option value={currentUser?.region}>{currentUser?.region}</option>
-              )}
+                <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(Nominal_Rolls || []).map(n => n.region).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+              ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
             </select>
-
-            {/* 2. 100% DYNAMIC STATION FILTER */}
-            <select 
-              value={filterStation} 
-              onChange={(e) => setFilterStation(e.target.value)} 
-              disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
-            >
+            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
               {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <>
-                  <option value="ALL STATIONS">ALL STATIONS</option>
-                  {/* Combines hardcoded stations with ANY new station uploaded for the selected region */}
-                  {Array.from(new Set([
-                    ...(REGIONAL_HIERARCHY[filterRegion] || []), 
-                    ...(Nominal_Rolls || []).filter(n => n.region === filterRegion).map(n => n.station).filter(Boolean)
-                  ])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}
-                </>
-              ) : (
-                <option value={currentUser?.station}>{currentUser?.station}</option>
-              )}
+                <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(Nominal_Rolls || []).filter(n => n.region === filterRegion).map(n => n.station).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
+              ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
             </select>
           </div>
 
@@ -3372,14 +2281,10 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                     <div className="flex items-center space-x-2 bg-indigo-50 p-2 rounded-lg border border-indigo-100">
                        <label className="text-xs font-bold text-indigo-800 uppercase">Categorize By:</label>
                        <select value={metricCategory} onChange={e => setMetricCategory(e.target.value)} className="border border-indigo-300 rounded p-1 text-sm font-bold text-indigo-700 outline-none bg-white">
-                          <option value="RANK">Rank Breakdown</option>
-                          <option value="UNIT">Unit / Station Breakdown</option>
-                          <option value="AGE">Age Demographics Breakdown</option>
-                          <option value="SEX">Sex Distribution</option>
+                          <option value="RANK">Rank Breakdown</option><option value="UNIT">Unit / Station Breakdown</option><option value="AGE">Age Demographics Breakdown</option><option value="SEX">Sex Distribution</option>
                        </select>
                     </div>
                 </div>
-
                 <table className="min-w-full divide-y divide-gray-200 border border-gray-200 rounded-lg overflow-hidden">
                     <thead className="bg-indigo-50">
                         <tr>
@@ -3403,15 +2308,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                 </table>
             </div>
           ) : (
-            
-            <ExpandableTableCard 
-               title={viewMode === 'active' ? "Active Nominal Roll" : "Archived Personnel Ledger"}
-               onToggle={(expanded) => {
-                 if (setSidebarOpen) {
-                   setSidebarOpen(!expanded); 
-                 }
-               }}
-            >
+            <ExpandableTableCard title={viewMode === 'active' ? "Active Nominal Roll" : "Archived Personnel Ledger"} onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
               <div className="overflow-x-auto w-full">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50 sticky top-0 z-10">
@@ -3430,23 +2327,13 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                       <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">DUTY STATION</th>
                       <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">STATUS</th>
                       {viewMode === 'archive' && (
-                        <>
-                          <th className="px-3 py-3 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">REASON</th>
-                          <th className="px-3 py-3 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">DATE ARCHIVED</th>
-                        </>
+                        <><th className="px-3 py-3 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">REASON</th><th className="px-3 py-3 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">DATE ARCHIVED</th></>
                       )}
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).map((n) => (
-                      <tr key={n.sn} className={`${viewMode === 'archive' ? 'bg-slate-50 opacity-80' : 'hover:bg-blue-50'} transition-colors cursor-pointer`} 
-                          onClick={() => { 
-                             if(viewMode === 'active') {
-                                setOperation('update');
-                                populateUpdateForm(n); 
-                                window.scrollTo({ top: 0, behavior: 'smooth' });
-                             }
-                          }}>
+                      <tr key={n.sn} className={`${viewMode === 'archive' ? 'bg-slate-50 opacity-80' : 'hover:bg-blue-50'} transition-colors cursor-pointer`} onClick={() => { if(viewMode === 'active') { setOperation('update'); populateUpdateForm(n); window.scrollTo({ top: 0, behavior: 'smooth' }); }}}>
                         <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-gray-900">{n.sn}</td>
                         <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800">{n.fnum || n.f_num}</td>
                         <td className="px-3 py-2 whitespace-nowrap text-xs font-bold">{n.rank}</td>
@@ -3461,10 +2348,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                         <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-700">{n.station}</td>
                         <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-green-700">{n.status}</td>
                         {viewMode === 'archive' && (
-                          <>
-                            <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-red-700 bg-red-50/50">{n.archive_reason}</td>
-                            <td className="px-3 py-2 whitespace-nowrap text-xs text-red-500 bg-red-50/50">{n.archive_date}</td>
-                          </>
+                          <><td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-red-700 bg-red-50/50">{n.archive_reason}</td><td className="px-3 py-2 whitespace-nowrap text-xs text-red-500 bg-red-50/50">{n.archive_date}</td></>
                         )}
                       </tr>
                     ))}
@@ -3482,8 +2366,10 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   );
 };
 
+
+
 // ====================================================================
-// --- ADMIN APPROVALS & LOGS ---
+// --- ADMIN COMPONENTS: APPROVALS, LOGS & HR REQUESTS ---
 // ====================================================================
 const AdminApprovals = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState('approvals');
@@ -3504,17 +2390,12 @@ const AdminApprovals = ({ currentUser }) => {
   const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
 
   useEffect(() => {
-    // 1. Fetch HR Requests
     setLoadingRequests(true);
     authFetch("/api/v1/requests")
       .then(res => res.json())
-      .then(data => {
-          setModRequests(Array.isArray(data) ? data : []);
-          setLoadingRequests(false);
-      })
+      .then(data => { setModRequests(Array.isArray(data) ? data : []); setLoadingRequests(false); })
       .catch(err => { console.error(err); setLoadingRequests(false); });
 
-    // 2. Fetch Pending Account Authorizations
     const fetchPendingUsers = async () => {
       setLoadingPending(true);
       try {
@@ -3527,15 +2408,10 @@ const AdminApprovals = ({ currentUser }) => {
           const data = await res.json();
           setRealPendingUsers(Array.isArray(data) ? data : []);
         }
-      } catch (err) {
-        console.error("Failed to sync pending users:", err);
-      } finally {
-        setLoadingPending(false);
-      }
+      } catch (err) { console.error("Failed to sync pending users:", err); } finally { setLoadingPending(false); }
     };
     fetchPendingUsers();
 
-    // 3. Fetch Password Reset Requests
     const fetchResets = async () => {
       setLoadingResets(true);
       try {
@@ -3546,46 +2422,28 @@ const AdminApprovals = ({ currentUser }) => {
           const data = await res.json();
           setResetRequests(Array.isArray(data) ? data : []);
         }
-      } catch (err) {
-        console.error("Failed to sync password resets:", err);
-      } finally {
-        setLoadingResets(false);
-      }
+      } catch (err) { console.error("Failed to sync password resets:", err); } finally { setLoadingResets(false); }
     };
     fetchResets();
 
-    // 4. Fetch Audit Logs (Only when tab is clicked because logs are heavy)
     if (activeTab === 'logs') {
       setLoadingLogs(true);
       authFetch("/api/v1/audit-logs")
         .then(res => res.json())
-        .then(data => { 
-            setaudit_logs(Array.isArray(data) ? data : []); 
-            setLoadingLogs(false); 
-        })
+        .then(data => { setaudit_logs(Array.isArray(data) ? data : []); setLoadingLogs(false); })
         .catch(err => { console.error(err); setLoadingLogs(false); });
     }
   }, [activeTab]);
 
   const handleApproveUser = async (fnum) => {
     try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
-      
       const safeFnum = encodeURIComponent(fnum);
-      const headers = { 
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}` 
-      };
+      const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
 
       let response = await fetch(`${API_URL}/api/v1/admin/approve/${safeFnum}`, { method: "POST", headers });
-      
-      if (response.status === 404) {
-        response = await fetch(`${API_URL}/api/v1/auth/approve/${safeFnum}`, { method: "POST", headers });
-      }
-      if (response.status === 404) {
-        response = await fetch(`${API_URL}/api/v1/approve/${safeFnum}`, { method: "POST", headers });
-      }
+      if (response.status === 404) response = await fetch(`${API_URL}/api/v1/auth/approve/${safeFnum}`, { method: "POST", headers });
+      if (response.status === 404) response = await fetch(`${API_URL}/api/v1/approve/${safeFnum}`, { method: "POST", headers });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -3595,16 +2453,12 @@ const AdminApprovals = ({ currentUser }) => {
       setRealPendingUsers(realPendingUsers.filter(u => u.fnum !== fnum));
       alert(`Officer ${fnum} successfully authorized!`);
     } catch (err) {
-      console.error(err);
       alert(`Authorization Failed: ${err.message}`);
     }
   };
 
   const handleReviewRequest = async (reqId, actionStatus) => {
-    if (!reqId) {
-      alert("Error: Request ID is undefined. Primary key mismatch.");
-      return;
-    }
+    if (!reqId) return alert("Error: Request ID is undefined. Primary key mismatch.");
 
     let payload = { status: actionStatus };
     if (actionStatus === "REJECTED") {
@@ -3614,16 +2468,9 @@ const AdminApprovals = ({ currentUser }) => {
     }
 
     try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
-      
       const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
-        method: "PATCH", 
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
+        method: "PATCH", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(payload)
       });
       
       if (!response.ok) {
@@ -3634,7 +2481,6 @@ const AdminApprovals = ({ currentUser }) => {
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId && r.request_id !== reqId));
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
-      console.error(err);
       alert(`Error processing request: ${err.message}`);
     }
   };
@@ -3645,9 +2491,7 @@ const AdminApprovals = ({ currentUser }) => {
       formData.append('action', actionStr);
       
       const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
-        method: "POST",
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: formData
+        method: "POST", headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData
       });
       
       const data = await response.json();
@@ -3660,36 +2504,22 @@ const AdminApprovals = ({ currentUser }) => {
       } else {
          alert("Request rejected.");
       }
-    } catch (err) {
-      alert(`Error: ${err.message}`);
-    }
+    } catch (err) { alert(`Error: ${err.message}`); }
   };
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
       <div className="text-center mb-8 flex flex-col items-center">
-        <img 
-          src="/upf_badge.png" 
-          alt="UPF Logo" 
-          className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" 
-        />
+        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" />
         <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Access & Command Approvals</h1>
         <h3 className="text-lg text-gray-500 mt-2 font-medium">Review pending officer signups, HR transfers, and Audit Logs.</h3>
       </div>
 
       <div className="flex space-x-2 border-b border-gray-200 mb-6 bg-white/50 backdrop-blur rounded-t-xl px-4 pt-4 overflow-x-auto custom-scrollbar">
-        <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-          New Account Authorizations ({loadingPending ? '...' : realPendingUsers.length})
-        </button>
-        <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'requests' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-          HR Modification Requests ({modRequests.length})
-        </button>
-        <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-          Audit Logs
-        </button>
-        <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-          Password Resets ({activeTab === 'resets' ? resetRequests.length : '?'})
-        </button>
+        <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>New Account Authorizations ({loadingPending ? '...' : realPendingUsers.length})</button>
+        <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'requests' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>HR Modification Requests ({modRequests.length})</button>
+        <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Audit Logs</button>
+        <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Password Resets ({activeTab === 'resets' ? resetRequests.length : '?'})</button>
       </div>
 
       {activeTab === 'approvals' && (
@@ -3728,14 +2558,10 @@ const AdminApprovals = ({ currentUser }) => {
                         <div className="text-gray-500 text-xs">{u.region}</div>
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        <span className={`px-2 py-1 inline-flex text-xs font-bold rounded-full ${u.role === 'ADMIN' || u.role === 'SUPER_ADMIN' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
-                          {u.role}
-                        </span>
+                        <span className={`px-2 py-1 inline-flex text-xs font-bold rounded-full ${u.role === 'ADMIN' || u.role === 'SUPER_ADMIN' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>{u.role}</span>
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        <button onClick={() => handleApproveUser(u.fnum)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-xs transition">
-                          Approve Access
-                        </button>
+                        <button onClick={() => handleApproveUser(u.fnum)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-xs transition">Approve Access</button>
                       </td>
                     </tr>
                   ))}
@@ -3748,9 +2574,7 @@ const AdminApprovals = ({ currentUser }) => {
 
       {activeTab === 'requests' && (
         <div className="bg-white rounded-xl shadow-sm border border-yellow-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
-            <Shield className="w-5 h-5 mr-2 text-yellow-400" /> HR Modification Requests
-          </div>
+          <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold"><Shield className="w-5 h-5 mr-2 text-yellow-400" /> HR Modification Requests</div>
           {loadingRequests ? (
             <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Loading pending modifications...</div>
           ) : modRequests.length === 0 ? (
@@ -3780,12 +2604,8 @@ const AdminApprovals = ({ currentUser }) => {
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm">
                         <div className="flex space-x-2">
-                          <button onClick={() => handleReviewRequest(req.id || req.sn || req.request_id, "APPROVED")} className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
-                            <CheckCircle size={14} className="mr-1" /> Approve
-                          </button>
-                          <button onClick={() => handleReviewRequest(req.id || req.sn || req.request_id, "REJECTED")} className="bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
-                            <X size={14} className="mr-1" /> Reject
-                          </button>
+                          <button onClick={() => handleReviewRequest(req.id || req.sn || req.request_id, "APPROVED")} className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm"><CheckCircle size={14} className="mr-1" /> Approve</button>
+                          <button onClick={() => handleReviewRequest(req.id || req.sn || req.request_id, "REJECTED")} className="bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm"><X size={14} className="mr-1" /> Reject</button>
                         </div>
                       </td>
                     </tr>
@@ -3799,9 +2619,7 @@ const AdminApprovals = ({ currentUser }) => {
 
       {activeTab === 'logs' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
-            <Shield className="w-5 h-5 mr-2 text-blue-400" /> System Audit Logs
-          </div>
+          <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold"><Shield className="w-5 h-5 mr-2 text-blue-400" /> System Audit Logs</div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -3821,21 +2639,11 @@ const AdminApprovals = ({ currentUser }) => {
                 ) : (
                   audit_logs.map((log) => (
                     <tr key={log.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">
-                        {log.created_at ? new Date(log.created_at).toLocaleString() : 'Unknown Time'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm font-extrabold text-blue-700">
-                        {log.user_fnum}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm">
-                        <span className="font-extrabold text-slate-800 uppercase text-xs">{log.event_type}</span>
-                      </td>
-                       <td className="px-4 py-3 text-sm text-gray-600 font-medium">
-                        {log.target_user || 'N/A'}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        {log.details}
-                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">{log.created_at ? new Date(log.created_at).toLocaleString() : 'Unknown Time'}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-extrabold text-blue-700">{log.user_fnum}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm"><span className="font-extrabold text-slate-800 uppercase text-xs">{log.event_type}</span></td>
+                      <td className="px-4 py-3 text-sm text-gray-600 font-medium">{log.target_user || 'N/A'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{log.details}</td>
                     </tr>
                   ))
                 )}
@@ -3847,9 +2655,7 @@ const AdminApprovals = ({ currentUser }) => {
 
       {activeTab === 'resets' && (        
         <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold">
-            <Lock className="w-5 h-5 mr-2 text-red-400" /> Authorized Password Recovery
-          </div>
+          <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold"><Lock className="w-5 h-5 mr-2 text-red-400" /> Authorized Password Recovery</div>
           {loadingResets ? (
             <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Scanning jurisdiction for requests...</div>
           ) : resetRequests.length === 0 ? (
@@ -3879,12 +2685,8 @@ const AdminApprovals = ({ currentUser }) => {
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm">
                         <div className="flex space-x-2">
-                          <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
-                            <Unlock size={14} className="mr-1" /> Authorize Reset
-                          </button>
-                          <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm">
-                            <X size={14} className="mr-1" /> Reject
-                          </button>
+                          <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm"><Unlock size={14} className="mr-1" /> Authorize Reset</button>
+                          <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-sm"><X size={14} className="mr-1" /> Reject</button>
                         </div>
                       </td>
                     </tr>
@@ -3899,7 +2701,6 @@ const AdminApprovals = ({ currentUser }) => {
   );
 };
 
-
 // ====================================================================
 // --- PROFILE UPDATE SYSTEM (COMMAND WORKFLOW ENABLED FOR ALL USERS) ---
 // ====================================================================
@@ -3909,18 +2710,14 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   const [notification, setNotification] = useState(null);
   const [viewingImage, setViewingImage] = useState(null);
   
-  // 🟢 NEW PASSWORD STATE & FUNCTION
   const [passwordData, setPasswordData] = useState({ old_password: '', new_password: '' });
   const handlePasswordChange = async (e) => {
     e.preventDefault();
     setNotification("⏳ Updating security key...");
     try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
       const response = await fetch(`${API_URL}/api/v1/users/change-password`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify(passwordData)
+        method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(passwordData)
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Failed to update password.");
@@ -3930,27 +2727,19 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   };
 
   const canAutoApprove = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role);
-
   const OFFICER_RANKS = ['AIP', 'IP', 'ASP', 'SP', 'SASP', 'SSP', 'ACP', 'CP', 'SCP', 'AIGP', 'DIGP', 'IGP'];
 
   const [formData, setFormData] = useState({
-    fnum: currentUser.fnum || '', 
-    name: currentUser.name || '',
-    rank: currentUser.rank || '',
-    region: currentUser.region || '',
-    station: currentUser.station || '',
-    email: currentUser.email || '',
-    phone: currentUser.phone || '',
-    profile_photo_path: currentUser.profile_photo_path || ''
+    fnum: currentUser.fnum || '', name: currentUser.name || '', rank: currentUser.rank || '',
+    region: currentUser.region || '', station: currentUser.station || '', email: currentUser.email || '',
+    phone: currentUser.phone || '', profile_photo_path: currentUser.profile_photo_path || ''
   });
 
   const isOfficerRank = OFFICER_RANKS.includes(formData.rank?.toUpperCase().trim());
   const wasNCO = !OFFICER_RANKS.includes(currentUser.rank?.toUpperCase().trim());
   const canEditFnum = canAutoApprove || (isOfficerRank && wasNCO);
 
-  const handleInputChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
+  const handleInputChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
   const handlePhotoUpload = async (e) => {
     const file = e.target.files[0];
@@ -3962,37 +2751,16 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
       uploadData.append("category", "user_profile");
 
       try {
-        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const token = localStorage.getItem('kmp_authToken');
-        
-        const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, {
-          method: "POST",
-          body: uploadData,
-        });
-
+        const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, { method: "POST", body: uploadData });
         if (!response.ok) throw new Error("Upload failed on server.");
 
         const data = await response.json();
         const s3Url = data.full_s3_url || data.cloud_storage_path;
 
-        const securePayload = {
-          fnum: currentUser.fnum,
-          name: currentUser.name,
-          rank: currentUser.rank,
-          region: currentUser.region,
-          station: currentUser.station,
-          email: formData.email,
-          phone: formData.phone,
-          profile_photo_path: s3Url
-        };
-
+        const securePayload = { ...formData, profile_photo_path: s3Url };
         const updateRes = await fetch(`${API_URL}/api/v1/users/profile/update`, {
-          method: "PUT",
-          headers: { 
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify(securePayload)
+          method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(securePayload)
         });
 
         if (!updateRes.ok) throw new Error("Failed to link photo to profile in database.");
@@ -4000,35 +2768,22 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
         setFormData(prev => ({ ...prev, profile_photo_path: s3Url }));
         setCurrentUser(prev => ({ ...prev, profile_photo_path: s3Url }));
         setNotification("✅ Photo uploaded and permanently saved successfully!");
-        
         setTimeout(() => setNotification(null), 4000);
-      } catch (error) {
-        console.error("Upload error:", error);
-        setNotification(`❌ Error: ${error.message}`);
-      }
+      } catch (error) { setNotification(`❌ Error: ${error.message}`); }
     }
   };
 
   const handleRequestSubmit = async (e) => {
     if (e) e.preventDefault();
     setNotification("⏳ Sending official request to Command...");
-
     try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
       const response = await fetch(`${API_URL}/api/v1/requests`, {
-        method: "POST",
-        headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}` 
-        },
+        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
-          fnum: currentUser.fnum,
-          requested_fnum: formData.fnum !== currentUser.fnum ? formData.fnum : null,
-          requested_name: formData.name !== currentUser.name ? formData.name : null,
-          requested_rank: formData.rank !== currentUser.rank ? formData.rank : null,
-          requested_region: formData.region !== currentUser.region ? formData.region : null,
-          requested_station: formData.station !== currentUser.station ? formData.station : null,
+          fnum: currentUser.fnum, requested_fnum: formData.fnum !== currentUser.fnum ? formData.fnum : null,
+          requested_name: formData.name !== currentUser.name ? formData.name : null, requested_rank: formData.rank !== currentUser.rank ? formData.rank : null,
+          requested_region: formData.region !== currentUser.region ? formData.region : null, requested_station: formData.station !== currentUser.station ? formData.station : null,
         })
       });
 
@@ -4039,138 +2794,60 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
       
       setNotification("✅ Request successfully logged for Command review.");
       setIsRequestMode(false);
-      
-      setFormData({
-         ...formData,
-         fnum: currentUser.fnum,
-         name: currentUser.name, 
-         rank: currentUser.rank, 
-         region: currentUser.region, 
-         station: currentUser.station
-      });
-      
+      setFormData({ ...formData, fnum: currentUser.fnum, name: currentUser.name, rank: currentUser.rank, region: currentUser.region, station: currentUser.station });
       setTimeout(() => setNotification(null), 5000);
-
-    } catch (err) {
-      console.error(err);
-      setNotification(`❌ Error: ${err.message}`);
-    }
+    } catch (err) { setNotification(`❌ Error: ${err.message}`); }
   };
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     setNotification("⏳ Verifying profile data with HR Nominal Roll...");
-
     try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
-      
       const response = await fetch(`${API_URL}/api/v1/users/profile/update`, {
-        method: "PUT",
-        headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify(formData)
+        method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(formData)
       });
-
       const data = await response.json();
 
-      if (!response.ok) {
-         throw new Error(data.detail || "Failed to update database.");
-      }
+      if (!response.ok) throw new Error(data.detail || "Failed to update database.");
+      if (data.new_token) localStorage.setItem('kmp_authToken', data.new_token);
 
-      if (data.new_token) {
-          localStorage.setItem('kmp_authToken', data.new_token);
-      }
-
-      setCurrentUser({
-        ...currentUser,
-        fnum: formData.fnum,
-        name: formData.name,
-        rank: formData.rank,
-        region: formData.region,
-        station: formData.station,
-        email: formData.email,
-        phone: formData.phone,
-        profile_photo_path: formData.profile_photo_path
-      });
-
+      setCurrentUser({ ...currentUser, ...formData });
       setNotification("✅ Profile verified and successfully updated!");
-      setIsEditing(false); 
-      setIsRequestMode(false);
+      setIsEditing(false); setIsRequestMode(false);
       setTimeout(() => setNotification(null), 4000);
-
-    } catch (err) {
-      console.error(err);
-      setNotification(`❌ ${err.message}`);
-    }
+    } catch (err) { setNotification(`❌ ${err.message}`); }
   };
 
   const handleContactSubmit = async (e) => {
     if (e) e.preventDefault();
     setNotification("⏳ Saving contact details...");
-
     try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
-      
-      const securePayload = {
-        fnum: currentUser.fnum,
-        name: currentUser.name,
-        rank: currentUser.rank,
-        region: currentUser.region,
-        station: currentUser.station,
-        email: formData.email,
-        phone: formData.phone,
-        profile_photo_path: formData.profile_photo_path
-      };
+      const securePayload = { ...currentUser, email: formData.email, phone: formData.phone, profile_photo_path: formData.profile_photo_path };
 
       const response = await fetch(`${API_URL}/api/v1/users/profile/update`, {
-        method: "PUT",
-        headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify(securePayload)
+        method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(securePayload)
       });
 
       const data = await response.json();
-
       if (!response.ok) throw new Error(data.detail || "Failed to update database.");
 
-      setCurrentUser({
-        ...currentUser,
-        email: formData.email,
-        phone: formData.phone,
-        profile_photo_path: formData.profile_photo_path
-      });
-
+      setCurrentUser({ ...currentUser, email: formData.email, phone: formData.phone, profile_photo_path: formData.profile_photo_path });
       setNotification("✅ Contact info and photo successfully updated!");
       setTimeout(() => setNotification(null), 4000);
-
-    } catch (err) {
-      console.error(err);
-      setNotification(`❌ ${err.message}`);
-    }
+    } catch (err) { setNotification(`❌ ${err.message}`); }
   };
 
   const handleProfileSave = (e) => {
      e.preventDefault();
-     if (canAutoApprove || formData.fnum !== currentUser.fnum) {
-         handleSubmit(e);
-     } else {
-         handleRequestSubmit(e);
-     }
+     if (canAutoApprove || formData.fnum !== currentUser.fnum) handleSubmit(e);
+     else handleRequestSubmit(e);
   };
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6 mt-10 relative z-10 animate-in fade-in duration-300">
-      
-      <button 
-        onClick={() => setCurrentPage && setCurrentPage('home')} 
-        className="flex items-center text-sm font-bold text-slate-500 hover:text-blue-700 transition-colors bg-white hover:bg-blue-50 px-4 py-2 rounded-lg shadow-sm border border-slate-200 w-fit"
-      >
+      <button onClick={() => setCurrentPage && setCurrentPage('home')} className="flex items-center text-sm font-bold text-slate-500 hover:text-blue-700 transition-colors bg-white hover:bg-blue-50 px-4 py-2 rounded-lg shadow-sm border border-slate-200 w-fit">
         <Home size={16} className="mr-2" /> Return to Master Dashboard
       </button>
 
@@ -4179,38 +2856,22 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
           <div className="flex items-center z-10">
             <div className="relative group">
               {formData.profile_photo_path ? (
-                <img 
-                  src={formData.profile_photo_path} 
-                  alt="" 
-                  className={`w-24 h-24 rounded-full object-cover shadow-2xl border-4 border-slate-700 bg-white transition-transform ${isEditing ? 'opacity-80' : 'cursor-pointer hover:scale-105'}`} 
-                  onClick={() => !isEditing && setViewingImage(formData.profile_photo_path)}
-                  onError={(e) => { e.target.style.display='none'; }} 
-                />
+                <img src={formData.profile_photo_path} alt="" className={`w-24 h-24 rounded-full object-cover shadow-2xl border-4 border-slate-700 bg-white transition-transform ${isEditing ? 'opacity-80' : 'cursor-pointer hover:scale-105'}`} onClick={() => !isEditing && setViewingImage(formData.profile_photo_path)} onError={(e) => { e.target.style.display='none'; }} />
               ) : (
-                <div className="w-24 h-24 bg-blue-600 rounded-full flex items-center justify-center text-white font-extrabold text-4xl shadow-2xl border-4 border-slate-700">
-                  {currentUser.name?.charAt(0) || 'A'}
-                </div>
+                <div className="w-24 h-24 bg-blue-600 rounded-full flex items-center justify-center text-white font-extrabold text-4xl shadow-2xl border-4 border-slate-700">{currentUser.name?.charAt(0) || 'A'}</div>
               )}
-              
               {isEditing && (
                 <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full cursor-pointer shadow-lg border-2 border-slate-800 transition-colors transform hover:scale-110">
-                  <Camera size={16} />
-                  <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                  <Camera size={16} /> <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
                 </label>
               )}
             </div>
             <div className="ml-6 text-white">
               <h2 className="text-3xl font-extrabold tracking-tight">{currentUser.name}</h2>
-              <p className="text-blue-300 font-medium tracking-wide mt-1 uppercase text-sm">
-                {currentUser.rank} • {currentUser.station} • {currentUser.region}
-              </p>
+              <p className="text-blue-300 font-medium tracking-wide mt-1 uppercase text-sm">{currentUser.rank} • {currentUser.station} • {currentUser.region}</p>
             </div>
           </div>
-          
-          <button 
-            onClick={() => { setIsEditing(!isEditing); setIsRequestMode(false); }} 
-            className={`z-10 flex items-center px-4 py-2 rounded-lg font-bold transition-colors shadow-sm ${isEditing ? 'bg-slate-700 text-white border border-slate-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
-          >
+          <button onClick={() => { setIsEditing(!isEditing); setIsRequestMode(false); }} className={`z-10 flex items-center px-4 py-2 rounded-lg font-bold transition-colors shadow-sm ${isEditing ? 'bg-slate-700 text-white border border-slate-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}>
             {isEditing ? <><X size={16} className="mr-2"/> Cancel Edit</> : <><Edit size={16} className="mr-2"/> Update Profile</>}
           </button>
         </div>
@@ -4230,16 +2891,11 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
                     {canAutoApprove ? <Unlock size={14} className="mr-2" /> : isRequestMode ? <Edit size={14} className="mr-2" /> : <Lock size={14} className="mr-2" />} 
                     Official Deployment Records {canAutoApprove ? "(Admin Override Active)" : isRequestMode ? "(Drafting Request)" : "(Restricted)"}
                   </div>
-                  
                   {!canAutoApprove && !isRequestMode && (
-                    <button type="button" onClick={() => setIsRequestMode(true)} className="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-sm">
-                      <Shield size={12} className="mr-1"/> Request Modification
-                    </button>
+                    <button type="button" onClick={() => setIsRequestMode(true)} className="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-sm"><Shield size={12} className="mr-1"/> Request Modification</button>
                   )}
                   {!canAutoApprove && isRequestMode && (
-                    <button type="button" onClick={handleProfileSave} className="text-xs bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-sm">
-                      <Send size={12} className="mr-1"/> Send Official Request
-                    </button>
+                    <button type="button" onClick={handleProfileSave} className="text-xs bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-sm"><Send size={12} className="mr-1"/> Send Official Request</button>
                   )}
                 </div>
 
@@ -4250,17 +2906,8 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
                   </div>
                   <div className="flex gap-4">
                     <div className="w-1/2">
-                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
-                        Force / File Number
-                      </label>
-                      <input 
-                        type="text" 
-                        name="fnum"
-                        value={formData.fnum}
-                        onChange={(e) => setFormData({...formData, fnum: e.target.value.toUpperCase()})}
-                        disabled={!canEditFnum} 
-                        className={`w-full p-2.5 border rounded-lg font-bold transition-all ${canEditFnum ? 'bg-yellow-50 border-yellow-400 text-gray-900 focus:ring-2 focus:ring-yellow-500 shadow-inner' : 'bg-gray-200 border-gray-300 text-gray-600 cursor-not-allowed'}`} 
-                      />
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Force / File Number</label>
+                      <input type="text" name="fnum" value={formData.fnum} onChange={(e) => setFormData({...formData, fnum: e.target.value.toUpperCase()})} disabled={!canEditFnum} className={`w-full p-2.5 border rounded-lg font-bold transition-all ${canEditFnum ? 'bg-yellow-50 border-yellow-400 text-gray-900 focus:ring-2 focus:ring-yellow-500 shadow-inner' : 'bg-gray-200 border-gray-300 text-gray-600 cursor-not-allowed'}`} />
                       {canEditFnum && <p className="text-[9px] text-blue-600 mt-1 font-bold animate-pulse">Unlocked for Promotion Verification</p>}
                     </div>
                     <div className="w-1/2">
@@ -4294,9 +2941,7 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
                   </div>
                 </div>
                 <div className="flex justify-end pt-4 mt-2 border-t border-gray-100">
-                  <button type="submit" className="bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-6 rounded-lg shadow-md transition-colors flex items-center text-sm">
-                    💾 Save Profile Changes
-                  </button>
+                  <button type="submit" className="bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-6 rounded-lg shadow-md transition-colors flex items-center text-sm">💾 Save Profile Changes</button>
                 </div>
               </form>
 
@@ -4316,9 +2961,7 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
                   </div>
                 </div>
                 <div className="flex justify-end pt-4 mt-2 border-t border-gray-100">
-                  <button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg shadow-md transition-colors text-sm">
-                    Update Security Key
-                  </button>
+                  <button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg shadow-md transition-colors text-sm">Update Security Key</button>
                 </div>
               </form>
 
@@ -4395,41 +3038,34 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
     </div>
   );
 };
-   
+
+
+
 // ====================================================================
 // --- LOGIN & AUTHENTICATION GATEWAY ---
 // ====================================================================
 const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUsers = [] }) => {
   const [mode, setMode] = useState('login');
-  
   const [fnum, setfnum] = useState('');
   const [password, setPassword] = useState('');
   const [authMessage, setAuthMessage] = useState(null);
   
   const [signupData, setSignupData] = useState({
-    fnum: '', ipps: '', name: '', rank: '', sex: 'MALE', region: 'KMP NORTH', station: 'KAWEMPE', position: '',
-    email: '', phone: '', password: '', profile_photo_path: ''
+    fnum: '', ipps: '', name: '', rank: '', sex: 'MALE', region: 'KMP NORTH', station: 'KAWEMPE', position: '', email: '', phone: '', password: '', profile_photo_path: ''
   });
   const [photoFile, setPhotoFile] = useState(null);
 
   const availablePositions = [
-    ...POSITIONS.ADMIN, 
-    ...POSITIONS.RPC, 
-    `${signupData.region} Commander`,
-    `Divisional Commander ${signupData.station}`,
-    `CID Officer ${signupData.station}`,
-    `Data Officer ${signupData.station}`,
-    `Data Assistant Officer ${signupData.station}`
+    ...POSITIONS.ADMIN, ...POSITIONS.RPC, `${signupData.region} Commander`, `Divisional Commander ${signupData.station}`, `CID Officer ${signupData.station}`, `Data Officer ${signupData.station}`, `Data Assistant Officer ${signupData.station}`
   ];
 
   const [attempts, setAttempts] = useState(0);
   const [lockoutEnd, setLockoutEnd] = useState(null);
   const [timeLeft, setTimeLeft] = useState(0);
 
-  // 🟢 NEW: LOGIN SCREEN IDLE CURTAIN STATE
+  // 🟢 LOGIN SCREEN IDLE CURTAIN STATE
   const [isLoginIdle, setIsLoginIdle] = useState(false);
 
-  // 🟢 NEW: LOGIN SCREEN IDLE DETECTOR
   useEffect(() => {
     let timeout;
     const IDLE_TIME = 30000; // Drops curtain after 30 seconds of idle time
@@ -4440,13 +3076,12 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
       timeout = setTimeout(() => setIsLoginIdle(true), IDLE_TIME);
     };
 
-    // Listen for any activity to wake up the screen
     window.addEventListener('mousemove', resetIdle);
     window.addEventListener('keydown', resetIdle);
     window.addEventListener('click', resetIdle);
     window.addEventListener('scroll', resetIdle);
 
-    resetIdle(); // Initialize the timer on mount
+    resetIdle(); 
 
     return () => {
       window.removeEventListener('mousemove', resetIdle);
@@ -4457,61 +3092,35 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     };
   }, [isLoginIdle]);
 
-  // Handle Lockout countdown
   useEffect(() => {
     if (!lockoutEnd) return;
     const interval = setInterval(() => {
       const remaining = Math.ceil((lockoutEnd - Date.now()) / 1000);
-      if (remaining <= 0) {
-        setLockoutEnd(null);
-        setAttempts(0);
-        setTimeLeft(0);
-      } else {
-        setTimeLeft(remaining);
-      }
+      if (remaining <= 0) { setLockoutEnd(null); setAttempts(0); setTimeLeft(0); } else { setTimeLeft(remaining); }
     }, 1000);
     return () => clearInterval(interval);
   }, [lockoutEnd]);
 
   const handleSignupChange = (e) => {
     const { name, value } = e.target;
-    if (name === 'region') {
-      setSignupData({ ...signupData, region: value, station: REGIONAL_HIERARCHY[value][0], position: '' });
-    } else if (name === 'station') {
-      setSignupData({ ...signupData, station: value, position: '' });
-    } else {
-      setSignupData({ ...signupData, [name]: value });
-    }
+    if (name === 'region') setSignupData({ ...signupData, region: value, station: REGIONAL_HIERARCHY[value][0], position: '' });
+    else if (name === 'station') setSignupData({ ...signupData, station: value, position: '' });
+    else setSignupData({ ...signupData, [name]: value });
   };
 
   const handlePhotoUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
       setAuthMessage("⏳ Uploading photo...");
-      const uploadData = new FormData();
-      uploadData.append("file", file);
-      uploadData.append("fnum", signupData.fnum || "NEW_USER");
-      uploadData.append("category", "user_profile");
-
+      const uploadData = new FormData(); uploadData.append("file", file); uploadData.append("fnum", signupData.fnum || "NEW_USER"); uploadData.append("category", "user_profile");
       try {
-        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, {
-          method: "POST",
-          body: uploadData,
-        });
-
+        const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, { method: "POST", body: uploadData });
         if (!response.ok) throw new Error("Upload failed on server.");
-
         const data = await response.json();
-        const s3Url = data.full_s3_url || data.cloud_storage_path;
-
-        setSignupData(prev => ({ ...prev, profile_photo_path: s3Url }));
-        setAuthMessage("✅ Photo uploaded securely!");
-        setTimeout(() => setAuthMessage(null), 3000);
+        setSignupData(prev => ({ ...prev, profile_photo_path: data.full_s3_url || data.cloud_storage_path }));
+        setAuthMessage("✅ Photo uploaded securely!"); setTimeout(() => setAuthMessage(null), 3000);
       } catch (error) {
-        console.error("Upload error:", error);
-        setSignupData(prev => ({ ...prev, profile_photo_path: URL.createObjectURL(file) }));
-        setPhotoFile(file);
+        setSignupData(prev => ({ ...prev, profile_photo_path: URL.createObjectURL(file) })); setPhotoFile(file);
         setAuthMessage("⚠️ Network error: Using local preview. Photo will upload on submit.");
       }
     }
@@ -4519,65 +3128,31 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 
   const handleSignupSubmit = async (e) => {
     e.preventDefault();
-
-    if (!signupData.profile_photo_path) {
-      setAuthMessage("⚠️ Error: Profile photo upload is mandatory.");
-      return;
-    }
-    
-    if (!/^\d{10}$/.test(signupData.phone)) {
-      setAuthMessage("⚠️ Error: Contact number must be exactly 10 digits (e.g. 0772123456).");
-      return;
-    }
+    if (!signupData.profile_photo_path) return setAuthMessage("⚠️ Error: Profile photo upload is mandatory.");
+    if (!/^\d{10}$/.test(signupData.phone)) return setAuthMessage("⚠️ Error: Contact number must be exactly 10 digits.");
 
     setAuthMessage("⏳ Submitting authorization request...");
-
     try {
       const formData = new FormData();
-      formData.append("fnum", signupData.fnum);
-      formData.append("ipps", signupData.ipps);
-      formData.append("name", signupData.name);
-      formData.append("rank", signupData.rank);
-      formData.append("sex", signupData.sex);
-      formData.append("region", signupData.region);
-      formData.append("station", signupData.station);
-      formData.append("position", signupData.position);
-      formData.append("email", signupData.email);
-      formData.append("phone", signupData.phone);
-      formData.append("password", signupData.password);
+      Object.keys(signupData).forEach(key => formData.append(key, signupData[key]));
       
       let derivedRole = 'USER';
       if (signupData.position === 'System Manager') derivedRole = 'SUPER_ADMIN';
       else if (POSITIONS.ADMIN.includes(signupData.position) || signupData.position.includes('Divisional Commander') || signupData.station === 'KMP HEADQUARTERS' || signupData.station === 'KMP Headquarters' || signupData.region === 'POLICE HEADQUARTERS') derivedRole = 'ADMIN';
       else if (POSITIONS.RPC.includes(signupData.position) || signupData.position.includes(`${signupData.region} Commander`)) derivedRole = 'RPC';
       
-      formData.append("role", derivedRole);
-      
-      if (photoFile && signupData.profile_photo_path.startsWith('blob:')) {
-        formData.append("file", photoFile);
-      } else {
-        formData.append("profile_photo_path", signupData.profile_photo_path);
-      }
+      formData.set("role", derivedRole);
+      if (photoFile && signupData.profile_photo_path.startsWith('blob:')) formData.set("file", photoFile);
 
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const response = await fetch(`${API_URL}/api/v1/auth/signup`, {
-        method: 'POST',
-        body: formData,
-      });
-
+      const response = await fetch(`${API_URL}/api/v1/auth/signup`, { method: 'POST', body: formData });
       const data = await response.json();
 
       if (response.ok) {
         setAuthMessage("✅ Account Request Submitted! Awaiting Admin Approval.");
         if (onSignup) onSignup({ ...signupData, role: derivedRole });
         setTimeout(() => setMode('login'), 2000);
-      } else {
-        setAuthMessage(`❌ Registration Failed: ${data.detail || "Server error"}`);
-      }
-    } catch (error) {
-      console.error("Signup network error:", error);
-      setAuthMessage("❌ Connection error. Could not reach server.");
-    }
+      } else { setAuthMessage(`❌ Registration Failed: ${data.detail || "Server error"}`); }
+    } catch (error) { setAuthMessage("❌ Connection error. Could not reach server."); }
   };
 
   const handleLoginSubmit = async (e) => { 
@@ -4586,144 +3161,73 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 
     if (mode === 'login') {
       try {
-        const formData = new URLSearchParams();
-        formData.append('username', fnum.trim()); 
-        formData.append('password', password.trim());
-
-        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        const response = await fetch(`${API_URL}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: formData, 
-        });
-
+        const formData = new URLSearchParams(); formData.append('username', fnum.trim()); formData.append('password', password.trim());
+        const response = await fetch(`${API_URL}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData });
         const data = await response.json();
 
         if (response.ok) {
           localStorage.setItem('kmp_authToken', data.access_token);
           onLogin({ 
-              fnum: data.fnum || 'A/2408', 
-              rank: data.rank || 'AIP',
-              name: data.name || 'Afedra Vincent',
-              sex: data.sex || 'MALE',
-              ipps: data.ipps || '950010',
-              region: data.region || 'KMP HEADQUARTERS',
-              division: data.division || 'KMP HEADQUARTERS',
-              station: data.station || 'KMP HEADQUARTERS',
-              position: data.position || 'System Manager',
-              email: data.email || 'afedravnct@gmail.com',
-              phone: data.phone || '0779302872',
-              role: data.role || 'SUPER_ADMIN',
-              permissions: data.permissions || {},
-              profile_photo_path: data.profile_photo_path || ''
+              fnum: data.fnum || 'A/2408', rank: data.rank || 'AIP', name: data.name || 'Afedra Vincent', sex: data.sex || 'MALE', ipps: data.ipps || '950010',
+              region: data.region || 'KMP HEADQUARTERS', division: data.division || 'KMP HEADQUARTERS', station: data.station || 'KMP HEADQUARTERS',
+              position: data.position || 'System Manager', email: data.email || 'afedravnct@gmail.com', phone: data.phone || '0779302872', role: data.role || 'SUPER_ADMIN',
+              permissions: data.permissions || {}, profile_photo_path: data.profile_photo_path || ''
           });
         } else {
-          console.error("Login failed:", data.detail);
-          setPassword(''); 
-          setAuthMessage(data.detail || "Incorrect Force Number or password");
-
-          const newAttempts = attempts + 1;
-          setAttempts(newAttempts);
-          if (newAttempts >= 3) {
-            setLockoutEnd(Date.now() + 30000);
-          }
+          setPassword(''); setAuthMessage(data.detail || "Incorrect Force Number or password");
+          const newAttempts = attempts + 1; setAttempts(newAttempts);
+          if (newAttempts >= 3) setLockoutEnd(Date.now() + 30000);
         }
-      } catch (err) {
-        console.error("Network error during login:", err);
-        setPassword('');
-        setAuthMessage("Network error. Could not connect to the server.");
-      }
+      } catch (err) { setPassword(''); setAuthMessage("Network error. Could not connect to the server."); }
     } else if (mode === 'forgot') {
       try {
-        const formData = new URLSearchParams();
-        formData.append('fnum', fnum.trim());
-
-        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        const response = await fetch(`${API_URL}/api/v1/auth/request-reset`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: formData
-        });
-
+        const formData = new URLSearchParams(); formData.append('fnum', fnum.trim());
+        const response = await fetch(`${API_URL}/api/v1/auth/request-reset`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData });
         const data = await response.json();
-
-        if (response.ok) {
-          setMode('login');
-          setfnum('');
-          setAuthMessage("✅ " + (data.message || "Account recovery requested. The Admin has been notified."));
-        } else {
-          setAuthMessage(`❌ ${data.detail || "Failed to submit request."}`);
-        }
-      } catch (err) {
-        setAuthMessage("❌ Network error. Could not connect to the server.");
-      }
+        if (response.ok) { setMode('login'); setfnum(''); setAuthMessage("✅ " + (data.message || "Account recovery requested.")); } 
+        else { setAuthMessage(`❌ ${data.detail || "Failed to submit request."}`); }
+      } catch (err) { setAuthMessage("❌ Network error. Could not connect to the server."); }
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative overflow-hidden">
-      
-      {/* 🟢 CSS FOR WAVING POLICE FLAG ANIMATION */}
-      <style>{`
-        @keyframes fabricWave {
-          0% { background-position: 0% 0%; }
-          100% { background-position: 200% 0%; }
-        }
-        @keyframes flagFlutter {
-          0%, 100% { transform: perspective(800px) rotateY(-4deg) rotateX(1deg); }
-          50% { transform: perspective(800px) rotateY(4deg) rotateX(-1deg); }
-        }
-        .waving-police-flag {
-          background: 
-            linear-gradient(105deg, 
-              rgba(0,0,0,0.5) 0%, rgba(255,255,255,0.1) 15%, 
-              rgba(0,0,0,0.5) 35%, rgba(255,255,255,0.1) 55%, 
-              rgba(0,0,0,0.5) 75%, rgba(255,255,255,0.1) 100%),
-            #1e3a8a; /* Deep Police Blue Base */
-          background-size: 200% 100%;
-          animation: fabricWave 3s infinite linear;
-          box-shadow: inset 0 0 100px rgba(0,0,0,0.9);
-        }
-        .flag-content {
-          animation: flagFlutter 4s infinite ease-in-out;
-        }
-      `}</style>
-
-      {/* 🟢 THE ANIMATED WAVING POLICE FLAG IDLE CURTAIN */}
-      <div 
-        className={`absolute inset-0 z-50 flex flex-col items-center justify-center transition-transform duration-1000 ease-in-out shadow-2xl waving-police-flag ${
-          isLoginIdle ? 'translate-y-0' : '-translate-y-full'
-        }`}
-      >
-        <div className="flag-content relative z-10 flex flex-col items-center">
-          <img 
-            src="/upf_badge.png" 
-            alt="UPF Emblem" 
-            className="w-48 h-48 mb-6 drop-shadow-[0_15px_25px_rgba(0,0,0,0.6)] object-contain contrast-125"
-            onError={(e) => { e.target.style.display = 'none'; }}
-          />
-          <h2 className="text-4xl sm:text-5xl font-extrabold text-white tracking-[0.2em] uppercase drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] text-center">
-            Uganda Police Force
-          </h2>
-          <h3 className="text-xl sm:text-2xl font-bold text-blue-200 mt-2 tracking-widest uppercase drop-shadow-md">
-            KMP Network
-          </h3>
-          <p className="mt-8 text-sm font-bold text-white bg-black/50 px-6 py-2.5 rounded-full border border-blue-400/30 backdrop-blur-md shadow-[inset_0_2px_4px_rgba(255,255,255,0.1)] flex items-center">
-            <Lock size={16} className="mr-2 text-blue-300" /> Security Standby Mode
-          </p>
-        </div>
-      </div>
-      {/* 🟢 END OF CURTAIN */}
-
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative">
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
         
+        {/* 🟢 THE ANIMATED POLICE FLAG IDLE CURTAIN */}
+        <div 
+          className={`absolute inset-0 z-50 flex flex-col items-center justify-center transition-transform duration-1000 ease-in-out shadow-2xl ${
+            isLoginIdle ? 'translate-y-0' : '-translate-y-full'
+          }`}
+          style={{ backgroundColor: '#0f172a' }} 
+        >
+          <div className="absolute top-0 w-full h-2 bg-[#000000]"></div>
+          <div className="absolute top-2 w-full h-2 bg-[#facc15]"></div>
+          <div className="absolute top-4 w-full h-2 bg-[#dc2626]"></div>
+
+          <div className="absolute inset-0 opacity-5 bg-center bg-no-repeat bg-contain mt-10" style={{ backgroundImage: 'url(/upf_badge.png)' }}></div>
+
+          <div className="relative z-10 flex flex-col items-center">
+            <img 
+              src="/upf_badge.png" 
+              alt="UPF Flag" 
+              className="w-40 h-40 mb-6 drop-shadow-[0_0_15px_rgba(255,255,255,0.2)] animate-pulse object-contain contrast-125"
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+            <h2 className="text-3xl font-extrabold text-white tracking-widest uppercase drop-shadow-md">KMP Network</h2>
+            <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center">
+              <Lock size={14} className="mr-2" /> Security Standby Mode
+            </p>
+          </div>
+
+          <div className="absolute bottom-4 w-full h-2 bg-[#dc2626]"></div> 
+          <div className="absolute bottom-2 w-full h-2 bg-[#facc15]"></div> 
+          <div className="absolute bottom-0 w-full h-2 bg-[#000000]"></div> 
+        </div>
+        {/* 🟢 END OF CURTAIN */}
+
         <div className="bg-slate-900 p-6 text-center relative">
-          <img 
-            src="/upf_badge.png" 
-            alt="UPF Logo" 
-            className="w-24 h-24 mx-auto mb-4 object-contain contrast-200 brightness-75 drop-shadow-sm" 
-            onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} 
-          />
+          <img src="/upf_badge.png" alt="UPF Logo" className="w-24 h-24 mx-auto mb-4 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
           <h1 className="text-2xl font-extrabold text-white tracking-wide">Uganda Police Force</h1>
           <h2 className="text-lg font-bold text-blue-400 mt-1">Kampala Metropolitan Police Headquarters</h2>
           <h3 className="text-sm font-medium text-slate-400 mt-2 uppercase tracking-widest">Centralised Security Data Management System Access Portal</h3>
@@ -4732,26 +3236,14 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         <div className="p-6">
           {lockoutEnd ? (
             <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-center">
-              <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-red-500"/>
-              <h3 className="font-bold text-lg">Too Many Attempts</h3>
+              <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-red-500"/><h3 className="font-bold text-lg">Too Many Attempts</h3>
               <p className="text-sm mt-1">Account locked for security purposes. Please wait <span className="font-bold">{timeLeft} seconds</span> before trying again.</p>
             </div>
           ) : (
             <>
               {authMessage && (
                 <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${authMessage.includes('Error') || authMessage.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
-                 <span className="text-sm font-medium">
-                   {Array.isArray(authMessage) 
-                     ? authMessage.map((err, index) => (
-                         <div key={index}>
-                           {err.loc && err.loc.length > 1 ? `Error in ${err.loc[1]}: ` : ''} 
-                           {err.msg}
-                         </div>
-                       ))
-                     : typeof authMessage === 'object' && authMessage !== null
-                       ? JSON.stringify(authMessage)
-                       : authMessage}
-                 </span>
+                 <span className="text-sm font-medium">{typeof authMessage === 'string' ? authMessage : JSON.stringify(authMessage)}</span>
                 </div>
               )}
               
@@ -4759,81 +3251,26 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                 <form onSubmit={handleSignupSubmit} className="space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
                   <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">Request Access Authorization</h3>
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">File/Force Number *</label>
-                      <input type="text" name="fnum" required value={signupData.fnum} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm" placeholder="e.g. A/2408"/>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">IPPS Number *</label>
-                      <input type="text" name="ipps" required maxLength="6" value={signupData.ipps} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="123456"/>
-                    </div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">File/Force Number *</label><input type="text" name="fnum" required value={signupData.fnum} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm" placeholder="e.g. A/2408"/></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">IPPS Number *</label><input type="text" name="ipps" required maxLength="6" value={signupData.ipps} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="123456"/></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label><input type="text" name="name" required value={signupData.name} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Rank *</label><input type="text" name="rank" required value={signupData.rank} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. AIP"/></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Region *</label><select name="region" value={signupData.region} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</select></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Station *</label><select name="station" value={signupData.station} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">{REGIONAL_HIERARCHY[signupData.region]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}</select></div>
                   </div>
+                  <div><label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label><select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm"><option value="">-- Select Official Title --</option>{availablePositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}</select></div>
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
-                      <input type="text" name="name" required value={signupData.name} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Rank *</label>
-                      <input type="text" name="rank" required value={signupData.rank} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. AIP"/>
-                    </div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Email *</label><input type="email" name="email" required value={signupData.email} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" /></div>
+                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Telephone *</label><input type="tel" name="phone" required maxLength="10" pattern="\d{10}" value={signupData.phone} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. 0772123456" /></div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Region *</label>
-                      <select name="region" value={signupData.region} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
-                         {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                      <select name="station" value={signupData.station} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
-                         {REGIONAL_HIERARCHY[signupData.region]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label>
-                    <select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
-                      <option value="">-- Select Official Title --</option>
-                      {availablePositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Email *</label>
-                      <input type="email" name="email" required value={signupData.email} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Telephone *</label>
-                      <input type="tel" name="phone" required maxLength="10" pattern="\d{10}" value={signupData.phone} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. 0772123456" />
-                    </div>
-                  </div>
-
                   <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                     <label className="block text-xs font-bold text-gray-700 mb-2">Officer Identification Photo (Mandatory) *</label>
                     <div className="flex items-center space-x-4">
-                      {signupData.profile_photo_path ? (
-                        <img src={signupData.profile_photo_path} alt="Preview" className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm" />
-                      ) : (
-                        <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300">
-                          <Camera size={24} />
-                        </div>
-                      )}
-                      <div className="flex-1">
-                        <input type="file" accept="image/*" required onChange={handlePhotoUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
-                        <p className="text-xs text-gray-400 mt-1">Directly uploads to secure storage</p>
-                      </div>
+                      {signupData.profile_photo_path ? <img src={signupData.profile_photo_path} alt="Preview" className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm" /> : <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300"><Camera size={24} /></div>}
+                      <div className="flex-1"><input type="file" accept="image/*" required onChange={handlePhotoUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" /><p className="text-xs text-gray-400 mt-1">Directly uploads to secure storage</p></div>
                     </div>
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Create Password *</label>
-                    <input type="password" name="password" required value={signupData.password} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
-                  </div>
-                  
+                  <div><label className="block text-xs font-bold text-gray-700 mb-1">Create Password *</label><input type="password" name="password" required value={signupData.password} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" /></div>
                   <div className="pt-4 flex flex-col space-y-3">
                     <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 rounded-lg transition-colors text-sm">Submit Registration Request</button>
                     <button type="button" onClick={() => setMode('login')} className="text-sm text-blue-600 hover:underline font-medium">Cancel and return to Login</button>
@@ -4841,12 +3278,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                 </form>
               ) : (
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
-                  {attempts > 0 && mode === 'login' && (
-                    <div className="text-xs text-red-600 font-bold bg-red-50 p-2 rounded text-center">
-                      Invalid credentials. Attempts remaining: {3 - attempts}
-                    </div>
-                  )}
-                  
+                  {attempts > 0 && mode === 'login' && <div className="text-xs text-red-600 font-bold bg-red-50 p-2 rounded text-center">Invalid credentials. Attempts remaining: {3 - attempts}</div>}
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1">Force Number</label>
                     <div className="relative">
@@ -4854,7 +3286,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       <input type="text" required value={fnum} onChange={(e) => setfnum(e.target.value)} className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none uppercase" placeholder="e.g. A/2408 or 63034"/>
                     </div>
                   </div>
-                  
                   {mode === 'login' && (
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1">Security Key (Password)</label>
@@ -4864,20 +3295,12 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       </div>
                     </div>
                   )}
-
                   <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg transition-colors">
                     {mode === 'login' ? 'Authorize Access' : 'Request Password Reset'}
                   </button>
-                  
                   <div className="text-center mt-4 flex justify-between px-4">
-                    <button type="button" onClick={() => {setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0);}} className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium">
-                      {mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}
-                    </button>
-                    {mode === 'login' && (
-                      <button type="button" onClick={() => setMode('signup')} className="text-sm text-blue-600 font-bold hover:underline">
-                        Sign Up (Request Access)
-                      </button>
-                    )}
+                    <button type="button" onClick={() => {setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0);}} className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium">{mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}</button>
+                    {mode === 'login' && <button type="button" onClick={() => setMode('signup')} className="text-sm text-blue-600 font-bold hover:underline">Sign Up (Request Access)</button>}
                   </div>
                 </form>
               )}
@@ -4890,695 +3313,11 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   );
 };
 
-
-// ====================================================================
-// --- MAIN LAYOUT COMPONENT ---
-// ====================================================================
-const DashboardLayout = ({ 
-  currentUser, 
-  currentPage, 
-  setCurrentPage, 
-  children, 
-  onLogout, 
-  onGenerateOpsReport, 
-  onViewOpsReport,     
-  onGenerateHRReport, 
-  onViewHRReport,
-  onViewConsolidated, 
-  users, 
-  onRevokeUser, 
-  onUpdateUserRole, 
-  Admin_Communication 
-}) => {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [showOnline, setShowOnline] = useState(false);
-  const [showAllUsers, setShowAllUsers] = useState(false);
-  const [selectedUserDetail, setSelectedUserDetail] = useState(null);
-  const [viewingProfileImage, setViewingProfileImage] = useState(null);
-  const [newForcePassword, setNewForcePassword] = useState('');
-  const [isFullScreen, setIsFullScreen] = useState(false);
-  
-  const [lastViewedId, setLastViewedId] = useState(() => {
-    const saved = localStorage.getItem('last_viewed_comm_id');
-    return saved ? JSON.parse(saved) : 0;
-  });
-
-  // 🟢 LIVE DATABASE HEARTBEAT & ONLINE ROSTER SYNC
-  const [realOnlineUsers, setRealOnlineUsers] = useState([]);
-
-  useEffect(() => {
-    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-
-    const syncHeartbeat = async () => {
-      const currentToken = localStorage.getItem('kmp_authToken');
-      if (!currentToken) return;
-
-      try {
-        await fetch(`${API_URL}/api/v1/users/heartbeat`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${currentToken}` }
-        });
-
-        const response = await fetch(`${API_URL}/api/v1/users/online`, {
-          headers: { 'Authorization': `Bearer ${currentToken}` }
-        });
-        
-        if (response.ok) {
-          setRealOnlineUsers(await response.json());
-        }
-      } catch (err) {
-        console.warn("Heartbeat sync paused...");
-      }
-    };
-
-    syncHeartbeat();
-    const heartbeatInterval = setInterval(syncHeartbeat, 60000);
-    return () => clearInterval(heartbeatInterval);
-  }, []);
-
-// 🟢 1. ADVANCED IDLE TIMER & WARNING SCREEN
-  const [showIdleWarning, setShowIdleWarning] = useState(false);
-  const [idleCountdown, setIdleCountdown] = useState(60);
-
-  useEffect(() => {
-    let lastActivityTime = Date.now();
-    let warningTimer;
-    let logoutTimer;
-    let countdownInterval;
-
-    const IDLE_LIMIT = 29 * 60 * 1000; // 29 minutes before warning
-    const WARNING_WINDOW = 60 * 1000; // 60 seconds of warning countdown
-
-    const resetTimers = () => {
-      if (showIdleWarning) return; // Don't reset if the warning is already on screen
-      lastActivityTime = Date.now();
-      
-      clearTimeout(warningTimer);
-      clearTimeout(logoutTimer);
-      clearInterval(countdownInterval);
-
-      warningTimer = setTimeout(() => {
-        setShowIdleWarning(true);
-        setIdleCountdown(WARNING_WINDOW / 1000);
-        
-        countdownInterval = setInterval(() => {
-          setIdleCountdown(prev => {
-            if (prev <= 1) {
-              clearInterval(countdownInterval);
-              return 0;
-            }
-            return prev - 1;
-          });
-        }, 1000);
-
-      }, IDLE_LIMIT);
-
-      logoutTimer = setTimeout(() => {
-        alert("Session Expired: You have been securely logged out due to inactivity.");
-        if (typeof onLogout === 'function') onLogout();
-        else { localStorage.removeItem('kmp_authToken'); window.location.reload(); }
-      }, IDLE_LIMIT + WARNING_WINDOW);
-    };
-
-    const handleUserActivity = () => resetTimers();
-
-    window.addEventListener('mousemove', handleUserActivity);
-    window.addEventListener('keypress', handleUserActivity);
-    window.addEventListener('click', handleUserActivity);
-    window.addEventListener('scroll', handleUserActivity);
-
-    resetTimers();
-
-    return () => {
-      window.removeEventListener('mousemove', handleUserActivity);
-      window.removeEventListener('keypress', handleUserActivity);
-      window.removeEventListener('click', handleUserActivity);
-      window.removeEventListener('scroll', handleUserActivity);
-      clearTimeout(warningTimer);
-      clearTimeout(logoutTimer);
-      clearInterval(countdownInterval);
-    };
-  }, [onLogout, showIdleWarning]);
-
-  // 🟢 AUTOMATIC PAGE ACCESS TRACKER (AUDIT LOGGING)
-  useEffect(() => {
-    if (!currentUser?.fnum || !currentPage) return;
-    
-    const token = localStorage.getItem('kmp_authToken');
-    if (!token) return;
-
-    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-    
-    fetch(`${API_URL}/api/v1/audit-logs`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        event_type: 'MODULE_ACCESS',
-        target_user: 'SYSTEM',
-        details: `Officer ${currentUser.name} accessed the ${currentPage.toUpperCase()} module.`
-      })
-    }).catch(e => console.warn("Audit log silent fail"));
-    
-  }, [currentPage, currentUser?.fnum]);
-
-  const safeSidebarComms = Array.isArray(Admin_Communication) ? Admin_Communication : (Admin_Communication?.data || Admin_Communication?.items || []);
-  const relevantComms = safeSidebarComms.filter(c => {
-    if (currentUser?.role === 'SUPER_ADMIN') return true;
-    const audience = c.target_audience || c.audience || 'ALL_USERS';
-    const region = c.target_region || c.region;
-    if (audience === 'ALL_USERS' || audience === 'ALL') return true;
-    if (audience === 'ADMINS_ONLY' && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role)) return true;
-    if (audience === 'RPC_ONLY' && ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role)) return true;
-    if (audience === 'SPECIFIC_REGION' && region === currentUser?.region) return true;
-    return false;
-  });
-
-  const hasUnreadComms = relevantComms.some(c => !c.acknowledged);
-
-  const navItems = [
-    { 
-      name: 'Home Dashboard', 
-      id: 'home', 
-      icon: (
-        <div className="relative flex items-center justify-center">
-          <Home size={20} />
-          {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping" />}
-          {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full" />}
-        </div>
-      )
-    },
-    { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> },
-    { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> },
-    { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> },
-    { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> },
-    { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> },
-  ];
-
-  if (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)) {
-     navItems.push({ 
-       name: ' Official Admin Dispatch', 
-       id: 'Admin_Communication', 
-       icon: <Bell size={20} />
-     });
-  }
-
-  const connectionUserProfiles = {
-    "AIP System MGR": { fnum: 'A/2408', rank: 'AIP', ipps: '950010', position: 'System Manager', region: 'KMP HEADQUARTERS', station: 'KMP HEADQUARTERS', email: 'afedravnct@gmail.com', phone: '0779302872', profile_photo_path: '' },
-    "Standard Officer": { fnum: '63034', rank: 'SGT', ipps: '100432', position: 'Data Officer KAWEMPE', region: 'KMP NORTH', station: 'KAWEMPE', email: 'std.officer@upf.go.ug', phone: '+256772888222', profile_photo_path: 'https://upf-s3-bucket.s3.amazonaws.com/profiles/u1234.jpg' }
-  };
-
-  const inspectActiveUser = (alias) => {
-    const profile = connectionUserProfiles[alias] || { fnum: 'N/A', rank: 'Officer', ipps: 'N/A', position: alias, region: currentUser.region, station: currentUser.station, email: 'N/A', phone: 'N/A', profile_photo_path: '' };
-    setSelectedUserDetail({ name: alias, ...profile, isSystemUser: false });
-  };
-
-  const inspectSystemUser = (user) => {
-    setSelectedUserDetail({ ...user, isSystemUser: true });
-  };
-
-  const handleExportLogs = async () => {
-    try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const token = localStorage.getItem('kmp_authToken');
-      
-      const response = await fetch(`${API_URL}/api/v1/audit-logs`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (!response.ok) throw new Error("Security Clearance Denied");
-
-      const logs = await response.json();
-      const headers = ["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"];
-      
-      const csvRows = logs.map(log => {
-        const safeDetails = log.details ? log.details.replace(/"/g, '""') : "";
-        return [
-          log.id, 
-          log.event_type || "N/A", 
-          log.target_user || "N/A",
-          log.status || "N/A",
-          `"${safeDetails}"`, 
-          log.created_at || "Unknown Time",
-          log.user_fnum || "SYSTEM"
-        ];
-      });
-
-      const csvContent = [headers, ...csvRows].map(e => e.join(",")).join("\n");
-      const blob = new Blob(['\uFEFF', csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.style.display = 'none';
-      link.setAttribute("href", url);
-      link.setAttribute("download", `KMP_Command_Audit_Logs_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      
-      setTimeout(() => {
-         document.body.removeChild(link);
-         window.URL.revokeObjectURL(url);
-      }, 2000);
-      
-    } catch (error) {
-      console.error("Download failed:", error);
-      alert("Failed to download logs. You may not have Super Admin clearance.");
-    }
-  };
-
-  return (
-    <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-      
-{/* 🟢 SIDEBAR WRAPPER (Collapses to edge on 3-bar click, disappears entirely on Full Screen) */}
-      <div className={`transition-all duration-300 flex flex-col bg-slate-900 border-r border-slate-700 flex-shrink-0 overflow-hidden ${
-        isFullScreen 
-          ? 'hidden w-0' 
-          : (sidebarOpen ? 'w-64 md:w-72' : 'w-16')
-      }`}>
-        
-        {/* --- HEADER --- */}
-        <div className={`p-4 flex items-center border-b border-slate-500 transition-all ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
-          {sidebarOpen && (
-            <div className="flex items-center min-w-max">
-              <img 
-                src="/upf_badge.png" 
-                alt="UPF Logo" 
-                className="w-4 h-4 mr-0.5 object-contain contrast-200 brightness-75 sm" 
-                onError={(e) => { e.target.style.display = 'none'; }} 
-              />
-              <span className="font-bold text-yellow-0.5g tracking-wider">KMP TRACKER SYSTEM</span>
-            </div>
-          )}
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-500 rounded text-slate-150 transition-colors shrink-0">
-            <Menu size={sidebarOpen ? 14 : 20} />
-          </button>
-        </div>
-        
-        {/* --- NAVIGATION LIST --- */}
-        <div className="flex-1 overflow-y-auto py-2 custom-scrollbar overflow-x-hidden">
-          {sidebarOpen && <div className="px-6 mb-2 text-xs font-bold text-orange-500 uppercase tracking-wider min-w-max">📋 Select Domain Category</div>}
-          
-          <nav className="space-y-1 mb-8">
-            {navItems.map((item) => (
-              <button 
-                key={item.id} 
-                onClick={() => {
-                  setCurrentPage(item.id);
-                  if (item.id === 'Admin_Communication') {
-                    const safeId = typeof latestCommId !== 'undefined' ? latestCommId : Date.now();
-                    setLastViewedId(safeId);
-                    localStorage.setItem('last_viewed_comm_id', JSON.stringify(safeId));
-                  }
-                }}
-                className={`w-full flex items-center py-3 transition-colors text-left ${sidebarOpen ? 'px-6' : 'px-0 justify-center'} ${
-                  currentPage === item.id ? 'bg-blue-600 border-l-4 border-yellow-400 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white border-l-4 border-transparent'
-                }`}
-              >
-                <div className="min-w-[24px] flex justify-center shrink-0">{item.icon}</div>
-                
-                {sidebarOpen && (
-                  <span className={`ml-3 font-medium text-sm flex items-center justify-between flex-1 min-w-max ${item.id === 'home' && hasUnreadComms ? 'text-green-200 font-extrabold animate-pulse' : ''}`}>
-                    {item.name}
-                    {item.id === 'home' && hasUnreadComms && (
-                      <span className="text-[9px] bg-green-200/20 text-green-200 border border-green-200 px-1.5 py-0.5 rounded uppercase tracking-wider ml-2">New Dispatch</span>
-                    )}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
-
-          {/* 🟢 SYSTEM ADMIN CLEARANCE BLOCK */}
-          {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.system_admin) && (
-            <div className="px-4 space-y-3 min-w-max">
-              <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
-                <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
-                <button 
-                  onClick={() => setCurrentPage('approvals')} 
-                  className={`w-full text-xs py-4 rounded transition font-medium ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}
-                >
-                  Manage Pending Users & Logs
-                </button>
-              </div>
-
-              <div className="rounded-lg p-4 bg-slate-800">
-                <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
-                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Online ({realOnlineUsers?.length || 0})</span>
-                </button>
-                
-                {showOnline && (
-                  <div className="mt-4 space-y-2 border-t border-slate-700 pt-4 max-h-40 overflow-y-auto custom-scrollbar pr-1">
-                    {realOnlineUsers.map((user) => (
-                      <div key={user.fnum} onClick={() => { setSelectedUserDetail({ ...user, isSystemUser: true, isReadOnly: true }); setNewForcePassword(''); }} className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between group">
-                        <div className="flex items-center space-x-3">
-                          {user.profile_photo_path ? (
-                            <img src={user.profile_photo_path} alt="" className="w-7 h-7 rounded-full border border-green-400 object-cover shadow-sm group-hover:border-green-300 transition-colors" onError={(e) => { e.target.style.display='none'; }} />
-                          ) : (
-                            <div className="w-7 h-7 bg-green-600 rounded-full flex items-center justify-center text-white font-bold shadow-sm">{user.name?.charAt(0) || 'U'}</div>
-                          )}
-                          <div>
-                            <span className="font-bold text-white block truncate w-32">{user.name} {user.fnum === currentUser.fnum ? '(You)' : ''}</span>
-                            <span className="text-slate-400 text-[9px] uppercase tracking-wider">{user.station}</span>
-                          </div>
-                        </div>
-                        <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e] animate-pulse"></div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div> 
-          )}
-
-          {/* 🟢 GLOBAL ROSTER VISIBILITY BLOCK */}
-          {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) && (
-            <div className="px-4 mt-3 space-y-3 min-w-max">
-              <div className="rounded-lg p-3 bg-slate-800 border border-slate-700">
-                <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400">
-                  <span className="flex items-center"><Users size={16} className="mr-2"/> 👥 System Roster</span>
-                  <span className="bg-slate-900 px-2 py-0.5 rounded-full text-xs text-white border border-slate-600">{users?.length || 0}</span>
-                </button>
-                
-                {showAllUsers && (
-                 <div className="mt-3 space-y-2 border-t border-slate-700 pt-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
-                    {users?.map(u => (
-                       <div key={u.fnum} onClick={() => { setSelectedUserDetail({ ...u, isSystemUser: true, isReadOnly: false }); setNewForcePassword(''); }} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-blue-500 cursor-pointer transition-all flex items-center justify-between group">
-                          <div className="flex items-center space-x-2">
-                            {u.profile_photo_path ? (
-                              <img src={u.profile_photo_path} alt="" className="w-7 h-7 rounded-full object-cover border border-slate-600 group-hover:border-blue-400" onError={(e) => { e.target.style.display='none'; }} />
-                            ) : (
-                              <div className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-xs border border-slate-600 group-hover:border-blue-400 group-hover:text-blue-300">
-                                {u.name?.charAt(0) || 'U'}
-                              </div>
-                            )}
-                            <div>
-                              <span className="font-bold text-white block truncate w-28">{u.name}</span>
-                              <span className="text-slate-400 font-mono text-[9px]">{u.fnum}</span>
-                            </div>
-                          </div>
-                          <div className="text-[9px] px-1.5 py-0.5 bg-slate-800 rounded text-slate-300 font-bold uppercase border border-slate-700 group-hover:bg-blue-900 group-hover:text-blue-100 transition-colors">
-                            {String(u.role || 'USER').replace('_ADMIN', '')}
-                          </div>
-                       </div>
-                    ))}
-                 </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* 🟢 REPORTS & LEDGERS BLOCK */}
-          {sidebarOpen && (
-            <div className="px-4 mt-4 space-y-3 min-w-max pb-4">
-              <div className="bg-slate-800 rounded-lg p-3 border border-yellow-600/30">
-                <div className="text-sm font-bold text-yellow-500 mb-3 flex items-center"><Shield size={16} className="mr-2"/> ⚙️ Reports & Ledgers</div>
-                <div className="space-y-4">
-                  <div>
-                    <span className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1 block">HR & Establishments</span>
-                    <div className="flex space-x-2">
-                      <button onClick={onViewHRReport} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center">
-                        <Eye size={14} className="mr-1"/> View
-                      </button>
-                      {(['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser.role) || currentUser.permissions?.export_data) && (
-                        <button onClick={onGenerateHRReport} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded transition flex items-center justify-center">
-                          <Download size={14} className="mr-1"/> Export
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {(['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.consolidated) && (
-                    <button onClick={onViewConsolidated} className="w-full text-xs py-2 rounded transition flex items-center justify-center font-bold mt-3 bg-slate-900 hover:bg-slate-950 text-blue-400 border border-blue-900">
-                      <Eye size={14} className="mr-2"/> Consolidated Entries
-                    </button>
-                  )}
-                  {(['SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.export_data) && (
-                    <button onClick={handleExportLogs} className="w-full mt-2 text-xs py-2 rounded transition font-bold bg-slate-900 hover:bg-slate-950 text-slate-300 border border-slate-700 flex items-center justify-center">
-                      <Download size={14} className="mr-2 text-blue-400"/> Export Audit Logs
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* --- USER PROFILE FOOTER --- */}
-        <div className={`p-4 border-t border-slate-700 bg-slate-950 shrink-0 flex flex-col transition-all ${sidebarOpen ? '' : 'items-center'}`}>
-          <div className={`flex items-center cursor-pointer hover:bg-slate-800 rounded transition-colors ${sidebarOpen ? 'mb-4 px-2 p-2' : 'justify-center p-2 mb-3'}`} onClick={() => setCurrentPage('profile')}>
-             <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm shadow overflow-hidden shrink-0">
-               {currentUser?.profile_photo_path ? (
-                 <img src={currentUser.profile_photo_path} alt="" className="w-full h-full object-cover" onError={(e) => { e.target.style.display='none'; }} />
-               ) : (currentUser?.name?.charAt(0) || 'A')}
-             </div>
-             {sidebarOpen && (
-               <div className="ml-3 flex-1 overflow-hidden min-w-max">
-                 <div className="text-sm font-bold leading-tight truncate">{currentUser?.name || 'Guest'}</div>
-                 <div className="text-xs font-bold text-green-400 uppercase truncate">{currentUser?.role || 'N/A'} • {currentUser?.station || 'N/A'}</div>
-               </div>
-             )}
-          </div>
-          <button onClick={onLogout} className={`flex items-center w-full py-2 text-red-400 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-red-900 ${sidebarOpen ? 'px-4 justify-start' : 'px-0 justify-center'}`}>
-             <LogOut size={18} />
-             {sidebarOpen && <span className="ml-3 font-medium text-sm min-w-max">Secure Logout</span>}
-          </button>
-        </div>
-      </div>
-
-{/* 🟢 MAIN CONTENT AREA */}
-      <main className="flex-1 overflow-y-auto bg-gray-50 w-full relative flex flex-col">
-        
-        {/* Full Screen Floating Toggle */}
-        <div className="absolute top-4 right-6 z-50">
-          <button 
-            onClick={() => setIsFullScreen(!isFullScreen)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-bold shadow-md transition-colors flex items-center gap-2 border border-blue-800"
-          >
-            {isFullScreen ? '🗗 Exit Full Screen' : '⛶ Full Screen'}
-          </button>
-        </div>
-
-        {/* 🇺🇬 FAINT WAVING UGANDA FLAG BACKGROUND WATERMARK */}
-        <div className="absolute inset-0 pointer-events-none z-0 uganda-flag-wave opacity-[0.03] mix-blend-multiply"></div>
-
-        {/* Existing UPF Badge Watermark */}
-        <div className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.02]">
-          <img 
-            src="/upf_badge.png" 
-            alt="watermark" 
-            className="w-1/2 max-w-2xl grayscale object-contain contrast-200 brightness-75 drop-shadow-sm" 
-            onError={(e) => { e.target.style.display = 'none'; }} 
-          />
-        </div>
-        
-        {React.Children.map(children, child => 
-          (React.isValidElement(child) && typeof child.type !== 'string') 
-            ? React.cloneElement(child, { setSidebarOpen }) 
-            : child
-        )}  
-      </main>
-
-      {/* USER ACCESS MANAGEMENT MODAL */}
-      {selectedUserDetail && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in">
-          
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-y-auto max-h-[95vh] custom-scrollbar flex flex-col">
-            
-            <div className="bg-slate-900 text-white p-4 flex justify-between items-center shrink-0">
-              <h3 className="font-bold flex items-center text-sm">
-                <Shield size={18} className="text-blue-400 mr-2" /> 
-                ACCESS CLEARANCE MATRIX
-              </h3>
-              <button onClick={() => setSelectedUserDetail(null)} className="text-slate-400 hover:text-white transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="p-6">
-                     {/* 1. Header & Photo */}
-              <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-gray-100">
-                <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-2xl overflow-hidden shadow-sm border-2 border-blue-500">
-                  {selectedUserDetail.profile_photo_path ? (
-                     <img 
-                       src={selectedUserDetail.profile_photo_path} 
-                       alt="Profile" 
-                       className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" 
-                       onClick={() => setViewingProfileImage(selectedUserDetail.profile_photo_path)} // 🟢 OPENS FULL VIEW
-                     />
-                  ) : (selectedUserDetail.name?.charAt(0) || 'U')}
-                </div>
-              </div>
-
-              {/* 2. COMPREHENSIVE PROFILE GRID */}
-              <h4 className="text-xs font-bold text-slate-800 mb-3 uppercase tracking-wider">Comprehensive Profile</h4>
-              <div className="grid grid-cols-2 gap-4 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-inner">
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">IPPS Number</label>
-                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.ipps || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Official Title</label>
-                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.position || 'N/A'}</div>
-                </div>
-                <div className="col-span-2">
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Command Chain (Region / Division)</label>
-                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.region || 'N/A'} / {selectedUserDetail.division || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Email Contact</label>
-                  <div className="text-xs font-bold text-slate-800 break-words">{selectedUserDetail.email || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Phone Number</label>
-                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.phone || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Sex</label>
-                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.sex || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">System Role</label>
-                  <div className="text-xs font-extrabold text-blue-700">{selectedUserDetail.role || 'USER'}</div>
-                </div>
-              </div>
-
-{/* 3. STRICT HIERARCHICAL ACCESS CONTROLS */}
-{selectedUserDetail.isSystemUser && !selectedUserDetail.isReadOnly && (
-  currentUser.role === 'SUPER_ADMIN' || 
-  (currentUser.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser.region === selectedUserDetail.region)
-) && (
-                <>
-                  <h4 className="font-extrabold text-sm text-gray-900 border-b pb-2 flex items-center mb-4 mt-6">
-                    <Shield size={16} className="mr-2 text-red-600"/> 
-                    Component Admin Clearances
-                  </h4>
-                  <div className="space-y-3 bg-white p-4 rounded-lg border border-red-100 shadow-sm">
-                    
-                    <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input type="checkbox" className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500" defaultChecked={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newRole = e.target.checked ? 'ADMIN' : 'USER'; onUpdateUserRole(selectedUserDetail.fnum, newRole, selectedUserDetail.permissions || {}); }} />
-                      <div className="flex-1">
-                        <div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">System Administrator</div>
-                        <div className="text-xs text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit Logs.</div>
-                      </div>
-                    </label>
-
-                    <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500" checked={Boolean(selectedUserDetail.permissions?.consolidated) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), consolidated: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1">
-                        <div className="text-sm font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">Consolidated Ledger Access</div>
-                        <div className="text-xs text-slate-500 font-medium">Allows viewing the cross-domain master Excel overlays.</div>
-                      </div>
-                    </label>
-
-                    <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input type="checkbox" className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500" checked={Boolean(selectedUserDetail.permissions?.export_data) || ['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), export_data: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1">
-                        <div className="text-sm font-bold text-slate-800 group-hover:text-purple-700 transition-colors">Database Export Privilege</div>
-                        <div className="text-xs text-slate-500 font-medium">Allows downloading raw .xlsx database files to local device.</div>
-                      </div>
-                    </label>
-
-                    <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input type="checkbox" className="w-4 h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500" checked={Boolean(selectedUserDetail.permissions?.view_global_roster) || ['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)} disabled={['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), view_global_roster: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1">
-                        <div className="text-sm font-bold text-slate-800 group-hover:text-orange-700 transition-colors">Global Roster Visibility</div>
-                        <div className="text-xs text-slate-500 font-medium">Allows viewing personnel from ALL regions in the System Roster.</div>
-                      </div>
-                    </label>
-                  </div>
-
-                  {/* 🟢 Super Admin Force Password Tool */}
-                  {currentUser.role === 'SUPER_ADMIN' && (
-                    <div className="mt-6 bg-red-50 p-4 rounded-lg border border-red-200 shadow-sm">
-                      <h4 className="font-extrabold text-xs text-red-800 border-b border-red-200 pb-2 mb-3 flex items-center">
-                        <Lock size={14} className="mr-2" /> Super Admin: Issue New Password
-                      </h4>
-                      <div className="flex space-x-2">
-                        <input type="text" placeholder="Type new password (min 6 chars)" value={newForcePassword} onChange={(e) => setNewForcePassword(e.target.value)} className="flex-1 text-sm border-red-300 rounded shadow-sm p-2 outline-none focus:ring-2 focus:ring-red-500 font-mono" />
-                        <button onClick={async () => {
-                            if (newForcePassword.length < 6) return alert('Password must be at least 6 characters.');
-                            try {
-                              const token = localStorage.getItem('kmp_authToken');
-                              const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-                              const res = await fetch(`${API_URL}/api/v1/admin/users/${selectedUserDetail.fnum}/force-password`, {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                                body: JSON.stringify({ new_password: newForcePassword })
-                              });
-                              if (!res.ok) throw new Error(await res.text());
-                              alert(`Password successfully changed for ${selectedUserDetail.name}.`);
-                              setNewForcePassword('');
-                            } catch (err) { alert('Error: ' + err.message); }
-                          }}
-                          className="bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2 rounded text-xs transition border border-red-800 shrink-0"
-                        >
-                          Set Password
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-{/* 🟢 REGION-LOCKED MODAL FOOTER */}
-<div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center rounded-b-xl shrink-0">
-  <button 
-    onClick={() => setSelectedUserDetail(null)} 
-    className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center border border-gray-300"
-  >
-    <X size={14} className="mr-1"/> Close Profile
-  </button>
-  
-  {selectedUserDetail.isSystemUser && (
-    currentUser.role === 'SUPER_ADMIN' || 
-    (currentUser.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser.region === selectedUserDetail.region)
-  ) && (
-    <button 
-      onClick={() => {
-         if (window.confirm(`Are you absolutely sure you want to revoke all system access for ${selectedUserDetail.name}?`)) {
-            onRevokeUser(selectedUserDetail.fnum);
-            setSelectedUserDetail(null);
-         }
-      }} 
-      className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm"
-    >
-      Revoke Access
-    </button>
-  )}
-</div>
-          </div>
-        </div>
-      )}
-
-      {/* 🟢 FULL SCREEN IMAGE MODAL FOR SELECTED USER */}
-      {viewingProfileImage && (
-        <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingProfileImage(null)}>
-          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg">
-            <X size={24}/>
-          </button>
-          <img 
-            src={viewingProfileImage} 
-            alt="Full Profile" 
-            className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" 
-            onClick={(e) => e.stopPropagation()} 
-          />
-        </div>
-      )}
-
-    </div>
-  );
-};
-
-// ====================================================================
-// --- ROOT APP COMPONENT ---
-// ====================================================================
 const App = () => {
   const [currentUser, setCurrentUser] = usePersistentState('kmp_currentUser', null);
   const [currentPage, setCurrentPage] = usePersistentState('kmp_currentPage', 'home');
   const [isInitializing, setIsInitializing] = useState(true);
 
-  // States for all the Ledgers
   const [reports, setReports] = useState([]);
   const [stats, setStats] = useState([]);
   const [stories, setStories] = useState([]);
@@ -5588,7 +3327,6 @@ const App = () => {
   const [users, setUsers] = useState([]);
   const [pendingUsers, setPendingUsers] = useState([]);
 
-  // States for Overlays
   const [hrLedgerData, setHrLedgerData] = useState(null);
   const [isViewingHR, setIsViewingHR] = useState(false);
   const [isViewingConsolidated, setIsViewingConsolidated] = useState(false);
@@ -5599,48 +3337,25 @@ const App = () => {
     const checkClearance = () => {
       const token = localStorage.getItem('kmp_authToken');
       const cachedUser = localStorage.getItem('kmp_currentUser');
-      
-      if (!token || !cachedUser) {
-        setIsInitializing(false);
-        return;
-      }
-
-      try {
-        const parsedUser = JSON.parse(cachedUser);
-        setCurrentUser(parsedUser);
-      } catch (error) {
-        console.error("Failed to parse cached user:", error);
-        localStorage.removeItem('kmp_authToken');
-        localStorage.removeItem('kmp_currentUser');
-      }
-      
+      if (!token || !cachedUser) { setIsInitializing(false); return; }
+      try { setCurrentUser(JSON.parse(cachedUser)); } catch (error) { localStorage.removeItem('kmp_authToken'); localStorage.removeItem('kmp_currentUser'); }
       setIsInitializing(false);
     };
-
     checkClearance();
   }, [setCurrentUser]);
 
-useEffect(() => {
-    // 🟢 The ?.fnum prevents the infinite rendering loop
+  useEffect(() => {
     if (!currentUser?.fnum) return; 
-    
     const controller = new AbortController();
-    
     const fetchAllData = async () => {
       const token = localStorage.getItem('kmp_authToken');
       if (!token) return;
-
       try {
-        // 🟢 Restored your stable, original Promise.all structure
         const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives, resUsers] = await Promise.all([
-          authFetch("/api/v1/reports", { signal: controller.signal }),
-          authFetch("/api/v1/stats", { signal: controller.signal }),
-          authFetch("/api/v1/stories", { signal: controller.signal }),
-          authFetch("/api/v1/nominal-roll", { signal: controller.signal }),
-          authFetch("/api/v1/Admin_Communication", { signal: controller.signal }),
-          authFetch("/api/v1/establishments", { signal: controller.signal }),
-          authFetch("/api/v1/nominal-roll-archive", { signal: controller.signal }),
-          authFetch("/api/v1/users", { signal: controller.signal })
+          authFetch("/api/v1/reports", { signal: controller.signal }), authFetch("/api/v1/stats", { signal: controller.signal }),
+          authFetch("/api/v1/stories", { signal: controller.signal }), authFetch("/api/v1/nominal-roll", { signal: controller.signal }),
+          authFetch("/api/v1/Admin_Communication", { signal: controller.signal }), authFetch("/api/v1/establishments", { signal: controller.signal }),
+          authFetch("/api/v1/nominal-roll-archive", { signal: controller.signal }), authFetch("/api/v1/users", { signal: controller.signal })
         ]);
 
         if (!controller.signal.aborted) {
@@ -5655,295 +3370,129 @@ useEffect(() => {
           if (resUsers.ok) {
             const allUsers = await resUsers.json();
             setUsers(allUsers);
-            
-            // 🟢 LIVE SYNC FIX: Instantly update current user permissions without requiring logout
             const me = allUsers.find(u => u.fnum === currentUser.fnum);
             if (me && (JSON.stringify(me.permissions) !== JSON.stringify(currentUser.permissions) || me.role !== currentUser.role)) {
                 setCurrentUser(prev => ({ ...prev, permissions: me.permissions, role: me.role }));
             }
           }
         }
-      } catch (error) {                                          // 🟢 FIXED: Added missing catch block
-        if (error.name !== 'AbortError') console.error(error);  // 🟢 FIXED: Ignored safe abort errors
-      }                                                         // 🟢 FIXED: Closed the try/catch
-    };                                                          // 🟢 FIXED: Closed fetchAllData function
+      } catch (error) { if (error.name !== 'AbortError') console.error(error); } 
+    };
     
     fetchAllData();
     return () => controller.abort();
   }, [currentUser?.fnum]); 
 
   const handleMasterExport = async (scope, value) => {
-    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-    let url = `${API_URL}/api/v1/reports/export?timeframe=all`; 
-    if (scope && value) {
-        url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
-    }
-    try {
-        const response = await fetch(url, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('kmp_authToken')}` }
-        });
-        if (!response.ok) {
-            if (response.status === 403) throw new Error("Clearance Denied");
-            throw new Error("Export failed");
-        }
-        const blob = await response.blob();
-        const downloadUrl = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.style.display = 'none';
-        link.href = downloadUrl;
-        
-        link.download = `KMP_Master_Ledger_${value || "General"}_${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]}.zip`;
-        
-        document.body.appendChild(link);
-        link.click();
-        
-        setTimeout(() => {
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(downloadUrl);
-        }, 2000);
-    } catch (err) {
-        console.error("Export Error:", err);
-        alert(err.message === "Clearance Denied" ? "Access Denied: You require Export Clearance." : "Failed to download export file.");
-    }
+    let url = `/api/v1/reports/export?timeframe=all`; 
+    if (scope && value) url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
+    downloadWithAuth(url, `KMP_Master_Ledger_${value || "General"}_${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]}.zip`);
   };
 
   const handleAcknowledgeComm = async (commId) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const response = await fetch(`${API_URL}/api/v1/communications/${commId}/acknowledge`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      if (response.ok) {
-        setAdminCommsData(prevData => prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c));
-      }
-    } catch (err) {
-      console.error("Failed to acknowledge receipt", err);
-    }
+      const response = await fetch(`${API_URL}/api/v1/communications/${commId}/acknowledge`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+      if (response.ok) setAdminCommsData(prevData => prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c));
+    } catch (err) { console.error("Failed to acknowledge receipt", err); }
   };
 
-  const handlePageChange = (pageId) => {
-    setCurrentPage(pageId);          
-    setIsViewingConsolidated(false); 
-    setIsViewingHR(false);           
-  };
+  const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
 
-const renderPage = () => {
+  const renderPage = () => {
     switch (currentPage) {
-      case 'home': 
-        return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
-      case 'reports': 
-        return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
-      case 'statistics': 
-        return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
-      case 'success': 
-        return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
-      case 'establishments': 
-        return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
-      case 'nominal-roll': 
-        return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
-      case 'approvals': 
-        return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
-      case 'profile': 
-        return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
-      case 'Admin_Communication': 
-        return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm}/>;
-      default: 
-        return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+      case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+      case 'reports': return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
+      case 'statistics': return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
+      case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
+      case 'establishments': return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
+      case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
+      case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+      case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
+      case 'Admin_Communication': return ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? <Admin_Communication currentUser={currentUser} users={users} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm}/>;
+      default: return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
     }
   };
 
   const handleViewHRReport = async () => {
     try {
       const res = await authFetch("/api/v1/reports/establishments-json");
-      
-      if (!res.ok) {
-        throw new Error("Security clearance rejected or server error.");
-      }
-      
-      const data = await res.json();
-      setHrLedgerData(data);
-      setIsViewingHR(true);
-    } catch (err) {
-      console.error("HR Fetch Error:", err);
-      alert("Cannot load HR ledger data. Ensure your session is active and you have network connectivity.");
-    }
+      if (!res.ok) throw new Error("Security clearance rejected or server error.");
+      const data = await res.json(); setHrLedgerData(data); setIsViewingHR(true);
+    } catch (err) { alert("Cannot load HR ledger data. Ensure your session is active and you have network connectivity."); }
   };
 
   const handleViewConsolidated = async () => {
       setIsViewingHR(false);
       const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-      const lastWeek = new Date();
-      lastWeek.setDate(lastWeek.getDate() - 7);
+      const lastWeek = new Date(); lastWeek.setDate(lastWeek.getDate() - 7);
       const start = lastWeek.toISOString().split('T')[0];
 
       try {
           const response = await authFetch(`/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
-          
           if (!response.ok) throw new Error("Backend failed to compile ledger.");
-
-          const data = await response.json();
-          setConsolidatedData(data);
-          setIsViewingConsolidated(true);
-      } catch (err) {
-          console.error("Ledger fetch failed:", err);
-          alert("Failed to load Consolidated Ledger. Check Python terminal for errors.");
-      }
+          const data = await response.json(); setConsolidatedData(data); setIsViewingConsolidated(true);
+      } catch (err) { alert("Failed to load Consolidated Ledger. Check Python terminal for errors."); }
   };
 
-  if (isInitializing) {
-    return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
-  }
+  if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
 
   if (currentUser && !currentUser.region) {
-    localStorage.removeItem('kmp_currentUser');
-    localStorage.removeItem('kmp_authToken');
+    localStorage.removeItem('kmp_currentUser'); localStorage.removeItem('kmp_authToken');
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
         <h2 className="text-2xl font-bold text-red-600 mb-2">Ghost Session Detected</h2>
         <p className="text-slate-600 mb-6">Corrupted local data is blocking the dashboard. Click below to wipe it.</p>
-        <button onClick={() => window.location.reload()} className="px-6 py-3 bg-blue-700 text-white font-bold rounded-lg shadow-md hover:bg-blue-800">
-          Force Clear & Restart App
-        </button>
+        <button onClick={() => window.location.reload()} className="px-6 py-3 bg-blue-700 text-white font-bold rounded-lg shadow-md hover:bg-blue-800">Force Clear & Restart App</button>
       </div>
     );
   }
 
  if (!currentUser) return <LoginScreen 
     onLogin={(user) => {
-      // 🟢 INSTANTLY RESET TO HOME PAGE UPON SUCCESSFUL LOGIN
-      localStorage.removeItem('kmp_currentPage'); 
-      setCurrentPage('home'); 
-      setCurrentUser(user);
-
-      // 🟢 SILENTLY TRIGGER THE AUDIT LOG FOR TODAY'S DATE
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      fetch(`${API_URL}/api/v1/system/log-session`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fnum: user.fnum })
-      }).catch(e => console.error(e));
+      localStorage.removeItem('kmp_currentPage'); setCurrentPage('home'); setCurrentUser(user);
+      fetch(`${API_URL}/api/v1/system/log-session`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fnum: user.fnum }) }).catch(e => console.error(e));
     }} 
-    onForgot={() => {}} 
-    onSignup={(u) => setPendingUsers([...pendingUsers, u])} 
-    pendingUsers={pendingUsers} 
-    activeUsers={users} 
+    onForgot={() => {}} onSignup={(u) => setPendingUsers([...pendingUsers, u])} pendingUsers={pendingUsers} activeUsers={users} 
   />;
 
-  const handleGenerateHRReport = () => {
-    downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
-  };
+  const handleGenerateHRReport = () => downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
 
-const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
+  const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
     setUsers(users.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: newPermissions } : u));
-    
     try {
       const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      await fetch(`${API_URL}/api/v1/users/${fnum}/access`, {
-        method: "PUT",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}` 
-        },
-        body: JSON.stringify({ role: newRole, permissions: newPermissions })
-      });
-    } catch (err) {
-      console.error("Failed to save permissions to database:", err);
-    }
+      await fetch(`${API_URL}/api/v1/users/${fnum}/access`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify({ role: newRole, permissions: newPermissions }) });
+    } catch (err) { console.error("Failed to save permissions to database:", err); }
   };
 
-const handleRevokeUser = async (fnum) => {
-    // 🟢 Prompts the Admin for a concrete reason before revoking
+  const handleRevokeUser = async (fnum) => {
     const reason = window.prompt(`Please state the official reason for revoking access for ${fnum}:`);
-    if (reason === null) return; // Admin clicked cancel
-    if (reason.trim() === '') {
-       alert("An official reason is mandatory to revoke a user's access.");
-       return;
-    }
+    if (reason === null) return; 
+    if (reason.trim() === '') return alert("An official reason is mandatory to revoke a user's access.");
 
     try {
       const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       await fetch(`${API_URL}/api/v1/users/${encodeURIComponent(fnum)}/revoke?reason=${encodeURIComponent(reason)}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${token}` }
+        method: "DELETE", headers: { "Authorization": `Bearer ${token}` }
       });
       setUsers(users.filter(u => u.fnum !== fnum));
       alert(`Access revoked for ${fnum}. Reason logged in Audit Trail.`);
-    } catch (err) {
-      console.error("Failed to revoke user:", err);
-    }
+    } catch (err) { console.error("Failed to revoke user:", err); }
   };
-
-  const IdleWarningModal = () => showIdleWarning && (
-    <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[500] flex justify-center items-center p-4 animate-in zoom-in duration-300">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center border-2 border-red-500">
-        
-        {/* 🟢 REPLACED TRIANGLE WITH UPF EMBLEM */}
-        <img 
-          src="/upf_badge.png" 
-          alt="UPF Emblem" 
-          className="w-20 h-20 mx-auto mb-4 object-contain animate-pulse drop-shadow-md contrast-125" 
-        />
-        
-        <h2 className="text-2xl font-extrabold text-slate-900 mb-2">Session Timeout Warning</h2>
-        <p className="text-slate-600 font-medium mb-6">Your connection to the KMP network has been idle. For security purposes, you will be logged out in:</p>
-        <div className="text-5xl font-mono font-extrabold text-red-600 mb-8">{idleCountdown}s</div>
-        <button 
-          onClick={() => setShowIdleWarning(false)} 
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all text-lg"
-        >
-          I am still here (Extend Session)
-        </button>
-      </div>
-    </div>
-  );
 
   return (
     <DashboardLayout 
-      currentUser={currentUser}
-      currentPage={currentPage} 
-      setCurrentPage={handlePageChange} 
-onLogout={() => { 
-        localStorage.removeItem('kmp_authToken'); 
-        localStorage.removeItem('kmp_currentUser'); 
-        localStorage.removeItem('kmp_currentPage'); 
-        window.location.reload(); // 🟢 Hard-kills the React tree and wipes memory
-      }}
-      onUpdateUserRole={handleUpdateUserRole}
-      onRevokeUser={handleRevokeUser}
-      users={users}
-      Admin_Communication={adminCommsData}
-      onViewConsolidated={handleViewConsolidated}
-      onViewHRReport={handleViewHRReport}
-      onGenerateHRReport={handleGenerateHRReport}
+      currentUser={currentUser} currentPage={currentPage} setCurrentPage={handlePageChange} 
+      onLogout={() => { localStorage.removeItem('kmp_authToken'); localStorage.removeItem('kmp_currentUser'); localStorage.removeItem('kmp_currentPage'); window.location.reload(); }}
+      onUpdateUserRole={handleUpdateUserRole} onRevokeUser={handleRevokeUser} users={users} Admin_Communication={adminCommsData}
+      onViewConsolidated={handleViewConsolidated} onViewHRReport={handleViewHRReport} onGenerateHRReport={handleGenerateHRReport}
     >
-      {isViewingConsolidated && (
-        <ConsolidatedLedger 
-           data={consolidatedData} 
-           reports={reports} 
-           stats={stats} 
-           stories={stories} 
-           onClose={() => setIsViewingConsolidated(false)} 
-        />
-      )}
-
-{isViewingHR && hrLedgerData && (
-        <HrEstablishmentsLedger 
-           data={hrLedgerData} 
-           onClose={() => setIsViewingHR(false)} 
-           currentUser={currentUser} 
-           onUploadSuccess={() => window.location.reload()} 
-        />
-      )}
-
+      {isViewingConsolidated && <ConsolidatedLedger data={consolidatedData} reports={reports} stats={stats} stories={stories} onClose={() => setIsViewingConsolidated(false)} />}
+      {isViewingHR && hrLedgerData && <HrEstablishmentsLedger data={hrLedgerData} onClose={() => setIsViewingHR(false)} currentUser={currentUser} onUploadSuccess={() => window.location.reload()} />}
       <div className={(isViewingConsolidated || isViewingHR) ? 'hidden' : 'block w-full h-full'}>
         {renderPage()}
       </div>
-      
     </DashboardLayout>
   );
 };

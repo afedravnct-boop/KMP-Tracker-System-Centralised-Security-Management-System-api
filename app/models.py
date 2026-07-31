@@ -222,7 +222,6 @@ class Modification_Requests(Base):
     __tablename__ = "modification_requests"
     __table_args__ = {'extend_existing': True} 
     id = Column(Integer, primary_key=True, index=True)
-    # 🟢 ADDED FOREIGN KEY CASCADE
     fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True) 
     requested_rank = Column(String, nullable=True)
     requested_name = Column(String, nullable=True)
@@ -242,7 +241,6 @@ class Audit_Logs(Base):
     status = Column(String) 
     details = Column(String)
     created_at = Column(DateTime, default=get_eat_time)
-    # 🟢 ADDED FOREIGN KEY CASCADE
     user_fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
 
 class Activity_Logs(Base):
@@ -261,7 +259,6 @@ class Activity_Logs(Base):
 class Admin_Communication(Base):
     __tablename__ = "Admin_Communication"
     id = Column(Integer, primary_key=True, index=True)
-    # 🟢 ADDED FOREIGN KEY CASCADE
     sender_fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
     sender_name = Column(String)
     target_audience = Column(String, index=True)
@@ -273,22 +270,25 @@ class Admin_Communication(Base):
     created_at = Column(DateTime, default=get_eat_time)
 
 # ==========================================
-# 10. COMMUNICATION READ RECEIPTS
+# 10. COMMUNICATION READ RECEIPTS & PASSWORD RESETS
 # ==========================================
 class Communication_Reads(Base):
     __tablename__ = "communication_reads"
 
     id = Column(Integer, primary_key=True, index=True)
     comm_id = Column(Integer, index=True)
-    # 🟢 ADDED FOREIGN KEY CASCADE
     fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
     read_at = Column(DateTime(timezone=True), server_default=func.now())
 
-class Password_Resets(Base):
-    __tablename__ = "password_resets"
+# 🟢 FIXED: Updated table name and schema to match api_backend.py logic
+class Password_Reset_Requests(Base):
+    __tablename__ = "password_reset_requests"
 
     id = Column(Integer, primary_key=True, index=True)
-    # 🟢 ADDED FOREIGN KEY CASCADE
     fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), nullable=False)
-    status = Column(String, default="Pending") 
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    name = Column(String)
+    rank = Column(String)
+    station = Column(String)
+    region = Column(String)
+    status = Column(String, default="PENDING") 
+    request_date = Column(DateTime, default=get_eat_time)

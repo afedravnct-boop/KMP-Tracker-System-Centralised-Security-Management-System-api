@@ -31,7 +31,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import UploadFile, File, HTTPException, Depends
+
+from urllib.parse import unquote
 
 # Internal Imports
 from app import models, database
@@ -69,8 +70,8 @@ BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 # 1. MIDDLEWARE & STARTUP
 # ==========================================
 models.Base.metadata.create_all(bind=engine)
-
 models.Base.metadata.create_all(bind=SessionLogsLocal().get_bind())
+
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
@@ -91,15 +92,16 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/api/auth")
 
+# ==========================================
+# 2. PYDANTIC SCHEMAS
+# ==========================================
 class PasswordChangeReq(BaseModel):
     old_password: str
     new_password: str
 
 class ForcePasswordReq(BaseModel):
     new_password: str
-# ==========================================
-# 2. PYDANTIC SCHEMAS
-# ==========================================
+
 class UserAccessUpdate(BaseModel):
     role: str
     permissions: dict
@@ -244,8 +246,8 @@ def apply_custom_sheet_design(workbook, worksheet, df, sheet_title, user):
             if pd.isna(val): val = ""
             worksheet.write(row_num + 1, col_num, val, data_format)
 
-# 6. SHEET-SPECIFIC PRINT SCALING & COLUMN SIZING
-    if "OPS Statistics" in sheet_title:  # 🟢 CHANGED: Now catches both the Master and the (Print) sheet
+    # 6. SHEET-SPECIFIC PRINT SCALING & COLUMN SIZING
+    if "OPS Statistics" in sheet_title:
         worksheet.fit_to_pages(1, 0) # Fit to 1 page wide
         worksheet.set_column('A:A', 5)   # SN
         worksheet.set_column('B:B', 12)  # Date
@@ -337,12 +339,8 @@ def register_user(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database write failed: {str(e)}")
 
-from urllib.parse import unquote
-from fastapi import HTTPException, Depends
-
 @app.put("/api/v1/users/change-password")
 def change_user_password(data: PasswordChangeReq, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # Add your logic to verify old password here if needed
     if len(data.new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
         
@@ -369,39 +367,25 @@ def force_user_password(target_fnum: str, data: ForcePasswordReq, db: Session = 
         log_semantic_audit(db, admin.fnum, "ADMIN_FORCE_PASSWORD", clean_fnum, {}, "Super Admin forced a new security key.")
     return {"status": "success", "message": "Password forced successfully."}
 
-# ---------------------------------------------------------
-# ADMIN: APPROVE PENDING USER REGISTRATION
-# ---------------------------------------------------------
 @app.post("/api/v1/admin/approve/{fnum:path}")
 def approve_pending_user(fnum: str, db: Session = Depends(get_db)):
-    # 1. Clean the Force Number (Ensures "A%2F2408" safely becomes "A/2408")
     clean_fnum = unquote(fnum).strip().upper()
-    
-    # 2. Find the pending user in the database
-    # (Assuming your SQLAlchemy model is named models.Users)
     target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum).first()
     
     if not target_user:
         raise HTTPException(status_code=404, detail=f"Officer {clean_fnum} not found in database.")
         
-    # 3. Activate the user 
-    # (Using hasattr ensures this won't crash regardless of what you named your column)
     if hasattr(target_user, 'status'):
         target_user.status = "ACTIVE"
-        
     if hasattr(target_user, 'is_approved'):
         target_user.is_approved = True
-        
     if hasattr(target_user, 'is_active'):
         target_user.is_active = True
 
-    # 4. Log the action (Optional, if you have Audit Logs setup)
     if hasattr(models, 'Audit_Logs'):
         log_semantic_audit(db, "SYSTEM", "ACCOUNT_APPROVAL", target_user.fnum, {}, f"User {clean_fnum} was approved for system access.")
 
-    # 5. Save changes
     db.commit()
-    
     return {"status": "success", "message": f"Officer {clean_fnum} successfully authorized."}
 
 @app.post("/api/v1/users/upload-profile")
@@ -562,6 +546,7 @@ def get_online_users(db: Session = Depends(get_db), current_user: models.Users =
             "profile_photo_path": u.profile_photo_path
         } for u in active_users
     ]
+
 
 # ==========================================
 # 6. PASSWORD RESET WORKFLOW
@@ -1057,10 +1042,10 @@ async def bulk_upload_nominal_roll(
         df = pd.read_excel(io.BytesIO(contents))
         
         # 3. 🔥 ULTRA-FORGIVING HEADERS
-        # Strips all spaces, dashes, and special characters
+        # This strips all spaces, dashes, and makes everything lowercase 
         df.columns = df.columns.str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
         
-# The Smart Mapping Dictionary - Mapping to Python Model Attribute Names
+        # 4. The Smart Mapping Dictionary
         header_map = {
             "id": "id", "serial": "id", "serialnumber": "id",
             "sn": "sn", "serial": "sn", "serialnumber": "sn",
@@ -1072,7 +1057,7 @@ async def bulk_upload_nominal_roll(
             "dob": "dob", "dateofbirth": "dob",
             "doe": "doe", "dateofenlistment": "doe",
             "dopost": "dopost", "do_post": "dopost", "dateofpost": "dopost",
-            "dopro": "dopro", "dopro": "do_pro", "dateofpromotion": "dopro",
+            "dopro": "dopro", "dateofpromotion": "dopro",
             "contact": "contact", "phone": "contact", "phonenumber": "contact", "telephone": "contact",
             "educlevel": "educlevel", "educ_level": "educlevel", "education": "educlevel", "educationlevel": "educlevel",
             "ipps": "ipps", "ippsnumber": "ipps", "ippsno": "ipps",
@@ -1091,35 +1076,35 @@ async def bulk_upload_nominal_roll(
         
         df.rename(columns=header_map, inplace=True)
         
-        # Clean empty cells
+        # 5. Clean empty cells
         df = df.where(pd.notnull(df), None)
         
         records_added = 0
         records_skipped = 0
         
-        # Fetch existing Force Numbers using the attribute name 'fnum'
-        existing_fnums = {u[0] for u in db.query(models.Nominal_Roll.fnum).all()}
+        # 6. Fetch existing Force Numbers to prevent duplicates safely
+        fnum_attr = getattr(models.Nominal_Roll, 'fnum', getattr(models.Nominal_Roll, 'f_num', None))
+        existing_fnums = {str(u[0]).strip().upper() for u in db.query(fnum_attr).all() if u[0]} if fnum_attr else set()
         
-        # Get valid Python attribute names from the Model
+        # 7. Get valid column names from the Database
         valid_keys = [c.key for c in models.Nominal_Roll.__table__.columns]
 
         for index, row in df.iterrows():
             row_dict = row.to_dict()
             
-            # 🟢 Clean out NaN / NaT values generated by pandas empty cells
+            # Clean out NaN / NaT values generated by pandas empty cells
             row_dict = {k: (None if pd.isna(v) else v) for k, v in row_dict.items()}
             
-            # Extract and force string casting for Force Number
             fnum_val = str(row_dict.get('fnum', row_dict.get('f_num', ''))).strip().upper()
             
-            if not fnum_val or fnum_val in ['NONE', 'NAN', 'NAT', '']:
+            if not fnum_val or fnum_val.lower() in ['none', 'nan', 'nat', '']:
                 continue 
                 
             if fnum_val in existing_fnums:
                 records_skipped += 1
                 continue
             
-            # Clean and format dates safely
+            # Clean Dates
             for date_col in ['dob', 'doe', 'dopost', 'dopro']:
                 if date_col in row_dict and row_dict[date_col]:
                     val = row_dict[date_col]
@@ -1127,18 +1112,18 @@ async def bulk_upload_nominal_roll(
                         row_dict[date_col] = val.strftime("%Y-%m-%d")
                     elif isinstance(val, str) and "/" in val:
                         try:
-                            # Handles messy Excel dates like "07/'02/1983" or "10/12/1990"
                             clean_date_str = val.replace("'", "").strip()
                             d_obj = datetime.strptime(clean_date_str, "%d/%m/%Y")
                             row_dict[date_col] = d_obj.strftime("%Y-%m-%d")
                         except ValueError:
-                            row_dict[date_col] = None
+                            row_dict[date_col] = None 
             
-            # Ensure Python attribute name 'fnum' is correctly populated
-            row_dict['fnum'] = fnum_val
-            row_dict.pop('f_num', None) # Remove database-only key if it snuck in
+            # F-NUM FAILSAFE
+            if 'f_num' in valid_keys and 'fnum' not in valid_keys:
+                row_dict['f_num'] = fnum_val
+            else:
+                row_dict['fnum'] = fnum_val
             
-            # Build and Save - Filtering strictly against valid model columns
             clean_row = {k: v for k, v in row_dict.items() if k in valid_keys and v is not None}
             
             try:
@@ -1183,6 +1168,7 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
             a_dict['fnum'] = a_dict['f_num']
         clean_results.append(a_dict)
     return clean_results
+
 
 # ==========================================
 # 9. FILE UPLOADS
@@ -1500,7 +1486,6 @@ def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.User
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to load HR data due to a server error.")
 
-@app.get("/api/v1/reports/export")
 @app.get("/api/v1/reports/export")
 def export_master_database_unified(
     timeframe: Optional[str] = "all", scope: Optional[str] = None, 
@@ -1834,7 +1819,6 @@ def get_system_audit_logs(db: Session = Depends(get_db), current_user: models.Us
         raise HTTPException(status_code=500, detail="Failed to fetch audit logs.")
 
 @app.get("/api/v1/activity-logs")
-@app.get("/api/v1/activity_logs")
 def get_system_activity_logs(db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
     try:
         if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
