@@ -110,7 +110,7 @@
 }
 
 /* 🟢 UGANDA FLAG WAVING BACKGROUND ANIMATION */
-@keyframes flagWave {
+@keyframes flagWaveBg {
   0% {
     background-position: 0% 50%;
   }
@@ -133,5 +133,24 @@
     #D90000 83.3%, #D90000 100%
   );
   background-size: 150% 150%;
-  animation: flagWave 20s ease infinite;
+  animation: flagWaveBg 20s ease infinite;
+}
+
+/* 🟢 3D PERSPECTIVE WAVING ANIMATION FOR UPF FLAG EMBLEM */
+@keyframes flagWave3D {
+  0% { transform: perspective(500px) rotateY(0deg) skewX(0deg); }
+  25% { transform: perspective(500px) rotateY(6deg) skewX(3deg); }
+  50% { transform: perspective(500px) rotateY(0deg) skewX(0deg); }
+  75% { transform: perspective(500px) rotateY(-6deg) skewX(-3deg); }
+  100% { transform: perspective(500px) rotateY(0deg) skewX(0deg); }
+}
+
+.animate-flag-wave {
+  animation: flagWave3D 3.5s ease-in-out infinite;
+  transform-origin: left center;
+}
+
+/* 🟢 SCREEN OUT WHITE BACKGROUND FROM BADGE/EMBLEM */
+.transparent-badge {
+  mix-blend-mode: screen;
 }

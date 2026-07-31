@@ -6,10 +6,8 @@ import 'react-quill-new/dist/quill.snow.css';
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
-  // 🟢 Is this user a high-ranking official allowed to broadcast globally?
   const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
   
-  // Everyone starts at inbox, except Admins who default to Compose
   const [activeTab, setActiveTab] = useState(canBroadcast ? 'dispatch' : 'inbox'); 
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -18,7 +16,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   const [formData, setFormData] = useState({
     targetAudience: canBroadcast ? 'ALL_USERS' : 'SPECIFIC_USER', 
     targetRegion: 'ALL', 
-    targetFnum: '', 
+    targetFnum: [], // 🟢 Multi-select array for officers
     messageType: canBroadcast ? 'GENERAL_INFO' : 'DIRECT_MESSAGE',
     subject: '', 
     message: '', 
@@ -44,7 +42,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
         ...formData, 
         targetAudience: value, 
         targetRegion: value === 'SPECIFIC_REGION' ? 'KMP NORTH' : 'ALL',
-        targetFnum: '' 
+        targetFnum: [] 
       });
     } else {
       setFormData({ ...formData, [name]: type === 'checkbox' ? checked : value });
@@ -54,7 +52,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   const handleDispatch = async (e) => {
     e.preventDefault();
     if (!formData.subject || !formData.message) return setNotification({ type: 'error', text: 'Subject and Message body are required.' });
-    if (formData.targetAudience === 'SPECIFIC_USER' && !formData.targetFnum) return setNotification({ type: 'error', text: 'Please select a specific recipient from the list.' });
+    if (formData.targetAudience === 'SPECIFIC_USER' && (!formData.targetFnum || formData.targetFnum.length === 0)) {
+      return setNotification({ type: 'error', text: 'Please select at least one recipient from the list.' });
+    }
 
     setIsSubmitting(true);
     setNotification({ type: 'info', text: 'Transmitting encrypted message...' });
@@ -85,7 +85,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
       setFormData({ 
         ...formData, subject: '', message: '', sendEmail: false, 
         targetAudience: canBroadcast ? 'ALL_USERS' : 'SPECIFIC_USER', 
-        targetRegion: 'ALL', targetFnum: '' 
+        targetRegion: 'ALL', targetFnum: [] 
       });
       if (activeTab === 'outbox') fetchMessages();
       
@@ -119,7 +119,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
 
       if (response.ok) {
         const data = await response.json();
-        setInboxMessages(data.filter(msg => msg.sender_fnum !== currentUser.fnum || msg.target_fnum === currentUser.fnum));
+        setInboxMessages(data.filter(msg => msg.sender_fnum !== currentUser.fnum || (msg.target_fnum && msg.target_fnum.includes(currentUser.fnum))));
         setOutboxMessages(data.filter(msg => msg.sender_fnum === currentUser.fnum));
       }
     } catch (err) { console.error("Network error fetching messages:", err); } 
@@ -252,7 +252,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                           <option value="SPECIFIC_REGION">Specific Region</option>
                         </>
                       )}
-                      <option value="SPECIFIC_USER">Specific Officer / Admin (Direct)</option>
+                      <option value="SPECIFIC_USER">Specific Officers / Admins (Direct)</option>
                     </select>
                   </div>
 
@@ -265,18 +265,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                         <option value="KMP SOUTH">KMP SOUTH</option>
                         <option value="KMP HEADQUARTERS">KMP HEADQUARTERS</option>
                         <option value="POLICE HEADQUARTERS">POLICE HEADQUARTERS</option>
-                      </select>
-                    </div>
-                  )}
-
-                  {formData.targetAudience === 'SPECIFIC_USER' && (
-                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                      <label className="block text-xs font-bold text-blue-800 uppercase tracking-wider mb-2 flex items-center"><UserPlus size={14} className="mr-1"/> Select Recipient</label>
-                      <select name="targetFnum" required value={formData.targetFnum} onChange={handleInputChange} className="w-full p-2.5 bg-white border border-blue-300 rounded-md font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500">
-                         <option value="" disabled>-- Select Officer --</option>
-                         {(users || []).map(u => (
-                            <option key={u.fnum} value={u.fnum}>{u.name} - {u.rank} ({u.fnum})</option>
-                         ))}
                       </select>
                     </div>
                   )}
@@ -296,6 +284,58 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                     </select>
                   </div>
                 </div>
+
+                {/* 🟢 REGION-FILTERED MULTI-SELECT OFFICER CHECKLIST */}
+                {formData.targetAudience === 'SPECIFIC_USER' && (
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                    <label className="block text-xs font-bold text-blue-800 uppercase tracking-wider mb-2 flex items-center justify-between">
+                      <span className="flex items-center"><UserPlus size={14} className="mr-1"/> Select Recipients (Multi-Select)</span>
+                      <span className="text-[10px] bg-blue-200 text-blue-900 px-2 py-0.5 rounded font-mono">
+                        {formData.targetFnum.length} Selected
+                      </span>
+                    </label>
+                    
+                    <div className="max-h-48 overflow-y-auto bg-white border border-blue-300 rounded-md p-2 space-y-1.5 custom-scrollbar">
+                      {(users || [])
+                        .filter(u => {
+                          if (u.fnum === currentUser.fnum) return false;
+                          const isGlobal = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role) || 
+                                           ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((currentUser?.region || '').toUpperCase().trim());
+                          if (isGlobal) return true;
+                          const userRegion = (u.region || '').toUpperCase().trim();
+                          const currentRegion = (currentUser?.region || '').toUpperCase().trim();
+                          return userRegion === currentRegion;
+                        })
+                        .map(u => {
+                          const isChecked = formData.targetFnum.includes(u.fnum);
+                          return (
+                            <label key={u.fnum} className={`flex items-center justify-between p-2 rounded cursor-pointer transition-colors text-xs font-bold ${isChecked ? 'bg-blue-100/70 border border-blue-300 text-blue-900' : 'hover:bg-slate-50 text-slate-700'}`}>
+                              <div className="flex items-center space-x-2">
+                                <input 
+                                  type="checkbox" 
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    const currentList = [...formData.targetFnum];
+                                    if (e.target.checked) {
+                                      currentList.push(u.fnum);
+                                    } else {
+                                      const index = currentList.indexOf(u.fnum);
+                                      if (index > -1) currentList.splice(index, 1);
+                                    }
+                                    setFormData({ ...formData, targetFnum: currentList });
+                                  }}
+                                  className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                                />
+                                <span>{u.name} — <span className="text-slate-500">{u.rank}</span></span>
+                              </div>
+                              <span className="text-[10px] uppercase font-mono text-slate-400 bg-white px-1.5 py-0.5 rounded border">{u.station}</span>
+                            </label>
+                          );
+                        })
+                      }
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Subject / Title *</label>
@@ -377,7 +417,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                             {msg.message_type.replace('_', ' ')}
                           </span>
                           <span className="text-[10px] font-bold text-slate-500 bg-slate-200 px-2 py-1 rounded border border-slate-300">
-                            TO: {msg.target_audience.replace('_', ' ')} {msg.target_audience === 'SPECIFIC_REGION' ? `(${msg.target_region})` : ''} {msg.target_fnum ? `[Officer: ${msg.target_fnum}]` : ''}
+                            TO: {msg.target_audience.replace('_', ' ')} {msg.target_audience === 'SPECIFIC_REGION' ? `(${msg.target_region})` : ''}
                           </span>
                         </div>
                         <div className="flex items-center text-xs font-bold text-slate-400">
@@ -390,7 +430,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                         <div className="prose prose-sm max-w-none text-slate-700" dangerouslySetInnerHTML={{ __html: msg.message }} />
                       </div>
 
-                      {/* 🟢 NEW FOOTER WITH MSG_REF */}
+                      {/* 🟢 OFFICIAL COMMAND REFERENCE FOOTER */}
                       <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
                         <div className="flex flex-col">
                           <div className="mb-1">

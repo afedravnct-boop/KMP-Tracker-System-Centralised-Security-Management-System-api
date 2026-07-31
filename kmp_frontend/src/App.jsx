@@ -168,13 +168,10 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
   const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role);
   
-  const hasNominalClearance = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
+  const hasNominalClearance = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'Regional_HR_Officer'].includes(currentUser?.role) || 
                               (currentUser?.position || '').toUpperCase().includes('HR') ||
                               currentUser?.permissions?.view_nominal_roll || 
                               currentUser?.permissions?.upload_hr;
-
-  const renderPage = () => {
-    switch (currentPage) { 
 
   const rawComms = adminCommsData || [];
   const safeComms = Array.isArray(rawComms) ? rawComms : (rawComms.data || rawComms.items || []);
@@ -183,7 +180,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const canExportData = isRPC || currentUser.permissions?.export_data;
 
   const today = new Date().getDay();
-  const isEndOfWeek = today === 5 || today === 6 || today === 0;
+  const isEndOfWeek = today === 4 || today === 6 || today === 0;
 
   const userStation = (currentUser.station || '').trim().toUpperCase();
   const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
@@ -3112,32 +3109,38 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 
   // 🟢 LOGIN SCREEN IDLE CURTAIN STATE
   const [isLoginIdle, setIsLoginIdle] = useState(false);
+  const idleTimerRef = useRef(null);
 
   useEffect(() => {
-    let timeout;
-    const IDLE_TIME = 30000; // Drops curtain after 30 seconds of idle time
+    const IDLE_TIME = 30000; // 30 seconds of idle time
 
     const resetIdle = () => {
-      if (isLoginIdle) setIsLoginIdle(false);
-      clearTimeout(timeout);
-      timeout = setTimeout(() => setIsLoginIdle(true), IDLE_TIME);
+      setIsLoginIdle(false);
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(() => {
+        setIsLoginIdle(true);
+      }, IDLE_TIME);
     };
 
-    window.addEventListener('mousemove', resetIdle);
-    window.addEventListener('keydown', resetIdle);
-    window.addEventListener('click', resetIdle);
-    window.addEventListener('scroll', resetIdle);
+    // Start the clock on load
+    resetIdle();
 
-    resetIdle(); 
+    // Attach global listeners to window with capture phase
+    window.addEventListener('mousemove', resetIdle, true);
+    window.addEventListener('keydown', resetIdle, true);
+    window.addEventListener('click', resetIdle, true);
+    window.addEventListener('scroll', resetIdle, true);
+    window.addEventListener('touchstart', resetIdle, true);
 
     return () => {
-      window.removeEventListener('mousemove', resetIdle);
-      window.removeEventListener('keydown', resetIdle);
-      window.removeEventListener('click', resetIdle);
-      window.removeEventListener('scroll', resetIdle);
-      clearTimeout(timeout);
+      clearTimeout(idleTimerRef.current);
+      window.removeEventListener('mousemove', resetIdle, true);
+      window.removeEventListener('keydown', resetIdle, true);
+      window.removeEventListener('click', resetIdle, true);
+      window.removeEventListener('scroll', resetIdle, true);
+      window.removeEventListener('touchstart', resetIdle, true);
     };
-  }, [isLoginIdle]);
+  }, []); // 🟢 Empty array ensures the timer never resets prematurely!
 
   useEffect(() => {
     if (!lockoutEnd) return;
@@ -3241,7 +3244,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative">
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
         
-        {/* 🟢 THE ANIMATED POLICE FLAG IDLE CURTAIN */}
+{/* 🟢 THE WAVING POLICE FLAG EMBLEM IDLE CURTAIN */}
         <div 
           className={`absolute inset-0 z-50 flex flex-col items-center justify-center transition-transform duration-1000 ease-in-out shadow-2xl ${
             isLoginIdle ? 'translate-y-0' : '-translate-y-full'
@@ -3252,13 +3255,13 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
           <div className="absolute top-2 w-full h-2 bg-[#facc15]"></div>
           <div className="absolute top-4 w-full h-2 bg-[#dc2626]"></div>
 
-          <div className="absolute inset-0 opacity-5 bg-center bg-no-repeat bg-contain mt-10" style={{ backgroundImage: 'url(/upf_badge.png)' }}></div>
+          <div className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-cover mt-10" style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}></div>
 
           <div className="relative z-10 flex flex-col items-center">
             <img 
-              src="/upf_badge.png" 
-              alt="UPF Flag" 
-              className="w-40 h-40 mb-6 drop-shadow-[0_0_15px_rgba(255,255,255,0.2)] animate-pulse object-contain contrast-125"
+              src="/UPF Flag Emblem.png" 
+              alt="UPF Waving Flag Emblem" 
+              className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] animate-flag-wave object-contain rounded-xl border border-slate-600 shadow-2xl"
               onError={(e) => { e.target.style.display = 'none'; }}
             />
             <h2 className="text-3xl font-extrabold text-white tracking-widest uppercase drop-shadow-md">KMP Network</h2>
@@ -3535,6 +3538,82 @@ const DashboardLayout = ({
     }).catch(e => console.warn("Activity log silent fail"));
   }, [currentPage, currentUser?.fnum]);
 
+// ====================================================================
+// --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN COMPONENT ---
+// ====================================================================
+const WorkspaceSecurityCurtain = () => {
+  const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
+  const idleTimerRef = useRef(null);
+
+  useEffect(() => {
+    const IDLE_TIMEOUT_MS = 60000; // 60 seconds (1 minute) of inactivity
+
+    const handleUserActivity = () => {
+      setIsWorkspaceIdle(false);
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(() => {
+        setIsWorkspaceIdle(true);
+      }, IDLE_TIMEOUT_MS);
+    };
+
+    // Initialize timer on mount
+    handleUserActivity();
+
+    // Global listener tracking mouse movement, typing, clicking, or scrolling anywhere in registry
+    window.addEventListener('mousemove', handleUserActivity, true);
+    window.addEventListener('keydown', handleUserActivity, true);
+    window.addEventListener('mousedown', handleUserActivity, true);
+    window.addEventListener('scroll', handleUserActivity, true);
+    window.addEventListener('touchstart', handleUserActivity, true);
+
+    return () => {
+      clearTimeout(idleTimerRef.current);
+      window.removeEventListener('mousemove', handleUserActivity, true);
+      window.removeEventListener('keydown', handleUserActivity, true);
+      window.removeEventListener('mousedown', handleUserActivity, true);
+      window.removeEventListener('scroll', handleUserActivity, true);
+      window.removeEventListener('touchstart', handleUserActivity, true);
+    };
+  }, []);
+
+  return (
+    <div 
+      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center transition-transform duration-700 ease-in-out shadow-2xl ${
+        isWorkspaceIdle ? 'translate-y-0' : '-translate-y-full pointer-events-none'
+      }`}
+      style={{ backgroundColor: '#0f172a' }}
+    >
+      {/* Top Warning Bars */}
+      <div className="absolute top-0 w-full h-2 bg-[#000000]"></div>
+      <div className="absolute top-2 w-full h-2 bg-[#facc15]"></div>
+      <div className="absolute top-4 w-full h-2 bg-[#dc2626]"></div>
+
+      <div className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-cover" style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}></div>
+
+      <div className="relative z-10 flex flex-col items-center text-center p-6">
+        <img 
+          src="/UPF Flag Emblem.png" 
+          alt="UPF Waving Flag Emblem" 
+          className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] animate-flag-wave transparent-badge object-contain rounded-xl"
+          onError={(e) => { e.target.style.display = 'none'; }}
+        />
+        <h2 className="text-3xl font-extrabold text-white tracking-widest uppercase drop-shadow-md">KMP Security Standby</h2>
+        <p className="text-yellow-400 mt-2 text-sm font-bold tracking-wide uppercase">
+          Confidential Workspace Locked Due to Inactivity
+        </p>
+        <p className="text-slate-400 mt-1 text-xs">
+          Move your cursor, click, or press any key to restore secure terminal session.
+        </p>
+      </div>
+
+      {/* Bottom Warning Bars */}
+      <div className="absolute bottom-4 w-full h-2 bg-[#dc2626]"></div> 
+      <div className="absolute bottom-2 w-full h-2 bg-[#facc15]"></div> 
+      <div className="absolute bottom-0 w-full h-2 bg-[#000000]"></div> 
+    </div>
+  );
+};
+
   const safeSidebarComms = Array.isArray(Admin_Communication) ? Admin_Communication : (Admin_Communication?.data || Admin_Communication?.items || []);
   const relevantComms = safeSidebarComms.filter(c => {
     if (currentUser?.role === 'SUPER_ADMIN') return true;
@@ -3661,11 +3740,11 @@ const DashboardLayout = ({
                 className="w-4 h-4 mr-0.5 object-contain contrast-200 brightness-75 drop-shadow-sm" 
                 onError={(e) => { e.target.style.display = 'none'; }} 
               />
-              <span className="font-bold text-0.5g tracking-wider">KMP TRACKER SYSTEM</span>
+              <span className="font-bold text-0.5g tracking-wider text-white">KMP TRACKER SYSTEM</span>
             </div>
           )}
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-500 rounded text-slate-150 transition-colors shrink-0">
-            <Menu size={sidebarOpen ? 14 : 20} />
+            <Menu size={sidebarOpen ? 14 : 20} className="text-yellow-400" />
           </button>
         </div>
         
