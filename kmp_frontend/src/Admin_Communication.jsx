@@ -30,6 +30,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   const [dateFilter, setDateFilter] = useState('all'); 
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
+  
+  // 🟢 NEW CATEGORY FILTER STATE
+  const [activeFilter, setActiveFilter] = useState('all');
 
   const [viewingReceiptsFor, setViewingReceiptsFor] = useState(null);
   const [receiptsData, setReceiptsData] = useState([]);
@@ -89,7 +92,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
       if (activeTab === 'outbox') fetchMessages();
       
     } catch (err) {
-      setNotification({ type: 'error', text: `❌ ${err.message}` });
+      setNotification({ type: 'error', text: `❌ ${err.message || "An unexpected error occurred during transmission."}` });
     } finally {
       setIsSubmitting(false);
       setTimeout(() => setNotification(null), 5000);
@@ -204,7 +207,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
             onClick={() => setActiveTab('dispatch')} 
             className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max ${activeTab === 'dispatch' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
           >
-            <Edit3 className="w-5 h-5 mr-2" /> {canBroadcast ? 'Dispatch Console' : 'Compose Message / Complaint'}
+            <Edit3 className="w-5 h-5 mr-2" /> {canBroadcast ? 'Dispatch Console' : 'Compose Message / Complaint / Inquiry / Appointment'}
           </button>
           
           <button 
@@ -248,7 +251,12 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                           <option value="ALL_USERS">All System Users</option>
                           <option value="ADMINS_ONLY">System Admins Only</option>
                           <option value="RPC_ONLY">Regional Commanders (RPCs)</option>
+                          <option value="DEPUTY RPC_ONLY">Deputy Regional Commanders (RPCs)</option>
                           <option value="SPECIFIC_REGION">Specific Region</option>
+                          <option value="station">Station to Station</option>
+                          <option value="division">Division to Division</option>
+                          <option value="region">Region-wide (RPC Broadcast)</option>
+                          <option value="direct_rpc">To Regional Police Commander (RPC)</option>
                         </>
                       )}
                       <option value="SPECIFIC_USER">Specific Officers / Admins (Direct)</option>
@@ -299,7 +307,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                         .filter(u => {
                           if (u.fnum === currentUser.fnum) return false;
                           const isGlobal = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role) || 
-                                           ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((currentUser?.region || '').toUpperCase().trim());
+                                          ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((currentUser?.region || '').toUpperCase().trim());
                           if (isGlobal) return true;
                           const userRegion = (u.region || '').toUpperCase().trim();
                           const currentRegion = (currentUser?.region || '').toUpperCase().trim();
@@ -369,45 +377,111 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
           {(activeTab === 'inbox' || activeTab === 'outbox') && (
             <div className="space-y-6">
               
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-col md:flex-row gap-4 items-end">
-                <div className="flex-1 w-full">
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><Filter size={14} className="mr-1"/> Time Filter</label>
-                  <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none focus:border-blue-500">
-                    <option value="all">All Available Messages</option>
-                    <option value="today">Current (Today)</option>
-                    <option value="recent">Recent (Last 7 Days)</option>
-                    <option value="old">Old (Older than 7 Days)</option>
-                    <option value="custom">Custom Date Range (Backdate Search)</option>
-                  </select>
+              {/* 🟢 TIME FILTER & CATEGORY FILTER BAR */}
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-4">
+                <div className="flex flex-col md:flex-row gap-4 items-end">
+                  <div className="flex-1 w-full">
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><Filter size={14} className="mr-1"/> Time Filter</label>
+                    <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none focus:border-blue-500">
+                      <option value="all">All Available Messages</option>
+                      <option value="today">Current (Today)</option>
+                      <option value="recent">Recent (Last 7 Days)</option>
+                      <option value="old">Old (Older than 7 Days)</option>
+                      <option value="custom">Custom Date Range (Backdate Search)</option>
+                    </select>
+                  </div>
+
+                  {dateFilter === 'custom' && (
+                    <>
+                      <div className="flex-1 w-full">
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Start Date</label>
+                        <input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none" />
+                      </div>
+                      <div className="flex-1 w-full">
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">End Date</label>
+                        <input type="date" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none" />
+                      </div>
+                    </>
+                  )}
                 </div>
 
-                {dateFilter === 'custom' && (
-                  <>
-                    <div className="flex-1 w-full">
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Start Date</label>
-                      <input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none" />
-                    </div>
-                    <div className="flex-1 w-full">
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">End Date</label>
-                      <input type="date" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none" />
-                    </div>
-                  </>
-                )}
+                {/* 🟢 CATEGORY FILTER PILLS */}
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200">
+                  <span className="text-xs font-bold text-slate-500 uppercase mr-2">Category Filter:</span>
+                  
+                  <button
+                    onClick={() => setActiveFilter('all')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      activeFilter === 'all' 
+                        ? 'bg-slate-900 text-white shadow' 
+                        : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    All Types
+                  </button>
+
+                  <button
+                    onClick={() => setActiveFilter('GENERAL_INFO')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      activeFilter === 'GENERAL_INFO' 
+                        ? 'bg-blue-600 text-white shadow' 
+                        : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    💬 Messages / Notices
+                  </button>
+
+                  <button
+                    onClick={() => setActiveFilter('COMPLAINT_GRIEVANCE')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      activeFilter === 'COMPLAINT_GRIEVANCE' 
+                        ? 'bg-orange-600 text-white shadow' 
+                        : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    ⚠️ Complaints
+                  </button>
+
+                  <button
+                    onClick={() => setActiveFilter('DIRECT_MESSAGE')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      activeFilter === 'DIRECT_MESSAGE' 
+                        ? 'bg-purple-600 text-white shadow' 
+                        : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    🔍 Inquiries
+                  </button>
+
+                  <button
+                    onClick={() => setActiveFilter('ASSIGNMENT')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      activeFilter === 'ASSIGNMENT' 
+                        ? 'bg-emerald-600 text-white shadow' 
+                        : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    📅 Appointments / Assignments
+                  </button>
+                </div>
               </div>
 
               {isLoadingInbox ? (
                 <div className="flex justify-center items-center py-20 text-slate-400 font-bold animate-pulse">
                   <Inbox className="w-6 h-6 mr-2" /> Syncing network...
                 </div>
-              ) : (activeTab === 'inbox' ? inboxMessages : outboxMessages).length === 0 ? (
+              ) : (activeTab === 'inbox' ? inboxMessages : outboxMessages)
+                  .filter(msg => activeFilter === 'all' || msg.message_type === activeFilter).length === 0 ? (
                 <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-12 text-center">
                   <CheckCircle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                   <h3 className="text-lg font-bold text-slate-600">Box Clear</h3>
-                  <p className="text-sm text-slate-500 mt-1">No communications found for the selected time period.</p>
+                  <p className="text-sm text-slate-500 mt-1">No communications found matching the selected category and time period.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {(activeTab === 'inbox' ? inboxMessages : outboxMessages).map((msg) => (
+                  {(activeTab === 'inbox' ? inboxMessages : outboxMessages)
+                    .filter(msg => activeFilter === 'all' || msg.message_type === activeFilter)
+                    .map((msg) => (
                     <div key={msg.id} className="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
                       
                       <div className="bg-slate-50 px-5 py-3 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2">

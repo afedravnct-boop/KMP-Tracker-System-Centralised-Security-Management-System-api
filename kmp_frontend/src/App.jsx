@@ -333,14 +333,14 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 
       {showComplianceWarning && (
         <div className={`transition-all duration-700 ease-in-out overflow-hidden rounded-xl shadow-lg border-2 ${
-          isBannerFolded ? 'bg-red-600 border-red-400 p-3 max-w-xs mx-auto cursor-pointer hover:bg-red-700' : 'bg-red-600 border-red-400 p-4 w-full animate-pulse'
+          isBannerFolded ? 'bg-red-600 border-red-200 p-3 max-w-xs mx-auto cursor-pointer hover:bg-red-300' : 'bg-red-600 border-red-200 p-4 w-full animate-pulse'
         }`}
         onClick={() => isBannerFolded && setIsBannerFolded(false)}
         >
           {isBannerFolded ? (
-            <div className="flex items-center justify-center space-x-2 text-white font-extrabold text-xs tracking-wider uppercase">
+            <div className="flex items-left justify-center space-x-2 text-white font-extrabold text-xs tracking-wide uppercase">
               <span className="flex h-3 w-3 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-75"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-45"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-400"></span>
               </span>
               <span>⚠️ Compliance Overdue: Click to View</span>
@@ -349,7 +349,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
             <div className="flex flex-col md:flex-row items-center justify-between text-white font-extrabold">
               <div className="flex items-center text-sm mb-3 md:mb-0">
                 <AlertTriangle className="mr-3 w-6 h-6 shrink-0 text-yellow-300 animate-bounce" />
-                <span>COMPLIANCE ALERT: Your weekly entries are overdue for {currentUser.station}. Please submit records immediately to maintain command standing.</span>
+                <span>COMPLIANCE ALERT: Your weekly entries are overdue for {currentUser.station}. Please submit records immediately.</span>
               </div>
               <div className="flex space-x-2 shrink-0">
                 <button onClick={(e) => { e.stopPropagation(); setIsBannerFolded(true); }} className="bg-red-800 text-white px-3 py-2 rounded font-bold shadow text-xs hover:bg-red-900 transition">
@@ -460,6 +460,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
+  const [selectedRecord, setSelectedRecord] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
@@ -983,6 +984,33 @@ const handleFormSubmit = async (e) => {
             </div>
           </div>
         </div>
+
+        {selectedRecord && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto shadow-2xl">
+              <h3 className="text-xl font-bold text-slate-800 mb-4">{selectedRecord.title || "Record Details"}</h3>
+              <div className="space-y-3 text-sm text-slate-600 mb-6">
+                <p><strong>Date/Time:</strong> {selectedRecord.date} - {selectedRecord.time}</p>
+                <p><strong>Narrative:</strong></p>
+                <div className="p-3 bg-slate-50 rounded border border-slate-200 whitespace-pre-wrap">
+                  {selectedRecord.narrative || selectedRecord.details}
+                </div>
+                {selectedRecord.image_url && (
+                  <div className="mt-4">
+                    <p className="font-semibold mb-2">Attached Exhibit / Evidence:</p>
+                    <img src={selectedRecord.image_url} alt="Evidence Exhibit" className="rounded-lg max-h-80 w-object-contain border" />
+                  </div>
+                )}
+              </div>
+              <button 
+                onClick={() => setSelectedRecord(null)}
+                className="w-full py-2 bg-slate-800 text-white rounded-lg font-medium hover:bg-slate-900"
+              >
+                Close View
+              </button>
+             </div>
+          </div>
+        )}  
 
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
@@ -3312,23 +3340,34 @@ return (
             style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}
           ></div>
 
-          {/* Center Content */}
-          <div className="relative z-10 flex flex-col items-center text-center">
-            <img 
-              src="/UPF Flag Emblem.png" 
-              alt="UPF Waving Flag Emblem" 
-              className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] animate-flag-wave object-contain rounded-xl border border-slate-600 shadow-2xl"
-              onError={(e) => { e.target.style.display = 'none'; }}
-            />
-            <h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md">
-              KMP SECURITY DATA MANAGEMENT SYSTEM
-            </h2>
-            <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
-              <Lock size={14} className="mr-2" /> 
-              <Globe size={18} className="mx-2 animate-spin text-white-400" style={{ animationDuration: '4s' }} /> 
-              KMP-CSDMS Standby Mode
-            </p>
-          </div>
+<div className="relative z-10 flex flex-col items-center text-center">
+  <img 
+    src="/UPF Flag Emblem.png" 
+    alt="UPF Waving Flag Emblem" 
+    className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] object-contain rounded-xl border border-slate-600 shadow-2xl"
+    onError={(e) => { e.target.style.display = 'none'; }}
+  />
+  
+  {/* Sweep-and-Settle Animated Title */}
+  <div className="overflow-hidden py-2 w-full max-w-4xl">
+    <h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md animate-sweep-settle">
+      KMP SECURITY DATA MANAGEMENT SYSTEM
+    </h2>
+  </div>
+
+  {/* Sparkling Globe Badge */}
+  <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
+    <Lock size={14} className="mr-2" /> 
+    
+    <span className="relative inline-flex items-center justify-center mx-2">
+      <span className="absolute -inset-1 rounded-full bg-yellow-400/20 blur-xs animate-pulse"></span>
+      <Globe size={20} className="relative z-10 animate-diamond-globe" />
+      <span className="absolute -top-1 -right-1.5 text-[10px] animate-ping text-yellow-200">✨</span>
+    </span>
+
+    KMP-CSDMS Standby Mode
+  </p>
+</div>
 
           {/* Bottom Stripes */}
           <div className="absolute bottom-4 w-full h-2 bg-[#dc2626]"></div> 
@@ -3500,6 +3539,7 @@ return (
 const WorkspaceSecurityCurtain = () => {
   const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
   const [isReadingMode, setIsReadingMode] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const idleTimerRef = useRef(null);
 
   useEffect(() => {
@@ -3534,23 +3574,39 @@ const WorkspaceSecurityCurtain = () => {
 
   return (
     <>
+      {/* 🟢 COLLAPSIBLE DISCREET IDLE GUARD TOGGLE */}
       <div className="fixed bottom-6 right-6 z-[9990]">
-        <button
+        <div
+          onMouseEnter={() => setIsExpanded(true)}
+          onMouseLeave={() => setIsExpanded(false)}
           onClick={() => {
             setIsReadingMode(!isReadingMode);
             setIsWorkspaceIdle(false);
           }}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-full shadow-2xl font-bold text-xs uppercase tracking-wider transition-all duration-300 border ${
+          className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-2xl rounded-full border ${
+            isExpanded ? 'px-4 py-2' : 'p-2'
+          } ${
             isReadingMode 
               ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)]' 
               : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
           }`}
         >
-          <span className={`h-2.5 w-2.5 rounded-full ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-500'}`}></span>
-          <span>{isReadingMode ? '📖 Reading Mode Active' : '🛡️ Standard Idle Guard'}</span>
-        </button>
+          {/* Glowing Indicator Dot / Ping */}
+          <span className={`relative flex h-3 w-3 ${isExpanded ? 'mr-2.5' : ''}`}>
+            <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-400 animate-ping'}`}></span>
+            <span className={`relative inline-flex rounded-full h-3 w-3 ${isReadingMode ? 'bg-slate-950' : 'bg-green-500'}`}></span>
+          </span>
+
+          {/* Expanded Label Text */}
+          {isExpanded && (
+            <span className="font-bold text-xs uppercase tracking-wider whitespace-nowrap">
+              {isReadingMode ? 'Click to stop curtain' : '🛡️ Standard Idle Guard'}
+            </span>
+          )}
+        </div>
       </div>
 
+      {/* 🟢 FULL-SCREEN STANDBY CURTAIN */}
       <div 
         className={`fixed inset-0 w-screen h-screen z-[99999] flex flex-col items-center justify-center transition-transform duration-700 ease-in-out shadow-2xl overflow-hidden ${
           isWorkspaceIdle && !isReadingMode ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-full opacity-0 pointer-events-none'
@@ -3571,8 +3627,15 @@ const WorkspaceSecurityCurtain = () => {
           </h2>
           <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
             <Lock size={14} className="mr-2" /> 
-            <Globe size={14} className="mx-2 animate-spin text-yellow-400" style={{ animationDuration: '4s' }} /> 
-            KMP-CSDMS Standby Mode
+            
+            {/* Sparkling Globe Container */}
+            <span className="relative inline-flex items-center justify-center mx-2">
+              <span className="absolute -inset-1 rounded-full bg-yellow-400/20 blur-xs animate-pulse"></span>
+              <Globe size={20} className="relative z-10 animate-spin text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.6)]" style={{ animationDuration: '4s' }} />
+              <span className="absolute -top-1 -right-1.5 text-[10px] animate-ping text-yellow-200">✨</span>
+            </span>
+
+            KMP-CSDMS Standby Mode 
           </p>
         </div>
 
@@ -3646,7 +3709,7 @@ const DashboardLayout = ({
     return () => clearInterval(heartbeatInterval);
   }, []);
 
-  // 🟢 ADVANCED IDLE TIMER & WARNING SCREEN
+// 🟢 ADVANCED IDLE TIMER & WARNING SCREEN
   const [showIdleWarning, setShowIdleWarning] = useState(false);
   const [idleCountdown, setIdleCountdown] = useState(60);
   
@@ -3659,8 +3722,8 @@ const DashboardLayout = ({
     let countdownInterval;
     let activityThrottle;
 
-    const IDLE_LIMIT = 29 * 60 * 1000; 
-    const WARNING_WINDOW = 60 * 1000; 
+    const IDLE_LIMIT = 29 * 60 * 1000;  // 29 minutes before warning
+    const WARNING_WINDOW = 60 * 1000;   // 1 minute final countdown
 
     const startTimers = () => {
       clearTimeout(warningTimer);
@@ -3670,6 +3733,7 @@ const DashboardLayout = ({
       isWarningActive.current = false;
       setShowIdleWarning(false);
 
+      // 1. Set the timer for the warning pop-up (29 mins)
       warningTimer = setTimeout(() => {
         isWarningActive.current = true;
         setShowIdleWarning(true);
@@ -3686,6 +3750,7 @@ const DashboardLayout = ({
         }, 1000);
       }, IDLE_LIMIT);
 
+      // 2. Set the absolute logout timer (30 mins total)
       logoutTimer = setTimeout(() => {
         clearInterval(countdownInterval);
         isWarningActive.current = false;
@@ -3701,8 +3766,10 @@ const DashboardLayout = ({
       }, IDLE_LIMIT + WARNING_WINDOW);
     };
 
+    // Keep this accessible so the Modal button can reset the timers
     resetIdleTimersRef.current = startTimers;
 
+    // Throttled event listener to prevent performance lagging
     const handleUserActivity = () => {
       if (isWarningActive.current) return;
       
@@ -3710,28 +3777,30 @@ const DashboardLayout = ({
          activityThrottle = setTimeout(() => {
             startTimers();
             activityThrottle = null;
-         }, 1000); 
+         }, 2000); 
       }
     };
 
-    window.addEventListener('mousemove', handleUserActivity);
-    window.addEventListener('keypress', handleUserActivity);
-    window.addEventListener('click', handleUserActivity);
-    window.addEventListener('scroll', handleUserActivity);
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
 
+    events.forEach(event => {
+      window.addEventListener(event, handleUserActivity);
+    });
+
+    // Kick off the timers when the component loads
     startTimers();
 
     return () => {
-      window.removeEventListener('mousemove', handleUserActivity);
-      window.removeEventListener('keypress', handleUserActivity);
-      window.removeEventListener('click', handleUserActivity);
-      window.removeEventListener('scroll', handleUserActivity);
       clearTimeout(warningTimer);
       clearTimeout(logoutTimer);
       clearInterval(countdownInterval);
       clearTimeout(activityThrottle);
+      events.forEach(event => {
+        window.removeEventListener(event, handleUserActivity);
+      });
     };
-  }, [onLogout]);
+  }, [onLogout]); // Fixed dependency array from onSecureLogout to onLogout
+
 
 // 🟢 AUTOMATIC PAGE ACCESS TRACKER -> ROUTED CORRECTLY TO ACTIVITY_LOGS TABLE
   const lastLoggedPage = useRef(null);
@@ -4069,15 +4138,17 @@ const DashboardLayout = ({
         <div className="absolute top-4 right-6 z-50">
           <button 
             onClick={() => setIsFullScreen(!isFullScreen)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-bold shadow-md transition-colors flex items-center gap-2 border border-blue-800"
+            className="bg-blue-400 hover:bg-blue-450 text-white px-3 py-1.5 rounded text-xs font-bold shadow-md transition-colors flex items-center gap-2 border border-blue-400"
           >
-            {isFullScreen ? '🗗 Exit Full Screen' : '⛶ Full Screen'}
+            {isFullScreen ? '🗗' : '⛶'}
           </button>
         </div>
 
-        <div className="absolute inset-0 pointer-events-none z-0 uganda-flag-wave-diagonal opacity-[0.03] mix-blend-multiply"></div>
+        {/* Uganda Flag Diagonal Wave Watermark */}
+        <div className="absolute inset-0 pointer-events-none z-0 uganda-flag-wave-diagonal opacity-[0.10]"></div>
 
-        <div className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.02]">
+        {/* UPF Badge Watermark */}
+        <div className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.08]">
           <img 
             src="/upf_badge.png" 
             alt="watermark" 

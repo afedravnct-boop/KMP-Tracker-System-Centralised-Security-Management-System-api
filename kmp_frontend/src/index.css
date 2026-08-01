@@ -112,17 +112,15 @@
 }
 
 /* =========================================================
-   🟢 CURTAIN ANIMATIONS
+   🟢 CURTAIN & BACKGROUND ANIMATIONS
    ========================================================= */
 
-/* 1. The universal horizontal panning animation (Smoothed) */
 @keyframes flagWaveBg {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
 }
 
-/* 2. The Uganda Flag Gradient Background */
 .uganda-flag-diagonalwave {
   background: linear-gradient(-45deg, 
     #000000 25%, #facc15 25%, #facc15 50%, #dc2626 50%, #dc2626 75%, #000000 75%, 
@@ -131,11 +129,10 @@
     #000000 50%, #000000 50%, 
     #ffffff 75%, #ffffff 75%
   );
-  background-size: 200% 200%; /* Better scaling for complex gradients */
+  background-size: 200% 200%;
   animation: flagWaveBg 20s ease-in-out infinite;
 }
 
-/* 3. Flawless Infinite Black & White Scrolling Stripes */
 @keyframes scrollBwStripes {
   0% { background-position: 0 0; }
   100% { background-position: 200px 0; }
@@ -152,7 +149,6 @@
   animation: scrollBwStripes 4s linear infinite; 
 }
 
-/* 4. The UPF Emblem PNG Waving */
 .png-flag-wave {
   background-image: url('/UPF Flag Emblem.png');
   background-size: 150% auto;
@@ -162,23 +158,35 @@
 }
 
 /* =========================================================
-   🟢 STANDBY MODE UI EFFECTS
+   🟢 STANDBY MODE & SPARKLE UI EFFECTS
    ========================================================= */
 
 /* Diamond Globe Sparkle Animation */
 @keyframes diamondSparkleSpin {
   0%, 100% {
     transform: rotate(0deg);
-    color: #bae6fd;
-    filter: drop-shadow(0 0 2px rgba(255,255,255,0.1));
+    color: #facc15;
+    filter: drop-shadow(0 0 4px rgba(250,204,21,0.4));
   }
   50% {
     transform: rotate(180deg);
     color: #ffffff;
-    filter: drop-shadow(0 0 15px rgba(255,255,255,1)) drop-shadow(0 0 25px #06b6d4);
+    filter: drop-shadow(0 0 15px rgba(255,255,255,1)) drop-shadow(0 0 25px #38bdf8);
   }
 }
 
 .animate-diamond-globe {
   animation: diamondSparkleSpin 4s linear infinite; 
+}
+
+/* Title Sweep & Settle Animation (Every 30 Seconds) */
+@keyframes sweepAndSettle {
+  0% { transform: translateX(100vw); opacity: 0; }
+  15% { transform: translateX(0); opacity: 1; }
+  85% { transform: translateX(0); opacity: 1; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+
+.animate-sweep-settle {
+  animation: sweepAndSettle 30s ease-in-out infinite;
 }

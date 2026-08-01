@@ -101,6 +101,9 @@ app.include_router(auth_router, prefix="/api/auth")
 # ==========================================
 # 2. PYDANTIC SCHEMAS
 # ==========================================
+class PasswordChangeReq(BaseModel):
+    new_password: str
+
 class ForcePasswordReq(BaseModel):
     new_password: str
 
@@ -113,6 +116,7 @@ class Admin_CommunicationCreate(BaseModel):
     sender_name: str
     target_audience: str
     target_region: Optional[str] = None
+    target_fnum: Optional[list] = []
     message_type: str
     subject: str
     message: str
@@ -1077,28 +1081,101 @@ async def bulk_upload_nominal_roll(
         
         df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
         
+        # 🟢 UPDATED: Fully corrected header map mapped straight to NeonDB columns
         header_map = {
-            "id": "id", "serial": "id", "serialnumber": "id",
+            "id": "id", 
+            "serial": "id", 
+            "serialnumber": "id",
             "sn": "sn", 
-            "forcenumber": "fnum", "fnumber": "fnum", "fnum": "fnum", "f_num": "fnum", "force": "fnum", "fno": "fnum",
-            "rank": "rank", "name": "name", "fullname": "name", "officername": "name",
-            "sex": "sex", "gender": "sex", "position": "position", "role": "position", "title": "position",
-            "dob": "dob", "dateofbirth": "dob", "doe": "doe", "dateofenlistment": "doe",
-            "dopost": "dopost", "do_post": "dopost", "dateofpost": "dopost",
-            "dopro": "dopro", "dateofpromotion": "dopro",
-            "contact": "contact", "phone": "contact", "phonenumber": "contact", "telephone": "contact",
-            "educlevel": "educlevel", "educ_level": "educlevel", "education": "educlevel", "educationlevel": "educlevel",
-            "ipps": "ipps", "ippsnumber": "ipps", "ippsno": "ipps",
-            "tin": "tin", "tinnumber": "tin", "tinno": "tin",
-            "nin": "nin", "nationalid": "nin", "nid": "nin",
-            "homedist": "homedist", "home_dist": "homedist", "homedistrict": "homedist", "district": "homedist",
-            "tribe": "tribe", "ethnicity": "tribe",
-            "accno": "accno", "acc_no": "accno", "accountnumber": "accno", "accountno": "accno", "account": "accno",
-            "bankbranch": "bankbranch", "bank_branch": "bankbranch", "bank": "bankbranch", "branch": "bankbranch",
-            "station": "station", "dutystation": "station",
-            "region": "region", "command": "region",
-            "section": "section", "department": "section",
-            "directorate": "dir", "dir": "dir", "status": "status"
+            
+            # Force Number -> DB: f_num
+            "forcenumber": "f_num", 
+            "fnumber": "f_num", 
+            "fnum": "f_num", 
+            "f_num": "f_num", 
+            "force": "f_num", 
+            "fno": "f_num",
+
+            "rank": "rank", 
+            "name": "name", 
+            "fullname": "name", 
+            "officername": "name",
+            "sex": "sex", 
+            "gender": "sex", 
+            "position": "position", 
+            "role": "position", 
+            "title": "position",
+            "dob": "dob", 
+            "dateofbirth": "dob", 
+            "doe": "doe", 
+            "dateofenlistment": "doe",
+
+            # Date of Post -> DB: do_post
+            "dop": "do_post",           
+            "dopost": "do_post", 
+            "do_post": "do_post", 
+            "dateofpost": "do_post",
+
+            # Date of Promotion -> DB: do_pro
+            "dopro": "do_pro", 
+            "do_pro": "do_pro",
+            "dateofpromotion": "do_pro",
+
+            "contact": "contact", 
+            "phone": "contact", 
+            "phonenumber": "contact", 
+            "telephone": "contact",
+
+            # Education Level -> DB: educ_level
+            "educlevel": "educ_level", 
+            "educ_level": "educ_level", 
+            "education": "educ_level", 
+            "educationlevel": "educ_level",
+
+            "ipps": "ipps", 
+            "ippsnumber": "ipps", 
+            "ippsno": "ipps",
+            "tin": "tin", 
+            "tinnumber": "tin", 
+            "tinno": "tin",
+            "nin": "nin", 
+            "nationalid": "nin", 
+            "nid": "nin",
+
+            # Home District -> DB: home_dist
+            "homedist": "home_dist", 
+            "home_dist": "home_dist", 
+            "homedistrict": "home_dist", 
+            
+            # Duty District -> DB: district
+            "district": "district",     
+            "dutydistrict": "district",
+
+            "tribe": "tribe", 
+            "ethnicity": "tribe",
+
+            # Account Number -> DB: acc_no
+            "accno": "acc_no", 
+            "acc_no": "acc_no", 
+            "accountnumber": "acc_no", 
+            "accountno": "acc_no", 
+            "account": "acc_no",
+
+            # Bank Branch -> DB: bank_branch
+            "bankbranch": "bank_branch", 
+            "bank_branch": "bank_branch", 
+            "bank": "bank_branch", 
+            "branch": "bank_branch",
+
+            "station": "station", 
+            "dutystation": "station",
+            "region": "region", 
+            "command": "region",
+            "section": "section", 
+            "department": "section",
+            "directorate": "dir", 
+            "dir": "dir", 
+            "status": "status"
         }
         
         df.rename(columns=header_map, inplace=True)
@@ -1130,7 +1207,7 @@ async def bulk_upload_nominal_roll(
                 continue
             
             # Clean Dates
-            for date_col in ['dob', 'doe', 'dopost', 'dopro']:
+            for date_col in ['dob', 'doe', 'do_post', 'do_pro']:
                 if date_col in row_dict and row_dict[date_col]:
                     val = row_dict[date_col]
                     if isinstance(val, datetime):
@@ -1465,6 +1542,50 @@ def get_communication_readers(comm_id: int, db: Session = Depends(get_db), curre
 # ==========================================
 # 11. EXPORTS & REPORTING
 # ==========================================
+# 🟢 NEW: Regional Breakdown Aggregation Endpoint
+@app.get("/api/v1/stats/breakdown")
+def get_system_breakdown(table: str = "crime_incident_registry", db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    """
+    Dynamically groups and counts entries by Region, Division (Section), and Station.
+    """
+    allowed_tables = {
+        "crime_incidents": models.Crime_Reports,
+        "nominal_roll": getattr(models, 'Nominal_Roll', getattr(models, 'nominal_roll', None)),
+        "establishments": models.Establishments
+    }
+    
+    if table not in allowed_tables or allowed_tables[table] is None:
+        raise HTTPException(status_code=400, detail="Invalid target table for aggregation.")
+    
+    db_model = allowed_tables[table]
+    
+    try:
+        # Use SQLAlchemy grouping to count safely by hierarchical columns
+        results = db.query(
+            func.coalesce(db_model.region, 'GENERAL / HQ').label('region'),
+            func.coalesce(getattr(db_model, 'section', getattr(db_model, 'division', getattr(db_model, 'station', 'N/A'))), 'N/A').label('division'),
+            func.coalesce(db_model.station, 'N/A').label('station'),
+            func.count().label('total_count')
+        ).group_by(
+            func.coalesce(db_model.region, 'GENERAL / HQ'),
+            func.coalesce(getattr(db_model, 'section', getattr(db_model, 'division', getattr(db_model, 'station', 'N/A'))), 'N/A'),
+            func.coalesce(db_model.station, 'N/A')
+        ).order_by('region', 'division', 'station').all()
+        
+        data = [
+            {
+                "region": r.region,
+                "division": r.division,
+                "station": r.station,
+                "total_count": r.total_count
+            } for r in results
+        ]
+        
+        return {"status": "success", "table": table, "data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/v1/reports/consolidated-ledger")
 def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
