@@ -957,7 +957,7 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
     return {"status": "success"}
 
 # --- NOMINAL ROLL ---
-# --- NOMINAL ROLL ---
+@app.get("/api/v1/nominal-roll")
 @app.get("/api/v1/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     db_model = getattr(models, 'nominal_roll', getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None)))
@@ -967,16 +967,22 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
 
     query = db.query(db_model)
     
-    if current_user.role in ["ADMIN", "SUPER_ADMIN", "RPC", "Deputy Commander"]:
+    # Regional and station filtering logic based on your latest update
+    user_role = (current_user.role or "").upper()
+    user_region = (current_user.region or "").strip().upper()
+    user_station = (current_user.station or "").strip().upper()
+
+    if user_role in ["ADMIN", "SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or user_region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]:
         pass 
     else:
-        query = query.filter(db_model.station == current_user.station)
+        if hasattr(db_model, 'station'):
+            query = query.filter(func.upper(db_model.station) == user_station)
+        elif hasattr(db_model, 'region'):
+            query = query.filter(func.upper(db_model.region) == user_region)
         
-    # 🟢 Order safely by the primary column 'id' since it feeds sn
+    # Order strictly by the auto-generated primary key 'id'
     if hasattr(db_model, 'id'):
         query = query.order_by(db_model.id.desc())
-    elif hasattr(db_model, 'sn'):
-        query = query.order_by(db_model.sn.desc())
         
     records = query.all()
     
@@ -985,12 +991,12 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
         
-        # Map f_num to fnum if stored with an underscore
+        # Map f_num to fnum if needed
         if 'f_num' in r_dict and not r_dict.get('fnum'):
             r_dict['fnum'] = r_dict['f_num']
             
-        # Ensure sn accurately mirrors id if sn is blank
-        if 'id' in r_dict and (not r_dict.get('sn') or r_dict.get('sn') == 0):
+        # Dynamically assign the auto-generated id as 'sn' for the frontend table
+        if 'id' in r_dict:
             r_dict['sn'] = r_dict['id']
             
         clean_results.append(r_dict)
@@ -1260,7 +1266,6 @@ async def bulk_upload_nominal_roll(
 
 @app.get("/api/v1/nominal-roll-archive")
 def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # 🟢 Fallback check for different archive model naming conventions
     db_model = getattr(models, 'Nominal_Roll_Archive', getattr(models, 'nominal_roll_archive', getattr(models, 'NominalRollArchive', None)))
     
     if not db_model:
@@ -1268,15 +1273,15 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
 
     query = db.query(db_model)
     
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN"] and not (current_user.permissions or {}).get("view_all_nominal", False):
+    user_role = (current_user.role or "").upper()
+    user_region = (current_user.region or "").strip().upper()
+
+    if user_role not in ["ADMIN", "SUPER_ADMIN"] and not (current_user.permissions or {}).get("view_all_nominal", False):
         if hasattr(db_model, 'region'):
-            query = query.filter(db_model.region == current_user.region)
+            query = query.filter(func.upper(db_model.region) == user_region)
         
-    # 🟢 Order safely by 'id' since it feeds sn
     if hasattr(db_model, 'id'):
         query = query.order_by(db_model.id.desc())
-    elif hasattr(db_model, 'sn'):
-        query = query.order_by(db_model.sn.desc())
         
     archives = query.all()
     clean_results = []
@@ -1285,12 +1290,10 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
         a_dict = a.__dict__.copy()
         a_dict.pop("_sa_instance_state", None)
         
-        # Map f_num to fnum so the frontend table displays it correctly
         if 'f_num' in a_dict and not a_dict.get('fnum'):
             a_dict['fnum'] = a_dict['f_num']
             
-        # Ensure sn mirrors id if sn is missing or empty
-        if 'id' in a_dict and (not a_dict.get('sn') or a_dict.get('sn') == 0):
+        if 'id' in a_dict:
             a_dict['sn'] = a_dict['id']
             
         clean_results.append(a_dict)
@@ -2269,6 +2272,30 @@ def update_modification_request_status(
     elif action_status == "REJECTED":
         if hasattr(models, 'Audit_Logs'):
             log_semantic_audit(db, current_user.fnum, "HR_MODIFICATION_REJECTED", req.fnum, {}, f"Reason: {reason}")
+
+def serialize_nominal_row(record):
+    r_dict = record.__dict__.copy()
+    r_dict.pop("_sa_instance_state", None)
+    
+    # Bridge column differences between active and archive tables
+    if 'f_num' in r_dict and not r_dict.get('fnum'):
+        r_dict['fnum'] = r_dict['f_num']
+    elif 'fnum' in r_dict and not r_dict.get('f_num'):
+        r_dict['f_num'] = r_dict['fnum']
+        
+    # Map archive fields to standard frontend keys if present
+    if 'dopost' in r_dict: r_dict['do_post'] = r_dict['dopost']
+    if 'dopro' in r_dict: r_dict['do_pro'] = r_dict['dopro']
+    if 'educlevel' in r_dict: r_dict['educ_level'] = r_dict['educlevel']
+    if 'homedist' in r_dict: r_dict['home_dist'] = r_dict['homedist']
+    if 'accno' in r_dict: r_dict['acc_no'] = r_dict['accno']
+    if 'bankbranch' in r_dict: r_dict['bank_branch'] = r_dict['bankbranch']
+    
+    # Force auto-generated ID to serve as serial number (sn)
+    if 'id' in r_dict:
+        r_dict['sn'] = r_dict['id']
+        
+    return r_dict
             
     db.commit()
     return {"status": "success", "message": f"Request {action_status.lower()} successfully."}

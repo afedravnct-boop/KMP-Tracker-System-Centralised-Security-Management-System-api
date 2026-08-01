@@ -5,6 +5,8 @@ from app.database import Base
 from datetime import datetime
 import pytz
 
+Base = declarative_base()
+
 def get_eat_time():
     # Explicitly set to Africa/Nairobi (which is EAT)
     eat = pytz.timezone('Africa/Nairobi')
@@ -123,78 +125,114 @@ class Establishments(Base):
 # ==========================================
 # 5. NOMINAL ROLL (Personnel Registry)
 # ==========================================
-class Nominal_Roll(Base):
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, func
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+
+class NominalRoll(Base):
     __tablename__ = "nominal_roll"
-    __table_args__ = {'extend_existing': True}
     
-    id = Column(Integer, primary_key=True, index=True)
-    sn = Column(Integer, index=True, unique=True)
-    
-    # MAPPED COLUMNS: Python uses exact keys React sends, connects to Postgres safely
-    fnum = Column("fnum", String, unique=True, index=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    sn = Column(Integer, nullable=True)
+    f_num = Column(String, index=True)
     rank = Column(String)
     name = Column(String)
     sex = Column(String)
     position = Column(String)
-    dob = Column(String, nullable=True)
-    doe = Column(String, nullable=True)
-    dopost = Column("do_post", String, nullable=True)
-    dopro = Column("do_pro", String, nullable=True)
-    contact = Column(String, nullable=True)
-    educlevel = Column("educ_level", String, nullable=True)
-    ipps = Column(String, index=True, unique=True)
-    tin = Column(String, nullable=True)
-    nin = Column(String, nullable=True)
-    homedist = Column("home_dist", String, nullable=True)
-    tribe = Column(String, nullable=True)
-    accno = Column("acc_no", String, nullable=True)
-    bankbranch = Column("bank_branch", String, nullable=True)
-    station = Column(String, index=True)
-    district = Column(String, nullable=True)
-    region = Column(String, index=True)
-    section = Column(String, nullable=True)
-    dir = Column(String, nullable=True)
-    status = Column(String, default="ACTIVE")
+    dob = Column(String)
+    doe = Column(String)
+    do_post = Column(String)
+    do_pro = Column(String)
+    contact = Column(String)
+    educ_level = Column(String)
+    ipps = Column(String)
+    tin = Column(String)
+    nin = Column(String)
+    home_dist = Column(String)
+    tribe = Column(String)
+    acc_no = Column(String)
+    bank_branch = Column(String)
+    station = Column(String)
+    district = Column(String)
+    region = Column(String)
+    section = Column(String)
+    dir = Column(String)
+    status = Column(String)
     last_updated_by = Column(String)
-    created_at = Column(DateTime, default=get_eat_time)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class NominalRollArchive(Base):
+    __tablename__ = "nominal_roll_archive"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    sn = Column(Integer, nullable=True)
+    fnum = Column(String, index=True) # Note: Archive uses fnum without underscore
+    rank = Column(String)
+    name = Column(String)
+    sex = Column(String)
+    position = Column(String)
+    dob = Column(String)
+    doe = Column(String)
+    dopost = Column(String) # Archive version
+    dopro = Column(String)  # Archive version
+    contact = Column(String)
+    educlevel = Column(String) # Archive version
+    ipps = Column(String)
+    tin = Column(String)
+    nin = Column(String)
+    homedist = Column(String) # Archive version
+    tribe = Column(String)
+    accno = Column(String)    # Archive version
+    bankbranch = Column(String) # Archive version
+    station = Column(String)
+    district = Column(String)
+    region = Column(String)
+    section = Column(String)
+    dir = Column(String)
+    status = Column(String)
+    last_updated_by = Column(String)
+    created_at = Column(DateTime)
+    archive_reason = Column(String)
+    archive_date = Column(DateTime, server_default=func.now())
 
 # ==========================================
 # 6. NOMINAL ROLL ARCHIVE
 # ==========================================
-class Nominal_Roll_Archive(Base):
+class NominalRollArchive(Base):
     __tablename__ = "nominal_roll_archive"
-    __table_args__ = {'extend_existing': True}
     
-    id = Column(Integer, primary_key=True, index=True) 
-    sn = Column(Integer, index=True)
-    fnum = Column(String) 
+    id = Column(Integer, primary_key=True, index=True)
+    sn = Column(Integer, nullable=True)
+    fnum = Column(String, index=True) # Note: Archive uses fnum without underscore
     rank = Column(String)
     name = Column(String)
     sex = Column(String)
     position = Column(String)
-    dob = Column(String, nullable=True)
-    doe = Column(String, nullable=True)
-    dopost = Column(String, nullable=True)
-    dopro = Column(String, nullable=True)
-    contact = Column(String, nullable=True)
-    educlevel = Column(String, nullable=True)
-    ipps = Column(String, index=True)
-    tin = Column(String, nullable=True)
-    nin = Column(String, nullable=True)
-    homedist = Column(String, nullable=True)
-    tribe = Column(String, nullable=True)
-    accno = Column(String, nullable=True)
-    bankbranch = Column(String, nullable=True)
-    station = Column(String, index=True)
-    district = Column(String, nullable=True)
-    region = Column(String, index=True)
-    section = Column(String, nullable=True)
-    dir = Column(String, nullable=True)
-    status = Column(String, default="ARCHIVED")
+    dob = Column(String)
+    doe = Column(String)
+    dopost = Column(String) # Archive version
+    dopro = Column(String)  # Archive version
+    contact = Column(String)
+    educlevel = Column(String) # Archive version
+    ipps = Column(String)
+    tin = Column(String)
+    nin = Column(String)
+    homedist = Column(String) # Archive version
+    tribe = Column(String)
+    accno = Column(String)    # Archive version
+    bankbranch = Column(String) # Archive version
+    station = Column(String)
+    district = Column(String)
+    region = Column(String)
+    section = Column(String)
+    dir = Column(String)
+    status = Column(String)
     last_updated_by = Column(String)
-    created_at = Column(DateTime, default=get_eat_time)
-    archive_reason = Column(String, nullable=True)
-    archive_date = Column(String, nullable=True)
+    created_at = Column(DateTime)
+    archive_reason = Column(String)
+    archive_date = Column(DateTime, server_default=func.now())
 
 # ==========================================
 # 7. USER ACCOUNTS

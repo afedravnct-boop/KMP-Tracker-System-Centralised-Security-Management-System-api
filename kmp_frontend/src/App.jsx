@@ -2027,8 +2027,8 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
   const [formData, setFormData] = useState({
     sn: null, fnum: '', rank: '', name: '', sex: 'MALE', position: '',
-    dob: '', doe: '', dopost: '', dopro: '', contact: '', educlevel: '',
-    ipps: '', tin: '', nin: '', homedist: '', tribe: '', accno: '', bankbranch: '',
+    dob: '', doe: '', do_post: '', do_pro: '', contact: '', educ_level: '',
+    ipps: '', tin: '', nin: '', home_dist: '', tribe: '', acc_no: '', bank_branch: '',
     station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
     district: '', region: currentUser.region, section: '', dir: '', status: 'ACTIVE'
   });
@@ -2122,8 +2122,8 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     setOperation(op); setNotification(null);
     if (op === 'new') {
       setFormData({
-        sn: null, fnum: '', rank: '', name: '', sex: 'MALE', position: '', dob: '', doe: '', dopost: '', dopro: '', contact: '', educlevel: '',
-        ipps: '', tin: '', nin: '', homedist: '', tribe: '', accno: '', bankbranch: '', station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
+        sn: null, fnum: '', rank: '', name: '', sex: 'MALE', position: '', dob: '', doe: '', do_post: '', do_pro: '', contact: '', educ_level: '',
+        ipps: '', tin: '', nin: '', home_dist: '', tribe: '', acc_no: '', bank_branch: '', station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
         district: '', region: currentUser.region, section: '', dir: '', status: 'ACTIVE'
       });
       setUpdateSearch('');
