@@ -1040,7 +1040,9 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
 @app.put("/api/v1/nominal-roll/{f_num}/archive")
 def archive_personnel(f_num: str, request_data: schemas.ArchiveRequest, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        active_record = db.query(models.NominalRoll).filter(models.NominalRoll.fnum == fnum).first()
+        active_record = db.query(models.NominalRoll).filter(
+    or_(models.NominalRoll.fnum == fnum, models.NominalRoll.f_num == fnum)
+).first()
         
         if not active_record:
             raise HTTPException(status_code=404, detail="Officer not found in active roll.")
@@ -1064,6 +1066,14 @@ def archive_personnel(f_num: str, request_data: schemas.ArchiveRequest, db: Sess
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to migrate record: {str(e)}")
+
+@app.get("/api/v1/nominal-roll-archive")
+def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        archives = db.query(models.NominalRollArchive).all()
+        return archives
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch archives: {str(e)}")
 
 # ---------------------------------------------------------
 # ADMIN: EXCEL BULK UPLOAD FOR NOMINAL ROLL
