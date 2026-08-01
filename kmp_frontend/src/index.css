@@ -1,7 +1,9 @@
 /* 🟢 TAILWIND IMPORT */
 @import "tailwindcss";
 
-/* 🟢 BASE DASHBOARD STYLES */
+/* =========================================================
+   🟢 BASE DASHBOARD STYLES
+   ========================================================= */
 .dashboard-container {
   display: flex;
   min-height: 100vh;
@@ -113,47 +115,70 @@
    🟢 CURTAIN ANIMATIONS
    ========================================================= */
 
-/* 1. The universal horizontal panning animation */
+/* 1. The universal horizontal panning animation (Smoothed) */
 @keyframes flagWaveBg {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 /* 2. The Uganda Flag Gradient Background */
 .uganda-flag-diagonalwave {
-  background: linear-gradient(-45deg, #000000 25%, #facc15 25%, #facc15 50%, #dc2626 50%, #dc2626 75%, #000000 75%, 
+  background: linear-gradient(-45deg, 
+    #000000 25%, #facc15 25%, #facc15 50%, #dc2626 50%, #dc2626 75%, #000000 75%, 
     #000000 0%, #000000 15%, 
     #ffffff 25%, #ffffff 25%, 
     #000000 50%, #000000 50%, 
     #ffffff 75%, #ffffff 75%
   );
-  background-size: 50% 50%;
-  animation: flagWaveBg 20s ease infinite;
+  background-size: 200% 200%; /* Better scaling for complex gradients */
+  animation: flagWaveBg 20s ease-in-out infinite;
 }
 
-@keyframes waveInfinite {
-  0% { background-position: 0% 0%; }
-  100% { background-position: 200% 0%; }
+/* 3. Flawless Infinite Black & White Scrolling Stripes */
+@keyframes scrollBwStripes {
+  0% { background-position: 0 0; }
+  100% { background-position: 200px 0; }
 }
 
 .bwbwb-wave {
-  background: repeating-linear-gradient(to right, #000000 0%, #000000 20%, #ffffff 20%, #ffffff 40%);
-  background-size: 200% 100%;
-  animation: waveInfinite 10s linear infinite;
+  background: repeating-linear-gradient(
+    to right,
+    #000000 0px,
+    #000000 100px,
+    #ffffff 100px,
+    #ffffff 200px
+  );
+  animation: scrollBwStripes 4s linear infinite; 
 }
 
-/* 3. The UPF Emblem PNG Waving (Identical method to the flag) */
+/* 4. The UPF Emblem PNG Waving */
 .png-flag-wave {
   background-image: url('/UPF Flag Emblem.png');
   background-size: 150% auto;
   background-position: center;
   background-repeat: no-repeat;
-  animation: flagWaveBg 20s ease infinite;
+  animation: flagWaveBg 20s ease-in-out infinite;
+}
+
+/* =========================================================
+   🟢 STANDBY MODE UI EFFECTS
+   ========================================================= */
+
+/* Diamond Globe Sparkle Animation */
+@keyframes diamondSparkleSpin {
+  0%, 100% {
+    transform: rotate(0deg);
+    color: #bae6fd;
+    filter: drop-shadow(0 0 2px rgba(255,255,255,0.1));
+  }
+  50% {
+    transform: rotate(180deg);
+    color: #ffffff;
+    filter: drop-shadow(0 0 15px rgba(255,255,255,1)) drop-shadow(0 0 25px #06b6d4);
+  }
+}
+
+.animate-diamond-globe {
+  animation: diamondSparkleSpin 4s linear infinite; 
 }
