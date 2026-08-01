@@ -3345,7 +3345,7 @@ return (
   
 {/* Sweep-and-Settle Animated Title */}
 <div className="overflow-hidden py-2 w-full max-w-4xl">
-  <h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md flex justify-center flex-wrap">
+  <h2 className="text-3xl font-extrabold text-center text-white tracking-widest uppercase drop-shadow-md flex justify-center flex-wrap">
     {"KMP SECURITY DATA MANAGEMENT SYSTEM".split("").map((char, index) => {
       // Exponential delay creates the "fast then slow" stagger effect
       // The gap between letters increases as the index gets higher
@@ -3375,7 +3375,7 @@ return (
     <span className="relative inline-flex items-center justify-center mx-2">
       <span className="absolute -inset-1 rounded-full bg-yellow-400/20 blur-xs animate-pulse-spin"></span>
       <Globe size={28} className="relative z-10 animate-diamond-globe" />
-      <span className="absolute -top-1 -right-1.5 text-[10px] animate-ping text-yellow-200">✨</span>
+      <span className="absolute -top-1 -right-1.5 text-[10px] animate-ping text-white-200">✨</span>
     </span>
 
     KMP-CSDMS Standby Mode
