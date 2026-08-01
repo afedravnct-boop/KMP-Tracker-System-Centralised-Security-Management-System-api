@@ -1041,7 +1041,7 @@ def archive_personnel(fnum: str, request_data: schemas.ArchiveRequest, db: Sessi
         record_data["archive_date"] = datetime.now().date()
         record_data["last_updated_by"] = current_user.fnum
 
-        archived_record = models.NominalRoll_Archive(**record_data)
+        archived_record = models.NominalRollArchive(**record_data)
         db.add(archived_record)
         db.delete(active_record)
         db.commit()
@@ -1253,9 +1253,9 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
     user_region = (current_user.region or "").strip().upper()
 
     if user_role not in ["ADMIN", "SUPER_ADMIN"] and not (current_user.permissions or {}).get("view_all_nominal", False):
-        query = query.filter(func.upper(models.NominalRoll_Archive.region) == user_region)
+        query = query.filter(func.upper(models.NominalRollArchive.region) == user_region)
         
-    query = query.order_by(models.NominalRoll_Archive.id.desc())
+    query = query.order_by(models.NominalRollArchive.id.desc())
     archives = query.all()
     
     clean_results = []
