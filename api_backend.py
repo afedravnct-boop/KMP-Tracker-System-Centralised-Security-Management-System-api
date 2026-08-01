@@ -12,6 +12,11 @@ import pytz
 import uvicorn
 import pyzipper
 import pandas as pd
+import numpy as np
+
+def get_eat_time():
+    return datetime.now(pytz.timezone("Africa/Kampala")).replace(tzinfo=None)
+
 import boto3
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
@@ -35,6 +40,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from urllib.parse import unquote
 
 # Internal Imports
+from app import schemas
 from app import models, database
 from app.database import engine, get_db, get_logs_db
 from app.database import LogsSessionLocal as SessionLogsLocal
@@ -95,10 +101,6 @@ app.include_router(auth_router, prefix="/api/auth")
 # ==========================================
 # 2. PYDANTIC SCHEMAS
 # ==========================================
-class PasswordChangeReq(BaseModel):
-    old_password: str
-    new_password: str
-
 class ForcePasswordReq(BaseModel):
     new_password: str
 
@@ -135,9 +137,6 @@ class EstablishmentCreate(BaseModel):
 
 class ArchiveRequest(BaseModel):
     archive_reason: str
-
-class SessionLogRequest(BaseModel):
-    fnum: str
 
 # ==========================================
 # 3. SECURITY & DEPENDENCIES
@@ -186,7 +185,7 @@ def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, chang
             status="SUCCESS",
             details=formatted_details,
             user_fnum=fnum,
-            created_at=datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
+            created_at=get_eat_time()
         )
         db.add(new_audit)
         db.commit()
@@ -279,21 +278,40 @@ async def send_command_briefing(email_to: List[str], subject: str, html_body: st
 def build_and_send_weekly_briefing():
     html_content = """
     <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px; max-width: 600px;">
-        <h2 style="color: #1e3a8a;">KMP Tracker System - Weekly Briefing</h2>
-        <p>The system has compiled the latest cross-domain metrics.</p>
-        <p>Please log in to the Master Dashboard to view the full Consolidated Ledger.</p>
+        <h2 style="color: #1e3a8a;">KMP Tracker System - Compliance & Data Briefing</h2>
+        <p>This is an automated compliance notice for mandated command and data entry personnel.</p>
+        <p>Please log in to submit or review your operational compliance returns.</p>
     </div>
     """
     try:
-        recipients = ["afedravnct@gmail.com"] 
-        asyncio.run(send_command_briefing(recipients, "KMP Weekly Command Briefing", html_content))
+        db = database.SessionLocal()
+        try:
+            # 🟢 STRICT COMPLIANCE FILTER: Target Command & Data Personnel
+            mandated_positions = ["RPC", "DEPUTY", "DPC", "DATA OFFICER", "DATA ASSISTANT"]
+            mandated_roles = ["RPC", "ADMIN", "SUPER_ADMIN"]
+            
+            query = db.query(models.Users.email).filter(
+                models.Users.email.isnot(None),
+                models.Users.is_approved == True,
+                or_(
+                    or_(*(models.Users.position.ilike(f"%{pos}%") for pos in mandated_positions)),
+                    or_(*(models.Users.role.ilike(f"%{role}%") for role in mandated_roles))
+                )
+            ).distinct()
+            
+            recipients = [u[0] for u in query.all() if u[0]]
+            
+            # Fallback safeguard to always include system admin
+            if "afedravnct@gmail.com" not in recipients:
+                recipients.append("afedravnct@gmail.com")
+                
+            if recipients:
+                # Dispatch individually or as a clean BCC/recipient list to their correct emails
+                asyncio.run(send_command_briefing(recipients, "KMP Mandatory Compliance & Data Briefing", html_content))
+        finally:
+            db.close()
     except Exception as e:
-        print(f"Scheduler failed to send email: {e}")
-
-scheduler = BackgroundScheduler()
-scheduler.add_job(build_and_send_weekly_briefing, 'cron', day_of_week='mon', hour=6, minute=0)
-if not scheduler.running:
-    scheduler.start()
+        print(f"Compliance scheduler failed to send email: {e}")
 
 # ==========================================
 # 5. USER AUTHENTICATION & PROFILES
@@ -417,46 +435,6 @@ async def upload_profile_photo(
         raise HTTPException(status_code=500, detail=f"S3 Upload failed: {str(e)}")
     finally:
         file.file.close()
-
-# ---------------------------------------------------------
-# ACTIVITY LOGGING (SESSIONS & PAGE CLICKS)
-# ---------------------------------------------------------
-@app.post("/api/v1/system/log-session")
-def log_user_session(req: schemas.SessionLogRequest, db: Session = Depends(get_db)):
-    try:
-        new_log = models.Activity_Logs(
-            fnum=req.fnum,
-            action="LOGIN_SESSION",
-            module="SYSTEM_AUTH",
-            details="Officer successfully authenticated and initiated a secure session."
-        )
-        db.add(new_log)
-        
-        user = db.query(models.Users).filter(models.Users.fnum == req.fnum).first()
-        if user:
-            user.last_active_at = get_eat_time()
-            
-        db.commit()
-        return {"status": "success"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/v1/activity-logs")
-def create_activity_log(req: schemas.ActivityLogReq, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        new_log = models.Activity_Logs(
-            fnum=current_user.fnum,
-            action=req.action,
-            module=req.module,
-            details=req.details
-        )
-        db.add(new_log)
-        db.commit()
-        return {"status": "success"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/api/v1/users/profile/update")
 def update_user_profile(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -1069,8 +1047,6 @@ def archive_personnel(fnum: str, request_data: ArchiveRequest, db: Session = Dep
 # ---------------------------------------------------------
 # ADMIN: EXCEL BULK UPLOAD FOR NOMINAL ROLL
 # ---------------------------------------------------------
-import numpy as np # Make sure this is imported at the top of your file!
-
 @app.post("/api/v1/nominal-roll/bulk-upload")
 async def bulk_upload_nominal_roll(
     file: UploadFile = File(...),
@@ -1265,10 +1241,10 @@ def create_admin_communication(
     comm: Admin_CommunicationCreate, 
     background_tasks: BackgroundTasks, 
     db: Session = Depends(get_db),
-    current_user: models.Users = Depends(get_current_user) # 🟢 We pull the current user to analyze their rank/station
+    current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        # 1. 🟢 DYNAMIC ORIGIN TAG GENERATOR
+        # 1. DYNAMIC ORIGIN TAG GENERATOR
         pos = (current_user.position or "OFFICER").upper().strip()
         stat = (current_user.station or "HQ").upper().strip().replace(" ", "")
         reg = (current_user.region or "KMP").upper().strip().replace(" ", "")
@@ -1291,42 +1267,57 @@ def create_admin_communication(
             clean_pos_stat = f"{pos.replace(' ', '')}{stat}"
             origin_tag = f"UPF/OPS/{reg}/DHQTRS/{clean_pos_stat}"
             
-        # 2. Sequence Calculation (Check how many messages have this exact origin tag)
+        # 2. Sequence Calculation
         count = db.query(models.Admin_Communication).filter(models.Admin_Communication.msg_ref.like(f"{origin_tag}/%")).count()
         generated_msg_ref = f"{origin_tag}/{count + 1:03d}"
 
-        # 3. Save to Database
+        # 3. Save to Database (Internal Dispatch)
         db_comm = models.Admin_Communication(
-            msg_ref=generated_msg_ref, # 🟢 Save the generated reference
-            sender_fnum=comm.sender_fnum, sender_name=comm.sender_name,
-            target_audience=comm.target_audience, target_region=comm.target_region,
-            target_fnum=comm.target_fnum, message_type=comm.message_type, 
-            subject=comm.subject, message=comm.message
+            msg_ref=generated_msg_ref,
+            sender_fnum=comm.sender_fnum, 
+            sender_name=comm.sender_name,
+            target_audience=comm.target_audience, 
+            target_region=comm.target_region,
+            target_fnum=comm.target_fnum, 
+            message_type=comm.message_type, 
+            subject=comm.subject, 
+            message=comm.message
         )
         db.add(db_comm)
         db.commit()
         db.refresh(db_comm)
 
+        # 4. External Email Dispatch (On top of internal log, sent to their correct emails)
         if comm.send_email:
-            query = db.query(models.Users.email).filter(models.Users.email.isnot(None))
-            if comm.target_audience == 'ADMINS_ONLY': query = query.filter(models.Users.role.in_(['ADMIN', 'SUPER_ADMIN']))
-            elif comm.target_audience == 'RPC_ONLY': query = query.filter(models.Users.role == 'RPC')
-            elif comm.target_audience == 'SPECIFIC_REGION': query = query.filter(models.Users.region == comm.target_region)
-            elif comm.target_audience == 'SPECIFIC_USER': query = query.filter(models.Users.fnum == comm.target_fnum)
+            query = db.query(models.Users.email).filter(
+                models.Users.email.isnot(None),
+                models.Users.is_approved == True
+            )
+            
+            # Audience filtering mapping to correct individual emails
+            if comm.target_audience == 'ADMINS_ONLY': 
+                query = query.filter(models.Users.role.in_(['ADMIN', 'SUPER_ADMIN']))
+            elif comm.target_audience == 'RPC_ONLY': 
+                query = query.filter(models.Users.role == 'RPC')
+            elif comm.target_audience == 'SPECIFIC_REGION': 
+                query = query.filter(func.upper(models.Users.region) == comm.target_region.strip().upper())
+            elif comm.target_audience == 'SPECIFIC_USER': 
+                query = query.filter(models.Users.fnum == comm.target_fnum)
                 
-            emails = [u[0] for u in query.all()]
+            emails = [u[0] for u in query.all() if u[0]]
+            
             if emails:
                 html_body = f"""
                 <div style="font-family: Arial, sans-serif; padding: 20px;">
                     <h2 style="color: #b91c1c;">[{comm.message_type.replace('_', ' ')}] {comm.subject}</h2>
                     <p style="font-family: monospace; font-size: 14px; background: #f1f5f9; padding: 8px; border: 1px solid #cbd5e1;">
-                       <strong>Command Ref:</strong> {generated_msg_ref}
+                        <strong>Command Ref:</strong> {generated_msg_ref}
                     </p>
                     <p><strong>Dispatched By:</strong> {comm.sender_name} ({comm.sender_fnum})</p>
                     <hr/>
                     <div>{comm.message}</div>
                     <hr/>
-                    <p style="font-size: 10px; color: gray;">Automated dispatch from KMP Tracker System.</p>
+                    <p style="font-size: 10px; color: gray;">Official dispatch from KMP Centralised Security Data Management System.</p>
                 </div>
                 """
                 def send_email_sync():
@@ -1339,7 +1330,6 @@ def create_admin_communication(
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.get("/api/v1/Admin_Communication")
 def get_admin_communications(
     start_date: Optional[str] = None, end_date: Optional[str] = None,
@@ -1347,23 +1337,48 @@ def get_admin_communications(
 ):
     query = db.query(models.Admin_Communication)
 
+    # 🟢 STRICT REGIONAL & GODLY OVERWATCH ISOLATION
     if current_user.role != "SUPER_ADMIN":
+        user_region = (current_user.region or "").strip().upper()
+        
         visibility_conditions = [
-            models.Admin_Communication.target_audience == "ALL",
-            models.Admin_Communication.target_audience == "ALL_USERS",
-            models.Admin_Communication.sender_fnum == current_user.fnum, 
-            and_(models.Admin_Communication.target_audience == "SPECIFIC_USER", models.Admin_Communication.target_fnum == current_user.fnum)
+            # Global broadcasts are seen by all
+            or_(
+                models.Admin_Communication.target_audience == "ALL",
+                models.Admin_Communication.target_audience == "ALL_USERS"
+            ),
+            # User can always see messages they sent themselves
+            models.Admin_Communication.sender_fnum == current_user.fnum,
+            # User can see direct messages targeting them specifically
+            and_(
+                models.Admin_Communication.target_audience == "SPECIFIC_USER", 
+                models.Admin_Communication.target_fnum == current_user.fnum
+            ),
+            # 🟢 REGIONAL LOCK: User sees regional broadcasts matching their exact region
+            and_(
+                models.Admin_Communication.target_audience == "SPECIFIC_REGION", 
+                func.upper(models.Admin_Communication.target_region) == user_region
+            ),
+            # 🟢 REGIONAL LOCK: User sees messages originated by someone in their region
+            and_(
+                models.Admin_Communication.target_audience == "REGIONAL_BROADCAST",
+                func.upper(models.Admin_Communication.target_region) == user_region
+            )
         ]
-        if current_user.role == "ADMIN": visibility_conditions.append(models.Admin_Communication.target_audience == "ADMINS_ONLY")
-        if current_user.role == "RPC": visibility_conditions.append(models.Admin_Communication.target_audience == "RPC_ONLY")
+        
+        if current_user.role == "ADMIN": 
+            visibility_conditions.append(models.Admin_Communication.target_audience == "ADMINS_ONLY")
+        if current_user.role == "RPC": 
+            visibility_conditions.append(models.Admin_Communication.target_audience == "RPC_ONLY")
             
-        visibility_conditions.append(and_(models.Admin_Communication.target_audience == "SPECIFIC_REGION", models.Admin_Communication.target_region == current_user.region))
         query = query.filter(or_(*visibility_conditions))
 
+    # Date filters...
     if start_date: query = query.filter(models.Admin_Communication.created_at >= start_date)
     if end_date: query = query.filter(models.Admin_Communication.created_at <= f"{end_date} 23:59:59")
 
     comms = query.order_by(models.Admin_Communication.created_at.desc()).all()
+ 
     
     read_records = db.query(models.Communication_Reads.comm_id).filter(models.Communication_Reads.fnum == current_user.fnum).all()
     read_comm_ids = {r[0] for r in read_records} 
@@ -1867,6 +1882,9 @@ def export_establishments(db: Session = Depends(get_db), authorized_user: models
 # ==========================================
 # 12. AUDIT & ACTIVITY LOGS
 # ==========================================
+def get_eat_time():
+    return datetime.now(pytz.timezone("Africa/Kampala")).replace(tzinfo=None)
+
 @app.get("/api/v1/audit-logs")
 def get_system_audit_logs(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
@@ -1895,6 +1913,24 @@ def get_system_audit_logs(db: Session = Depends(get_db), current_user: models.Us
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to fetch audit logs.")
 
+@app.post("/api/v1/audit-logs")
+def create_audit_log(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        new_log = models.Audit_Logs(
+            user_fnum=current_user.fnum,
+            event_type=data.get("event_type", "PAGE_ACCESS"),
+            target_user=data.get("target_user", "SYSTEM"),
+            details=data.get("details", "Performed system action"),
+            status="SUCCESS",
+            created_at=get_eat_time()
+        )
+        db.add(new_log)
+        db.commit()
+        return {"status": "logged"}
+    except Exception as e:
+        db.rollback()
+        return {"status": "error"}
+
 @app.get("/api/v1/activity-logs")
 def get_system_activity_logs(db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
     try:
@@ -1918,47 +1954,31 @@ def get_system_activity_logs(db: Session = Depends(get_logs_db), current_user: m
 @app.post("/api/v1/activity-logs")
 def create_system_activity_log(data: dict, db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        page = data.get("page_accessed", data.get("module", "UNKNOWN"))
-        act = data.get("action", "ACCESSED MODULE")
+        page = data.get("module", data.get("page_accessed", "UNKNOWN"))
+        act = data.get("action", "PAGE_ACCESS")
+        details = data.get("details", f"Officer {current_user.name} ({current_user.fnum}) accessed {page}")
         
         new_activity = models.Activity_Logs(
             fnum=current_user.fnum,
             action=act,
             module=page,
-            details=f"Officer {current_user.name} ({current_user.fnum}) executed {act} on {page}",
-            created_at=datetime.utcnow()
+            details=details,
+            created_at=get_eat_time()
         )
         db.add(new_activity)
         db.commit()
-        return {"status": "logged in database"}
+        return {"status": "success"}
     except Exception as e:
         db.rollback()
-        error_msg = f"DATABASE ERROR writing to Activity Logs: {str(e)}"
-        print(error_msg) 
-        return {"status": "error", "detail": error_msg}
-
-@app.post("/api/v1/audit-logs")
-def create_audit_log(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        new_log = models.AuditLogs(
-            user_fnum=current_user.fnum,
-            event_type=data.get("event_type", "PAGE_ACCESS"),
-            target_user=data.get("target_user", "SYSTEM"),
-            details=data.get("details", "Performed system action"),
-            status="SUCCESS"
-        )
-        db.add(new_log)
-        db.commit()
-        return {"status": "logged"}
-    except Exception as e:
-        db.rollback()
-        return {"status": "error"}
+        print(f"Activity Log Error: {str(e)}")
+        return {"status": "error", "detail": str(e)}
 
 @app.post("/api/v1/system/log-session")
-def log_user_session(req: SessionLogRequest, db: Session = Depends(get_db)):
-    if hasattr(models, 'Audit_Logs'):
+def log_user_session(data: dict, db: Session = Depends(get_db)):
+    fnum = data.get("fnum")
+    if hasattr(models, 'Audit_Logs') and fnum:
         log_semantic_audit(
-            db=db, fnum=req.fnum, action="OFFICER_AUTHENTICATION", 
+            db=db, fnum=fnum, action="OFFICER_AUTHENTICATION", 
             target_identifier="SYSTEM", changes={}, remarks="Secure session initiated via Dashboard Gateway"
         )
     return {"status": "success"}
