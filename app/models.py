@@ -160,7 +160,7 @@ class NominalRoll(Base):
 # ==========================================
 # 6. NOMINAL ROLL ARCHIVE
 # ==========================================
-class NominalRollArchive(Base):
+class Nominal_Roll_Archive(Base):
     __tablename__ = "nominal_roll_archive"
     
     id = Column(Integer, primary_key=True, index=True)

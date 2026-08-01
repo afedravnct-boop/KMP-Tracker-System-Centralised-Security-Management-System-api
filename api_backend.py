@@ -1263,7 +1263,7 @@ async def bulk_upload_nominal_roll(
 # ==========================================
 @app.get("/api/v1/nominal-roll-archive")
 def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    query = db.query(models.Nominal_Roll_Archive)
+    query = db.query(models.NominalRollArchive)
     
     user_role = (current_user.role or "").upper()
     user_region = (current_user.region or "").strip().upper()
