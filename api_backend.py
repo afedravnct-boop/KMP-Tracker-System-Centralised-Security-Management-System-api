@@ -290,27 +290,28 @@ def build_and_send_weekly_briefing():
     try:
         db = database.SessionLocal()
         try:
-            # 🟢 STRICT COMPLIANCE FILTER: Target Command & Data Personnel
-            mandated_positions = ["RPC", "DEPUTY", "DPC", "DATA OFFICER", "DATA ASSISTANT"]
-            mandated_roles = ["RPC", "ADMIN", "SUPER_ADMIN"]
+            # 🟢 STRICT COMPLIANCE FILTER: Target specific field positions only
+            mandated_positions = ["RPC", "DEPUTY RPC", "DPC", "DATA OFFICER", "DATA ASSISTANT"]
             
             query = db.query(models.Users.email).filter(
                 models.Users.email.isnot(None),
                 models.Users.is_approved == True,
-                or_(
-                    or_(*(models.Users.position.ilike(f"%{pos}%") for pos in mandated_positions)),
-                    or_(*(models.Users.role.ilike(f"%{role}%") for role in mandated_roles))
-                )
+                
+                # 🟢 EXCLUDE Headquarters (Filters out both Region and Station assignments)
+                ~func.upper(models.Users.region).in_(["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]),
+                ~func.upper(models.Users.station).in_(["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]),
+                
+                # 🟢 INCLUDE only the targeted management and data categories
+                or_(*(models.Users.position.ilike(f"%{pos}%") for pos in mandated_positions))
             ).distinct()
             
             recipients = [u[0] for u in query.all() if u[0]]
             
-            # Fallback safeguard to always include system admin
+            # Fallback safeguard so the System Manager always receives a copy for monitoring
             if "afedravnct@gmail.com" not in recipients:
                 recipients.append("afedravnct@gmail.com")
                 
             if recipients:
-                # Dispatch individually or as a clean BCC/recipient list to their correct emails
                 asyncio.run(send_command_briefing(recipients, "KMP Mandatory Compliance & Data Briefing", html_content))
         finally:
             db.close()

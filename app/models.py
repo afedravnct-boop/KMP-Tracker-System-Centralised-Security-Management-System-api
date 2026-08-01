@@ -131,7 +131,7 @@ class Nominal_Roll(Base):
     sn = Column(Integer, index=True, unique=True)
     
     # MAPPED COLUMNS: Python uses exact keys React sends, connects to Postgres safely
-    fnum = Column("f_num", String, unique=True, index=True)
+    fnum = Column("fnum", String, unique=True, index=True)
     rank = Column(String)
     name = Column(String)
     sex = Column(String)
