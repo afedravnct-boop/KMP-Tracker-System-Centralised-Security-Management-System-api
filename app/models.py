@@ -4,6 +4,9 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 from datetime import datetime
 import pytz
+from sqlalchemy.orm import declarative_base
+
+Base = declarative_base()
 
 def get_eat_time():
     # Explicitly set to Africa/Nairobi (which is EAT)
@@ -123,6 +126,11 @@ class Establishments(Base):
 # ==========================================
 # 5. NOMINAL ROLL (Personnel Registry)
 # ==========================================
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, func
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+
 class NominalRoll(Base):
     __tablename__ = "nominal_roll"
     
@@ -154,6 +162,41 @@ class NominalRoll(Base):
     status = Column(String)
     last_updated_by = Column(String)
     created_at = Column(DateTime, server_default=func.now())
+
+
+class NominalRollArchive(Base):
+    __tablename__ = "nominal_roll_archive"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    sn = Column(Integer, nullable=True)
+    fnum = Column(String, index=True) # Note: Archive uses fnum without underscore
+    rank = Column(String)
+    name = Column(String)
+    sex = Column(String)
+    position = Column(String)
+    dob = Column(String)
+    doe = Column(String)
+    dopost = Column(String) # Archive version
+    dopro = Column(String)  # Archive version
+    contact = Column(String)
+    educlevel = Column(String) # Archive version
+    ipps = Column(String)
+    tin = Column(String)
+    nin = Column(String)
+    homedist = Column(String) # Archive version
+    tribe = Column(String)
+    accno = Column(String)    # Archive version
+    bankbranch = Column(String) # Archive version
+    station = Column(String)
+    district = Column(String)
+    region = Column(String)
+    section = Column(String)
+    dir = Column(String)
+    status = Column(String)
+    last_updated_by = Column(String)
+    created_at = Column(DateTime)
+    archive_reason = Column(String)
+    archive_date = Column(DateTime, server_default=func.now())
 
 # ==========================================
 # 6. NOMINAL ROLL ARCHIVE
