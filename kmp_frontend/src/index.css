@@ -1,130 +1,159 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* 🟢 TAILWIND IMPORT */
+@import "tailwindcss";
+
+/* 🟢 BASE DASHBOARD STYLES */
+.dashboard-container {
+  display: flex;
+  min-height: 100vh;
+  background-color: #F0F2F6;
+}
+
+.sidebar {
+  width: 250px;
+  background-color: #ffffff;
+  border-right: 1px solid #E6E8F1;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-nav button {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 5px;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.sidebar-nav button.active {
+  background-color: #E0F2FE;
+  font-weight: bold;
+}
+
+.main-content {
+  flex-grow: 1;
+  padding: 20px;
+}
+
+.header-title {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.split-layout {
+  display: flex;
+  gap: 20px;
+}
+
+.left-panel {
+  flex: 1.2;
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.right-panel {
+  flex: 1.8;
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.entry-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.entry-form input, .entry-form textarea, .entry-form select {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.submit-btn {
+  padding: 12px;
+  background-color: #004B87;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.metrics-row {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.metric-card {
+  background: #F8F9FA;
+  padding: 15px;
+  border-radius: 6px;
+  border: 1px solid #E6E8F1;
+  flex: 1;
+  text-align: center;
+}
+
+.kmp-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.kmp-table th, .kmp-table td {
+  padding: 12px;
+  border-bottom: 1px solid #eee;
+  text-align: left;
+}
 
 /* =========================================================
-   🟢 CURTAIN & BACKGROUND ANIMATIONS
+   🟢 CURTAIN ANIMATIONS
    ========================================================= */
 
-/* 1. Diagonal Uganda Flag for the Dashboard Watermark */
-@keyframes diagonalWave {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+/* 1. The universal horizontal panning animation */
+@keyframes flagWaveBg {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }
 
-.uganda-flag-diagonal {
-  background: linear-gradient(-45deg, #000000 25%, #facc15 25%, #facc15 50%, #dc2626 50%, #dc2626 75%, #000000 75%);
-  background-size: 400% 400%;
-  animation: diagonalWave 15s ease infinite;
+/* 2. The Uganda Flag Gradient Background */
+.uganda-flag-diagonalwave {
+  background: linear-gradient(-45deg, #000000 25%, #facc15 25%, #facc15 50%, #dc2626 50%, #dc2626 75%, #000000 75%, 
+    #000000 0%, #000000 15%, 
+    #ffffff 25%, #ffffff 25%, 
+    #000000 50%, #000000 50%, 
+    #ffffff 75%, #ffffff 75%
+  );
+  background-size: 50% 50%;
+  animation: flagWaveBg 20s ease infinite;
 }
 
-/* 2. Flawless Infinite Black & White Scrolling Stripes (Idle Screen) */
-@keyframes scrollBwStripes {
-  0% { background-position: 0 0; }
-  100% { background-position: 200px 0; }
+@keyframes waveInfinite {
+  0% { background-position: 0% 0%; }
+  100% { background-position: 200% 0%; }
 }
 
 .bwbwb-wave {
-  background: repeating-linear-gradient(
-    to right,
-    #000000 0px,
-    #000000 100px,
-    #ffffff 100px,
-    #ffffff 200px
-  );
-  /* Slides exactly one full pattern width to loop infinitely */
-  animation: scrollBwStripes 4s linear infinite; 
+  background: repeating-linear-gradient(to right, #000000 0%, #000000 20%, #ffffff 20%, #ffffff 40%);
+  background-size: 200% 100%;
+  animation: waveInfinite 10s linear infinite;
 }
 
-/* 3. The UPF Emblem PNG Waving (Left-to-Right Center Sweep) */
-@keyframes horizontalSweep {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-
+/* 3. The UPF Emblem PNG Waving (Identical method to the flag) */
 .png-flag-wave {
   background-image: url('/UPF Flag Emblem.png');
-  background-size: 150% auto; /* 150% gives it room to slide left and right */
+  background-size: 150% auto;
+  background-position: center;
   background-repeat: no-repeat;
-  /* Uses the new horizontalSweep to lock it into that left-right panning motion */
-  animation: horizontalSweep 15s ease-in-out infinite; 
-}
-
-/* =========================================================
-   🟢 DIAMOND GLOBE SPARKLE ANIMATION
-   ========================================================= */
-@keyframes diamondSparkleSpin {
-  0% {
-    transform: rotate(0deg);
-    color: #bae6fd; /* Dim icy blue */
-    filter: drop-shadow(0 0 2px rgba(255,255,255,0.1));
-  }
-  15% {
-    color: #ffffff; /* Sharp diamond flash */
-    filter: drop-shadow(0 0 15px rgba(255,255,255,1)) drop-shadow(0 0 25px #06b6d4);
-  }
-  30% {
-    color: #bae6fd; 
-    filter: drop-shadow(0 0 2px rgba(255,255,255,0.1));
-  }
-  50% {
-    transform: rotate(180deg);
-    color: #ffffff; /* Sharp diamond flash */
-    filter: drop-shadow(0 0 15px rgba(255,255,255,1)) drop-shadow(0 0 25px #06b6d4);
-  }
-  70% {
-    color: #bae6fd; 
-    filter: drop-shadow(0 0 2px rgba(255,255,255,0.1));
-  }
-  85% {
-    color: #ffffff; /* Sharp diamond flash */
-    filter: drop-shadow(0 0 15px rgba(255,255,255,1)) drop-shadow(0 0 30px #ffffff);
-  }
-  100% {
-    transform: rotate(360deg);
-    color: #bae6fd; 
-    filter: drop-shadow(0 0 2px rgba(255,255,255,0.1));
-  }
-}
-
-.animate-diamond-globe {
-  /* 4 seconds matches your original request, linear keeps the spin smooth */
-  animation: diamondSparkleSpin 4s linear infinite; 
-}
-
-/* =========================================================
-   🟢 TITLE ANIMATION (20 SEC LOOP)
-   ========================================================= */
-@keyframes titleAction {
-  0%, 75% { 
-    transform: translate(0, 0); 
-    opacity: 1; 
-  }
-  /* 1. Run out rightwards */
-  80% { 
-    transform: translateX(100vw); 
-    opacity: 0; 
-  }
-  /* 2. Back to center */
-  85% { 
-    transform: translate(0, 0); 
-    opacity: 1; 
-  }
-  /* 3. Shoot up to top screen */
-  90% { 
-    transform: translateY(-100vh); 
-    opacity: 0; 
-  }
-  /* 4. Drop downwards back to its position */
-  95%, 100% { 
-    transform: translate(0, 0); 
-    opacity: 1; 
-  }
-}
-
-.animate-title-run {
-  /* 20s loop, ease-in-out makes the "running" speed smooth */
-  animation: titleAction 20s ease-in-out infinite;
+  animation: flagWaveBg 20s ease infinite;
 }
