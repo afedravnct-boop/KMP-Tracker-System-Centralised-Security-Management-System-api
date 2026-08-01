@@ -85,11 +85,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173", 
-        "http://127.0.0.1:5173", 
-        "https://kmp-tracker-system-centralised-secu.vercel.app", 
-        "https://kmp-tracker-system-centralised-security-management-adj4h23x4.vercel.app",
-        "https://kmp-tracker-system-centralised-security-management-od0odfzxy.vercel.app"
+        "http://127.0.0.1:5173",
+        "https://kmp-tracker-system-centralised-secu.vercel.app"
     ],
+    # 🟢 This regex automatically permits all Vercel preview builds dynamically
+    allow_origin_regex=r"https://kmp-tracker.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -2141,6 +2141,50 @@ def get_all_requests(db: Session = Depends(get_db), current_user: models.Users =
                 "requested_station": r.requested_station, "status": r.status
             })
     return results
+
+@app.get("/api/v1/users/recipients-list")
+def get_filtered_recipients(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    query = db.query(models.Users).filter(models.Users.is_approved == True)
+    
+    user_role = (current_user.role or "").upper()
+    user_region = (current_user.region or "").strip().upper()
+    user_station = (current_user.station or "").strip().upper()
+    
+    # SUPER_ADMIN / Police Headquarters see everyone across the entire force
+    if user_role == "SUPER_ADMIN" or user_region == "POLICE HEADQUARTERS":
+        users = query.all()
+    
+    # KMP Headquarters sees all KMP units/regions
+    elif user_region == "KMP HEADQUARTERS":
+        users = query.filter(func.upper(models.Users.region).ilike("%KMP%")).all()
+        
+    # RPC / DPC / Regional Command sees their specific region/station footprint
+    elif user_role in ["RPC", "DPC"] or "HEADQUARTERS" not in user_region:
+        users = query.filter(
+            or_(
+                func.upper(models.Users.region) == user_region,
+                func.upper(models.Users.station) == user_station,
+                # Allow visibility to higher command (RPC/DPC) for cross-region requests
+                func.upper(models.Users.position).in_(["RPC", "DPC"])
+            )
+        ).all()
+    else:
+        # Standard users see within their station/division
+        users = query.filter(func.upper(models.Users.station) == user_station).all()
+        
+    result = []
+    for u in users:
+        result.append({
+            "id": u.id,
+            "fnum": u.fnum,
+            "name": u.name,
+            "rank": u.rank,
+            "position": u.position,
+            "region": u.region,
+            "station": u.station,
+            "role": u.role
+        })
+    return result
 
 @app.post("/api/v1/requests")
 def create_modification_request(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):

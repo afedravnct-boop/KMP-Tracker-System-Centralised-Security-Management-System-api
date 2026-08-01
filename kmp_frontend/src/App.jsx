@@ -3375,9 +3375,9 @@ return (
     <Lock size={14} className="mr-2" /> 
     
     <span className="relative inline-flex items-center justify-center mx-2">
-      <span className="absolute -inset-1 rounded-full bg-yellow-400/20 blur-xs animate-pulse-spin"></span>
-      <Globe size={28} className="relative z-10 animate-diamond-globe" />
-      <span className="absolute -top-1 -right-1.5 text-[10px] animate-ping text-white-200">✨</span>
+      <span className="absolute -inset-1 rounded-full bg-yellow-600/20 blur-xs animate-pulse-spin"></span>
+      <Globe size={28} className="relative z-10 animate-globe" />
+      <span className="absolute -top-1 -right-1.5 text-[10px] animate-text-white-500">✨</span>
     </span>
 
     KMP-CSDMS-TRACKER SYSTEM

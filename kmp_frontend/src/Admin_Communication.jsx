@@ -12,11 +12,16 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // --- RECIPIENTS LIST FROM BACKEND ENDPOINT ---
+  const [filteredRecipientsList, setFilteredRecipientsList] = useState([]);
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL');
+  const [selectedRegionFilter, setSelectedRegionFilter] = useState('ALL');
+
   // --- COMPOSITION STATE ---
   const [formData, setFormData] = useState({
     targetAudience: canBroadcast ? 'ALL_USERS' : 'SPECIFIC_USER', 
     targetRegion: 'ALL', 
-    targetFnum: [], // 🟢 Multi-select array for officers
+    targetFnum: [], // Multi-select array for officers
     messageType: canBroadcast ? 'GENERAL_INFO' : 'DIRECT_MESSAGE',
     subject: '', 
     message: '', 
@@ -31,12 +36,31 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   
-  // 🟢 NEW CATEGORY FILTER STATE
   const [activeFilter, setActiveFilter] = useState('all');
 
   const [viewingReceiptsFor, setViewingReceiptsFor] = useState(null);
   const [receiptsData, setReceiptsData] = useState([]);
   const [loadingReceipts, setLoadingReceipts] = useState(false);
+
+  // Fetch hierarchical filtered recipients list on load
+  useEffect(() => {
+    fetchRecipientsList();
+  }, []);
+
+  const fetchRecipientsList = async () => {
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const res = await fetch(`${API_URL}/api/v1/users/recipients-list`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFilteredRecipientsList(data);
+      }
+    } catch (err) {
+      console.error("Failed to load command recipients list:", err);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -52,11 +76,37 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
     }
   };
 
+  // Dynamic Filtering Logic for Checkboxes based on Headquarters & Categories
+  const finalSelectableRecipients = (filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || [])).filter(user => {
+    if (user.fnum === currentUser.fnum) return false;
+    const region = (user.region || "").toUpperCase();
+    
+    // Category Filter (Police HQ, KMP HQ, or Field Command)
+    if (selectedCategoryFilter === 'POLICE_HQ' && !region.includes("POLICE HEADQUARTERS")) return false;
+    if (selectedCategoryFilter === 'KMP_HQ' && !region.includes("KMP HEADQUARTERS")) return false;
+    if (selectedCategoryFilter === 'FIELD_COMMAND' && region.includes("HEADQUARTERS")) return false;
+
+    // Region Dropdown Filter
+    if (selectedRegionFilter !== 'ALL' && region !== selectedRegionFilter) return false;
+
+    return true;
+  });
+
   const handleDispatch = async (e) => {
     e.preventDefault();
     if (!formData.subject || !formData.message) return setNotification({ type: 'error', text: 'Subject and Message body are required.' });
     if (formData.targetAudience === 'SPECIFIC_USER' && (!formData.targetFnum || formData.targetFnum.length === 0)) {
       return setNotification({ type: 'error', text: 'Please select at least one recipient from the list.' });
+    }
+
+    // Check if cross-region routing requires authorization flag
+    const containsCrossRegion = formData.targetFnum.some(fnum => {
+      const recipientObj = finalSelectableRecipients.find(u => u.fnum === fnum);
+      return recipientObj && recipientObj.region !== currentUser.region;
+    });
+
+    if (containsCrossRegion && !['RPC', 'DPC', 'SUPER_ADMIN', 'ADMIN'].includes(currentUser.role)) {
+      return setNotification({ type: 'error', text: '⚠️ Cross-region communication requires routing through your regional RPC or DPC for approval.' });
     }
 
     setIsSubmitting(true);
@@ -74,7 +124,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
           message_type: formData.messageType, 
           subject: formData.subject,
           message: formData.message, 
-          send_email: formData.sendEmail
+          send_email: formData.sendEmail,
+          requires_command_approval: containsCrossRegion
         })
       });
 
@@ -164,9 +215,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                 </div>
                 <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar bg-slate-50">
                    {loadingReceipts ? (
-                      <p className="text-xs text-center text-gray-500 font-bold animate-pulse py-4">Fetching ledgers...</p>
+                     <p className="text-xs text-center text-gray-500 font-bold animate-pulse py-4">Fetching ledgers...</p>
                    ) : receiptsData.length === 0 ? (
-                      <p className="text-xs text-center text-gray-500 font-medium py-4">No officers have acknowledged this dispatch yet.</p>
+                     <p className="text-xs text-center text-gray-500 font-medium py-4">No officers have acknowledged this dispatch yet.</p>
                    ) : (
                        <div className="space-y-2">
                           {receiptsData.map((r, i) => (
@@ -253,10 +304,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                           <option value="RPC_ONLY">Regional Commanders (RPCs)</option>
                           <option value="DEPUTY RPC_ONLY">Deputy Regional Commanders (RPCs)</option>
                           <option value="SPECIFIC_REGION">Specific Region</option>
-                          <option value="station">Station to Station</option>
-                          <option value="division">Division to Division</option>
-                          <option value="region">Region-wide (RPC Broadcast)</option>
-                          <option value="direct_rpc">To Regional Police Commander (RPC)</option>
                         </>
                       )}
                       <option value="SPECIFIC_USER">Specific Officers / Admins (Direct)</option>
@@ -292,54 +339,79 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                   </div>
                 </div>
 
-                {/* 🟢 REGION-FILTERED MULTI-SELECT OFFICER CHECKLIST */}
+                {/* 🟢 COMMAND CATEGORY & REGION-FILTERED MULTI-SELECT RECIPIENTS */}
                 {formData.targetAudience === 'SPECIFIC_USER' && (
-                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                    <label className="block text-xs font-bold text-blue-800 uppercase tracking-wider mb-2 flex items-center justify-between">
-                      <span className="flex items-center"><UserPlus size={14} className="mr-1"/> Select Recipients (Multi-Select)</span>
-                      <span className="text-[10px] bg-blue-200 text-blue-900 px-2 py-0.5 rounded font-mono">
-                        {formData.targetFnum.length} Selected
-                      </span>
-                    </label>
-                    
-                    <div className="max-h-48 overflow-y-auto bg-white border border-blue-300 rounded-md p-2 space-y-1.5 custom-scrollbar">
-                      {(users || [])
-                        .filter(u => {
-                          if (u.fnum === currentUser.fnum) return false;
-                          const isGlobal = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role) || 
-                                          ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((currentUser?.region || '').toUpperCase().trim());
-                          if (isGlobal) return true;
-                          const userRegion = (u.region || '').toUpperCase().trim();
-                          const currentRegion = (currentUser?.region || '').toUpperCase().trim();
-                          return userRegion === currentRegion;
-                        })
-                        .map(u => {
-                          const isChecked = formData.targetFnum.includes(u.fnum);
-                          return (
-                            <label key={u.fnum} className={`flex items-center justify-between p-2 rounded cursor-pointer transition-colors text-xs font-bold ${isChecked ? 'bg-blue-100/70 border border-blue-300 text-blue-900' : 'hover:bg-slate-50 text-slate-700'}`}>
-                              <div className="flex items-center space-x-2">
-                                <input 
-                                  type="checkbox" 
-                                  checked={isChecked}
-                                  onChange={(e) => {
-                                    const currentList = [...formData.targetFnum];
-                                    if (e.target.checked) {
-                                      currentList.push(u.fnum);
-                                    } else {
-                                      const index = currentList.indexOf(u.fnum);
-                                      if (index > -1) currentList.splice(index, 1);
-                                    }
-                                    setFormData({ ...formData, targetFnum: currentList });
-                                  }}
-                                  className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-                                />
-                                <span>{u.name} — <span className="text-slate-500">{u.rank}</span></span>
-                              </div>
-                              <span className="text-[10px] uppercase font-mono text-slate-400 bg-white px-1.5 py-0.5 rounded border">{u.station}</span>
-                            </label>
-                          );
-                        })
-                      }
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-blue-900 uppercase mb-1">Filter by Command Category</label>
+                        <select 
+                          value={selectedCategoryFilter} 
+                          onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+                          className="w-full p-2.5 bg-white border border-blue-300 rounded-lg text-xs font-bold text-slate-800"
+                        >
+                          <option value="ALL">All System Categories</option>
+                          <option value="POLICE_HQ">Police Headquarters</option>
+                          <option value="KMP_HQ">KMP Headquarters</option>
+                          <option value="FIELD_COMMAND">Field Regions & Divisions</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-blue-900 uppercase mb-1">Filter by Specific Jurisdiction</label>
+                        <select 
+                          value={selectedRegionFilter} 
+                          onChange={(e) => setSelectedRegionFilter(e.target.value)}
+                          className="w-full p-2.5 bg-white border border-blue-300 rounded-lg text-xs font-bold text-slate-800"
+                        >
+                          <option value="ALL">All Active Jurisdictions</option>
+                          {Array.from(new Set((filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || [])).map(r => r.region))).filter(Boolean).map(reg => (
+                            <option key={reg} value={reg}>{reg}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-blue-800 uppercase tracking-wider mb-2 flex items-center justify-between">
+                        <span className="flex items-center"><UserPlus size={14} className="mr-1"/> Select Recipients (Multi-Select)</span>
+                        <span className="text-[10px] bg-blue-200 text-blue-900 px-2 py-0.5 rounded font-mono">
+                          {formData.targetFnum.length} Selected
+                        </span>
+                      </label>
+                      
+                      <div className="max-h-48 overflow-y-auto bg-white border border-blue-300 rounded-md p-2 space-y-1.5 custom-scrollbar">
+                        {finalSelectableRecipients.length === 0 ? (
+                          <p className="text-xs text-center text-slate-400 py-4 font-bold">No active users match the selected filters.</p>
+                        ) : (
+                          finalSelectableRecipients.map(u => {
+                            const isChecked = formData.targetFnum.includes(u.fnum);
+                            return (
+                              <label key={u.fnum} className={`flex items-center justify-between p-2 rounded cursor-pointer transition-colors text-xs font-bold ${isChecked ? 'bg-blue-100/70 border border-blue-300 text-blue-900' : 'hover:bg-slate-50 text-slate-700'}`}>
+                                <div className="flex items-center space-x-2">
+                                  <input 
+                                    type="checkbox" 
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      const currentList = [...formData.targetFnum];
+                                      if (e.target.checked) {
+                                        currentList.push(u.fnum);
+                                      } else {
+                                        const index = currentList.indexOf(u.fnum);
+                                        if (index > -1) currentList.splice(index, 1);
+                                      }
+                                      setFormData({ ...formData, targetFnum: currentList });
+                                    }}
+                                    className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                                  />
+                                  <span>{u.rank} {u.name} ({u.position || 'Officer'})</span>
+                                </div>
+                                <span className="text-[10px] uppercase font-mono text-slate-500 bg-white px-1.5 py-0.5 rounded border">{u.station} [{u.region}]</span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -377,7 +449,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
           {(activeTab === 'inbox' || activeTab === 'outbox') && (
             <div className="space-y-6">
               
-              {/* 🟢 TIME FILTER & CATEGORY FILTER BAR */}
               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-4">
                 <div className="flex flex-col md:flex-row gap-4 items-end">
                   <div className="flex-1 w-full">
@@ -405,7 +476,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                   )}
                 </div>
 
-                {/* 🟢 CATEGORY FILTER PILLS */}
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200">
                   <span className="text-xs font-bold text-slate-500 uppercase mr-2">Category Filter:</span>
                   
@@ -503,7 +573,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                         <div className="prose prose-sm max-w-none text-slate-700" dangerouslySetInnerHTML={{ __html: msg.message }} />
                       </div>
 
-                      {/* 🟢 OFFICIAL COMMAND REFERENCE FOOTER */}
                       <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
                         <div className="flex flex-col">
                           <div className="mb-1">
