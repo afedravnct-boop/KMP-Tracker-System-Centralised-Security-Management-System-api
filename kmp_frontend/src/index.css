@@ -247,3 +247,16 @@
   /* Centers it properly */
   margin: 0 auto;
 }
+
+@keyframes spinGlobe {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-globe {
+  animation: spinGlobe 12s linear infinite;
+}
