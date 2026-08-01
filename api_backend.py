@@ -88,7 +88,6 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "https://kmp-tracker-system-centralised-secu.vercel.app"
     ],
-    # 🟢 This regex automatically permits all Vercel preview builds dynamically
     allow_origin_regex=r"https://kmp-tracker.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
@@ -116,7 +115,7 @@ class Admin_CommunicationCreate(BaseModel):
     sender_name: str
     target_audience: str
     target_region: Optional[str] = None
-    target_fnum: Optional[list] = []
+    target_fnum: Optional[str] = None  # 🟢 FIXED: Was list, now correctly str
     message_type: str
     subject: str
     message: str
@@ -210,15 +209,11 @@ def strip_html_to_plain_text(text):
     return text.strip()
 
 def apply_custom_sheet_design(workbook, worksheet, df, sheet_title, user):
-    # 1. PREPARE PRINT SETTINGS (Page Layout ready for Ctrl+P)
     worksheet.set_landscape()
     worksheet.set_margins(left=0.25, right=0.25, top=0.75, bottom=0.75)
-
-    # 2. SET PRINT HEADERS AND FOOTERS
     worksheet.set_header('&C&"Tahoma,Bold"RESTRICTED')
     worksheet.set_footer('&C&"Tahoma"Page &P of &N\nRESTRICTED')
 
-    # 3. CREATE FORMATS (Tahoma enforced)
     header_format = workbook.add_format({
         'bold': True,
         'bg_color': '#002060', 
@@ -238,32 +233,26 @@ def apply_custom_sheet_design(workbook, worksheet, df, sheet_title, user):
         'valign': 'vcenter'
     })
 
-    # 4. APPLY HEADER ROW FORMATTING
     for col_num, value in enumerate(df.columns.values):
         worksheet.write(0, col_num, value, header_format)
 
-    # 5. APPLY DATA ROW FORMATTING
     for row_num in range(len(df)):
         for col_num in range(len(df.columns)):
             val = df.iloc[row_num, col_num]
             if pd.isna(val): val = ""
             worksheet.write(row_num + 1, col_num, val, data_format)
 
-    # 6. SHEET-SPECIFIC PRINT SCALING & COLUMN SIZING
     if "OPS Statistics" in sheet_title:
-        worksheet.fit_to_pages(1, 0) # Fit to 1 page wide
-        worksheet.set_column('A:A', 5)   # SN
-        worksheet.set_column('B:B', 12)  # Date
-        worksheet.set_column('C:D', 20)  # Region, Station
-        worksheet.set_column('E:L', 10)  # Metrics
-
-    elif "(Print)" in sheet_title:       # PRINT TABS (Crime Registry & Establishments)
-        worksheet.fit_to_pages(1, 0)     # Fit to 1 page wide for UI copies
-        worksheet.set_column('A:A', 5)   # SN
-        worksheet.set_column('B:Z', 15)  # Standard readable width for the rest
-
+        worksheet.fit_to_pages(1, 0)
+        worksheet.set_column('A:A', 5)   
+        worksheet.set_column('B:B', 12)  
+        worksheet.set_column('C:D', 20)  
+        worksheet.set_column('E:L', 10)  
+    elif "(Print)" in sheet_title:       
+        worksheet.fit_to_pages(1, 0)     
+        worksheet.set_column('A:A', 5)   
+        worksheet.set_column('B:Z', 15)  
     else:
-        # Master tabs: NO fit-to-width so they stay wide and readable
         worksheet.set_column('A:Z', 18) 
 
 async def send_command_briefing(email_to: List[str], subject: str, html_body: str):
@@ -290,24 +279,18 @@ def build_and_send_weekly_briefing():
     try:
         db = database.SessionLocal()
         try:
-            # 🟢 STRICT COMPLIANCE FILTER: Target specific field positions only
             mandated_positions = ["RPC", "DEPUTY RPC", "DPC", "DATA OFFICER", "DATA ASSISTANT"]
             
             query = db.query(models.Users.email).filter(
                 models.Users.email.isnot(None),
                 models.Users.is_approved == True,
-                
-                # 🟢 EXCLUDE Headquarters (Filters out both Region and Station assignments)
                 ~func.upper(models.Users.region).in_(["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]),
                 ~func.upper(models.Users.station).in_(["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]),
-                
-                # 🟢 INCLUDE only the targeted management and data categories
                 or_(*(models.Users.position.ilike(f"%{pos}%") for pos in mandated_positions))
             ).distinct()
             
             recipients = [u[0] for u in query.all() if u[0]]
             
-            # Fallback safeguard so the System Manager always receives a copy for monitoring
             if "afedravnct@gmail.com" not in recipients:
                 recipients.append("afedravnct@gmail.com")
                 
@@ -455,7 +438,7 @@ def update_user_profile(data: dict, db: Session = Depends(get_db), current_user:
             raise HTTPException(status_code=400, detail="File Number is actively registered to another account.")
 
         hr_verification = db.query(models.Nominal_Roll).filter(
-            or_(models.Nominal_Roll.fnum == new_fnum, models.Nominal_Roll.f_num == new_fnum),
+            models.Nominal_Roll.fnum == new_fnum,
             models.Nominal_Roll.rank == data.get("rank"),
             models.Nominal_Roll.station == data.get("station")
         ).first()
@@ -775,7 +758,7 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
         db.commit()          # Commit to generate the ID
         db.refresh(new_record)
         
-        new_record.sn = new_record.id # 🟢 FIX 2: Set SN to equal ID natively in the backend
+        new_record.sn = new_record.id 
         db.commit()
         
         for s in suspects_data:
@@ -792,7 +775,6 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
             )
             db.add(new_suspect)
         
-        # 🟢 FIX 2: Return the native IDs to the frontend so it immediately renders
         return {"status": "success", "id": new_record.id, "sn": new_record.sn}
     except IntegrityError:
         db.rollback()
@@ -926,7 +908,7 @@ def create_establishment(data: dict, db: Session = Depends(get_db), current_user
         db.add(new_est)
         db.commit()
         db.refresh(new_est)
-        return {"status": "success", "sn": new_est.sn}
+        return {"status": "success", "sn": new_est.id}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -959,6 +941,7 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
 # --- NOMINAL ROLL ---
 @app.get("/api/v1/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    # 🟢 DIRECTLY QUERY THE EXACT CLASS
     query = db.query(models.Nominal_Roll)
     
     user_role = (current_user.role or "").upper()
@@ -978,7 +961,7 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
         
-        # 🟢 Map Database flat columns back to Frontend expected fields
+        # Map Database flat columns back to Frontend expected fields
         if 'dopost' in r_dict: r_dict['do_post'] = r_dict['dopost']
         if 'dopro' in r_dict: r_dict['do_pro'] = r_dict['dopro']
         if 'educlevel' in r_dict: r_dict['educ_level'] = r_dict['educlevel']
@@ -1108,7 +1091,7 @@ async def bulk_upload_nominal_roll(
             "serialnumber": "id",
             "sn": "sn", 
             
-# Force Number -> DB: fnum
+            # Force Number -> DB: fnum
             "forcenumber": "fnum", 
             "fnumber": "fnum", 
             "fnum": "fnum", 
@@ -1130,7 +1113,7 @@ async def bulk_upload_nominal_roll(
             "doe": "doe", 
             "dateofenlistment": "doe",
 
-# Date of Post -> DB: dopost
+            # Date of Post -> DB: dopost
             "dop": "dopost",            
             "dopost": "dopost", 
             "do_post": "dopost", 
@@ -1204,8 +1187,8 @@ async def bulk_upload_nominal_roll(
                 records_skipped += 1
                 continue
             
-           # Clean Dates
-            for date_col in ['dob', 'doe', 'do_post', 'do_pro']:
+            # Clean Dates - 🟢 FIXED: Loop over the mapped flat database keys
+            for date_col in ['dob', 'doe', 'dopost', 'dopro']:
                 if date_col in row_dict and row_dict[date_col]:
                     val = row_dict[date_col]
                     if isinstance(val, datetime):
@@ -1263,12 +1246,12 @@ async def bulk_upload_nominal_roll(
 # ==========================================
 @app.get("/api/v1/nominal-roll-archive")
 def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    # 🟢 FIX: Directly query the exact class name from models.py
     query = db.query(models.Nominal_Roll_Archive)
     
     user_role = (current_user.role or "").upper()
     user_region = (current_user.region or "").strip().upper()
 
-    # Apply regional security filters
     if user_role not in ["ADMIN", "SUPER_ADMIN"] and not (current_user.permissions or {}).get("view_all_nominal", False):
         query = query.filter(func.upper(models.Nominal_Roll_Archive.region) == user_region)
         
@@ -1276,12 +1259,11 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
     archives = query.all()
     
     clean_results = []
-    
     for a in archives:
         a_dict = a.__dict__.copy()
         a_dict.pop("_sa_instance_state", None)
         
-        # 🟢 Map Database flat columns back to Frontend expected fields
+        # Map Database flat columns back to Frontend expected fields
         if 'fnum' in a_dict: a_dict['f_num'] = a_dict['fnum']
         if 'dopost' in a_dict: a_dict['do_post'] = a_dict['dopost']
         if 'dopro' in a_dict: a_dict['do_pro'] = a_dict['dopro']
@@ -1290,7 +1272,6 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
         if 'accno' in a_dict: a_dict['acc_no'] = a_dict['accno']
         if 'bankbranch' in a_dict: a_dict['bank_branch'] = a_dict['bankbranch']
             
-        # Dynamically set SN to equal the auto-generated ID
         if 'id' in a_dict:
             a_dict['sn'] = a_dict['id']
             
@@ -2271,30 +2252,6 @@ def update_modification_request_status(
         if hasattr(models, 'Audit_Logs'):
             log_semantic_audit(db, current_user.fnum, "HR_MODIFICATION_REJECTED", req.fnum, {}, f"Reason: {reason}")
 
-def serialize_nominal_row(record):
-    r_dict = record.__dict__.copy()
-    r_dict.pop("_sa_instance_state", None)
-    
-    # Bridge column differences between active and archive tables
-    if 'f_num' in r_dict and not r_dict.get('fnum'):
-        r_dict['fnum'] = r_dict['f_num']
-    elif 'fnum' in r_dict and not r_dict.get('f_num'):
-        r_dict['f_num'] = r_dict['fnum']
-        
-    # Map archive fields to standard frontend keys if present
-    if 'dopost' in r_dict: r_dict['do_post'] = r_dict['dopost']
-    if 'dopro' in r_dict: r_dict['do_pro'] = r_dict['dopro']
-    if 'educlevel' in r_dict: r_dict['educ_level'] = r_dict['educlevel']
-    if 'homedist' in r_dict: r_dict['home_dist'] = r_dict['homedist']
-    if 'accno' in r_dict: r_dict['acc_no'] = r_dict['accno']
-    if 'bankbranch' in r_dict: r_dict['bank_branch'] = r_dict['bankbranch']
-    
-    # Force auto-generated ID to serve as serial number (sn)
-    if 'id' in r_dict:
-        r_dict['sn'] = r_dict['id']
-        
-    return r_dict
-            
     db.commit()
     return {"status": "success", "message": f"Request {action_status.lower()} successfully."}
 
