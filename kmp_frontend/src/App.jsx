@@ -3669,8 +3669,15 @@ const DashboardLayout = ({
   }, [onLogout]);
 
 // 🟢 AUTOMATIC PAGE ACCESS TRACKER -> ROUTED CORRECTLY TO ACTIVITY_LOGS TABLE
+  const lastLoggedPage = useRef(null);
+
   useEffect(() => {
     if (!currentUser?.fnum || !currentPage) return;
+    
+    // 🛑 INFINITE LOOP KILL SWITCH: Only fetch if the page actually changed
+    if (lastLoggedPage.current === currentPage) return;
+    lastLoggedPage.current = currentPage;
+
     const token = localStorage.getItem('kmp_authToken');
     if (!token) return;
 
@@ -3689,6 +3696,8 @@ const DashboardLayout = ({
     })
     .then(res => res.json())
     .catch(err => console.error("Activity log error:", err));
+
+  }, [currentPage, currentUser?.fnum]); // 🟢 Changed to primitive .fnum to stop referential loop crashes
 
   }, [currentPage, currentUser]);
 
