@@ -957,7 +957,6 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
     return {"status": "success"}
 
 # --- NOMINAL ROLL ---
-@app.get("/api/v1/nominal-roll")
 # --- NOMINAL ROLL ---
 @app.get("/api/v1/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -973,24 +972,25 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     else:
         query = query.filter(db_model.station == current_user.station)
         
-    sn_col = getattr(db_model, 'sn', getattr(db_model, 'id', None))
-    if sn_col:
-        query = query.order_by(sn_col.desc())
+    # 🟢 Order safely by the primary column 'id' since it feeds sn
+    if hasattr(db_model, 'id'):
+        query = query.order_by(db_model.id.desc())
+    elif hasattr(db_model, 'sn'):
+        query = query.order_by(db_model.sn.desc())
         
     records = query.all()
     
-    # 🟢 Normalizer loop to ensure frontend always sees clean 'fnum' and 'sn'
     clean_results = []
     for r in records:
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
         
-        # Map f_num to fnum if the database stored it with an underscore
+        # Map f_num to fnum if stored with an underscore
         if 'f_num' in r_dict and not r_dict.get('fnum'):
             r_dict['fnum'] = r_dict['f_num']
             
-        # Ensure ID maps to SN if SN is missing
-        if 'id' in r_dict and not r_dict.get('sn'):
+        # Ensure sn accurately mirrors id if sn is blank
+        if 'id' in r_dict and (not r_dict.get('sn') or r_dict.get('sn') == 0):
             r_dict['sn'] = r_dict['id']
             
         clean_results.append(r_dict)
@@ -1260,23 +1260,37 @@ async def bulk_upload_nominal_roll(
 
 @app.get("/api/v1/nominal-roll-archive")
 def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    query = db.query(models.Nominal_Roll_Archive)
+    # 🟢 Fallback check for different archive model naming conventions
+    db_model = getattr(models, 'Nominal_Roll_Archive', getattr(models, 'nominal_roll_archive', getattr(models, 'NominalRollArchive', None)))
+    
+    if not db_model:
+        return []
+
+    query = db.query(db_model)
+    
     if current_user.role not in ["ADMIN", "SUPER_ADMIN"] and not (current_user.permissions or {}).get("view_all_nominal", False):
-        query = query.filter(models.Nominal_Roll_Archive.region == current_user.region)
+        if hasattr(db_model, 'region'):
+            query = query.filter(db_model.region == current_user.region)
         
-    archives = query.order_by(models.Nominal_Roll_Archive.id.desc()).all()
+    # 🟢 Order safely by 'id' since it feeds sn
+    if hasattr(db_model, 'id'):
+        query = query.order_by(db_model.id.desc())
+    elif hasattr(db_model, 'sn'):
+        query = query.order_by(db_model.sn.desc())
+        
+    archives = query.all()
     clean_results = []
     
     for a in archives:
         a_dict = a.__dict__.copy()
         a_dict.pop("_sa_instance_state", None)
         
-        # 🟢 Map f_num to fnum so the frontend table displays it correctly
+        # Map f_num to fnum so the frontend table displays it correctly
         if 'f_num' in a_dict and not a_dict.get('fnum'):
             a_dict['fnum'] = a_dict['f_num']
             
-        # 🟢 Ensure id maps to sn if sn is missing
-        if 'id' in a_dict and not a_dict.get('sn'):
+        # Ensure sn mirrors id if sn is missing or empty
+        if 'id' in a_dict and (not a_dict.get('sn') or a_dict.get('sn') == 0):
             a_dict['sn'] = a_dict['id']
             
         clean_results.append(a_dict)
