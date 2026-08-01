@@ -3485,6 +3485,7 @@ return (
       </p>
     </div>
   );
+};
 
 
 
@@ -3606,7 +3607,6 @@ const DashboardLayout = ({
   const [viewingProfileImage, setViewingProfileImage] = useState(null);
   const [newForcePassword, setNewForcePassword] = useState('');
   const [isFullScreen, setIsFullScreen] = useState(false);
-  const lastLoggedPage = useRef(null);  
 
   const [lastViewedId, setLastViewedId] = useState(() => {
     const saved = localStorage.getItem('last_viewed_comm_id');
