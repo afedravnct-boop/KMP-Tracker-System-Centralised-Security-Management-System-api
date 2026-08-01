@@ -17,7 +17,6 @@ import HrEstablishmentsLedger from './HrEstablishmentsLedger';
 import Admin_Communication from './Admin_Communication';
 import BulkNominalRollUpload from './BulkNominalRollUpload';
 import { syncOfflineQueue, getOfflineQueueCount } from './utils/offlineSync';
-import './index.css';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -3309,7 +3308,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 <div className="relative z-10 flex flex-col items-center text-center">
     <img 
       src="/UPF Flag Emblem.png" 
-      alt="UPF Flag Emblem" 
+      alt="UPF Waving Flag Emblem" 
       className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] animate-flag-wave object-contain rounded-xl border border-slate-600 shadow-2xl"
       onError={(e) => { e.target.style.display = 'none'; }}
     />
@@ -3462,29 +3461,24 @@ const WorkspaceSecurityCurtain = () => {
     };
   }, [isReadingMode]);
 
-return (
+  return (
     <>
-      {/* 🟢 READING MODE TOGGLE BUTTON (Expands on Hover) */}
       <div className="fixed bottom-6 right-6 z-[9990]">
         <button
           onClick={() => {
             setIsReadingMode(!isReadingMode);
             setIsWorkspaceIdle(false);
           }}
-          className={`group flex items-center p-3 rounded-full shadow-2xl transition-all duration-300 border ${
+          className={`flex items-center space-x-2 px-4 py-2 rounded-full shadow-2xl font-bold text-xs uppercase tracking-wider transition-all duration-300 border ${
             isReadingMode 
               ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)]' 
               : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
           }`}
         >
-          <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-500'}`}></span>
-          
-          <span className="w-0 overflow-hidden opacity-0 group-hover:w-40 group-hover:opacity-100 group-hover:ml-3 transition-all duration-300 ease-in-out whitespace-nowrap text-xs font-bold uppercase tracking-wider text-left">
-            {isReadingMode ? '📖 Reading Mode' : '🛡️ Idle Guard'}
-          </span>
+          <span className={`h-2.5 w-2.5 rounded-full ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-500'}`}></span>
+          <span>{isReadingMode ? '📖 Reading Mode Active' : '🛡️ Standard Idle Guard'}</span>
         </button>
       </div>
-
 
       <div 
         className={`fixed inset-0 w-screen h-screen z-[99999] flex flex-col items-center justify-center transition-transform duration-700 ease-in-out shadow-2xl overflow-hidden ${
@@ -3501,9 +3495,9 @@ return (
         <div className="relative z-10 flex flex-col items-center text-center">
           <div className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] png-flag-wave rounded-xl shadow-2xl border border-slate-600/50"></div>
           
-<h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md animate-title-run">
-  KMP SECURITY DATA MANAGEMENT SYSTEM
-</h2>
+          <h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md">
+            KMP SECURITY DATA MANAGEMENT SYSTEM
+          </h2>
           <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
             <Lock size={14} className="mr-2" /> 
             <Globe size={14} className="mx-2 animate-spin text-yellow-400" style={{ animationDuration: '4s' }} /> 
@@ -3669,37 +3663,26 @@ const DashboardLayout = ({
   }, [onLogout]);
 
 // 🟢 AUTOMATIC PAGE ACCESS TRACKER -> ROUTED CORRECTLY TO ACTIVITY_LOGS TABLE
-  const lastLoggedPage = useRef(null);
-
   useEffect(() => {
     if (!currentUser?.fnum || !currentPage) return;
-    
-    // 🛑 INFINITE LOOP KILL SWITCH: Only fetch if the page actually changed
-    if (lastLoggedPage.current === currentPage) return;
-    lastLoggedPage.current = currentPage;
-
     const token = localStorage.getItem('kmp_authToken');
     if (!token) return;
 
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
     
-    // Automatically log page access to activity logs table
     fetch(`${API_URL}/api/v1/activity-logs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ 
-        fnum: currentUser.fnum, 
-        action: 'PAGE_ACCESS', 
-        module: currentPage, 
-        details: `User accessed ${currentPage}` 
+      body: JSON.stringify({
+        fnum: currentUser.fnum,  // 🟢 ADDED: This is what your database was missing!
+        action: 'MODULE_ACCESS',
+        module: currentPage.toUpperCase(),
+        details: `Accessed the ${currentPage.toUpperCase()} module.`
       })
-    })
-    .then(res => res.json())
-    .catch(err => console.error("Activity log error:", err));
+    }).catch(e => console.warn("Activity log silent fail"));
+  }, [currentPage, currentUser?.fnum]);
 
-  }, [currentPage, currentUser?.fnum]); // 🟢 Changed to primitive .fnum to stop referential loop crashes
 
-  }, [currentPage, currentUser]);
 
   const safeSidebarComms = Array.isArray(Admin_Communication) ? Admin_Communication : (Admin_Communication?.data || Admin_Communication?.items || []);
   const relevantComms = safeSidebarComms.filter(c => {
@@ -3752,6 +3735,7 @@ const DashboardLayout = ({
       });
 
       if (!response.ok) throw new Error("Security Clearance Denied");
+
       const logs = await response.json();
       const headers = ["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"];
       
