@@ -3369,7 +3369,7 @@ return (
 </div>
 
   {/* Sparkling Globe Badge */}
-  <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
+  <p className="text-blue-300 mt-3 text-sm font-bold bg-yellow-900/50 px-4 py-1.5 rounded-full border border-cyan-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
     <Lock size={14} className="mr-2" /> 
     
     <span className="relative inline-flex items-center justify-center mx-2">
@@ -3378,7 +3378,7 @@ return (
       <span className="absolute -top-1 -right-1.5 text-[10px] animate-ping text-white-200">✨</span>
     </span>
 
-    KMP-CSDMS Standby Mode
+    KMP-CSDMS-TRACKER SYSTEM
   </p>
 </div>
 
