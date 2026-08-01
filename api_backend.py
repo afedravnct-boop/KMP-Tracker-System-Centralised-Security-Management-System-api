@@ -1110,62 +1110,40 @@ async def bulk_upload_nominal_roll(
             "doe": "doe", 
             "dateofenlistment": "doe",
 
-            # Date of Post -> DB: do_post
-            "dop": "do_post",           
-            "dopost": "do_post", 
-            "do_post": "do_post", 
-            "dateofpost": "do_post",
+# Date of Post -> DB: dopost
+            "dop": "dopost",            
+            "dopost": "dopost", 
+            "do_post": "dopost", 
+            "dateofpost": "dopost",
 
-            # Date of Promotion -> DB: do_pro
-            "dopro": "do_pro", 
-            "do_pro": "do_pro",
-            "dateofpromotion": "do_pro",
+            # Date of Promotion -> DB: dopro
+            "dopro": "dopro", 
+            "do_pro": "dopro",
+            "dateofpromotion": "dopro",
 
-            "contact": "contact", 
-            "phone": "contact", 
-            "phonenumber": "contact", 
-            "telephone": "contact",
+            # Education Level -> DB: educlevel
+            "educlevel": "educlevel", 
+            "educ_level": "educlevel", 
+            "education": "educlevel", 
+            "educationlevel": "educlevel",
 
-            # Education Level -> DB: educ_level
-            "educlevel": "educ_level", 
-            "educ_level": "educ_level", 
-            "education": "educ_level", 
-            "educationlevel": "educ_level",
+            # Home District -> DB: homedist
+            "homedist": "homedist", 
+            "home_dist": "homedist", 
+            "homedistrict": "homedist", 
 
-            "ipps": "ipps", 
-            "ippsnumber": "ipps", 
-            "ippsno": "ipps",
-            "tin": "tin", 
-            "tinnumber": "tin", 
-            "tinno": "tin",
-            "nin": "nin", 
-            "nationalid": "nin", 
-            "nid": "nin",
+            # Account Number -> DB: accno
+            "accno": "accno", 
+            "acc_no": "accno", 
+            "accountnumber": "accno", 
+            "accountno": "accno", 
+            "account": "accno",
 
-            # Home District -> DB: home_dist
-            "homedist": "home_dist", 
-            "home_dist": "home_dist", 
-            "homedistrict": "home_dist", 
-            
-            # Duty District -> DB: district
-            "district": "district",     
-            "dutydistrict": "district",
-
-            "tribe": "tribe", 
-            "ethnicity": "tribe",
-
-            # Account Number -> DB: acc_no
-            "accno": "acc_no", 
-            "acc_no": "acc_no", 
-            "accountnumber": "acc_no", 
-            "accountno": "acc_no", 
-            "account": "acc_no",
-
-            # Bank Branch -> DB: bank_branch
-            "bankbranch": "bank_branch", 
-            "bank_branch": "bank_branch", 
-            "bank": "bank_branch", 
-            "branch": "bank_branch",
+            # Bank Branch -> DB: bankbranch
+            "bankbranch": "bankbranch", 
+            "bank_branch": "bankbranch", 
+            "bank": "bankbranch", 
+            "branch": "bankbranch",
 
             "station": "station", 
             "dutystation": "station",
@@ -1206,8 +1184,8 @@ async def bulk_upload_nominal_roll(
                 records_skipped += 1
                 continue
             
-            # Clean Dates
-            for date_col in ['dob', 'doe', 'do_post', 'do_pro']:
+           # Clean Dates
+            for date_col in ['dob', 'doe', 'dopost', 'dopro']:
                 if date_col in row_dict and row_dict[date_col]:
                     val = row_dict[date_col]
                     if isinstance(val, datetime):
