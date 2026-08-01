@@ -437,10 +437,10 @@ def update_user_profile(data: dict, db: Session = Depends(get_db), current_user:
         if db.query(models.Users).filter(models.Users.fnum == new_fnum).first():
             raise HTTPException(status_code=400, detail="File Number is actively registered to another account.")
 
-        hr_verification = db.query(models.Nominal_Roll).filter(
-            models.Nominal_Roll.fnum == new_fnum,
-            models.Nominal_Roll.rank == data.get("rank"),
-            models.Nominal_Roll.station == data.get("station")
+        hr_verification = db.query(models.NominalRoll).filter(
+            models.NominalRoll.fnum == new_fnum,
+            models.NominalRoll.rank == data.get("rank"),
+            models.NominalRoll.station == data.get("station")
         ).first()
 
         if not hr_verification:
@@ -942,7 +942,7 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
 @app.get("/api/v1/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     # 🟢 DIRECTLY QUERY THE EXACT CLASS
-    query = db.query(models.Nominal_Roll)
+    query = db.query(models.NominalRoll)
     
     user_role = (current_user.role or "").upper()
     user_region = (current_user.region or "").strip().upper()
@@ -951,9 +951,9 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     if user_role in ["ADMIN", "SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or user_region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]:
         pass 
     else:
-        query = query.filter(func.upper(models.Nominal_Roll.station) == user_station)
+        query = query.filter(func.upper(models.NominalRoll.station) == user_station)
         
-    query = query.order_by(models.Nominal_Roll.id.desc())
+    query = query.order_by(models.NominalRoll.id.desc())
     records = query.all()
     
     clean_results = []
@@ -1009,7 +1009,7 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
                 else:
                     clean_data[mapped_k] = v
 
-        new_record = models.Nominal_Roll(**clean_data)
+        new_record = models.NominalRoll(**clean_data)
         new_record.last_updated_by = current_user.fnum
         db.add(new_record)
         db.commit()
@@ -1026,7 +1026,7 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
 @app.put("/api/v1/nominal-roll/{fnum}/archive")
 def archive_personnel(fnum: str, request_data: schemas.ArchiveRequest, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        active_record = db.query(models.Nominal_Roll).filter(models.Nominal_Roll.fnum == fnum).first()
+        active_record = db.query(models.NominalRoll).filter(models.NominalRoll.fnum == fnum).first()
         
         if not active_record:
             raise HTTPException(status_code=404, detail="Officer not found in active roll.")
@@ -1041,7 +1041,7 @@ def archive_personnel(fnum: str, request_data: schemas.ArchiveRequest, db: Sessi
         record_data["archive_date"] = datetime.now().date()
         record_data["last_updated_by"] = current_user.fnum
 
-        archived_record = models.Nominal_Roll_Archive(**record_data)
+        archived_record = models.NominalRoll_Archive(**record_data)
         db.add(archived_record)
         db.delete(active_record)
         db.commit()
@@ -1171,9 +1171,9 @@ async def bulk_upload_nominal_roll(
         records_failed = 0
         first_error = ""
         
-        fnum_attr = getattr(models.Nominal_Roll, 'fnum', getattr(models.Nominal_Roll, 'f_num', None))
+        fnum_attr = getattr(models.NominalRoll, 'fnum', getattr(models.NominalRoll, 'f_num', None))
         existing_fnums = {str(u[0]).strip().upper() for u in db.query(fnum_attr).all() if u[0]} if fnum_attr else set()
-        valid_keys = [c.key for c in models.Nominal_Roll.__table__.columns]
+        valid_keys = [c.key for c in models.NominalRoll.__table__.columns]
 
         for index, row in df.iterrows():
             row_dict = row.to_dict()
@@ -1213,7 +1213,7 @@ async def bulk_upload_nominal_roll(
             clean_row.pop('id', None)
             
             try:
-                new_record = models.Nominal_Roll(**clean_row)
+                new_record = models.NominalRoll(**clean_row)
                 new_record.last_updated_by = current_user.fnum
                 db.add(new_record)
                 db.commit()  # 🟢 COMMIT ROW BY ROW (If one fails, the rest still save!)
@@ -1247,15 +1247,15 @@ async def bulk_upload_nominal_roll(
 @app.get("/api/v1/nominal-roll-archive")
 def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     # 🟢 FIX: Directly query the exact class name from models.py
-    query = db.query(models.Nominal_Roll_Archive)
+    query = db.query(models.NominalRoll_Archive)
     
     user_role = (current_user.role or "").upper()
     user_region = (current_user.region or "").strip().upper()
 
     if user_role not in ["ADMIN", "SUPER_ADMIN"] and not (current_user.permissions or {}).get("view_all_nominal", False):
-        query = query.filter(func.upper(models.Nominal_Roll_Archive.region) == user_region)
+        query = query.filter(func.upper(models.NominalRoll_Archive.region) == user_region)
         
-    query = query.order_by(models.Nominal_Roll_Archive.id.desc())
+    query = query.order_by(models.NominalRoll_Archive.id.desc())
     archives = query.all()
     
     clean_results = []
@@ -1653,11 +1653,11 @@ def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depend
 @app.get("/api/v1/reports/hr-establishments-json")
 def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        hr_query = db.query(models.Nominal_Roll)
+        hr_query = db.query(models.NominalRoll)
         if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
-            hr_query = hr_query.filter(models.Nominal_Roll.station == current_user.station)
+            hr_query = hr_query.filter(models.NominalRoll.station == current_user.station)
         elif current_user.role in ["ADMIN", "RPC"]:
-            hr_query = hr_query.filter(models.Nominal_Roll.region == current_user.region)
+            hr_query = hr_query.filter(models.NominalRoll.region == current_user.region)
             
         hr_records = hr_query.all()
         hr_list, grouped_hr = [], {}
@@ -1854,9 +1854,9 @@ def export_master_database_unified(
             gc.collect()
 
             # --- TAB 4: NOMINAL ROLL ---
-            roll_query = db.query(models.Nominal_Roll)
+            roll_query = db.query(models.NominalRoll)
             if scope == "station" and value and value != "all":
-                roll_query = roll_query.filter(models.Nominal_Roll.station == value)
+                roll_query = roll_query.filter(models.NominalRoll.station == value)
             roll_data = roll_query.yield_per(1000)
             roll_list = [{
                 "SN": getattr(n, 'id', getattr(n, 'sn', '')), 
@@ -1943,7 +1943,7 @@ def export_establishments(db: Session = Depends(get_db), authorized_user: models
             workbook = writer.book
 
             # Process HR Data
-            hr_data = db.query(models.Nominal_Roll).yield_per(1000)
+            hr_data = db.query(models.NominalRoll).yield_per(1000)
             hr_list = [{
                 "SN": getattr(h, 'id', getattr(h, 'sn', '')), "Force Number": getattr(h, 'f_num', getattr(h, 'fnum', '')), 
                 "Name": getattr(h, 'name', ''), "Rank": getattr(h, 'rank', ''), "Sex": getattr(h, 'sex', ''), 
