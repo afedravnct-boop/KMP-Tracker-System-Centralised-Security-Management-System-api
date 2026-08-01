@@ -5,8 +5,6 @@ from app.database import Base
 from datetime import datetime
 import pytz
 
-Base = declarative_base()
-
 def get_eat_time():
     # Explicitly set to Africa/Nairobi (which is EAT)
     eat = pytz.timezone('Africa/Nairobi')
