@@ -2829,6 +2829,8 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   const [isRequestMode, setIsRequestMode] = useState(false);
   const [notification, setNotification] = useState(null);
   const [viewingImage, setViewingImage] = useState(null);
+
+  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
   
   const [passwordData, setPasswordData] = useState({ old_password: '', new_password: '' });
   const handlePasswordChange = async (e) => {
@@ -3676,7 +3678,7 @@ const DashboardLayout = ({
   onUpdateUserRole, 
   Admin_Communication 
 }) => {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showOnline, setShowOnline] = useState(false);
   const [showAllUsers, setShowAllUsers] = useState(false);
   const [selectedUserDetail, setSelectedUserDetail] = useState(null);
@@ -3964,21 +3966,30 @@ const DashboardLayout = ({
           : (sidebarOpen ? 'w-64 md:w-72' : 'w-16')
       }`}>
         
-        <div className={`p-4 flex items-center border-b border-slate-500 transition-all ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
-          {sidebarOpen && (
-            <div className="flex items-center min-w-max">
-              <img 
-                src="/upf_badge.png" 
-                alt="UPF Logo" 
-                className="w-4 h-4 mr-0.5 object-contain contrast-200 brightness-75 drop-shadow-sm" 
-                onError={(e) => { e.target.style.display = 'none'; }} 
-              />
-              <span className="font-bold text-0.5g tracking-wider text-white">KMP TRACKER SYSTEM</span>
-            </div>
+<div className={`p-4 flex items-center border-b border-slate-500 transition-all ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
+        {sidebarOpen && (
+          <div className="flex items-center min-w-max">
+            {/* Miniature 3D Spinning Globe Icon */}
+            <div 
+              className="rounded-full bg-cover bg-repeat-x shrink-0 mr-2 border border-slate-700/50"
+              style={{ 
+                width: '20px', 
+                height: '20px', 
+                backgroundImage: "url('/UPF Flag Emblem.png')",
+                animation: "spinFauxGlobe 12s linear infinite",
+                boxShadow: "inset -3px -3px 5px rgba(0, 0, 0, 0.8), inset 1px 1px 2px rgba(255, 255, 255, 0.5), 0 0 3px rgba(255, 255, 255, 0.2)"
+              }}
+            ></div>
+            <span className="font-bold text-[13px] tracking-wider text-white">KMP TRACKER SYSTEM</span>
+          </div>
           )}
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-500 rounded text-slate-150 transition-colors shrink-0">
-            <Menu size={sidebarOpen ? 14 : 20} className="text-yellow-400" />
-          </button>
+  {sidebarOpen ? (
+            <X size={20} className="text-yellow-400 animate-in spin-in-90 duration-200" />
+  ) : (
+            <Menu size={20} className="text-yellow-400 animate-in spin-in-[-90deg] duration-200" />
+  )}
+        </button>
         </div>
         
         <div className="flex-1 overflow-y-auto py-2 custom-scrollbar overflow-x-hidden">
