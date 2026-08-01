@@ -6,8 +6,6 @@ from datetime import datetime
 import pytz
 from sqlalchemy.orm import declarative_base
 
-Base = declarative_base()
-
 def get_eat_time():
     # Explicitly set to Africa/Nairobi (which is EAT)
     eat = pytz.timezone('Africa/Nairobi')
@@ -126,11 +124,6 @@ class Establishments(Base):
 # ==========================================
 # 5. NOMINAL ROLL (Personnel Registry)
 # ==========================================
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, func
-from sqlalchemy.ext.declarative import declarative_base
-
-Base = declarative_base()
-
 class NominalRoll(Base):
     __tablename__ = "nominal_roll"
     
