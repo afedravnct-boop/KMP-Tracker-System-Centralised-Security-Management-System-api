@@ -3663,8 +3663,16 @@ const DashboardLayout = ({
   }, [onLogout]);
 
 // 🟢 AUTOMATIC PAGE ACCESS TRACKER -> ROUTED CORRECTLY TO ACTIVITY_LOGS TABLE
+// 🟢 AUTOMATIC PAGE ACCESS TRACKER -> ROUTED CORRECTLY TO ACTIVITY_LOGS TABLE
+  const lastLoggedPage = useRef(null);
+
   useEffect(() => {
     if (!currentUser?.fnum || !currentPage) return;
+    
+    // 🛑 INFINITE LOOP KILL SWITCH: Only fetch if the page actually changed
+    if (lastLoggedPage.current === currentPage) return;
+    lastLoggedPage.current = currentPage;
+
     const token = localStorage.getItem('kmp_authToken');
     if (!token) return;
 
@@ -3673,13 +3681,16 @@ const DashboardLayout = ({
     fetch(`${API_URL}/api/v1/activity-logs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({
-        fnum: currentUser.fnum,  // 🟢 ADDED: This is what your database was missing!
-        action: 'MODULE_ACCESS',
-        module: currentPage.toUpperCase(),
-        details: `Accessed the ${currentPage.toUpperCase()} module.`
+      body: JSON.stringify({ 
+        fnum: currentUser.fnum, 
+        action: 'PAGE_ACCESS', 
+        module: currentPage, 
+        details: `User accessed ${currentPage}` 
       })
-    }).catch(e => console.warn("Activity log silent fail"));
+    })
+    .then(res => res.json())
+    .catch(err => console.error("Activity log error:", err));
+
   }, [currentPage, currentUser?.fnum]);
 
 
