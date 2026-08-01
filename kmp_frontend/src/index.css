@@ -179,14 +179,57 @@
   animation: diamondSparkleSpin 4s linear infinite; 
 }
 
-/* Title Sweep & Settle Animation (Every 30 Seconds) */
+/* =========================================================
+   🟢 DYNAMIC LETTER-BY-LETTER SWEEP ANIMATION
+   ========================================================= */
+
 @keyframes sweepAndSettle {
-  0% { transform: translateX(100vw); opacity: 0; }
-  15% { transform: translateX(0); opacity: 1; }
-  85% { transform: translateX(0); opacity: 1; }
-  100% { transform: translateX(0); opacity: 1; }
+  0% {
+    opacity: 0;
+    transform: translateX(50vw); /* Starts far right */
+  }
+  60% {
+    opacity: 1;
+    transform: translateX(-40px); /* Overshoots to the left */
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0); /* Settles in the center */
+  }
 }
 
-.animate-sweep-settle {
-  animation: sweepAndSettle 30s ease-in-out infinite;
+.animate-sweep-letter {
+  display: inline-block;
+  opacity: 0; /* Keeps letters hidden before their delay starts */
+  /* Using cubic-bezier for a sharp snap back into place */
+  animation: sweepAndSettle 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+/* =========================================================
+   🟢 FAUX 3D GLOBE EMBLEM
+   ========================================================= */
+@keyframes spinFauxGlobe {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
+
+.upf-css-globe {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%; /* Makes it a perfect circle */
+  background-image: url('/UPF Flag Emblem.png');
+  background-size: cover; /* Ensures the flag stretches top-to-bottom */
+  background-repeat: repeat-x; /* Allows it to infinitely loop horizontally */
+  
+  /* 3D Spherical Lighting Effect */
+  box-shadow: 
+    inset -25px -25px 40px rgba(0, 0, 0, 0.8), /* Dark side shadow */
+    inset 10px 10px 20px rgba(255, 255, 255, 0.4), /* Top-left highlight */
+    0 0 25px rgba(255, 255, 255, 0.2); /* Outer ambient glow */
+    
+  /* Continuous smooth spinning */
+  animation: spinFauxGlobe 12s linear infinite;
+  
+  /* Centers it properly */
+  margin: 0 auto;
 }

@@ -1088,13 +1088,13 @@ async def bulk_upload_nominal_roll(
             "serialnumber": "id",
             "sn": "sn", 
             
-            # Force Number -> DB: f_num
-            "forcenumber": "f_num", 
-            "fnumber": "f_num", 
-            "fnum": "f_num", 
-            "f_num": "f_num", 
-            "force": "f_num", 
-            "fno": "f_num",
+# Force Number -> DB: fnum
+            "forcenumber": "fnum", 
+            "fnumber": "fnum", 
+            "fnum": "fnum", 
+            "f_num": "fnum", 
+            "force": "fnum", 
+            "fno": "fnum",
 
             "rank": "rank", 
             "name": "name", 
