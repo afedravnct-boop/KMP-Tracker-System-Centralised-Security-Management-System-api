@@ -958,16 +958,9 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
 
 # --- NOMINAL ROLL ---
 @app.get("/api/v1/nominal-roll")
-@app.get("/api/v1/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    db_model = getattr(models, 'nominal_roll', getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None)))
+    query = db.query(models.Nominal_Roll)
     
-    if not db_model:
-        return []
-
-    query = db.query(db_model)
-    
-    # Regional and station filtering logic based on your latest update
     user_role = (current_user.role or "").upper()
     user_region = (current_user.region or "").strip().upper()
     user_station = (current_user.station or "").strip().upper()
@@ -975,15 +968,9 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     if user_role in ["ADMIN", "SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or user_region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]:
         pass 
     else:
-        if hasattr(db_model, 'station'):
-            query = query.filter(func.upper(db_model.station) == user_station)
-        elif hasattr(db_model, 'region'):
-            query = query.filter(func.upper(db_model.region) == user_region)
+        query = query.filter(func.upper(models.Nominal_Roll.station) == user_station)
         
-    # Order strictly by the auto-generated primary key 'id'
-    if hasattr(db_model, 'id'):
-        query = query.order_by(db_model.id.desc())
-        
+    query = query.order_by(models.Nominal_Roll.id.desc())
     records = query.all()
     
     clean_results = []
@@ -991,11 +978,14 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
         
-        # Map f_num to fnum if needed
-        if 'f_num' in r_dict and not r_dict.get('fnum'):
-            r_dict['fnum'] = r_dict['f_num']
+        # 🟢 Map Database flat columns back to Frontend expected fields
+        if 'dopost' in r_dict: r_dict['do_post'] = r_dict['dopost']
+        if 'dopro' in r_dict: r_dict['do_pro'] = r_dict['dopro']
+        if 'educlevel' in r_dict: r_dict['educ_level'] = r_dict['educlevel']
+        if 'homedist' in r_dict: r_dict['home_dist'] = r_dict['homedist']
+        if 'accno' in r_dict: r_dict['acc_no'] = r_dict['accno']
+        if 'bankbranch' in r_dict: r_dict['bank_branch'] = r_dict['bankbranch']
             
-        # Dynamically assign the auto-generated id as 'sn' for the frontend table
         if 'id' in r_dict:
             r_dict['sn'] = r_dict['id']
             
@@ -1011,30 +1001,37 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             data["region"] = current_user.region
             data["station"] = current_user.station
             
+        # 🟢 Map Frontend underscored keys to Database flat columns
+        key_map = {
+            'f_num': 'fnum', 'do_post': 'dopost', 'do_pro': 'dopro', 
+            'educ_level': 'educlevel', 'home_dist': 'homedist', 
+            'acc_no': 'accno', 'bank_branch': 'bankbranch'
+        }
+            
         clean_data = {}
         for k, v in data.items():
+            mapped_k = key_map.get(k, k)
             if v == "":
-                clean_data[k] = None
+                clean_data[mapped_k] = None
             else:
-                if k in ['dob', 'doe', 'dopost', 'dopro'] and v is not None:
+                if mapped_k in ['dob', 'doe', 'dopost', 'dopro'] and v is not None:
                     if "/" in v:  
                         try:
                             date_obj = datetime.strptime(v, "%d/%m/%Y")
-                            clean_data[k] = date_obj.strftime("%Y-%m-%d")
+                            clean_data[mapped_k] = date_obj.strftime("%Y-%m-%d")
                         except ValueError:
-                            clean_data[k] = v 
+                            clean_data[mapped_k] = v 
                     else:
-                        clean_data[k] = v 
+                        clean_data[mapped_k] = v 
                 else:
-                    clean_data[k] = v
+                    clean_data[mapped_k] = v
 
-        db_model = getattr(models, 'nominal_roll', getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None)))
-        new_record = db_model(**clean_data)
+        new_record = models.Nominal_Roll(**clean_data)
         new_record.last_updated_by = current_user.fnum
         db.add(new_record)
         db.commit()
         db.refresh(new_record)
-        return {"status": "success", "message": "Officer added successfully", "sn": new_record.sn}
+        return {"status": "success", "message": "Officer added successfully", "sn": new_record.id}
         
     except IntegrityError:
         db.rollback() 
@@ -1044,12 +1041,9 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @app.put("/api/v1/nominal-roll/{fnum}/archive")
-def archive_personnel(fnum: str, request_data: ArchiveRequest, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def archive_personnel(fnum: str, request_data: schemas.ArchiveRequest, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        db_model = getattr(models, 'nominal_roll', getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None)))
-        active_record = db.query(db_model).filter(
-            (db_model.fnum == fnum) if hasattr(db_model, 'fnum') else (db_model.f_num == fnum)
-        ).first()
+        active_record = db.query(models.Nominal_Roll).filter(models.Nominal_Roll.fnum == fnum).first()
         
         if not active_record:
             raise HTTPException(status_code=404, detail="Officer not found in active roll.")
@@ -1264,35 +1258,39 @@ async def bulk_upload_nominal_roll(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Bulk upload failed: {str(e)}")
 
+# ==========================================
+# NOMINAL ROLL ARCHIVE ENDPOINT
+# ==========================================
 @app.get("/api/v1/nominal-roll-archive")
 def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    db_model = getattr(models, 'Nominal_Roll_Archive', getattr(models, 'nominal_roll_archive', getattr(models, 'NominalRollArchive', None)))
-    
-    if not db_model:
-        return []
-
-    query = db.query(db_model)
+    query = db.query(models.Nominal_Roll_Archive)
     
     user_role = (current_user.role or "").upper()
     user_region = (current_user.region or "").strip().upper()
 
+    # Apply regional security filters
     if user_role not in ["ADMIN", "SUPER_ADMIN"] and not (current_user.permissions or {}).get("view_all_nominal", False):
-        if hasattr(db_model, 'region'):
-            query = query.filter(func.upper(db_model.region) == user_region)
+        query = query.filter(func.upper(models.Nominal_Roll_Archive.region) == user_region)
         
-    if hasattr(db_model, 'id'):
-        query = query.order_by(db_model.id.desc())
-        
+    query = query.order_by(models.Nominal_Roll_Archive.id.desc())
     archives = query.all()
+    
     clean_results = []
     
     for a in archives:
         a_dict = a.__dict__.copy()
         a_dict.pop("_sa_instance_state", None)
         
-        if 'f_num' in a_dict and not a_dict.get('fnum'):
-            a_dict['fnum'] = a_dict['f_num']
+        # 🟢 Map Database flat columns back to Frontend expected fields
+        if 'fnum' in a_dict: a_dict['f_num'] = a_dict['fnum']
+        if 'dopost' in a_dict: a_dict['do_post'] = a_dict['dopost']
+        if 'dopro' in a_dict: a_dict['do_pro'] = a_dict['dopro']
+        if 'educlevel' in a_dict: a_dict['educ_level'] = a_dict['educlevel']
+        if 'homedist' in a_dict: a_dict['home_dist'] = a_dict['homedist']
+        if 'accno' in a_dict: a_dict['acc_no'] = a_dict['accno']
+        if 'bankbranch' in a_dict: a_dict['bank_branch'] = a_dict['bankbranch']
             
+        # Dynamically set SN to equal the auto-generated ID
         if 'id' in a_dict:
             a_dict['sn'] = a_dict['id']
             

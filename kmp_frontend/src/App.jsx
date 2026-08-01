@@ -3324,7 +3324,7 @@ return (
       {/* MAIN CARD CONTAINER */}
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
         
-        {/* 🟢 THE WAVING POLICE FLAG EMBLEM IDLE CURTAIN */}
+{/* 🟢 THE WAVING POLICE FLAG EMBLEM IDLE CURTAIN */}
         <div 
           className={`absolute inset-0 z-50 flex flex-col items-center justify-center transition-all duration-1000 ease-in-out shadow-2xl ${
             isLoginIdle ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
@@ -3342,46 +3342,48 @@ return (
             style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}
           ></div>
 
-<div className="relative z-10 flex flex-col items-center text-center">
-<div className="upf-css-globe mb-6 border border-slate-600/50"></div>
-  
-{/* Sweep-and-Settle Animated Title */}
-<div className="overflow-hidden py-2 w-full max-w-4xl">
-  <h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md flex justify-center flex-wrap">
-    {"KMP SECURITY DATA MANAGEMENT SYSTEM".split("").map((char, index) => {
-   
-      const delay = Math.pow(index, 1.2) * 0.025; 
-      
-      return (
-        <span
-          key={index}
-          className="animate-sweep-letter"
-          style={{ 
-            animationDelay: `${delay}s`,
-            // Preserve spaces so the words don't collapse together
-            minWidth: char === " " ? "0.5em" : "auto" 
-          }}
-        >
-          {char}
-        </span>
-      );
-    })}
-  </h2>
-</div>
+          <div className="relative z-10 flex flex-col items-center text-center">
+            <div className="upf-css-globe mb-6 border border-slate-600/50"></div>
+            
+            {/* Sweep-and-Settle Animated Title */}
+            <div className="overflow-hidden py-2 w-full max-w-4xl">
+              <h2 className="text-3xl font-bold text-center text-white tracking-wide uppercase drop-shadow-md flex justify-center flex-wrap">
+                {"KMP SECURITY DATA MANAGEMENT SYSTEM".split("").map((char, index) => {
+                  const delay = Math.pow(index, 1.2) * 0.025; 
+                  
+                  return (
+                    <span
+                      key={index}
+                      className="animate-sweep-letter"
+                      style={{ 
+                        animationDelay: `${delay}s`,
+                        // 🟢 FIX 1: Enforce space rendering so words don't collapse
+                        whiteSpace: "pre" 
+                      }}
+                    >
+                      {/* 🟢 FIX 2: Safely render empty spaces as non-breaking spaces */}
+                      {char === " " ? "\u00A0" : char}
+                    </span>
+                  );
+                })}
+              </h2>
+            </div>
 
-  {/* Sparkling Globe Badge */}
-  <p className="text-blue-200 mt-3 text-sm font-bold bg-yellow-900/50 px-4 py-1.5 rounded-full border border-cyan-600/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
-    <Lock size={14} className="mr-2" /> 
-    
-    <span className="relative inline-flex items-center justify-center mx-2">
-      <span className="absolute -inset-1 rounded-full bg-yellow-600/20 blur-xs animate-pulse-spin"></span>
-      <Globe size={28} className="relative z-10 animate-spin-globe" />
-      <span className="absolute -top-1 -right-1.5 text-[10px] animate-text-white-700">✨</span>
-    </span>
+            {/* Sparkling Globe Badge */}
+            <p className="text-blue-200 mt-3 text-sm font-bold bg-yellow-900/50 px-4 py-1.5 rounded-full border border-cyan-600/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
+              <Lock size={14} className="mr-2" /> 
+              
+              <span className="relative inline-flex items-center justify-center mx-2">
+                {/* 🟢 FIX 3: Corrected blur-xs to Tailwind standard blur-sm */}
+                <span className="absolute -inset-1 rounded-full bg-yellow-600/20 blur-sm animate-pulse-spin"></span>
+                <Globe size={28} className="relative z-10 animate-spin-globe" />
+                {/* 🟢 FIX 4: Corrected malformed class animate-text-white-700 */}
+                <span className="absolute -top-1 -right-1.5 text-[10px] animate-pulse text-white/90">✨</span>
+              </span>
 
-    KMP-CSDMS-TRACKER SYSTEM
-  </p>
-</div>
+              KMP-CSDMS-TRACKER SYSTEM
+            </p>
+          </div>
 
           {/* Bottom Stripes */}
           <div className="absolute bottom-4 w-full h-2 bg-[#dc2626]"></div> 
@@ -3727,8 +3729,18 @@ const DashboardLayout = ({
   const [showIdleWarning, setShowIdleWarning] = useState(false);
   const [idleCountdown, setIdleCountdown] = useState(60);
   
+// 🟢 ADVANCED IDLE TIMER & WARNING SCREEN
+  const [showIdleWarning, setShowIdleWarning] = useState(false);
+  const [idleCountdown, setIdleCountdown] = useState(60);
+  
   const isWarningActive = useRef(false);
   const resetIdleTimersRef = useRef(null);
+  
+  // 🟢 FIX 1: Store the logout function in a ref so it doesn't trigger continuous timer resets
+  const latestOnLogout = useRef(onLogout);
+  useEffect(() => {
+    latestOnLogout.current = onLogout;
+  }, [onLogout]);
 
   useEffect(() => {
     let warningTimer;
@@ -3771,8 +3783,8 @@ const DashboardLayout = ({
         setShowIdleWarning(false);
         
         alert("Session Expired: You have been securely logged out due to inactivity.");
-        if (typeof onLogout === 'function') {
-            onLogout();
+        if (latestOnLogout.current) {
+            latestOnLogout.current();
         } else {
             localStorage.removeItem('kmp_authToken'); 
             window.location.reload(); 
@@ -3795,10 +3807,12 @@ const DashboardLayout = ({
       }
     };
 
-    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    // Swapped 'click' for 'mousedown' to catch interactions earlier
+    const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart'];
 
+    // 🟢 FIX 2: Use the capture phase (true) so inner clicks don't block the tracker
     events.forEach(event => {
-      window.addEventListener(event, handleUserActivity);
+      window.addEventListener(event, handleUserActivity, true);
     });
 
     // Kick off the timers when the component loads
@@ -3810,10 +3824,10 @@ const DashboardLayout = ({
       clearInterval(countdownInterval);
       clearTimeout(activityThrottle);
       events.forEach(event => {
-        window.removeEventListener(event, handleUserActivity);
+        window.removeEventListener(event, handleUserActivity, true);
       });
     };
-  }, [onLogout]); // Fixed dependency array from onSecureLogout to onLogout
+  }, []); // 🟢 FIX 3: Empty dependency array ensures background syncs never reset the idle clock!
 
 
 // 🟢 AUTOMATIC PAGE ACCESS TRACKER -> ROUTED CORRECTLY TO ACTIVITY_LOGS TABLE
