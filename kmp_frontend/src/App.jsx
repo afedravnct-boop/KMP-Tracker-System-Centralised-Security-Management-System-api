@@ -3347,10 +3347,9 @@ return (
   
 {/* Sweep-and-Settle Animated Title */}
 <div className="overflow-hidden py-2 w-full max-w-4xl">
-  <h2 className="text-3xl font-extrabold text-center text-white tracking-widest uppercase drop-shadow-md flex justify-center flex-wrap">
+  <h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md flex justify-center flex-wrap">
     {"KMP SECURITY DATA MANAGEMENT SYSTEM".split("").map((char, index) => {
-      // Exponential delay creates the "fast then slow" stagger effect
-      // The gap between letters increases as the index gets higher
+   
       const delay = Math.pow(index, 1.2) * 0.025; 
       
       return (
@@ -3371,7 +3370,7 @@ return (
 </div>
 
   {/* Sparkling Globe Badge */}
-  <p className="text-blue-300 mt-3 text-sm font-bold bg-yellow-900/50 px-4 py-1.5 rounded-full border border-cyan-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
+  <p className="text-blue-200 mt-3 text-sm font-bold bg-yellow-900/50 px-4 py-1.5 rounded-full border border-cyan-600/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
     <Lock size={14} className="mr-2" /> 
     
     <span className="relative inline-flex items-center justify-center mx-2">
