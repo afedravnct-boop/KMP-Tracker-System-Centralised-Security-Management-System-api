@@ -17,6 +17,16 @@ import numpy as np
 def get_eat_time():
     return datetime.now(pytz.timezone("Africa/Kampala")).replace(tzinfo=None)
 
+def normalize_sex(val):
+    if not val:
+        return None
+    cleaned = str(val).strip().upper()
+    if cleaned.startswith('F'):
+        return "FEMALE"
+    elif cleaned.startswith('M'):
+        return "MALE"
+    return cleaned
+
 import boto3
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
@@ -984,7 +994,7 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             data["region"] = current_user.region
             data["station"] = current_user.station
             
-        # 🟢 Map Frontend underscored keys to Database flat columns
+        # Map Frontend underscored keys to Database flat columns
         key_map = {
             'f_num': 'fnum', 'do_post': 'dopost', 'do_pro': 'dopro', 
             'educ_level': 'educlevel', 'home_dist': 'homedist', 
@@ -1009,6 +1019,10 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
                 else:
                     clean_data[mapped_k] = v
 
+        # 🟢 Normalize Sex field (handles f, F, female, m, M, male)
+        if 'sex' in clean_data:
+            clean_data['sex'] = normalize_sex(clean_data['sex'])
+
         new_record = models.NominalRoll(**clean_data)
         new_record.last_updated_by = current_user.fnum
         db.add(new_record)
@@ -1023,8 +1037,8 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-@app.put("/api/v1/nominal-roll/{fnum}/archive")
-def archive_personnel(fnum: str, request_data: schemas.ArchiveRequest, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+@app.put("/api/v1/nominal-roll/{f_num}/archive")
+def archive_personnel(f_num: str, request_data: schemas.ArchiveRequest, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         active_record = db.query(models.NominalRoll).filter(models.NominalRoll.fnum == fnum).first()
         
@@ -1079,26 +1093,21 @@ async def bulk_upload_nominal_roll(
         contents = await file.read()
         df = pd.read_excel(io.BytesIO(contents))
         
-        # Capture original columns so we can tell the user if they messed up the headers
         original_cols = list(df.columns)
         
         df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
         
-        # 🟢 UPDATED: Fully corrected header map mapped straight to NeonDB columns
         header_map = {
             "id": "id", 
             "serial": "id", 
             "serialnumber": "id",
             "sn": "sn", 
-            
-            # Force Number -> DB: fnum
             "forcenumber": "fnum", 
             "fnumber": "fnum", 
             "fnum": "fnum", 
             "f_num": "fnum", 
             "force": "fnum", 
             "fno": "fnum",
-
             "rank": "rank", 
             "name": "name", 
             "fullname": "name", 
@@ -1112,42 +1121,29 @@ async def bulk_upload_nominal_roll(
             "dateofbirth": "dob", 
             "doe": "doe", 
             "dateofenlistment": "doe",
-
-            # Date of Post -> DB: dopost
             "dop": "dopost",            
             "dopost": "dopost", 
             "do_post": "dopost", 
             "dateofpost": "dopost",
-
-            # Date of Promotion -> DB: dopro
             "dopro": "dopro", 
             "do_pro": "dopro",
             "dateofpromotion": "dopro",
-
-            # Education Level -> DB: educlevel
             "educlevel": "educlevel", 
             "educ_level": "educlevel", 
             "education": "educlevel", 
             "educationlevel": "educlevel",
-
-            # Home District -> DB: homedist
             "homedist": "homedist", 
             "home_dist": "homedist", 
             "homedistrict": "homedist", 
-
-            # Account Number -> DB: accno
             "accno": "accno", 
             "acc_no": "accno", 
             "accountnumber": "accno", 
             "accountno": "accno", 
             "account": "accno",
-
-            # Bank Branch -> DB: bankbranch
             "bankbranch": "bankbranch", 
             "bank_branch": "bankbranch", 
             "bank": "bankbranch", 
             "branch": "bankbranch",
-
             "station": "station", 
             "dutystation": "station",
             "region": "region", 
@@ -1162,7 +1158,6 @@ async def bulk_upload_nominal_roll(
         df.rename(columns=header_map, inplace=True)
         df = df.replace({np.nan: None, pd.NaT: None})
         
-        # Verify the FNUM column was found
         if 'fnum' not in df.columns and 'f_num' not in df.columns:
             return {"status": "error", "message": f"Could not find Force Number column! Your Excel headers are: {original_cols}"}
 
@@ -1187,7 +1182,7 @@ async def bulk_upload_nominal_roll(
                 records_skipped += 1
                 continue
             
-            # Clean Dates - 🟢 FIXED: Loop over the mapped flat database keys
+            # Clean Dates
             for date_col in ['dob', 'doe', 'dopost', 'dopro']:
                 if date_col in row_dict and row_dict[date_col]:
                     val = row_dict[date_col]
@@ -1208,7 +1203,10 @@ async def bulk_upload_nominal_roll(
             
             clean_row = {k: v for k, v in row_dict.items() if k in valid_keys and v is not None}
             
-            # 🟢 CRITICAL: Never let Excel force an ID. Let the DB generate it automatically!
+            # 🟢 Normalize Sex field for bulk upload rows
+            if 'sex' in clean_row:
+                clean_row['sex'] = normalize_sex(clean_row['sex'])
+
             clean_row.pop('sn', None)
             clean_row.pop('id', None)
             
@@ -1216,7 +1214,7 @@ async def bulk_upload_nominal_roll(
                 new_record = models.NominalRoll(**clean_row)
                 new_record.last_updated_by = current_user.fnum
                 db.add(new_record)
-                db.commit()  # 🟢 COMMIT ROW BY ROW (If one fails, the rest still save!)
+                db.commit()  
                 existing_fnums.add(fnum_val) 
                 records_added += 1
             except Exception as row_err:
@@ -1244,40 +1242,36 @@ async def bulk_upload_nominal_roll(
 # ==========================================
 # NOMINAL ROLL ARCHIVE ENDPOINT
 # ==========================================
-@app.get("/api/v1/nominal-roll-archive")
-def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # 🟢 FIX: Directly query the exact class name from models.py
-    query = db.query(models.NominalRollArchive)
-    
-    user_role = (current_user.role or "").upper()
-    user_region = (current_user.region or "").strip().upper()
+@app.put("/api/v1/nominal-roll/{fnum}/archive")
+def archive_personnel(fnum: str, request_data: schemas.ArchiveRequest, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        # 🟢 FIX: Use NominalRoll and check against the correct column attribute
+        active_record = db.query(models.NominalRoll).filter(
+            or_(models.NominalRoll.fnum == fnum, models.NominalRoll.f_num == fnum)
+        ).first()
+        
+        if not active_record:
+            raise HTTPException(status_code=404, detail="Officer not found in active roll.")
 
-    if user_role not in ["ADMIN", "SUPER_ADMIN"] and not (current_user.permissions or {}).get("view_all_nominal", False):
-        query = query.filter(func.upper(models.NominalRollArchive.region) == user_region)
+        record_data = active_record.__dict__.copy()
+        record_data.pop("_sa_instance_state", None) 
+        record_data.pop("id", None) 
+        record_data.pop("sn", None) 
         
-    query = query.order_by(models.NominalRollArchive.id.desc())
-    archives = query.all()
-    
-    clean_results = []
-    for a in archives:
-        a_dict = a.__dict__.copy()
-        a_dict.pop("_sa_instance_state", None)
+        record_data["status"] = "ARCHIVED"
+        record_data["archive_reason"] = request_data.archive_reason
+        record_data["archive_date"] = datetime.now().date()
+        record_data["last_updated_by"] = current_user.fnum
+
+        archived_record = models.NominalRollArchive(**record_data)
+        db.add(archived_record)
+        db.delete(active_record)
+        db.commit()
+        return {"status": "success", "message": "Officer successfully moved to archives."}
         
-        # Map Database flat columns back to Frontend expected fields
-        if 'fnum' in a_dict: a_dict['f_num'] = a_dict['fnum']
-        if 'dopost' in a_dict: a_dict['do_post'] = a_dict['dopost']
-        if 'dopro' in a_dict: a_dict['do_pro'] = a_dict['dopro']
-        if 'educlevel' in a_dict: a_dict['educ_level'] = a_dict['educlevel']
-        if 'homedist' in a_dict: a_dict['home_dist'] = a_dict['homedist']
-        if 'accno' in a_dict: a_dict['acc_no'] = a_dict['accno']
-        if 'bankbranch' in a_dict: a_dict['bank_branch'] = a_dict['bankbranch']
-            
-        if 'id' in a_dict:
-            a_dict['sn'] = a_dict['id']
-            
-        clean_results.append(a_dict)
-        
-    return clean_results
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to migrate record: {str(e)}")
 
 
 # ==========================================

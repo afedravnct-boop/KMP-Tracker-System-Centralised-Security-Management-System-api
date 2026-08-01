@@ -2239,47 +2239,52 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-5 space-y-5">
+<div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+  <div className="lg:col-span-5 space-y-5">
 
-          {canUploadHR && (
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
-              <div>
-                <h4 className="font-bold text-gray-800 text-sm flex items-center">
-                  <Upload className="w-4 h-4 mr-2 text-blue-600" /> Batch Excel Import Existing Nominal Roll
-                </h4>
-                <p className="text-xs text-gray-500 mt-0.5">Upload your existing Nominal roll, Ensure your column headers are exactly as below for consistency:</p>
-              </div>
-              <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-mono text-slate-700 flex flex-wrap gap-1.5">
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">sn</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">fnum</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">rank</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">name</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">sex</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">position</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dob</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">doe</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dopost</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dopro</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">contact</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">educlevel</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">ipps</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">tin</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">nin</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">homedist</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">tribe</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">accno</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">bankbranch</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">station</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">district</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">region</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">section</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">dir</span>
-                <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-2xs font-bold">status</span>
-              </div>
-              <BulkNominalRollUpload onUploadSuccess={() => window.location.reload()} />
-            </div>
-          )}
+    {canUploadHR && (
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3 overflow-hidden">
+        <div>
+          <h4 className="font-bold text-gray-800 text-sm flex items-center">
+            <Upload className="w-4 h-4 mr-2 text-blue-600 shrink-0" /> Batch Excel Import Existing Nominal Roll
+          </h4>
+          <p className="text-xs text-gray-500 mt-0.5">Upload your existing Nominal roll, Ensure your column headers are exactly as below for consistency:</p>
+        </div>
+        
+        {/* 🟢 FIXED: Added max-h-36 overflow-y-auto so the badge list scrolls neatly instead of spilling */}
+        <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-mono text-slate-700 flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">sn</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">fnum</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">rank</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">name</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">sex</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">position</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dob</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">doe</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dopost</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dopro</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">contact</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">educlevel</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">ipps</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">tin</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">nin</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">homedist</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">tribe</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">accno</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">bankbranch</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">station</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">district</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">region</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">section</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dir</span>
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">status</span>
+        </div>
+
+        <BulkNominalRollUpload onUploadSuccess={() => window.location.reload()} />
+      </div>
+    )}
+  </div>
+</div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
