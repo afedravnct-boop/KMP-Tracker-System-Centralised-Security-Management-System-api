@@ -958,8 +958,9 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
 
 # --- NOMINAL ROLL ---
 @app.get("/api/v1/nominal-roll")
+# --- NOMINAL ROLL ---
+@app.get("/api/v1/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # Safely target your exact model
     db_model = getattr(models, 'nominal_roll', getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None)))
     
     if not db_model:
@@ -976,7 +977,25 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     if sn_col:
         query = query.order_by(sn_col.desc())
         
-    return query.all()
+    records = query.all()
+    
+    # 🟢 Normalizer loop to ensure frontend always sees clean 'fnum' and 'sn'
+    clean_results = []
+    for r in records:
+        r_dict = r.__dict__.copy()
+        r_dict.pop("_sa_instance_state", None)
+        
+        # Map f_num to fnum if the database stored it with an underscore
+        if 'f_num' in r_dict and not r_dict.get('fnum'):
+            r_dict['fnum'] = r_dict['f_num']
+            
+        # Ensure ID maps to SN if SN is missing
+        if 'id' in r_dict and not r_dict.get('sn'):
+            r_dict['sn'] = r_dict['id']
+            
+        clean_results.append(r_dict)
+        
+    return clean_results
 
 @app.post("/api/v1/nominal-roll")
 def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -1245,14 +1264,23 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
     if current_user.role not in ["ADMIN", "SUPER_ADMIN"] and not (current_user.permissions or {}).get("view_all_nominal", False):
         query = query.filter(models.Nominal_Roll_Archive.region == current_user.region)
         
-    archives = query.order_by(models.Nominal_Roll_Archive.sn.desc()).all()
+    archives = query.order_by(models.Nominal_Roll_Archive.id.desc()).all()
     clean_results = []
+    
     for a in archives:
         a_dict = a.__dict__.copy()
         a_dict.pop("_sa_instance_state", None)
-        if 'f_num' in a_dict and 'fnum' not in a_dict:
+        
+        # 🟢 Map f_num to fnum so the frontend table displays it correctly
+        if 'f_num' in a_dict and not a_dict.get('fnum'):
             a_dict['fnum'] = a_dict['f_num']
+            
+        # 🟢 Ensure id maps to sn if sn is missing
+        if 'id' in a_dict and not a_dict.get('sn'):
+            a_dict['sn'] = a_dict['id']
+            
         clean_results.append(a_dict)
+        
     return clean_results
 
 
