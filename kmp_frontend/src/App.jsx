@@ -3288,49 +3288,63 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     }
   };
 
-  return (
+return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative">
+      
+      {/* MAIN CARD CONTAINER */}
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
         
-{/* 🟢 THE WAVING POLICE FLAG EMBLEM IDLE CURTAIN */}
+        {/* 🟢 THE WAVING POLICE FLAG EMBLEM IDLE CURTAIN */}
         <div 
-          className={`absolute inset-0 z-50 flex flex-col items-center justify-center transition-transform duration-1000 ease-in-out shadow-2xl ${
-            isLoginIdle ? 'translate-y-0' : '-translate-y-full'
+          className={`absolute inset-0 z-50 flex flex-col items-center justify-center transition-all duration-1000 ease-in-out shadow-2xl ${
+            isLoginIdle ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
           }`}
           style={{ backgroundColor: '#0f172a' }} 
         >
+          {/* Top Stripes */}
           <div className="absolute top-0 w-full h-2 bg-[#000000]"></div>
           <div className="absolute top-2 w-full h-2 bg-[#facc15]"></div>
           <div className="absolute top-4 w-full h-2 bg-[#dc2626]"></div>
 
-          <div className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-cover mt-10" style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}></div>
+          {/* Faded Background Pattern */}
+          <div 
+            className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-cover mt-10" 
+            style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}
+          ></div>
 
-<div className="relative z-10 flex flex-col items-center text-center">
-    <img 
-      src="/UPF Flag Emblem.png" 
-      alt="UPF Waving Flag Emblem" 
-      className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] animate-flag-wave object-contain rounded-xl border border-slate-600 shadow-2xl"
-      onError={(e) => { e.target.style.display = 'none'; }}
-    />
-    <h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md">
-      KMP SECURITY DATA MANAGEMENT SYSTEM
-    </h2>
-    <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
-      <Lock size={14} className="mr-2" /> 
-      {/* 🟢 SPINNING GLOBE/INTERNET SYMBOL */}
-      <Globe size={18} className="mx-2 animate-spin text-white-400" style={{ animationDuration: '4s' }} /> 
-      KMP-CSDMS Standby Mode
-    </p>
-  </div>
+          {/* Center Content */}
+          <div className="relative z-10 flex flex-col items-center text-center">
+            <img 
+              src="/UPF Flag Emblem.png" 
+              alt="UPF Waving Flag Emblem" 
+              className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] animate-flag-wave object-contain rounded-xl border border-slate-600 shadow-2xl"
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+            <h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md">
+              KMP SECURITY DATA MANAGEMENT SYSTEM
+            </h2>
+            <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
+              <Lock size={14} className="mr-2" /> 
+              <Globe size={18} className="mx-2 animate-spin text-white-400" style={{ animationDuration: '4s' }} /> 
+              KMP-CSDMS Standby Mode
+            </p>
+          </div>
 
+          {/* Bottom Stripes */}
           <div className="absolute bottom-4 w-full h-2 bg-[#dc2626]"></div> 
           <div className="absolute bottom-2 w-full h-2 bg-[#facc15]"></div> 
           <div className="absolute bottom-0 w-full h-2 bg-[#000000]"></div> 
         </div>
         {/* 🟢 END OF CURTAIN */}
 
+        {/* 🟢 LOGIN / SIGNUP FORM AREA */}
         <div className="bg-slate-900 p-6 text-center relative">
-          <img src="/upf_badge.png" alt="UPF Logo" className="w-24 h-24 mx-auto mb-4 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
+          <img 
+            src="/upf_badge.png" 
+            alt="UPF Logo" 
+            className="w-24 h-24 mx-auto mb-4 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+            onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} 
+          />
           <h1 className="text-2xl font-extrabold text-white tracking-wide">Uganda Police Force</h1>
           <h2 className="text-lg font-bold text-blue-400 mt-1">Kampala Metropolitan Police Headquarters</h2>
           <h3 className="text-sm font-medium text-slate-400 mt-2 uppercase tracking-widest">Centralised Security Data Management System Access Portal</h3>
@@ -3339,7 +3353,8 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         <div className="p-6">
           {lockoutEnd ? (
             <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-center">
-              <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-red-500"/><h3 className="font-bold text-lg">Too Many Attempts</h3>
+              <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-red-500"/>
+              <h3 className="font-bold text-lg">Too Many Attempts</h3>
               <p className="text-sm mt-1">Account locked for security purposes. Please wait <span className="font-bold">{timeLeft} seconds</span> before trying again.</p>
             </div>
           ) : (
@@ -3354,26 +3369,70 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                 <form onSubmit={handleSignupSubmit} className="space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
                   <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">Request Access Authorization</h3>
                   <div className="grid grid-cols-2 gap-4">
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">File/Force Number *</label><input type="text" name="fnum" required value={signupData.fnum} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm" placeholder="e.g. A/2408"/></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">IPPS Number *</label><input type="text" name="ipps" required maxLength="6" value={signupData.ipps} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="123456"/></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label><input type="text" name="name" required value={signupData.name} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Rank *</label><input type="text" name="rank" required value={signupData.rank} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. AIP"/></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Region *</label><select name="region" value={signupData.region} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</select></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Station *</label><select name="station" value={signupData.station} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">{REGIONAL_HIERARCHY[signupData.region]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}</select></div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">File/Force Number *</label>
+                      <input type="text" name="fnum" required value={signupData.fnum} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm" placeholder="e.g. A/2408"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">IPPS Number *</label>
+                      <input type="text" name="ipps" required maxLength="6" value={signupData.ipps} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="123456"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
+                      <input type="text" name="name" required value={signupData.name} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Rank *</label>
+                      <input type="text" name="rank" required value={signupData.rank} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. AIP"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Region *</label>
+                      <select name="region" value={signupData.region} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
+                        {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
+                      <select name="station" value={signupData.station} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
+                        {REGIONAL_HIERARCHY[signupData.region]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                      </select>
+                    </div>
                   </div>
-                  <div><label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label><select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm"><option value="">-- Select Official Title --</option>{availablePositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}</select></div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label>
+                    <select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
+                      <option value="">-- Select Official Title --</option>
+                      {availablePositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
+                    </select>
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Email *</label><input type="email" name="email" required value={signupData.email} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">Telephone *</label><input type="tel" name="phone" required maxLength="10" pattern="\d{10}" value={signupData.phone} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. 0772123456" /></div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Email *</label>
+                      <input type="email" name="email" required value={signupData.email} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Telephone *</label>
+                      <input type="tel" name="phone" required maxLength="10" pattern="\d{10}" value={signupData.phone} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. 0772123456" />
+                    </div>
                   </div>
                   <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                     <label className="block text-xs font-bold text-gray-700 mb-2">Officer Identification Photo (Mandatory) *</label>
                     <div className="flex items-center space-x-4">
-                      {signupData.profile_photo_path ? <img src={signupData.profile_photo_path} alt="Preview" className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm" /> : <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300"><Camera size={24} /></div>}
-                      <div className="flex-1"><input type="file" accept="image/*" required onChange={handlePhotoUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" /><p className="text-xs text-gray-400 mt-1">Directly uploads to secure storage</p></div>
+                      {signupData.profile_photo_path ? (
+                        <img src={signupData.profile_photo_path} alt="Preview" className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm" />
+                      ) : (
+                        <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300"><Camera size={24} /></div>
+                      )}
+                      <div className="flex-1">
+                        <input type="file" accept="image/*" required onChange={handlePhotoUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
+                        <p className="text-xs text-gray-400 mt-1">Directly uploads to secure storage</p>
+                      </div>
                     </div>
                   </div>
-                  <div><label className="block text-xs font-bold text-gray-700 mb-1">Create Password *</label><input type="password" name="password" required value={signupData.password} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" /></div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Create Password *</label>
+                    <input type="password" name="password" required value={signupData.password} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
+                  </div>
                   <div className="pt-4 flex flex-col space-y-3">
                     <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 rounded-lg transition-colors text-sm">Submit Registration Request</button>
                     <button type="button" onClick={() => setMode('login')} className="text-sm text-blue-600 hover:underline font-medium">Cancel and return to Login</button>
@@ -3381,7 +3440,11 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                 </form>
               ) : (
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
-                  {attempts > 0 && mode === 'login' && <div className="text-xs text-red-600 font-bold bg-red-50 p-2 rounded text-center">Invalid credentials. Attempts remaining: {3 - attempts}</div>}
+                  {attempts > 0 && mode === 'login' && (
+                    <div className="text-xs text-red-600 font-bold bg-red-50 p-2 rounded text-center">
+                      Invalid credentials. Attempts remaining: {3 - attempts}
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1">Force Number</label>
                     <div className="relative">
@@ -3402,8 +3465,14 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     {mode === 'login' ? 'Authorize Access' : 'Request Password Reset'}
                   </button>
                   <div className="text-center mt-4 flex justify-between px-4">
-                    <button type="button" onClick={() => {setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0);}} className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium">{mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}</button>
-                    {mode === 'login' && <button type="button" onClick={() => setMode('signup')} className="text-sm text-blue-600 font-bold hover:underline">Sign Up (Request Access)</button>}
+                    <button type="button" onClick={() => {setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0);}} className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium">
+                      {mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}
+                    </button>
+                    {mode === 'login' && (
+                      <button type="button" onClick={() => setMode('signup')} className="text-sm text-blue-600 font-bold hover:underline">
+                        Sign Up (Request Access)
+                      </button>
+                    )}
                   </div>
                 </form>
               )}
@@ -3411,10 +3480,11 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
           )}
         </div>
       </div>
-      <p className="text-xs text-gray-400 mt-6 flex items-center relative z-10"><Lock className="w-3 h-3 mr-1"/> Protected by Central Command Security Protocols</p>
+      <p className="text-xs text-gray-400 mt-6 flex items-center relative z-10">
+        <Lock className="w-3 h-3 mr-1"/> Protected by Central Command Security Protocols
+      </p>
     </div>
   );
-};
 
 
 
@@ -3536,7 +3606,8 @@ const DashboardLayout = ({
   const [viewingProfileImage, setViewingProfileImage] = useState(null);
   const [newForcePassword, setNewForcePassword] = useState('');
   const [isFullScreen, setIsFullScreen] = useState(false);
-  
+  const lastLoggedPage = useRef(null);  
+
   const [lastViewedId, setLastViewedId] = useState(() => {
     const saved = localStorage.getItem('last_viewed_comm_id');
     return saved ? JSON.parse(saved) : 0;
@@ -3662,7 +3733,6 @@ const DashboardLayout = ({
     };
   }, [onLogout]);
 
-// 🟢 AUTOMATIC PAGE ACCESS TRACKER -> ROUTED CORRECTLY TO ACTIVITY_LOGS TABLE
 // 🟢 AUTOMATIC PAGE ACCESS TRACKER -> ROUTED CORRECTLY TO ACTIVITY_LOGS TABLE
   const lastLoggedPage = useRef(null);
 
