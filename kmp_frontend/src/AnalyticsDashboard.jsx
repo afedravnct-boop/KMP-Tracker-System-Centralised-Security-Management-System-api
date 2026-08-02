@@ -51,7 +51,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       
-      // Route through your secure backend export pipeline
       const exportUrl = `${API_URL}/api/v1/analytics/export?domain=${activeDomain}&category=${metricCategory}`;
       
       const response = await fetch(exportUrl, {
@@ -60,26 +59,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       });
 
       if (!response.ok) {
-        // Fallback to client-side secure CSV stream if backend endpoint is bypassed
-        let csvContent = "\uFEFFCategory Attribute,Frequency Count\n";
-        aggregatedData.forEach(row => {
-          csvContent += `"${row.label}",${row.count}\n`;
-        });
-        
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const downloadUrl = window.URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.style.display = 'none';
-        link.href = downloadUrl;
-        link.download = `KMP_Analytics_${activeDomain}_${metricCategory}_${new Date().toISOString().split('T')[0]}.csv`;
-        
-        document.body.appendChild(link);
-        link.click();
-        setTimeout(() => {
-          document.body.removeChild(link);
-          window.URL.revokeObjectURL(downloadUrl);
-        }, 2000);
-        return;
+        throw new Error("Server rejected secure export clearance.");
       }
 
       const blob = await response.blob();
@@ -95,6 +75,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         document.body.removeChild(link);
         window.URL.revokeObjectURL(downloadUrl);
       }, 2000);
+
+      alert("🔒 Secure Analytics Report Downloaded Successfully!\n\nNote: The ZIP file is AES-encrypted. Unzip using your official Force Number (F/No) as the password.");
 
     } catch (error) {
       console.error("Secure Export Error:", error);

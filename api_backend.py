@@ -88,6 +88,7 @@ try:
     models.Base.metadata.create_all(bind=engine, checkfirst=True)
 except Exception as e:
     print(f"Startup metadata notice: {e}")
+
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
@@ -172,13 +173,11 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     # 🟢 THE GLOBAL DOOR CHECK
-    # Super admins can always bypass the door, but regular users get checked against system_config
     if user.role != "SUPER_ADMIN":
         config_check = db.query(models.SystemConfig).filter(
             models.SystemConfig.config_key == "peer_delegation_active"
         ).first()
         
-        # If config is explicitly set to FALSE, block entry at the door
         if config_check and str(config_check.config_value).strip().upper() == "FALSE":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -191,6 +190,26 @@ def require_admin(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     if user_role not in ["ADMIN", "SUPER_ADMIN"]:
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
+    return current_user
+
+def require_command_analytics(current_user: models.Users = Depends(get_current_user)):
+    role = str(current_user.role or "").strip().upper()
+    position = str(current_user.position or "").strip().upper()
+    perms = current_user.permissions or {}
+    
+    is_cleared = (
+        role in ["SUPER_ADMIN", "RPC"] or
+        "DEPUTY" in position or
+        "COMMANDER" in position or
+        perms.get("view_analytics", False) or
+        perms.get("view_global_roster", False)
+    )
+    
+    if not is_cleared:
+        raise HTTPException(
+            status_code=403, 
+            detail="Clearance Denied: High Command or authorized analytics clearance required."
+        )
     return current_user
 
 def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
@@ -275,7 +294,7 @@ def apply_custom_sheet_design(workbook, worksheet, df, sheet_title, user):
         worksheet.set_column('B:B', 12)  
         worksheet.set_column('C:D', 20)  
         worksheet.set_column('E:L', 10)  
-    elif "(Print)" in sheet_title:       
+    elif "(Print)" in sheet_title:        
         worksheet.fit_to_pages(1, 0)     
         worksheet.set_column('A:A', 5)   
         worksheet.set_column('B:Z', 15)  
@@ -968,7 +987,6 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
 # --- NOMINAL ROLL ---
 @app.get("/api/v1/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # 🟢 DIRECTLY QUERY THE EXACT CLASS
     query = db.query(models.NominalRoll)
     
     user_role = (current_user.role or "").upper()
@@ -988,7 +1006,6 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
         
-        # Map Database flat columns back to Frontend expected fields
         if 'dopost' in r_dict: r_dict['do_post'] = r_dict['dopost']
         if 'dopro' in r_dict: r_dict['do_pro'] = r_dict['dopro']
         if 'educlevel' in r_dict: r_dict['educ_level'] = r_dict['educlevel']
@@ -1003,12 +1020,60 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         
     return clean_results
 
+@app.post("/api/v1/nominal-roll")
+def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        data.pop('sn', None) 
+        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
+            data["region"] = current_user.region
+            data["station"] = current_user.station
+            
+        key_map = {
+            'f_num': 'fnum', 'do_post': 'dopost', 'do_pro': 'dopro', 
+            'educ_level': 'educlevel', 'home_dist': 'homedist', 
+            'acc_no': 'accno', 'bank_branch': 'bankbranch'
+        }
+            
+        clean_data = {}
+        for k, v in data.items():
+            mapped_k = key_map.get(k, k)
+            if v == "":
+                clean_data[mapped_k] = None
+            else:
+                if mapped_k in ['dob', 'doe', 'dopost', 'dopro'] and v is not None:
+                    if "/" in v:  
+                        try:
+                            date_obj = datetime.strptime(v, "%d/%m/%Y")
+                            clean_data[mapped_k] = date_obj.strftime("%Y-%m-%d")
+                        except ValueError:
+                            clean_data[mapped_k] = v 
+                    else:
+                        clean_data[mapped_k] = v 
+                else:
+                    clean_data[mapped_k] = v
+
+        if 'sex' in clean_data:
+            clean_data['sex'] = normalize_sex(clean_data['sex'])
+
+        new_record = models.NominalRoll(**clean_data)
+        new_record.last_updated_by = current_user.fnum
+        db.add(new_record)
+        db.commit()
+        db.refresh(new_record)
+        return {"status": "success", "message": "Officer added successfully", "sn": new_record.id}
+        
+    except IntegrityError:
+        db.rollback() 
+        raise HTTPException(status_code=400, detail="Duplicate Entry: Force Number or IPPS already exists.")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
 
 # ==========================================
 # GEO-MAPPING & AUTO-INFERENCE HELPERS
 # ==========================================
 STATION_GEO_MAP = {
-    # KMP NORTH REGION
     "KAWEMPE": {"region": "KMP NORTH", "district": "KAMPALA"},
     "WANDEGEYA": {"region": "KMP NORTH", "district": "KAMPALA"},
     "OLD KAMPALA": {"region": "KMP NORTH", "district": "KAMPALA"},
@@ -1016,7 +1081,6 @@ STATION_GEO_MAP = {
     "NANSANA": {"region": "KMP NORTH", "district": "WAKISO"},
     "KASANGATI": {"region": "KMP NORTH", "district": "WAKISO"},
     
-    # KMP SOUTH REGION
     "NATEETE": {"region": "KMP SOUTH", "district": "WAKISO"},
     "CPS KAMPALA": {"region": "KMP SOUTH", "district": "KAMPALA"},
     "ENTEBBE": {"region": "KMP SOUTH", "district": "WAKISO"},
@@ -1024,7 +1088,6 @@ STATION_GEO_MAP = {
     "NSANGI": {"region": "KMP SOUTH", "district": "WAKISO"},
     "KYENGERA": {"region": "KMP SOUTH", "district": "KAMPALA"},
 
-    # KMP EAST REGION
     "JINJA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
     "MUKONO": {"region": "KMP EAST", "district": "MUKONO"},
     "KIRA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
@@ -1050,10 +1113,9 @@ def auto_infer_geography(station_val, current_region, current_district):
             
     return inferred_region, inferred_district
 
-
-# ==========================================
-# EXCEL BULK UPLOAD ENDPOINT
-# ==========================================
+# ---------------------------------------------------------
+# ADMIN: EXCEL BULK UPLOAD FOR NOMINAL ROLL
+# ---------------------------------------------------------
 @app.post("/api/v1/nominal-roll/bulk-upload")
 async def bulk_upload_nominal_roll(
     file: UploadFile = File(...),
@@ -1645,24 +1707,22 @@ def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.User
             hr_query = hr_query.filter(models.NominalRoll.region == current_user.region)
             
         hr_records = hr_query.all()
-        hr_list, grouped_hr = [], {}
+        grouped_hr = {}
         
+        # Group strictly by Region and Station (Manpower Summary, dropping granular individual ranks)
         for r in hr_records:
-            age = "-"
-            dob = getattr(r, 'dob', None)
-            if dob:
-                try:
-                    birth_year = int(str(dob).split("-")[0])
-                    age = str(datetime.now().year - birth_year)
-                except: pass
+            region = getattr(r, 'region', 'GENERAL / HQ') or 'GENERAL / HQ'
+            station = getattr(r, 'station', 'N/A') or 'N/A'
             
-            key = (getattr(r, 'rank', '-'), age, getattr(r, 'sex', '-'), getattr(r, 'educ_level', getattr(r, 'educlevel', '-')), getattr(r, 'region', '-'), getattr(r, 'dir', '-'), getattr(r, 'section', '-'))
+            key = (region, station)
             grouped_hr[key] = grouped_hr.get(key, 0) + 1
             
-        for key, count in grouped_hr.items():
+        hr_list = []
+        for (region, station), count in grouped_hr.items():
             hr_list.append({
-                "rank": key[0] or "-", "age": key[1], "sex": key[2] or "-", "educ_level": key[3] or "-", 
-                "region": key[4] or "-", "dir": key[5] or "-", "section": key[6] or "-", "sub_total": count
+                "region": region,
+                "station": station,
+                "total_personnel": count
             })
 
         est_query = db.query(models.Establishments)
@@ -1686,6 +1746,71 @@ def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.User
         return {"hr": hr_list, "establishments": est_list}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to load HR data due to a server error.")
+
+@app.get("/api/v1/analytics/export")
+def export_analytics_secure(
+    domain: str = "CRIME", category: str = "CATEGORY",
+    db: Session = Depends(get_db), authorized_user: models.Users = Depends(require_export_privilege)
+):
+    try:
+        excel_buffer = io.BytesIO()
+        zip_buffer = io.BytesIO()
+
+        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+            workbook = writer.book
+            workbook.formats[0].set_font_name('Tahoma')
+            workbook.formats[0].set_font_size(11)
+
+            if domain == "CRIME":
+                data = db.query(models.Crime_Reports).all()
+                rows = [{"Category Attribute": getattr(r, 'offence', 'GENERAL'), "Frequency Count": 1} for r in data]
+            elif domain == "PERSONNEL":
+                data = db.query(models.NominalRoll).all()
+                rows = [{"Category Attribute": getattr(r, 'rank', 'UNRANKED'), "Frequency Count": 1} for r in data]
+            elif domain == "SUCCESS":
+                data = db.query(models.Success_Stories).all()
+                rows = [{"Category Attribute": getattr(r, 'status', 'SUCCESS'), "Frequency Count": 1} for r in data]
+            else:
+                data = db.query(models.Operational_Statistics).all()
+                rows = [{"Category Attribute": "OPERATIONAL DEPLOYMENT", "Frequency Count": 1} for r in data]
+
+            df = pd.DataFrame(rows)
+            if not df.empty:
+                df = df.groupby("Category Attribute", as_index=False).sum()
+            else:
+                df = pd.DataFrame(columns=["Category Attribute", "Frequency Count"])
+
+            sheet_name = f"{domain} Analytics"
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+            apply_custom_sheet_design(workbook, writer.sheets[sheet_name], df, sheet_name, authorized_user)
+
+            workbook.set_properties({
+                'title': f'KMP Analytics Intelligence ({domain}) - RESTRICTED',
+                'author': f'{authorized_user.rank} {authorized_user.name}',
+                'manager': authorized_user.fnum,
+                'comments': f'FORENSIC TRACE: Analytics exported by {authorized_user.fnum} [{authorized_user.station}]'
+            })
+
+        zip_password = authorized_user.fnum.encode('utf-8')
+        with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(zip_password)
+            zf.writestr(f"KMP_Analytics_{domain}_{authorized_user.fnum}.xlsx", excel_buffer.getvalue())
+
+        zip_buffer.seek(0)
+
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(
+                db=db, fnum=authorized_user.fnum, action="ANALYTICS_DATA_EXPORT",
+                target_identifier=domain, changes={}, remarks="AES-Encrypted Analytics Intelligence ZIP Downloaded"
+            )
+
+        return StreamingResponse(
+            zip_buffer, media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename=KMP_Analytics_{domain}_{authorized_user.fnum}.zip"}
+        )
+    except Exception as e:
+        print(f"Analytics Export Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate secure analytics export file.")
 
 @app.get("/api/v1/reports/export")
 def export_master_database_unified(
