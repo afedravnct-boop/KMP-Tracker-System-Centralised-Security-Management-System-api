@@ -45,7 +45,7 @@ const POSITIONS = {
     "KMP CID Commander", "KMP CI Commander", "KMP Operations Commander", 
     "KMP Traffic & Road Safety Commander", "KMP 999 eru commander", 
     "999 ERU Regional Data Officer", "Regional HR Officer", "KMP SFC Coordinator",
-    "Data Officer", "Data Assistant Officer", "Regional Traffic Officer", "Divisional Traffic Officer", "Divisional CID Officer", "Divisional CI Officer", "Regional CFPU Officer", "Divisional CFPU Officer", "Regional Fire Officer", "Divisional Fire Officer", "Regional Logistics Officer", "Divisional Logistics Officer"
+    "Regional Data officer", "Divisional Data Officer", "Station Data Officer", "Regional Data Assistant Officer", "Division Data Assistant Officer", "Station Data Assistant Officer", "Regional Traffic Officer", "Divisional Traffic Officer", "Divisional CID Officer", "Divisional CI Officer", "Regional CFPU Officer", "Divisional CFPU Officer", "Regional Fire Officer", "Divisional Fire Officer", "Regional Logistics Officer", "Divisional Logistics Officer"
   ],
   RPC: [
     "KMP South Commander", "KMP North Commander", "KMP East Commander", "Deputy Commander KMP south", "Deputy Commander KMP North", "Deputy Commander KMP East"
@@ -276,44 +276,57 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8 relative z-10 animate-in fade-in duration-300">
       
-      {/* FLOATING COMPLIANCE POPUP */}
+{/* 🟢 FLOATING COMPLIANCE OVERDUE PILL BUTTON */}
       {showComplianceWarning && (
-        <div 
-          className={`fixed bottom-24 right-6 z-[9980] transition-all duration-700 ease-in-out rounded-xl shadow-2xl border-2 bg-red-600 border-red-300 ${
-            isBannerFolded ? 'p-3 max-w-xs cursor-pointer hover:bg-red-500' : 'p-5 max-w-sm animate-pulse'
-          }`}
-          onClick={() => isBannerFolded && setIsBannerFolded(false)}
-        >
-          {isBannerFolded ? (
-            <div className="flex items-center space-x-2 text-white font-extrabold text-xs tracking-wide uppercase">
-              <span className="flex h-3 w-3 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-400"></span>
-              </span>
-              <span>⚠️ Compliance Overdue: Click to View</span>
-            </div>
-          ) : (
-            <div className="flex flex-col space-y-3 text-white font-extrabold">
-              <div className="flex items-start text-xs leading-relaxed">
-                <AlertTriangle className="mr-2 w-5 h-5 shrink-0 text-yellow-300 animate-bounce mt-0.5" />
-                <span>COMPLIANCE ALERT: Your weekly entries are overdue for {currentUser.station}. Please submit records immediately.</span>
+        <div className="fixed bottom-6 right-6 z-[9990]">
+          <div
+            onMouseEnter={() => setIsBannerFolded(false)}
+            onMouseLeave={() => setIsBannerFolded(true)}
+            onClick={() => {
+              // If folded, clicking expands it. If expanded, clicking goes to statistics
+              if (isBannerFolded) {
+                setIsBannerFolded(false);
+              } else {
+                setCurrentPage('statistics');
+              }
+            }}
+            className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-2xl rounded-full border ${
+              !isBannerFolded ? 'px-4 py-3' : 'p-2.5'
+            } bg-red-600 text-white border-red-300 shadow-[0_0_20px_rgba(239,68,68,0.6)] animate-pulse`}
+          >
+            {isBannerFolded ? (
+              /* Compact Pill State (matches style size) */
+              <div className="flex items-center space-x-2 px-1">
+                <span className="flex h-3 w-3 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-400"></span>
+                </span>
+                <span className="text-xs font-extrabold tracking-wide uppercase">⚠️ Overdue</span>
               </div>
-              <div className="flex space-x-2 justify-end">
-                <button 
-                  onClick={(e) => { e.stopPropagation(); setIsBannerFolded(true); }} 
-                  className="bg-red-800 text-white px-3 py-1.5 rounded font-bold shadow text-xs hover:bg-red-900 transition"
-                >
-                  Minimize
-                </button>
-                <button 
-                  onClick={() => setCurrentPage('statistics')} 
-                  className="bg-white text-red-700 px-3 py-1.5 rounded font-bold shadow text-xs hover:bg-gray-100 transition"
-                >
-                  Go to Statistics
-                </button>
+            ) : (
+              /* Expanded Popup State on Hover / Click */
+              <div className="flex flex-col space-y-3 p-1 max-w-xs text-left" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-start text-xs leading-relaxed font-extrabold">
+                  <AlertTriangle className="mr-2 w-5 h-5 shrink-0 text-yellow-300 animate-bounce mt-0.5" />
+                  <span>COMPLIANCE ALERT: Your weekly entries are overdue for {currentUser.station}. Please submit records immediately.</span>
+                </div>
+                <div className="flex space-x-2 justify-end">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setIsBannerFolded(true); }} 
+                    className="bg-red-800 text-white px-3 py-1.5 rounded font-bold shadow text-xs hover:bg-red-900 transition cursor-pointer"
+                  >
+                    Minimize
+                  </button>
+                  <button 
+                    onClick={() => setCurrentPage('statistics')} 
+                    className="bg-white text-red-700 px-3 py-1.5 rounded font-bold shadow text-xs hover:bg-gray-100 transition cursor-pointer"
+                  >
+                    Go to Statistics
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
 
@@ -957,16 +970,16 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               </select>   
             </div>
 
-            <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+<ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
               <div className="overflow-x-auto w-full">
-                <table className="min-w-full divide-y divide-gray-200 table-fixed w-full">
+                <table className="w-full divide-y divide-gray-200 min-w-[1000px]">
                   <thead className="bg-gray-50 sticky top-0 z-10">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-16">SN</th>
                       <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">REFERENCE</th>
                       <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Date & Time</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-25">Region/Post</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-1/2 max-w-[800px]">Incident Narrative</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-36">Region/Post</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Incident Narrative</th>
                       <th className="px-4 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider w-24">Suspects</th>
                       <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Status</th>
                     </tr>
@@ -978,7 +991,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                         <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-blue-700 align-top">{report.sdRef || report.sd_ref}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 align-top">{report.date}<br/><span className="text-xs text-gray-400">{report.time}</span></td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 align-top">{report.station} <br/><span className="text-xs text-gray-400">{report.region}</span></td>
-                        <td className="px-4 py-4 text-sm text-gray-700 align-top w-1/3 max-w-[600px] whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
+                        <td className="px-4 py-4 text-sm text-gray-700 align-top whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
                           {report.offence && <div className="font-bold text-red-600 uppercase mb-1">{report.offence}</div>}
                           <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: report.narrative }} />
                           {report.suspectDetails && report.suspectDetails.length > 0 && (
@@ -1601,16 +1614,17 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
             </select>
           </div>
           
-          <ExpandableTableCard title="Achievements Overview Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+<ExpandableTableCard title="Achievements Overview Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
             <div className="overflow-x-auto w-full">
-              <table className="min-w-full divide-y divide-gray-200 table-fixed w-full">
+              {/* Removed 'table-fixed' and added a robust min-w to prevent column crushing */}
+              <table className="w-full divide-y divide-gray-200 min-w-[950px]">
                 <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-16">SN</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Date & Time</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-800 uppercase tracking-wider w-40">Region/Station</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider min-w-[300px]">Narrative / Progress</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Last Updated By</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Narrative / Progress</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-36">Last Updated By</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Status</th>
                   </tr>
                 </thead>
@@ -1620,7 +1634,7 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">{story.sn}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 align-top">{story.date}<br/><span className="text-xs text-gray-400">{story.time}</span></td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-blue-700 align-top">{story.station}<br/><span className="text-xs text-gray-400">{story.region}</span></td>
-                      <td className="px-4 py-4 text-sm text-gray-600 align-top w-1/3 max-w-[600px] whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
+                      <td className="px-4 py-4 text-sm text-gray-600 align-top whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
                         <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: story.narrative }} />
                         {story.photo_url && (
                           <div className="mt-3 border rounded-lg overflow-hidden max-w-xs bg-slate-100">
@@ -1630,7 +1644,7 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-500 font-medium align-top">{story.last_updated_by || "System Genesis"}</td>
                       <td className="px-4 py-4 whitespace-nowrap align-top">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${story.status.includes('COMPLETED') ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{story.status}</span>
+                        <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${story.status?.includes('COMPLETED') ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{story.status}</span>
                       </td>
                     </tr>
                   ))}
@@ -3942,17 +3956,24 @@ const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
         </div>
       </div>
 
-      <div className="mt-6 flex justify-end space-x-3">
+      <div className="mt-6">
         {isTimedOut ? (
           <button 
             type="button"
             onClick={() => {
+              // 1. Wipe local authentication token immediately
+              localStorage.removeItem('kmp_authToken');
+              localStorage.removeItem('user');
+              
+              // 2. Execute logout ref if it exists, then force a hard window reload to reset the root app tree
               if (latestOnLogout.current) {
-                latestOnLogout.current();
-              } else {
-                localStorage.removeItem('kmp_authToken'); 
-                window.location.reload(); 
+                try {
+                  latestOnLogout.current();
+                } catch (err) {
+                  console.error(err);
+                }
               }
+              window.location.href = '/';
             }}
             className="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold px-4 py-3 rounded-xl shadow-md transition-all cursor-pointer uppercase tracking-wider"
           >

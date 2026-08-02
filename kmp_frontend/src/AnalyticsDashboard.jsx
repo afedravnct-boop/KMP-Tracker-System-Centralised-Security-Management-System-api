@@ -4,7 +4,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
   const [activeDomain, setActiveDomain] = useState('CRIME'); // 'CRIME' | 'PERSONNEL' | 'SUCCESS' | 'OPERATIONS'
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
 
-  // 1. Dataset & Aggregator Resolver
+  // 1. Dataset & Aggregator Resolver based on Domain and Grouping
   const currentDataset = useMemo(() => {
     if (activeDomain === 'CRIME') return crimeRegistry;
     if (activeDomain === 'PERSONNEL') return nominalRolls;
@@ -21,19 +21,41 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       
       if (activeDomain === 'CRIME') {
         if (metricCategory === 'CATEGORY') key = (item.crime_category || item.offence || 'GENERAL CRIME').toUpperCase();
-        else if (metricCategory === 'SEVERITY') key = (item.severity || item.status || 'PENDING').toUpperCase();
+        else if (metricCategory === 'CASES') key = (item.status || 'PENDING').toUpperCase();
+        else if (metricCategory === 'ARRESTS') key = String(item.suspects || item.arrested || '0').toUpperCase();
+        else if (metricCategory === 'CONVICTIONS') key = String(item.convicted || '0').toUpperCase();
+        else if (metricCategory === 'CONCLUDED') key = (item.status === 'CONCLUDED' || item.status === 'COMPLETED' ? 'CONCLUDED' : 'PENDING / IN PROGRESS').toUpperCase();
         else if (metricCategory === 'STATION') key = (item.station || 'UNKNOWN STATION').toUpperCase();
       } 
       else if (activeDomain === 'PERSONNEL') {
         if (metricCategory === 'RANK') key = (item.rank || 'UNRANKED').toUpperCase();
         else if (metricCategory === 'UNIT') key = (item.station || 'UNKNOWN').toUpperCase();
-        else if (metricCategory === 'DISTRICT') key = (item.homedist || 'UNKNOWN').toUpperCase();
+        else if (metricCategory === 'DISTRICT') key = (item.homedist || item.home_dist || 'UNKNOWN').toUpperCase();
+        else if (metricCategory === 'AGE') {
+          const dob = item.dob;
+          if (dob) {
+            const birthYear = new Date(dob).getFullYear();
+            const age = new Date().getFullYear() - birthYear;
+            if (age < 25) key = 'UNDER 25 YRS';
+            else if (age <= 35) key = '25 - 35 YRS';
+            else if (age <= 45) key = '36 - 45 YRS';
+            else key = 'ABOVE 45 YRS';
+          } else {
+            key = 'UNKNOWN AGE';
+          }
+        }
+        else if (metricCategory === 'SEX') key = (item.sex || 'UNSPECIFIED').toUpperCase();
+        else if (metricCategory === 'DIR') key = (item.dir || 'GENERAL DIRECTORATE').toUpperCase();
+        else if (metricCategory === 'SECTION') key = (item.section || 'GENERAL SECTION').toUpperCase();
       }
       else if (activeDomain === 'SUCCESS') {
-        key = (item.impact_type || item.category || 'COMMUNITY RECOVERY').toUpperCase();
+        if (metricCategory === 'CATEGORY') key = (item.impact_type || item.category || 'COMMUNITY RECOVERY').toUpperCase();
+        else if (metricCategory === 'STATUS') key = (item.status || 'COMPLETED').toUpperCase();
+        else if (metricCategory === 'STATION') key = (item.station || 'UNKNOWN STATION').toUpperCase();
       }
       else if (activeDomain === 'OPERATIONS') {
-        key = (item.operation_type || item.outcome || 'STANDARD DEPLOYMENT').toUpperCase();
+        if (metricCategory === 'CATEGORY') key = (item.operation_type || item.outcome || 'STANDARD DEPLOYMENT').toUpperCase();
+        else if (metricCategory === 'STATION') key = (item.station || 'UNKNOWN STATION').toUpperCase();
       }
 
       if (!grouped[key]) grouped[key] = { label: key, count: 0 };
@@ -135,7 +157,10 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
             {activeDomain === 'CRIME' && (
               <>
                 <option value="CATEGORY">Crime Category / Offence</option>
-                <option value="SEVERITY">Severity / Case Status</option>
+                <option value="CASES">Cases Reported / Case Status</option>
+                <option value="ARRESTS">Offenders Arrested</option>
+                <option value="CONVICTIONS">Offenders Convicted</option>
+                <option value="CONCLUDED">Cases investigated to conclusion</option>
                 <option value="STATION">Police Station</option>
               </>
             )}
@@ -144,10 +169,25 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
                 <option value="RANK">Officer Rank</option>
                 <option value="UNIT">Station / Unit</option>
                 <option value="DISTRICT">Home District</option>
+                <option value="AGE">Age</option>
+                <option value="SEX">Sex</option>
+                <option value="DIR">Directorate</option>
+                <option value="SECTION">Section</option>
               </>
             )}
-            {activeDomain === 'SUCCESS' && <option value="CATEGORY">Success Impact Type</option>}
-            {activeDomain === 'OPERATIONS' && <option value="CATEGORY">Deployment / Outcome Type</option>}
+            {activeDomain === 'SUCCESS' && (
+              <>
+                <option value="CATEGORY">Success Impact Type</option>
+                <option value="STATUS">Status</option>
+                <option value="STATION">Police Station</option>
+              </>
+            )}
+            {activeDomain === 'OPERATIONS' && (
+              <>
+                <option value="CATEGORY">Deployment / Outcome Type</option>
+                <option value="STATION">Police Station</option>
+              </>
+            )}
           </select>
         </div>
         <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
@@ -160,7 +200,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         
         {/* BAR GRAPH VIEW */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide">Comparative Bar Graph</h3>
+          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide">Comparative Bar Graph ({metricCategory})</h3>
           <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
             {aggregatedData.map((item, idx) => {
               const percentage = totalRecords > 0 ? (item.count / totalRecords) * 100 : 0;
@@ -188,12 +228,12 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         {/* STRUCTURED DATA TABLE VIEW */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between">
           <div>
-            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-4">Statistical Distribution Breakdown</h3>
+            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-4">Statistical Distribution Breakdown ({activeDomain})</h3>
             <div className="border border-slate-100 rounded-xl overflow-hidden max-h-[340px] overflow-y-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-700 uppercase font-bold sticky top-0 border-b border-slate-200">
                   <tr>
-                    <th className="p-3">Category Attribute</th>
+                    <th className="p-3">{metricCategory.replace('_', ' ')} Attribute</th>
                     <th className="p-3 text-right">Frequency</th>
                     <th className="p-3 text-right">Share (%)</th>
                   </tr>

@@ -327,21 +327,45 @@ def build_and_send_weekly_briefing():
         try:
             mandated_positions = ["RPC", "DEPUTY RPC", "DPC", "DATA OFFICER", "DATA ASSISTANT"]
             
-            query = db.query(models.Users.email).filter(
+            # Determine the start of the current week (Monday) to check if an entry has already been submitted
+            today = get_eat_time()
+            start_of_week = (today - timedelta(days=today.weekday())).strftime("%Y-%m-%d")
+
+            # Find mandated personnel whose stations have NOT submitted any operational or crime stats this week
+            users_query = db.query(models.Users).filter(
                 models.Users.email.isnot(None),
                 models.Users.is_approved == True,
                 ~func.upper(models.Users.region).in_(["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]),
                 ~func.upper(models.Users.station).in_(["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]),
                 or_(*(models.Users.position.ilike(f"%{pos}%") for pos in mandated_positions))
-            ).distinct()
-            
-            recipients = [u[0] for u in query.all() if u[0]]
+            ).all()
+
+            recipients = []
+            for u in users_query:
+                if not u.email:
+                    continue
+                
+                # Check if this user's station has submitted at least once this week
+                has_submitted_ops = db.query(models.Operational_Statistics).filter(
+                    models.Operational_Statistics.station == u.station,
+                    models.Operational_Statistics.date >= start_of_week
+                ).first()
+
+                has_submitted_crime = db.query(models.Crime_Reports).filter(
+                    models.Crime_Reports.station == u.station,
+                    models.Crime_Reports.date >= start_of_week
+                ).first()
+
+                # If no submission found for their station this week, add them to compliance warning email list
+                if not has_submitted_ops and not has_submitted_crime:
+                    if u.email not in recipients:
+                        recipients.append(u.email)
             
             if "afedravnct@gmail.com" not in recipients:
                 recipients.append("afedravnct@gmail.com")
                 
             if recipients:
-                asyncio.run(send_command_briefing(recipients, "KMP Mandatory Compliance & Data Briefing", html_content))
+                asyncio.run(send_command_briefing(recipients, "KMP Mandatory Compliance & Data Briefing (Overdue)", html_content))
         finally:
             db.close()
     except Exception as e:
