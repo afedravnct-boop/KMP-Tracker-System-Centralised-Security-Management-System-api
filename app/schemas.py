@@ -1,7 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field, EmailStr
-from typing import Optional
-from datetime import datetime
 from typing import Optional, List, Union
+from datetime import datetime
 
 # ==========================================
 # 0. PASSWORD MANAGEMENT SCHEMAS
@@ -256,19 +255,16 @@ class ModificationRequestResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
-class Admin_CommunicationCreate(BaseModel):
-    sender_fnum: str
-    sender_name: str
-    target_audience: str
-    target_region: Optional[str] = None
-    
-    # 🟢 FIX: Allow this to accept an array of strings (multi-select) or a single string
-    target_fnum: Optional[Union[str, List[str]]] = None 
-    
-    message_type: str
+class CommunicationCreate(BaseModel):
     subject: str
     message: str
-    send_email: bool = False
+    message_type: Optional[str] = "GENERAL_INFO"
+    target_audience: Optional[str] = "SPECIFIC_USER"
+    target_region: Optional[str] = "ALL"
+    target_fnum: Optional[Union[str, List[str]]] = None
+    requires_command_approval: Optional[bool] = True
+    send_email: Optional[bool] = False
+    sender_name: Optional[str] = None
 
 class LogResponse(BaseModel):
     id: int
