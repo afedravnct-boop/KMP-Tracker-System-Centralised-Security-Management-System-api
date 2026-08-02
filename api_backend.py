@@ -6,7 +6,7 @@ import html
 import uuid
 import asyncio
 from datetime import datetime, timedelta
-from typing import Optional, List, Union
+from typing import Optional, List
 
 import pytz
 import uvicorn
@@ -119,6 +119,8 @@ class UserAccessUpdate(BaseModel):
     role: str
     permissions: dict
 
+from typing import Optional, List, Union
+
 class Admin_CommunicationCreate(BaseModel):
     sender_fnum: str
     sender_name: str
@@ -169,11 +171,13 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     # 🟢 THE GLOBAL DOOR CHECK
+    # Super admins can always bypass the door, but regular users get checked against system_config
     if user.role != "SUPER_ADMIN":
         config_check = db.query(models.SystemConfig).filter(
             models.SystemConfig.config_key == "peer_delegation_active"
         ).first()
         
+        # If config is explicitly set to FALSE, block entry at the door
         if config_check and str(config_check.config_value).strip().upper() == "FALSE":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -270,7 +274,7 @@ def apply_custom_sheet_design(workbook, worksheet, df, sheet_title, user):
         worksheet.set_column('B:B', 12)  
         worksheet.set_column('C:D', 20)  
         worksheet.set_column('E:L', 10)  
-    elif "(Print)" in sheet_title:        
+    elif "(Print)" in sheet_title:       
         worksheet.fit_to_pages(1, 0)     
         worksheet.set_column('A:A', 5)   
         worksheet.set_column('B:Z', 15)  
@@ -963,6 +967,7 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
 # --- NOMINAL ROLL ---
 @app.get("/api/v1/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    # 🟢 DIRECTLY QUERY THE EXACT CLASS
     query = db.query(models.NominalRoll)
     
     user_role = (current_user.role or "").upper()
@@ -982,6 +987,7 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
         
+        # Map Database flat columns back to Frontend expected fields
         if 'dopost' in r_dict: r_dict['do_post'] = r_dict['dopost']
         if 'dopro' in r_dict: r_dict['do_pro'] = r_dict['dopro']
         if 'educlevel' in r_dict: r_dict['educ_level'] = r_dict['educlevel']
@@ -1004,6 +1010,7 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             data["region"] = current_user.region
             data["station"] = current_user.station
             
+        # Map Frontend underscored keys to Database flat columns
         key_map = {
             'f_num': 'fnum', 'do_post': 'dopost', 'do_pro': 'dopro', 
             'educ_level': 'educlevel', 'home_dist': 'homedist', 
@@ -1028,6 +1035,7 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
                 else:
                     clean_data[mapped_k] = v
 
+        # 🟢 Normalize Sex field (handles f, F, female, m, M, male)
         if 'sex' in clean_data:
             clean_data['sex'] = normalize_sex(clean_data['sex'])
 
@@ -1045,10 +1053,99 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
+
 # ---------------------------------------------------------
+# ADMIN: EXCEL BULK UPLOAD FOR NOMINAL ROLL (WITH UPSERT & SMART FILL)
+# ---------------------------------------------------------
+@app.post("/api/v1/nominal-roll/bulk-upload")
+async def bulk_upload_nominal_roll(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    # 1. Security Check
+    position = (current_user.position or "").upper()
+    perms = current_user.permissions or {}
+    is_cleared = (
+        current_user.role in ["ADMIN", "SUPER_ADMIN"] or
+        "HR" in position or
+        perms.get("upload_hr", False) or
+        perms.get("export_data", False)
+    )
+    if not is_cleared:
+        raise HTTPException(status_code=403, detail="Clearance Denied: Unauthorized for bulk HR uploads.")
+
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Invalid file format. Please upload an Excel (.xlsx or .xls) file.")
+
+    try:
+        contents = await file.read()
+        df = pd.read_excel(io.BytesIO(contents))
+        
+        original_cols = list(df.columns)
+        df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
+        
+        header_map = {
+            "id": "id", "serial": "id", "serialnumber": "id", "sn": "sn",
+            "forcenumber": "fnum", "fnumber": "fnum", "fnum": "fnum", "f_num": "fnum", "force": "fnum", "fno": "fnum",
+            "rank": "rank", "name": "name", "fullname": "name", "officername": "name",
+            "sex": "sex", "gender": "sex", "position": "position", "role": "position", "title": "position",
+            "dob": "dob", "dateofbirth": "dob", "doe": "doe", "dateofenlistment": "doe",
+            "dop": "dopost", "dopost": "dopost", "do_post": "dopost", "dateofpost": "dopost",
+            "dopro": "dopro", "do_pro": "dopro", "dateofpromotion": "dopro",
+            "educlevel": "educlevel", "educ_level": "educlevel", "education": "educlevel", "educationlevel": "educlevel",
+            "homedist": "homedist", "home_dist": "homedist", "homedistrict": "homedist",
+            "accno": "accno", "acc_no": "accno", "accountnumber": "accno", "accountno": "accno", "account": "accno",
+            "bankbranch": "bankbranch", "bank_branch": "bankbranch", "bank": "bankbranch", "branch": "bankbranch",
+            "station": "station", "dutystation": "station", "region": "region", "command": "region",
+            "section": "section", "department": "section", "directorate": "dir", "dir": "dir",
+            "ipps": "ipps", "nin": "nin", "tin": "tin", "contact": "contact", "district": "district", "tribe": "tribe",
+            "status": "status"
+        }
+        
+        df.rename(columns=header_map, inplace=True)
+        df = df.replace({np.nan: None, pd.NaT: None})
+        
+        if 'fnum' not in df.columns and 'f_num' not in df.columns:
+            return {"status": "error", "message": f"Could not find Force Number column! Your Excel headers are: {original_cols}"}
+
+        records_added = 0
+        records_updated = 0
+        records_failed = 0
+        first_error = ""
+        
+        valid_keys = [c.key for c in models.NominalRoll.__table__.columns]
+
+        for index, row in df.iterrows():
+            row_dict = row.to_dict()
+            
+            fnum_val = str(row_dict.get('fnum', row_dict.get('f_num', ''))).strip().upper()
+            ipps_val = str(row_dict.get('ipps', '')).strip()
+            
+            if not fnum_val or fnum_val in ['NONE', 'NAN', 'NAT', '']:
+                continue 
+                
+# Clean Dates
+            for date_col in ['dob', 'doe', 'dopost', 'dopro']:
+                if date_col in row_dict and row_dict[date_col]:
+                    val = row_dict[date_col]
+                    if isinstance(val, datetime):
+                        row_dict[date_col] = val.strftime("%Y-%m-%d")
+                    elif isinstance(val, str) and "/" in val:
+                        try:
+                            clean_date_str = val.replace("'", "").strip()
+                            d_obj = datetime.strptime(clean_date_str, "%d/%m/%Y")
+                            row_dict[date_col] = d_obj.strftime("%Y-%m-%d")
+                        except ValueError:
+                            row_dict[date_col] = None 
+        # 🟢 Make sure you have this line here to properly close the dataframe iteration block!
+        
+# ==========================================
 # GEO-MAPPING & AUTO-INFERENCE HELPERS
-# ---------------------------------------------------------
+# ==========================================
 STATION_GEO_MAP = {
+    ...
+    # KMP NORTH REGION
     "KAWEMPE": {"region": "KMP NORTH", "district": "KAMPALA"},
     "WANDEGEYA": {"region": "KMP NORTH", "district": "KAMPALA"},
     "OLD KAMPALA": {"region": "KMP NORTH", "district": "KAMPALA"},
@@ -1056,6 +1153,7 @@ STATION_GEO_MAP = {
     "NANSANA": {"region": "KMP NORTH", "district": "WAKISO"},
     "KASANGATI": {"region": "KMP NORTH", "district": "WAKISO"},
     
+    # KMP SOUTH REGION
     "NATEETE": {"region": "KMP SOUTH", "district": "WAKISO"},
     "CPS KAMPALA": {"region": "KMP SOUTH", "district": "KAMPALA"},
     "ENTEBBE": {"region": "KMP SOUTH", "district": "WAKISO"},
@@ -1063,6 +1161,7 @@ STATION_GEO_MAP = {
     "NSANGI": {"region": "KMP SOUTH", "district": "WAKISO"},
     "KYENGERA": {"region": "KMP SOUTH", "district": "KAMPALA"},
 
+    # KMP EAST REGION
     "JINJA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
     "MUKONO": {"region": "KMP EAST", "district": "MUKONO"},
     "KIRA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
@@ -1088,9 +1187,10 @@ def auto_infer_geography(station_val, current_region, current_district):
             
     return inferred_region, inferred_district
 
-# ---------------------------------------------------------
-# ADMIN: EXCEL BULK UPLOAD FOR NOMINAL ROLL
-# ---------------------------------------------------------
+
+# ==========================================
+# EXCEL BULK UPLOAD ENDPOINT
+# ==========================================
 @app.post("/api/v1/nominal-roll/bulk-upload")
 async def bulk_upload_nominal_roll(
     file: UploadFile = File(...),
@@ -1158,6 +1258,7 @@ async def bulk_upload_nominal_roll(
             if not fnum_val or fnum_val in ['NONE', 'NAN', 'NAT', '']:
                 continue 
                 
+            # Clean Dates
             for date_col in ['dob', 'doe', 'dopost', 'dopro']:
                 if date_col in row_dict and row_dict[date_col]:
                     val = row_dict[date_col]
@@ -1174,6 +1275,7 @@ async def bulk_upload_nominal_roll(
             f_key = 'f_num' if 'f_num' in valid_keys and 'fnum' not in valid_keys else 'fnum'
             row_dict[f_key] = fnum_val
             
+            # Sex Inference
             raw_sex = str(row_dict.get('sex') or '').strip().upper()
             nin_val = str(row_dict.get('nin') or '').strip().upper()
             row_dict['nin'] = nin_val
@@ -1190,6 +1292,7 @@ async def bulk_upload_nominal_roll(
             
             row_dict['sex'] = inferred_sex
 
+            # Geographic Inference
             raw_station = row_dict.get('station', '')
             current_reg = row_dict.get('region', '')
             current_dist = row_dict.get('district', '')
@@ -1298,6 +1401,7 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch archives: {str(e)}")
 
+
 # ==========================================
 # 9. FILE UPLOADS
 # ==========================================
@@ -1342,6 +1446,7 @@ def create_admin_communication(
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
+        # 1. DYNAMIC ORIGIN TAG GENERATOR
         pos = (current_user.position or "OFFICER").upper().strip()
         stat = (current_user.station or "HQ").upper().strip().replace(" ", "")
         reg = (current_user.region or "KMP").upper().strip().replace(" ", "")
@@ -1364,9 +1469,11 @@ def create_admin_communication(
             clean_pos_stat = f"{pos.replace(' ', '')}{stat}"
             origin_tag = f"UPF/OPS/{reg}/DHQTRS/{clean_pos_stat}"
             
+        # 2. Sequence Calculation
         count = db.query(models.Admin_Communication).filter(models.Admin_Communication.msg_ref.like(f"{origin_tag}/%")).count()
         generated_msg_ref = f"{origin_tag}/{count + 1:03d}"
 
+        # 3. Save to Database (Internal Dispatch)
         db_comm = models.Admin_Communication(
             msg_ref=generated_msg_ref,
             sender_fnum=comm.sender_fnum, 
@@ -1382,12 +1489,14 @@ def create_admin_communication(
         db.commit()
         db.refresh(db_comm)
 
+        # 4. External Email Dispatch (On top of internal log, sent to their correct emails)
         if comm.send_email:
             query = db.query(models.Users.email).filter(
                 models.Users.email.isnot(None),
                 models.Users.is_approved == True
             )
             
+            # Audience filtering mapping to correct individual emails
             if comm.target_audience == 'ADMINS_ONLY': 
                 query = query.filter(models.Users.role.in_(['ADMIN', 'SUPER_ADMIN']))
             elif comm.target_audience == 'RPC_ONLY': 
@@ -1430,23 +1539,29 @@ def get_admin_communications(
 ):
     query = db.query(models.Admin_Communication)
 
+    # 🟢 STRICT REGIONAL & GODLY OVERWATCH ISOLATION
     if current_user.role != "SUPER_ADMIN":
         user_region = (current_user.region or "").strip().upper()
         
         visibility_conditions = [
+            # Global broadcasts are seen by all
             or_(
                 models.Admin_Communication.target_audience == "ALL",
                 models.Admin_Communication.target_audience == "ALL_USERS"
             ),
+            # User can always see messages they sent themselves
             models.Admin_Communication.sender_fnum == current_user.fnum,
+            # User can see direct messages targeting them specifically
             and_(
                 models.Admin_Communication.target_audience == "SPECIFIC_USER", 
                 models.Admin_Communication.target_fnum == current_user.fnum
             ),
+            # 🟢 REGIONAL LOCK: User sees regional broadcasts matching their exact region
             and_(
                 models.Admin_Communication.target_audience == "SPECIFIC_REGION", 
                 func.upper(models.Admin_Communication.target_region) == user_region
             ),
+            # 🟢 REGIONAL LOCK: User sees messages originated by someone in their region
             and_(
                 models.Admin_Communication.target_audience == "REGIONAL_BROADCAST",
                 func.upper(models.Admin_Communication.target_region) == user_region
@@ -1460,10 +1575,12 @@ def get_admin_communications(
             
         query = query.filter(or_(*visibility_conditions))
 
+    # Date filters...
     if start_date: query = query.filter(models.Admin_Communication.created_at >= start_date)
     if end_date: query = query.filter(models.Admin_Communication.created_at <= f"{end_date} 23:59:59")
 
     comms = query.order_by(models.Admin_Communication.created_at.desc()).all()
+ 
     
     read_records = db.query(models.Communication_Reads.comm_id).filter(models.Communication_Reads.fnum == current_user.fnum).all()
     read_comm_ids = {r[0] for r in read_records} 
@@ -1479,7 +1596,7 @@ def get_admin_communications(
         else: formatted_time = "Unknown Time"
             
         clean_comms.append({
-            "id": c.id, "msg_ref": getattr(c, 'msg_ref', 'UPF/UNKNOWN/000'), 
+            "id": c.id, "msg_ref": getattr(c, 'msg_ref', 'UPF/UNKNOWN/000'), # 🟢 RETURN REF
             "sender_fnum": c.sender_fnum, "sender_name": c.sender_name,
             "target_audience": c.target_audience, "target_region": c.target_region,
             "target_fnum": getattr(c, 'target_fnum', None), 
@@ -1550,8 +1667,12 @@ def get_communication_readers(comm_id: int, db: Session = Depends(get_db), curre
 # ==========================================
 # 11. EXPORTS & REPORTING
 # ==========================================
+# 🟢 NEW: Regional Breakdown Aggregation Endpoint
 @app.get("/api/v1/stats/breakdown")
 def get_system_breakdown(table: str = "crime_incident_registry", db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    """
+    Dynamically groups and counts entries by Region, Division (Section), and Station.
+    """
     allowed_tables = {
         "crime_incidents": models.Crime_Reports,
         "nominal_roll": getattr(models, 'Nominal_Roll', getattr(models, 'nominal_roll', None)),
@@ -1564,6 +1685,7 @@ def get_system_breakdown(table: str = "crime_incident_registry", db: Session = D
     db_model = allowed_tables[table]
     
     try:
+        # Use SQLAlchemy grouping to count safely by hierarchical columns
         results = db.query(
             func.coalesce(db_model.region, 'GENERAL / HQ').label('region'),
             func.coalesce(getattr(db_model, 'section', getattr(db_model, 'division', getattr(db_model, 'station', 'N/A'))), 'N/A').label('division'),
@@ -1587,6 +1709,7 @@ def get_system_breakdown(table: str = "crime_incident_registry", db: Session = D
         return {"status": "success", "table": table, "data": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/v1/reports/consolidated-ledger")
 def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -1810,6 +1933,7 @@ def export_master_database_unified(
                 df_stats_print = df_stats.copy()
                 numeric_cols = ["Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"]
                 
+                # SECURE SUM: Convert all strings/nulls to numeric 0 first to prevent sum() crashes
                 for col in numeric_cols:
                     df_stats_print[col] = pd.to_numeric(df_stats_print[col], errors='coerce').fillna(0)
                     
@@ -1940,6 +2064,7 @@ def export_establishments(db: Session = Depends(get_db), authorized_user: models
         with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
             workbook = writer.book
 
+            # Process HR Data
             hr_data = db.query(models.NominalRoll).yield_per(1000)
             hr_list = [{
                 "SN": getattr(h, 'id', getattr(h, 'sn', '')), "Force Number": getattr(h, 'f_num', getattr(h, 'fnum', '')), 
@@ -1952,6 +2077,7 @@ def export_establishments(db: Session = Depends(get_db), authorized_user: models
             del hr_data, hr_list, df_hr
             gc.collect()
 
+            # Process Establishments Data
             est_data = db.query(models.Establishments).yield_per(1000)
             est_list = [{
                 "SN": getattr(e, 'id', getattr(e, 'sn', '')), "Region": getattr(e, 'region', ''), "Division": getattr(e, 'division', ''),
@@ -2011,6 +2137,7 @@ def get_audit_logs(
     position = (current_user.position or "").upper()
     perms = current_user.permissions or {}
 
+    # Subject to clearance check
     is_cleared = (
         role == "SUPER_ADMIN" or
         "SYSTEM MANAGER" in position or
@@ -2137,19 +2264,26 @@ def get_filtered_recipients(db: Session = Depends(get_db), current_user: models.
     user_region = (current_user.region or "").strip().upper()
     user_station = (current_user.station or "").strip().upper()
     
+    # SUPER_ADMIN / Police Headquarters see everyone across the entire force
     if user_role == "SUPER_ADMIN" or user_region == "POLICE HEADQUARTERS":
         users = query.all()
+    
+    # KMP Headquarters sees all KMP units/regions
     elif user_region == "KMP HEADQUARTERS":
         users = query.filter(func.upper(models.Users.region).ilike("%KMP%")).all()
+        
+    # RPC / DPC / Regional Command sees their specific region/station footprint
     elif user_role in ["RPC", "DPC"] or "HEADQUARTERS" not in user_region:
         users = query.filter(
             or_(
                 func.upper(models.Users.region) == user_region,
                 func.upper(models.Users.station) == user_station,
+                # Allow visibility to higher command (RPC/DPC) for cross-region requests
                 func.upper(models.Users.position).in_(["RPC", "DPC"])
             )
         ).all()
     else:
+        # Standard users see within their station/division
         users = query.filter(func.upper(models.Users.station) == user_station).all()
         
     result = []
@@ -2165,6 +2299,8 @@ def get_filtered_recipients(db: Session = Depends(get_db), current_user: models.
             "role": u.role
         })
     return result
+
+
 
 @app.get("/api/v1/system/config/{key}")
 def get_system_config(key: str, db: Session = Depends(get_db)):
@@ -2183,6 +2319,8 @@ def update_system_config(key: str, data: dict, db: Session = Depends(get_db), ad
     config.config_value = str(data.get("value", "FALSE"))
     db.commit()
     return {"status": "success", "message": f"Config {key} updated to {config.config_value}"}
+
+
 
 @app.post("/api/v1/requests")
 def create_modification_request(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -2204,6 +2342,7 @@ def revoke_user_access(
     fnum: str, reason: str = "No reason provided", 
     db: Session = Depends(get_db), admin: models.Users = Depends(require_admin)
 ):
+    """Safely revokes an active user's access and logs the reason."""
     clean_fnum = unquote(fnum).strip().upper()
     target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum).first()
     if not target_user:
