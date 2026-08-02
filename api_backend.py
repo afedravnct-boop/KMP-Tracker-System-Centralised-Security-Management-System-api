@@ -84,9 +84,10 @@ BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 # ==========================================
 # 1. MIDDLEWARE & STARTUP
 # ==========================================
-models.Base.metadata.create_all(bind=engine)
-models.Base.metadata.create_all(bind=SessionLogsLocal().get_bind())
-
+try:
+    models.Base.metadata.create_all(bind=engine, checkfirst=True)
+except Exception as e:
+    print(f"Startup metadata notice: {e}")
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
@@ -1002,149 +1003,11 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         
     return clean_results
 
-@app.post("/api/v1/nominal-roll")
-def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        data.pop('sn', None) 
-        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
-            data["region"] = current_user.region
-            data["station"] = current_user.station
-            
-        # Map Frontend underscored keys to Database flat columns
-        key_map = {
-            'f_num': 'fnum', 'do_post': 'dopost', 'do_pro': 'dopro', 
-            'educ_level': 'educlevel', 'home_dist': 'homedist', 
-            'acc_no': 'accno', 'bank_branch': 'bankbranch'
-        }
-            
-        clean_data = {}
-        for k, v in data.items():
-            mapped_k = key_map.get(k, k)
-            if v == "":
-                clean_data[mapped_k] = None
-            else:
-                if mapped_k in ['dob', 'doe', 'dopost', 'dopro'] and v is not None:
-                    if "/" in v:  
-                        try:
-                            date_obj = datetime.strptime(v, "%d/%m/%Y")
-                            clean_data[mapped_k] = date_obj.strftime("%Y-%m-%d")
-                        except ValueError:
-                            clean_data[mapped_k] = v 
-                    else:
-                        clean_data[mapped_k] = v 
-                else:
-                    clean_data[mapped_k] = v
 
-        # 🟢 Normalize Sex field (handles f, F, female, m, M, male)
-        if 'sex' in clean_data:
-            clean_data['sex'] = normalize_sex(clean_data['sex'])
-
-        new_record = models.NominalRoll(**clean_data)
-        new_record.last_updated_by = current_user.fnum
-        db.add(new_record)
-        db.commit()
-        db.refresh(new_record)
-        return {"status": "success", "message": "Officer added successfully", "sn": new_record.id}
-        
-    except IntegrityError:
-        db.rollback() 
-        raise HTTPException(status_code=400, detail="Duplicate Entry: Force Number or IPPS already exists.")
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-
-
-# ---------------------------------------------------------
-# ADMIN: EXCEL BULK UPLOAD FOR NOMINAL ROLL (WITH UPSERT & SMART FILL)
-# ---------------------------------------------------------
-@app.post("/api/v1/nominal-roll/bulk-upload")
-async def bulk_upload_nominal_roll(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    current_user: models.Users = Depends(get_current_user)
-):
-    # 1. Security Check
-    position = (current_user.position or "").upper()
-    perms = current_user.permissions or {}
-    is_cleared = (
-        current_user.role in ["ADMIN", "SUPER_ADMIN"] or
-        "HR" in position or
-        perms.get("upload_hr", False) or
-        perms.get("export_data", False)
-    )
-    if not is_cleared:
-        raise HTTPException(status_code=403, detail="Clearance Denied: Unauthorized for bulk HR uploads.")
-
-    if not file.filename.endswith(('.xlsx', '.xls')):
-        raise HTTPException(status_code=400, detail="Invalid file format. Please upload an Excel (.xlsx or .xls) file.")
-
-    try:
-        contents = await file.read()
-        df = pd.read_excel(io.BytesIO(contents))
-        
-        original_cols = list(df.columns)
-        df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
-        
-        header_map = {
-            "id": "id", "serial": "id", "serialnumber": "id", "sn": "sn",
-            "forcenumber": "fnum", "fnumber": "fnum", "fnum": "fnum", "f_num": "fnum", "force": "fnum", "fno": "fnum",
-            "rank": "rank", "name": "name", "fullname": "name", "officername": "name",
-            "sex": "sex", "gender": "sex", "position": "position", "role": "position", "title": "position",
-            "dob": "dob", "dateofbirth": "dob", "doe": "doe", "dateofenlistment": "doe",
-            "dop": "dopost", "dopost": "dopost", "do_post": "dopost", "dateofpost": "dopost",
-            "dopro": "dopro", "do_pro": "dopro", "dateofpromotion": "dopro",
-            "educlevel": "educlevel", "educ_level": "educlevel", "education": "educlevel", "educationlevel": "educlevel",
-            "homedist": "homedist", "home_dist": "homedist", "homedistrict": "homedist",
-            "accno": "accno", "acc_no": "accno", "accountnumber": "accno", "accountno": "accno", "account": "accno",
-            "bankbranch": "bankbranch", "bank_branch": "bankbranch", "bank": "bankbranch", "branch": "bankbranch",
-            "station": "station", "dutystation": "station", "region": "region", "command": "region",
-            "section": "section", "department": "section", "directorate": "dir", "dir": "dir",
-            "ipps": "ipps", "nin": "nin", "tin": "tin", "contact": "contact", "district": "district", "tribe": "tribe",
-            "status": "status"
-        }
-        
-        df.rename(columns=header_map, inplace=True)
-        df = df.replace({np.nan: None, pd.NaT: None})
-        
-        if 'fnum' not in df.columns and 'f_num' not in df.columns:
-            return {"status": "error", "message": f"Could not find Force Number column! Your Excel headers are: {original_cols}"}
-
-        records_added = 0
-        records_updated = 0
-        records_failed = 0
-        first_error = ""
-        
-        valid_keys = [c.key for c in models.NominalRoll.__table__.columns]
-
-        for index, row in df.iterrows():
-            row_dict = row.to_dict()
-            
-            fnum_val = str(row_dict.get('fnum', row_dict.get('f_num', ''))).strip().upper()
-            ipps_val = str(row_dict.get('ipps', '')).strip()
-            
-            if not fnum_val or fnum_val in ['NONE', 'NAN', 'NAT', '']:
-                continue 
-                
-# Clean Dates
-            for date_col in ['dob', 'doe', 'dopost', 'dopro']:
-                if date_col in row_dict and row_dict[date_col]:
-                    val = row_dict[date_col]
-                    if isinstance(val, datetime):
-                        row_dict[date_col] = val.strftime("%Y-%m-%d")
-                    elif isinstance(val, str) and "/" in val:
-                        try:
-                            clean_date_str = val.replace("'", "").strip()
-                            d_obj = datetime.strptime(clean_date_str, "%d/%m/%Y")
-                            row_dict[date_col] = d_obj.strftime("%Y-%m-%d")
-                        except ValueError:
-                            row_dict[date_col] = None 
-        # 🟢 Make sure you have this line here to properly close the dataframe iteration block!
-        
 # ==========================================
 # GEO-MAPPING & AUTO-INFERENCE HELPERS
 # ==========================================
 STATION_GEO_MAP = {
-    ...
     # KMP NORTH REGION
     "KAWEMPE": {"region": "KMP NORTH", "district": "KAMPALA"},
     "WANDEGEYA": {"region": "KMP NORTH", "district": "KAMPALA"},
