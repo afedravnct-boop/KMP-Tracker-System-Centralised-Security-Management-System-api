@@ -121,41 +121,38 @@
   100% { background-position: 0% 50%; }
 }
 
-/* 1. Diagonal wave for the main dashboard watermark */
+/* 1. Diagonal wave for the main dashboard watermark (Tighter gradient layout) */
 .uganda-flag-wave-diagonal {
   background: linear-gradient(-45deg, 
-    #000000 25%, #facc15 25%, #facc15 50%, #dc2626 50%, #dc2626 75%, #000000 75%, 
-    #000000 0%, #000000 15%, 
-    #ffffff 25%, #ffffff 25%, 
-    #000000 50%, #000000 50%, 
-    #ffffff 75%, #ffffff 75%
+    #000000 12.5%, #facc15 12.5%, #facc15 25%, #dc2626 25%, #dc2626 37.5%, #000000 37.5%, 
+    #000000 50%, #ffffff 50%, #ffffff 62.5%, 
+    #000000 62.5%, #000000 75%, #ffffff 75%, #ffffff 100%
   );
-  background-size: 400% 400%; /* Enlarged to force movement */
+  background-size: 200% 200%; /* Reduced from 400% to make bands finer/narrower */
   animation: flagWaveBg 20s linear infinite;
 }
 
-/* 2. Horizontal wave for the Idle Security Curtain */
+/* 2. Horizontal wave for the Idle Security Curtain (Tighter stripes) */
 .uganda-flag-wave {
   background: linear-gradient(to right, 
     #000000 33.3%, #facc15 33.3%, #facc15 66.6%, #dc2626 66.6%
   );
-  background-size: 400% 400%;
+  background-size: 200% 200%; /* Reduced from 400% */
   animation: flagWaveBg 15s linear infinite;
 }
 
-
 @keyframes scrollBwStripes {
   0% { background-position: 0 0; }
-  100% { background-position: 200px 0; } /* 200px perfectly matches the pattern width for a seamless loop */
+  100% { background-position: 50px 0; } /* 🟢 REDUCED: Scaled loop down from 200px to 50px for tight, sleek lines */
 }
 
 .bwbwb-wave {
   background: repeating-linear-gradient(
     to right,
     #000000 0px,
-    #000000 100px,
-    #ffffff 100px,
-    #ffffff 200px
+    #000000 25px, /* 🟢 NARROWED: Black stripe width cut down from 100px to 25px */
+    #ffffff 25px,
+    #ffffff 50px  /* 🟢 NARROWED: White stripe width cut down to 25px (total pattern width 50px) */
   );
   animation: scrollBwStripes 15s linear infinite; 
 }
@@ -168,14 +165,14 @@
 .png-flag-wave {
   background-image: url('/UPF Flag Emblem.png');
   background-size: cover; 
-  background-repeat: repeat-x; /* Allows the image to tile horizontally */
-  animation: flowFlag 15s linear infinite; /* linear keeps the speed constant */
+  background-repeat: repeat-x;
+  animation: flowFlag 15s linear infinite;
 }
+
 /* =========================================================
    🟢 STANDBY MODE & SPARKLE UI EFFECTS
    ========================================================= */
 
-/* Diamond Globe Sparkle Animation */
 @keyframes diamondSparkleSpin {
   0%, 100% {
     transform: rotate(0deg);
@@ -193,35 +190,6 @@
   animation: diamondSparkleSpin 4s linear infinite; 
 }
 
-/* =========================================================
-   🟢 DYNAMIC LETTER-BY-LETTER SWEEP ANIMATION
-   ========================================================= */
-
-@keyframes sweepAndSettle {
-  0% {
-    opacity: 0;
-    transform: translateX(50vw); /* Starts far right */
-  }
-  60% {
-    opacity: 1;
-    transform: translateX(-40px); /* Overshoots to the left */
-  }
-  100% {
-    opacity: 1;
-    transform: translateX(0); /* Settles in the center */
-  }
-}
-
-.animate-sweep-letter {
-  display: inline-block;
-  opacity: 0; /* Keeps letters hidden before their delay starts */
-  /* Using cubic-bezier for a sharp snap back into place */
-  animation: sweepAndSettle 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards;
-}
-
-/* =========================================================
-   🟢 FAUX 3D GLOBE EMBLEM
-   ========================================================= */
 @keyframes spinFauxGlobe {
   from { background-position: 0% 50%; }
   to { background-position: 200% 50%; }
@@ -230,37 +198,30 @@
 .upf-css-globe {
   width: 180px;
   height: 180px;
-  border-radius: 50%; /* Makes it a perfect circle */
+  border-radius: 50%;
   background-image: url('/UPF Flag Emblem.png');
-  background-size: cover; /* Ensures the flag stretches top-to-bottom */
-  background-repeat: repeat-x; /* Allows it to infinitely loop horizontally */
-  
-  /* 3D Spherical Lighting Effect */
+  background-size: cover;
+  background-repeat: repeat-x; 
   box-shadow: 
-    inset -25px -25px 40px rgba(0, 0, 0, 0.8), /* Dark side shadow */
-    inset 10px 10px 20px rgba(255, 255, 255, 0.4), /* Top-left highlight */
-    0 0 25px rgba(255, 255, 255, 0.2); /* Outer ambient glow */
-    
-  /* Continuous smooth spinning */
+    inset -25px -25px 40px rgba(0, 0, 0, 0.8),
+    inset 10px 10px 20px rgba(255, 255, 255, 0.4),
+    0 0 25px rgba(255, 255, 255, 0.2);
   animation: spinFauxGlobe 12s linear infinite;
-  
-  /* Centers it properly */
   margin: 0 auto;
 }
 
 @keyframes spinGlobe {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .animate-spin-globe {
   animation: spinGlobe 12s linear infinite;
 }
 
+/* =========================================================
+   🟢 DYNAMIC LETTER-BY-LETTER SWEEP ANIMATION (FIXED & MERGED)
+   ========================================================= */
 @keyframes sweepLetter {
   0% {
     opacity: 0;

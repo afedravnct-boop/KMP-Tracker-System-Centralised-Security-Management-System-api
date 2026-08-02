@@ -5,6 +5,14 @@ import 'react-quill-new/dist/quill.snow.css';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
+// 🟢 AUTO-CAPITALIZATION ENGINE
+const autoCapitalize = (text) => {
+  if (!text) return text;
+  return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
+    return separator + letter.toUpperCase();
+  });
+};
+
 const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
   
@@ -71,6 +79,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
         targetRegion: value === 'SPECIFIC_REGION' ? 'KMP NORTH' : 'ALL',
         targetFnum: [] 
       });
+    } else if (name === 'subject') {
+      // 🟢 Enforce auto-capitalization on subject inputs
+      setFormData({ ...formData, subject: autoCapitalize(value) });
     } else {
       setFormData({ ...formData, [name]: type === 'checkbox' ? checked : value });
     }
@@ -204,7 +215,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   };
 
   return (
-    <div className="p-6 w-full max-w-[1920px] mx-auto space-y-6 relative z-10">
+    <div className="p-6 w-full max-w-[1920px] mx-auto space-y-6 relative z-10 font-sans">
       
       {viewingReceiptsFor && (
         <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4">
@@ -246,7 +257,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
 
           <button
             onClick={() => setCurrentPage('home')} 
-            className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-all border border-slate-700 shadow-sm shrink-0"
+            className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-all border border-slate-700 shadow-sm shrink-0 cursor-pointer"
           >
             <ArrowLeft size={16} />
             <span>Return to Dashboard</span>
@@ -256,21 +267,21 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
         <div className="flex border-b border-gray-200 bg-slate-50 overflow-x-auto">
           <button 
             onClick={() => setActiveTab('dispatch')} 
-            className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max ${activeTab === 'dispatch' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
+            className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'dispatch' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
           >
             <Edit3 className="w-5 h-5 mr-2" /> {canBroadcast ? 'Dispatch Console' : 'Compose Message / Complaint / Inquiry / Appointment'}
           </button>
           
           <button 
             onClick={() => setActiveTab('inbox')} 
-            className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max ${activeTab === 'inbox' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
+            className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'inbox' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
           >
             <Inbox className="w-5 h-5 mr-2" /> Command Inbox
           </button>
 
           <button 
             onClick={() => setActiveTab('outbox')} 
-            className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max ${activeTab === 'outbox' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
+            className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'outbox' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
           >
             <Send className="w-5 h-5 mr-2" /> Outbox (Sent)
           </button>
@@ -402,7 +413,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                                       }
                                       setFormData({ ...formData, targetFnum: currentList });
                                     }}
-                                    className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                                    className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
                                   />
                                   <span>{u.rank} {u.name} ({u.position || 'Officer'})</span>
                                 </div>
@@ -426,7 +437,10 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                   <ReactQuill 
                     theme="snow" 
                     value={formData.message} 
-                    onChange={(content) => setFormData({ ...formData, message: content })}
+                    onChange={(content) => {
+                      // 🟢 Enforce auto-capitalization on rich-text message bodies
+                      setFormData({ ...formData, message: autoCapitalize(content) });
+                    }}
                     className="bg-white rounded-md h-64 mb-4"
                     modules={{ toolbar: [['bold', 'italic', 'underline'], [{'list': 'ordered'}, {'list': 'bullet'}], ['clean']] }}
                   />
@@ -439,7 +453,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                   </label>
                 </div>
 
-                <button type="submit" disabled={isSubmitting} className="w-full bg-slate-900 hover:bg-black text-white font-extrabold py-4 px-6 rounded-xl shadow-md transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed text-lg">
+                <button type="submit" disabled={isSubmitting} className="w-full bg-slate-900 hover:bg-black text-white font-extrabold py-4 px-6 rounded-xl shadow-md transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed text-lg cursor-pointer">
                   {isSubmitting ? 'Transmitting...' : <><Send size={20} className="mr-2"/> Send Secure Message</>}
                 </button>
               </form>
@@ -481,7 +495,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                   
                   <button
                     onClick={() => setActiveFilter('all')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       activeFilter === 'all' 
                         ? 'bg-slate-900 text-white shadow' 
                         : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
@@ -492,7 +506,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
 
                   <button
                     onClick={() => setActiveFilter('GENERAL_INFO')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       activeFilter === 'GENERAL_INFO' 
                         ? 'bg-blue-600 text-white shadow' 
                         : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
@@ -503,7 +517,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
 
                   <button
                     onClick={() => setActiveFilter('COMPLAINT_GRIEVANCE')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       activeFilter === 'COMPLAINT_GRIEVANCE' 
                         ? 'bg-orange-600 text-white shadow' 
                         : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
@@ -514,7 +528,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
 
                   <button
                     onClick={() => setActiveFilter('DIRECT_MESSAGE')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       activeFilter === 'DIRECT_MESSAGE' 
                         ? 'bg-purple-600 text-white shadow' 
                         : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
@@ -525,7 +539,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
 
                   <button
                     onClick={() => setActiveFilter('ASSIGNMENT')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       activeFilter === 'ASSIGNMENT' 
                         ? 'bg-emerald-600 text-white shadow' 
                         : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
@@ -588,7 +602,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                         
                         <button 
                           onClick={() => fetchReceipts(msg.id)} 
-                          className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-1.5 px-3 rounded transition-colors flex items-center border border-blue-200 shrink-0"
+                          className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-1.5 px-3 rounded transition-colors flex items-center border border-blue-200 shrink-0 cursor-pointer"
                         >
                           <Eye size={14} className="mr-1" /> View Read Receipts
                         </button>

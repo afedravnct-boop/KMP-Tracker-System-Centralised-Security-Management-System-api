@@ -160,29 +160,30 @@ class NominalRoll(Base):
 # ==========================================
 # 6. NOMINAL ROLL ARCHIVE
 # ==========================================
-class Nominal_Roll_Archive(Base):
+class NominalRollArchive(Base):
     __tablename__ = "nominal_roll_archive"
+    __table_args__ = {'extend_existing': True}
     
     id = Column(Integer, primary_key=True, index=True)
     sn = Column(Integer, nullable=True)
-    fnum = Column(String, index=True) # Note: Archive uses fnum without underscore
+    fnum = Column(String, index=True)
     rank = Column(String)
     name = Column(String)
     sex = Column(String)
     position = Column(String)
     dob = Column(String)
     doe = Column(String)
-    dopost = Column(String) # Archive version
-    dopro = Column(String)  # Archive version
+    dopost = Column(String) 
+    dopro = Column(String)  
     contact = Column(String)
-    educlevel = Column(String) # Archive version
+    educlevel = Column(String) 
     ipps = Column(String)
     tin = Column(String)
     nin = Column(String)
-    homedist = Column(String) # Archive version
+    homedist = Column(String) 
     tribe = Column(String)
-    accno = Column(String)    # Archive version
-    bankbranch = Column(String) # Archive version
+    accno = Column(String)    
+    bankbranch = Column(String) 
     station = Column(String)
     district = Column(String)
     region = Column(String)
@@ -191,7 +192,7 @@ class Nominal_Roll_Archive(Base):
     status = Column(String)
     last_updated_by = Column(String)
     created_at = Column(DateTime)
-    archive_reason = Column(String)
+    archive_reason = Column(String, nullable=True)
     archive_date = Column(DateTime, server_default=func.now())
 
 # ==========================================
@@ -276,7 +277,10 @@ class Admin_Communication(Base):
     sender_name = Column(String)
     target_audience = Column(String, index=True)
     target_region = Column(String, index=True, nullable=True)
-    target_fnum = Column(String, index=True, nullable=True)
+    
+    # 🟢 FIX: Changed from String to JSON so it can natively store the ['F/123', 'F/456'] array
+    target_fnum = Column(JSON, nullable=True) 
+    
     message_type = Column(String)
     subject = Column(String)
     message = Column(Text)
@@ -308,37 +312,16 @@ class Password_Reset_Requests(Base):
     status = Column(String, default="PENDING") 
     request_date = Column(DateTime, default=get_eat_time)
 
-class NominalRollArchive(Base):
-    __tablename__ = "nominal_roll_archive"
+class SystemConfig(Base):
+    __tablename__ = "system_config"
     __table_args__ = {'extend_existing': True}
     
-    id = Column(Integer, primary_key=True, index=True)
-    sn = Column(Integer, nullable=True)
-    fnum = Column(String, index=True)
-    rank = Column(String)
-    name = Column(String)
-    sex = Column(String)
-    position = Column(String)
-    dob = Column(String)
-    doe = Column(String)
-    dopost = Column(String)
-    dopro = Column(String)
-    contact = Column(String)
-    educlevel = Column(String)
-    ipps = Column(String)
-    tin = Column(String)
-    nin = Column(String)
-    homedist = Column(String)
-    tribe = Column(String)
-    accno = Column(String)
-    bankbranch = Column(String)
-    station = Column(String)
-    district = Column(String)
-    region = Column(String)
-    section = Column(String)
-    dir = Column(String)
-    status = Column(String)
-    last_updated_by = Column(String)
-    created_at = Column(DateTime)
-    archive_reason = Column(String, nullable=True)
-    archive_date = Column(DateTime, server_default=func.now())
+    config_key = Column(String, primary_key=True, index=True)
+    config_value = Column(String, nullable=True)
+
+class SystemConfig(Base):
+    __tablename__ = "system_config"
+    __table_args__ = {'extend_existing': True}
+    
+    config_key = Column(String, primary_key=True, index=True)
+    config_value = Column(String, nullable=True)

@@ -50,8 +50,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from urllib.parse import unquote
 
 # Internal Imports
-from app import schemas
-from app import models, database
+from app import models, schemas, database
 from app.database import engine, get_db, get_logs_db
 from app.database import LogsSessionLocal as SessionLogsLocal
 from app.core import security
@@ -120,12 +119,14 @@ class UserAccessUpdate(BaseModel):
     role: str
     permissions: dict
 
+from typing import Optional, List, Union
+
 class Admin_CommunicationCreate(BaseModel):
     sender_fnum: str
     sender_name: str
     target_audience: str
     target_region: Optional[str] = None
-    target_fnum: Optional[str] = None  # 🟢 FIXED: Was list, now correctly str
+    target_fnum: Optional[Union[str, List[str]]] = None  # Accepts array or single string
     message_type: str
     subject: str
     message: str
@@ -168,6 +169,21 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.query(models.Users).filter(models.Users.fnum == fnum).first()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    # 🟢 THE GLOBAL DOOR CHECK
+    # Super admins can always bypass the door, but regular users get checked against system_config
+    if user.role != "SUPER_ADMIN":
+        config_check = db.query(models.SystemConfig).filter(
+            models.SystemConfig.config_key == "peer_delegation_active"
+        ).first()
+        
+        # If config is explicitly set to FALSE, block entry at the door
+        if config_check and str(config_check.config_value).strip().upper() == "FALSE":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Application Lockdown: System access is currently restricted by command configuration."
+            )
+
     return user
 
 def require_admin(current_user: models.Users = Depends(get_current_user)):
@@ -1037,46 +1053,9 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-@app.put("/api/v1/nominal-roll/{f_num}/archive")
-def archive_personnel(f_num: str, request_data: schemas.ArchiveRequest, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        active_record = db.query(models.NominalRoll).filter(
-    or_(models.NominalRoll.fnum == fnum, models.NominalRoll.f_num == fnum)
-).first()
-        
-        if not active_record:
-            raise HTTPException(status_code=404, detail="Officer not found in active roll.")
-
-        record_data = active_record.__dict__.copy()
-        record_data.pop("_sa_instance_state", None) 
-        record_data.pop("id", None) 
-        record_data.pop("sn", None) 
-        
-        record_data["status"] = "ARCHIVED"
-        record_data["archive_reason"] = request_data.archive_reason
-        record_data["archive_date"] = datetime.now().date()
-        record_data["last_updated_by"] = current_user.fnum
-
-        archived_record = models.NominalRollArchive(**record_data)
-        db.add(archived_record)
-        db.delete(active_record)
-        db.commit()
-        return {"status": "success", "message": "Officer successfully moved to archives."}
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to migrate record: {str(e)}")
-
-@app.get("/api/v1/nominal-roll-archive")
-def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        archives = db.query(models.NominalRollArchive).all()
-        return archives
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch archives: {str(e)}")
 
 # ---------------------------------------------------------
-# ADMIN: EXCEL BULK UPLOAD FOR NOMINAL ROLL
+# ADMIN: EXCEL BULK UPLOAD FOR NOMINAL ROLL (WITH UPSERT & SMART FILL)
 # ---------------------------------------------------------
 @app.post("/api/v1/nominal-roll/bulk-upload")
 async def bulk_upload_nominal_roll(
@@ -1104,64 +1083,23 @@ async def bulk_upload_nominal_roll(
         df = pd.read_excel(io.BytesIO(contents))
         
         original_cols = list(df.columns)
-        
         df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
         
         header_map = {
-            "id": "id", 
-            "serial": "id", 
-            "serialnumber": "id",
-            "sn": "sn", 
-            "forcenumber": "fnum", 
-            "fnumber": "fnum", 
-            "fnum": "fnum", 
-            "f_num": "fnum", 
-            "force": "fnum", 
-            "fno": "fnum",
-            "rank": "rank", 
-            "name": "name", 
-            "fullname": "name", 
-            "officername": "name",
-            "sex": "sex", 
-            "gender": "sex", 
-            "position": "position", 
-            "role": "position", 
-            "title": "position",
-            "dob": "dob", 
-            "dateofbirth": "dob", 
-            "doe": "doe", 
-            "dateofenlistment": "doe",
-            "dop": "dopost",            
-            "dopost": "dopost", 
-            "do_post": "dopost", 
-            "dateofpost": "dopost",
-            "dopro": "dopro", 
-            "do_pro": "dopro",
-            "dateofpromotion": "dopro",
-            "educlevel": "educlevel", 
-            "educ_level": "educlevel", 
-            "education": "educlevel", 
-            "educationlevel": "educlevel",
-            "homedist": "homedist", 
-            "home_dist": "homedist", 
-            "homedistrict": "homedist", 
-            "accno": "accno", 
-            "acc_no": "accno", 
-            "accountnumber": "accno", 
-            "accountno": "accno", 
-            "account": "accno",
-            "bankbranch": "bankbranch", 
-            "bank_branch": "bankbranch", 
-            "bank": "bankbranch", 
-            "branch": "bankbranch",
-            "station": "station", 
-            "dutystation": "station",
-            "region": "region", 
-            "command": "region",
-            "section": "section", 
-            "department": "section",
-            "directorate": "dir", 
-            "dir": "dir", 
+            "id": "id", "serial": "id", "serialnumber": "id", "sn": "sn",
+            "forcenumber": "fnum", "fnumber": "fnum", "fnum": "fnum", "f_num": "fnum", "force": "fnum", "fno": "fnum",
+            "rank": "rank", "name": "name", "fullname": "name", "officername": "name",
+            "sex": "sex", "gender": "sex", "position": "position", "role": "position", "title": "position",
+            "dob": "dob", "dateofbirth": "dob", "doe": "doe", "dateofenlistment": "doe",
+            "dop": "dopost", "dopost": "dopost", "do_post": "dopost", "dateofpost": "dopost",
+            "dopro": "dopro", "do_pro": "dopro", "dateofpromotion": "dopro",
+            "educlevel": "educlevel", "educ_level": "educlevel", "education": "educlevel", "educationlevel": "educlevel",
+            "homedist": "homedist", "home_dist": "homedist", "homedistrict": "homedist",
+            "accno": "accno", "acc_no": "accno", "accountnumber": "accno", "accountno": "accno", "account": "accno",
+            "bankbranch": "bankbranch", "bank_branch": "bankbranch", "bank": "bankbranch", "branch": "bankbranch",
+            "station": "station", "dutystation": "station", "region": "region", "command": "region",
+            "section": "section", "department": "section", "directorate": "dir", "dir": "dir",
+            "ipps": "ipps", "nin": "nin", "tin": "tin", "contact": "contact", "district": "district", "tribe": "tribe",
             "status": "status"
         }
         
@@ -1172,26 +1110,21 @@ async def bulk_upload_nominal_roll(
             return {"status": "error", "message": f"Could not find Force Number column! Your Excel headers are: {original_cols}"}
 
         records_added = 0
-        records_skipped = 0
+        records_updated = 0
         records_failed = 0
         first_error = ""
         
-        fnum_attr = getattr(models.NominalRoll, 'fnum', getattr(models.NominalRoll, 'f_num', None))
-        existing_fnums = {str(u[0]).strip().upper() for u in db.query(fnum_attr).all() if u[0]} if fnum_attr else set()
         valid_keys = [c.key for c in models.NominalRoll.__table__.columns]
 
         for index, row in df.iterrows():
             row_dict = row.to_dict()
             
             fnum_val = str(row_dict.get('fnum', row_dict.get('f_num', ''))).strip().upper()
+            ipps_val = str(row_dict.get('ipps', '')).strip()
             
             if not fnum_val or fnum_val in ['NONE', 'NAN', 'NAT', '']:
                 continue 
                 
-            if fnum_val in existing_fnums:
-                records_skipped += 1
-                continue
-            
             # Clean Dates
             for date_col in ['dob', 'doe', 'dopost', 'dopro']:
                 if date_col in row_dict and row_dict[date_col]:
@@ -1206,27 +1139,196 @@ async def bulk_upload_nominal_roll(
                         except ValueError:
                             row_dict[date_col] = None 
             
-            if 'f_num' in valid_keys and 'fnum' not in valid_keys:
-                row_dict['f_num'] = fnum_val
-            else:
-                row_dict['fnum'] = fnum_val
-            
-            clean_row = {k: v for k, v in row_dict.items() if k in valid_keys and v is not None}
-            
-            # 🟢 Normalize Sex field for bulk upload rows
-            if 'sex' in clean_row:
-                clean_row['sex'] = normalize_sex(clean_row['sex'])
 
+# ==========================================
+# GEO-MAPPING & AUTO-INFERENCE HELPERS
+# ==========================================
+STATION_GEO_MAP = {
+    # KMP NORTH REGION
+    "KAWEMPE": {"region": "KMP NORTH", "district": "KAMPALA"},
+    "WANDEGEYA": {"region": "KMP NORTH", "district": "KAMPALA"},
+    "OLD KAMPALA": {"region": "KMP NORTH", "district": "KAMPALA"},
+    "MATUGGA": {"region": "KMP NORTH", "district": "WAKISO"},
+    "NANSANA": {"region": "KMP NORTH", "district": "WAKISO"},
+    "KASANGATI": {"region": "KMP NORTH", "district": "WAKISO"},
+    
+    # KMP SOUTH REGION
+    "NATEETE": {"region": "KMP SOUTH", "district": "WAKISO"},
+    "CPS KAMPALA": {"region": "KMP SOUTH", "district": "KAMPALA"},
+    "ENTEBBE": {"region": "KMP SOUTH", "district": "WAKISO"},
+    "KABALAGALA": {"region": "KMP SOUTH", "district": "KAMPALA"},
+    "NSANGI": {"region": "KMP SOUTH", "district": "WAKISO"},
+    "KYENGERA": {"region": "KMP SOUTH", "district": "KAMPALA"},
+
+    # KMP EAST REGION
+    "JINJA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
+    "MUKONO": {"region": "KMP EAST", "district": "MUKONO"},
+    "KIRA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
+    "KIRA": {"region": "KMP EAST", "district": "WAKISO"},
+    "NAGGALAMA": {"region": "KMP EAST", "district": "MUKONO"},
+    "SEETA": {"region": "KMP EAST", "district": "MUKONO"},
+}
+
+def auto_infer_geography(station_val, current_region, current_district):
+    stn_clean = str(station_val or "").strip().upper()
+    inferred_region = current_region
+    inferred_district = current_district
+    
+    if stn_clean in STATION_GEO_MAP:
+        geo_data = STATION_GEO_MAP[stn_clean]
+        reg_val = geo_data.get("region")
+        dist_val = geo_data.get("district")
+        
+        if reg_val and (not current_region or str(current_region).strip() in ["", "None", "NAT", "N/A"]):
+            inferred_region = reg_val
+        if dist_val and (not current_district or str(current_district).strip() in ["", "None", "NAT", "N/A"]):
+            inferred_district = dist_val
+            
+    return inferred_region, inferred_district
+
+
+# ==========================================
+# EXCEL BULK UPLOAD ENDPOINT
+# ==========================================
+@app.post("/api/v1/nominal-roll/bulk-upload")
+async def bulk_upload_nominal_roll(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    position = (current_user.position or "").upper()
+    perms = current_user.permissions or {}
+    is_cleared = (
+        current_user.role in ["ADMIN", "SUPER_ADMIN"] or
+        "HR" in position or
+        perms.get("upload_hr", False) or
+        perms.get("export_data", False)
+    )
+    if not is_cleared:
+        raise HTTPException(status_code=403, detail="Clearance Denied: Unauthorized for bulk HR uploads.")
+
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Invalid file format. Please upload an Excel (.xlsx or .xls) file.")
+
+    try:
+        contents = await file.read()
+        df = pd.read_excel(io.BytesIO(contents))
+        
+        original_cols = list(df.columns)
+        df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
+        
+        header_map = {
+            "id": "id", "serial": "id", "serialnumber": "id", "sn": "sn",
+            "forcenumber": "fnum", "fnumber": "fnum", "fnum": "fnum", "f_num": "fnum", "force": "fnum", "fno": "fnum",
+            "rank": "rank", "name": "name", "fullname": "name", "officername": "name",
+            "sex": "sex", "gender": "sex", "position": "position", "role": "position", "title": "position",
+            "dob": "dob", "dateofbirth": "dob", "doe": "doe", "dateofenlistment": "doe",
+            "dop": "dopost", "dopost": "dopost", "do_post": "dopost", "dateofpost": "dopost",
+            "dopro": "dopro", "do_pro": "dopro", "dateofpromotion": "dopro",
+            "educlevel": "educlevel", "educ_level": "educlevel", "education": "educlevel", "educationlevel": "educlevel",
+            "homedist": "homedist", "home_dist": "homedist", "homedistrict": "homedist",
+            "accno": "accno", "acc_no": "accno", "accountnumber": "accno", "accountno": "accno", "account": "accno",
+            "bankbranch": "bankbranch", "bank_branch": "bankbranch", "bank": "bankbranch", "branch": "bankbranch",
+            "station": "station", "dutystation": "station", "region": "region", "command": "region",
+            "section": "section", "department": "section", "directorate": "dir", "dir": "dir",
+            "ipps": "ipps", "nin": "nin", "tin": "tin", "contact": "contact", "district": "district", "tribe": "tribe",
+            "status": "status"
+        }
+        
+        df.rename(columns=header_map, inplace=True)
+        df = df.replace({np.nan: None, pd.NaT: None})
+        
+        if 'fnum' not in df.columns and 'f_num' not in df.columns:
+            return {"status": "error", "message": f"Could not find Force Number column! Your Excel headers are: {original_cols}"}
+
+        records_added = 0
+        records_updated = 0
+        records_failed = 0
+        first_error = ""
+        
+        valid_keys = [c.key for c in models.NominalRoll.__table__.columns]
+
+        for index, row in df.iterrows():
+            row_dict = row.to_dict()
+            
+            fnum_val = str(row_dict.get('fnum', row_dict.get('f_num', ''))).strip().upper()
+            ipps_val = str(row_dict.get('ipps', '')).strip()
+            
+            if not fnum_val or fnum_val in ['NONE', 'NAN', 'NAT', '']:
+                continue 
+                
+            # Clean Dates
+            for date_col in ['dob', 'doe', 'dopost', 'dopro']:
+                if date_col in row_dict and row_dict[date_col]:
+                    val = row_dict[date_col]
+                    if isinstance(val, datetime):
+                        row_dict[date_col] = val.strftime("%Y-%m-%d")
+                    elif isinstance(val, str) and "/" in val:
+                        try:
+                            clean_date_str = val.replace("'", "").strip()
+                            d_obj = datetime.strptime(clean_date_str, "%d/%m/%Y")
+                            row_dict[date_col] = d_obj.strftime("%Y-%m-%d")
+                        except ValueError:
+                            row_dict[date_col] = None 
+
+            f_key = 'f_num' if 'f_num' in valid_keys and 'fnum' not in valid_keys else 'fnum'
+            row_dict[f_key] = fnum_val
+            
+            # Sex Inference
+            raw_sex = str(row_dict.get('sex') or '').strip().upper()
+            nin_val = str(row_dict.get('nin') or '').strip().upper()
+            row_dict['nin'] = nin_val
+            
+            inferred_sex = "MALE"
+            if raw_sex in ['M', 'MALE']:
+                inferred_sex = "MALE"
+            elif raw_sex in ['F', 'FEMALE']:
+                inferred_sex = "FEMALE"
+            elif nin_val.startswith("CF"):
+                inferred_sex = "FEMALE"
+            elif nin_val.startswith("CM"):
+                inferred_sex = "MALE"
+            
+            row_dict['sex'] = inferred_sex
+
+            # Geographic Inference
+            raw_station = row_dict.get('station', '')
+            current_reg = row_dict.get('region', '')
+            current_dist = row_dict.get('district', '')
+            
+            auto_reg, auto_dist = auto_infer_geography(raw_station, current_reg, current_dist)
+            if auto_reg:
+                row_dict['region'] = auto_reg
+            if auto_dist:
+                row_dict['district'] = auto_dist
+
+            clean_row = {k: v for k, v in row_dict.items() if k in valid_keys and v is not None}
             clean_row.pop('sn', None)
             clean_row.pop('id', None)
             
             try:
-                new_record = models.NominalRoll(**clean_row)
-                new_record.last_updated_by = current_user.fnum
-                db.add(new_record)
-                db.commit()  
-                existing_fnums.add(fnum_val) 
-                records_added += 1
+                fnum_attr = getattr(models.NominalRoll, 'f_num', getattr(models.NominalRoll, 'fnum', None))
+                existing_record = db.query(models.NominalRoll).filter(
+                    fnum_attr == fnum_val,
+                    models.NominalRoll.ipps == ipps_val
+                ).first() if ipps_val else db.query(models.NominalRoll).filter(fnum_attr == fnum_val).first()
+
+                if existing_record:
+                    for key, new_val in clean_row.items():
+                        current_val = getattr(existing_record, key, None)
+                        if (current_val is None or str(current_val).strip() in ["", "None", "NAT", "N/A"]) and new_val:
+                            setattr(existing_record, key, new_val)
+                    
+                    existing_record.sex = inferred_sex
+                    existing_record.last_updated_by = f"{current_user.name} ({current_user.fnum})"
+                    records_updated += 1
+                else:
+                    new_record = models.NominalRoll(**clean_row)
+                    new_record.last_updated_by = f"{current_user.name} ({current_user.fnum})"
+                    db.add(new_record)
+                    records_added += 1
+
+                db.commit() 
             except Exception as row_err:
                 db.rollback()
                 records_failed += 1
@@ -1234,15 +1336,15 @@ async def bulk_upload_nominal_roll(
                     first_error = str(row_err)
                 continue
 
-        if hasattr(models, 'Audit_Logs') and records_added > 0:
+        if hasattr(models, 'Audit_Logs') and (records_added > 0 or records_updated > 0):
             log_semantic_audit(
                 db, current_user.fnum, "HR_BULK_UPLOAD", "SYSTEM", 
-                {}, f"Uploaded {records_added} personnel. Skipped {records_skipped} duplicates."
+                {}, f"Uploaded: {records_added} new, Updated: {records_updated} existing rows."
             )
             
         return {
-            "status": "success" if records_added > 0 else "warning", 
-            "message": f"Added: {records_added} | Skipped: {records_skipped} | Failed: {records_failed}." + (f" First Error: {first_error}" if first_error else "")
+            "status": "success" if (records_added > 0 or records_updated > 0) else "warning", 
+            "message": f"Added: {records_added} | Updated: {records_updated} | Failed: {records_failed}." + (f" First Error: {first_error}" if first_error else "")
         }
 
     except Exception as e:
@@ -1253,12 +1355,17 @@ async def bulk_upload_nominal_roll(
 # NOMINAL ROLL ARCHIVE ENDPOINT
 # ==========================================
 @app.put("/api/v1/nominal-roll/{fnum}/archive")
-def archive_personnel(fnum: str, request_data: schemas.ArchiveRequest, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def archive_personnel(
+    fnum: str, 
+    request_data: schemas.ArchiveRequest, 
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
     try:
-        # 🟢 FIX: Use NominalRoll and check against the correct column attribute
-        active_record = db.query(models.NominalRoll).filter(
-            or_(models.NominalRoll.fnum == fnum, models.NominalRoll.f_num == fnum)
-        ).first()
+        fnum_clean = unquote(fnum).strip().upper()
+        fnum_attr = getattr(models.NominalRoll, 'f_num', getattr(models.NominalRoll, 'fnum', None))
+        
+        active_record = db.query(models.NominalRoll).filter(fnum_attr == fnum_clean).first()
         
         if not active_record:
             raise HTTPException(status_code=404, detail="Officer not found in active roll.")
@@ -1279,9 +1386,19 @@ def archive_personnel(fnum: str, request_data: schemas.ArchiveRequest, db: Sessi
         db.commit()
         return {"status": "success", "message": "Officer successfully moved to archives."}
         
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to migrate record: {str(e)}")
+
+@app.get("/api/v1/nominal-roll-archive")
+def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        archives = db.query(models.NominalRollArchive).all()
+        return archives
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch archives: {str(e)}")
 
 
 # ==========================================
@@ -2010,36 +2127,32 @@ def export_establishments(db: Session = Depends(get_db), authorized_user: models
 # ==========================================
 # 12. AUDIT & ACTIVITY LOGS
 # ==========================================
-def get_eat_time():
-    return datetime.now(pytz.timezone("Africa/Kampala")).replace(tzinfo=None)
-
 @app.get("/api/v1/audit-logs")
-def get_system_audit_logs(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
-            raise HTTPException(status_code=403, detail="Unauthorized access to system logs.")
+def get_audit_logs(
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
+    role = (current_user.role or "").upper()
+    position = (current_user.position or "").upper()
+    perms = current_user.permissions or {}
 
-        logs = db.query(models.Audit_Logs).order_by(models.Audit_Logs.id.desc()).limit(100).all()
-        
-        clean_logs = []
-        for log in logs:
-            formatted_time = None
-            if log.created_at:
-                formatted_time = log.created_at.strftime("%Y-%m-%dT%H:%M:%S+03:00")
-                
-            clean_logs.append({
-                "id": log.id,
-                "created_at": formatted_time,
-                "event_type": getattr(log, 'event_type', None), 
-                "user_fnum": getattr(log, 'user_fnum', None),
-                "target_user": getattr(log, 'target_user', None),
-                "status": getattr(log, 'status', None),
-                "details": getattr(log, 'details', None)
-            })
-            
-        return clean_logs
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to fetch audit logs.")
+    # Subject to clearance check
+    is_cleared = (
+        role == "SUPER_ADMIN" or
+        "SYSTEM MANAGER" in position or
+        perms.get("view_audit_logs", False) or
+        "IGP" in position or
+        "DIRECTOR" in position
+    )
+
+    if not is_cleared:
+        raise HTTPException(
+            status_code=403, 
+            detail="Clearance Denied: You do not possess the required security authorization to view audit logs."
+        )
+
+    logs = db.query(models.Audit_Logs).order_by(models.Audit_Logs.id.desc()).limit(200).all()
+    return logs
 
 @app.post("/api/v1/audit-logs")
 def create_audit_log(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -2185,6 +2298,28 @@ def get_filtered_recipients(db: Session = Depends(get_db), current_user: models.
             "role": u.role
         })
     return result
+
+
+
+@app.get("/api/v1/system/config/{key}")
+def get_system_config(key: str, db: Session = Depends(get_db)):
+    config = db.query(models.SystemConfig).filter(models.SystemConfig.config_key == key).first()
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuration key not found")
+    return {"key": config.config_key, "value": config.config_value}
+
+@app.put("/api/v1/admin/system/config/{key}")
+def update_system_config(key: str, data: dict, db: Session = Depends(get_db), admin: models.Users = Depends(require_admin)):
+    config = db.query(models.SystemConfig).filter(models.SystemConfig.config_key == key).first()
+    if not config:
+        config = models.SystemConfig(config_key=key)
+        db.add(config)
+    
+    config.config_value = str(data.get("value", "FALSE"))
+    db.commit()
+    return {"status": "success", "message": f"Config {key} updated to {config.config_value}"}
+
+
 
 @app.post("/api/v1/requests")
 def create_modification_request(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):

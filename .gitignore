@@ -11,3 +11,12 @@ env/
 
 # Uploads directory
 uploads/
+
+# Frontend / Node.js
+node_modules/
+dist/
+build/
+
+# OS generated files (Optional but good practice)
+.DS_Store
+Thumbs.db

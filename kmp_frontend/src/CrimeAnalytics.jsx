@@ -1,14 +1,23 @@
 import React, { useState, useEffect } from 'react';
+
 export default function CrimeAnalytics() {
   const [reports, setReports] = useState([]);
   const [timeFilter, setTimeFilter] = useState("all"); // 'all', 'today', 'week'
   const [locationType, setLocationType] = useState("region"); // 'region', 'station'
   const [locationValue, setLocationValue] = useState("ALL");
 
-  // Fetch the data when the component loads
+  // Fetch the data securely when the component loads
   useEffect(() => {
-    authFetch("/api/v1/reports") // Matches your api_backend.py route
-      .then(res => res.json())
+    const token = localStorage.getItem('kmp_authToken');
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
+    fetch(`${API_URL}/api/v1/reports`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error("Failed to authenticate");
+        return res.json();
+      })
       .then(data => setReports(data))
       .catch(err => console.error("Failed to fetch reports:", err));
   }, []);
@@ -54,80 +63,105 @@ export default function CrimeAnalytics() {
     sn: index + 1,
     incident: crimeName,
     total: crimeCounts[crimeName]
-  }));
+  })).sort((a, b) => b.total - a.total); // Sorted by highest frequency
 
   const grandTotal = summaryData.reduce((sum, item) => sum + item.total, 0);
 
   // Get unique locations based on your backend fields
-  const uniqueLocations = [...new Set(reports.map(r => r[locationType]).filter(Boolean))];
+  const uniqueLocations = [...new Set(reports.map(r => r[locationType]).filter(Boolean))].sort();
 
   return (
-    <div className="analytics-container" style={{ padding: "20px", backgroundColor: "white", borderRadius: "8px" }}>
-      <h2 style={{ color: "#0B2147", borderBottom: "2px solid #ccc", paddingBottom: "10px" }}>
-        Crime Incident Summary
+    <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-200 animate-in fade-in duration-300 font-sans">
+      <h2 className="text-xl font-extrabold text-slate-900 border-b border-slate-200 pb-3 mb-6">
+        Standalone Crime Incident Summary
       </h2>
 
       {/* FILTER CONTROLS */}
-      <div className="filters" style={{ display: "flex", gap: "15px", margin: "20px 0" }}>
-        <select value={timeFilter} onChange={(e) => setTimeFilter(e.target.value)} style={{ padding: "8px" }}>
-          <option value="all">All Time</option>
-          <option value="today">Today</option>
-          <option value="week">Past 7 Days</option>
-        </select>
+      <div className="flex flex-col sm:flex-row gap-4 mb-6">
+        <div className="flex-1">
+          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Timeframe</label>
+          <select 
+            value={timeFilter} 
+            onChange={(e) => setTimeFilter(e.target.value)} 
+            className="w-full p-2.5 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 outline-none focus:border-blue-500 cursor-pointer"
+          >
+            <option value="all">All Time</option>
+            <option value="today">Today Only</option>
+            <option value="week">Past 7 Days</option>
+          </select>
+        </div>
 
-        <select value={locationType} onChange={(e) => {
-            setLocationType(e.target.value);
-            setLocationValue("ALL");
-          }} style={{ padding: "8px" }}>
-          <option value="region">Filter by Region</option>
-          <option value="station">Filter by Station</option>
-        </select>
+        <div className="flex-1">
+          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Geography Type</label>
+          <select 
+            value={locationType} 
+            onChange={(e) => {
+              setLocationType(e.target.value);
+              setLocationValue("ALL");
+            }} 
+            className="w-full p-2.5 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 outline-none focus:border-blue-500 cursor-pointer"
+          >
+            <option value="region">Filter by Region</option>
+            <option value="station">Filter by Station</option>
+          </select>
+        </div>
 
-        <select value={locationValue} onChange={(e) => setLocationValue(e.target.value)} style={{ padding: "8px" }}>
-          <option value="ALL">All {locationType}s</option>
-          {uniqueLocations.map(loc => (
-            <option key={loc} value={loc}>{loc}</option>
-          ))}
-        </select>
+        <div className="flex-1">
+          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Specific Location</label>
+          <select 
+            value={locationValue} 
+            onChange={(e) => setLocationValue(e.target.value)} 
+            className="w-full p-2.5 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 outline-none focus:border-blue-500 cursor-pointer"
+          >
+            <option value="ALL">All {locationType === 'region' ? 'Regions' : 'Stations'}</option>
+            {uniqueLocations.map(loc => (
+              <option key={loc} value={loc}>{loc}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* SUMMARY TABLE */}
-      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "20px" }}>
-        <thead>
-          <tr style={{ backgroundColor: "#0B2147", color: "white", textAlign: "left" }}>
-            <th style={{ padding: "12px", border: "1px solid #ddd" }}>SN</th>
-            <th style={{ padding: "12px", border: "1px solid #ddd" }}>Incident / Offence</th>
-            <th style={{ padding: "12px", border: "1px solid #ddd" }}>Total Reported</th>
-          </tr>
-        </thead>
-        <tbody>
-          {summaryData.length > 0 ? (
-            summaryData.map((row) => (
-              <tr key={row.sn}>
-                <td style={{ padding: "12px", border: "1px solid #ddd" }}>{row.sn}</td>
-                <td style={{ padding: "12px", border: "1px solid #ddd" }}>{row.incident}</td>
-                <td style={{ padding: "12px", border: "1px solid #ddd", fontWeight: "bold" }}>{row.total}</td>
-              </tr>
-            ))
-          ) : (
+      <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+        <table className="min-w-full divide-y divide-gray-200 table-auto">
+          <thead className="bg-slate-900">
             <tr>
-              <td colSpan="3" style={{ padding: "12px", textAlign: "center", border: "1px solid #ddd" }}>
-                No crimes reported for these filters.
-              </td>
+              <th className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider w-16">SN</th>
+              <th className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Incident / Offence</th>
+              <th className="px-4 py-3 text-right text-xs font-bold text-white uppercase tracking-wider">Total Reported</th>
             </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-slate-100">
+            {summaryData.length > 0 ? (
+              summaryData.map((row) => (
+                <tr key={row.sn} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-3 text-sm font-bold text-slate-500">{row.sn}</td>
+                  <td className="px-4 py-3 text-sm font-bold text-slate-800 uppercase">{row.incident}</td>
+                  <td className="px-4 py-3 text-sm font-extrabold text-blue-600 text-right">{row.total}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan="3" className="px-4 py-8 text-center text-sm text-slate-500 font-medium">
+                  No crimes reported for these specific filters.
+                </td>
+              </tr>
+            )}
+          </tbody>
+          {summaryData.length > 0 && (
+            <tfoot className="bg-slate-100 border-t-2 border-slate-300">
+              <tr>
+                <td colSpan="2" className="px-4 py-3 text-right text-sm font-extrabold text-slate-700 uppercase">
+                  Grand Total
+                </td>
+                <td className="px-4 py-3 text-right text-base font-extrabold text-red-600">
+                  {grandTotal}
+                </td>
+              </tr>
+            </tfoot>
           )}
-        </tbody>
-        <tfoot>
-          <tr style={{ backgroundColor: "#f1f1f1", fontWeight: "bold", fontSize: "1.1em" }}>
-            <td colSpan="2" style={{ padding: "12px", textAlign: "right", border: "1px solid #ddd" }}>
-              GRAND TOTAL:
-            </td>
-            <td style={{ padding: "12px", border: "1px solid #ddd", color: "darkred" }}>
-              {grandTotal}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
+        </table>
+      </div>
     </div>
   );
 }

@@ -17,6 +17,8 @@ import HrEstablishmentsLedger from './HrEstablishmentsLedger';
 import Admin_Communication from './Admin_Communication';
 import BulkNominalRollUpload from './BulkNominalRollUpload';
 import { syncOfflineQueue, getOfflineQueueCount } from './utils/offlineSync';
+import AnalyticsDashboard from './AnalyticsDashboard';
+import OfficerDossierModal from './OfficerDossierModal';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -43,7 +45,7 @@ const POSITIONS = {
     "KMP CID Commander", "KMP CI Commander", "KMP Operations Commander", 
     "KMP Traffic & Road Safety Commander", "KMP 999 eru commander", 
     "999 ERU Regional Data Officer", "Regional HR Officer", "KMP SFC Coordinator",
-    "Data Officer", "Data Assistant Officer"
+    "Data Officer", "Data Assistant Officer", "Regional Traffic Officer", "Divisional Traffic Officer", "Divisional CID Officer", "Divisional CI Officer", "Regional CFPU Officer", "Divisional CFPU Officer", "Regional Fire Officer", "Divisional Fire Officer", "Regional Logistics Officer", "Divisional Logistics Officer"
   ],
   RPC: [
     "KMP South Commander", "KMP North Commander", "KMP East Commander", "Deputy Commander KMP south", "Deputy Commander KMP North", "Deputy Commander KMP East"
@@ -216,10 +218,10 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
   const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role);
   
-  const hasNominalClearance = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'Regional_HR_Officer'].includes(currentUser?.role) || 
-                              (currentUser?.position || '').toUpperCase().includes('HR') ||
-                              currentUser?.permissions?.view_nominal_roll || 
-                              currentUser?.permissions?.upload_hr;
+  const hasNominalClearance = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'Regional_HR_Officer'].includes(currentUser?.role) ||                        
+                            (currentUser?.position || '').toUpperCase().includes('HR') ||
+                            currentUser?.permissions?.view_nominal_roll ||                            
+                            currentUser?.permissions?.upload_hr;
 
   const rawComms = adminCommsData || [];
   const safeComms = Array.isArray(rawComms) ? rawComms : (rawComms.data || rawComms.items || []);
@@ -230,26 +232,25 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const today = new Date().getDay();
   const isEndOfWeek = today === 4 || today === 6 || today === 0;
 
-  const userStation = (currentUser.station || '').trim().toUpperCase();
-  const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-  
-  const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => 
-    (r.station || '').trim().toUpperCase() === userStation && new Date(r.date).getTime() >= sevenDaysAgo
-  );
-  const hasSubmittedStats = (Array.isArray(stats) ? stats : []).some(s => 
-    (s.station || '').trim().toUpperCase() === userStation && new Date(s.date).getTime() >= sevenDaysAgo
-  );
-
-  const hasSubmittedThisWeek = hasSubmittedReport || hasSubmittedStats;
-
-  // 🟢 FIX 4: Explicitly target the exact requested officers for compliance alerts
   const userRole = (currentUser.role || '').toUpperCase();
   const userPosition = (currentUser.position || '').toUpperCase();
-  const targetRoles = ['RPC', 'DEPUTY RPC', 'DPC', 'HR OFFICER', 'DATA OFFICER', 'DATA ASSISTANT OFFICER'];
-  
-  const isTargetOfficer = 
-    ['ADMIN', 'SUPER_ADMIN'].includes(userRole) || 
-    targetRoles.some(pos => userPosition.includes(pos));
+  const userRegion = (currentUser.region || '').toUpperCase();
+  const userStation = (currentUser.station || '').trim().toUpperCase();
+
+  const isPoliceHQ = userRegion.includes('POLICE HEADQUARTERS') || userStation.includes('POLICE HEADQUARTERS');
+  const isSystemManager = userPosition.includes('SYSTEM MANAGER') || userRole === 'SUPER_ADMIN';
+
+  const targetKeywords = ['RPC', 'DEPUTY RPC', 'DPC', 'DEPUTY DPC', 'DATA OFFICER', 'DATA ASSISTANT OFFICER', 'HR OFFICER'];
+  const matchesFieldRole = targetKeywords.some(keyword => userPosition.includes(keyword) || userRole.includes(keyword));
+
+  const isTargetOfficer = matchesFieldRole && !isPoliceHQ && !isSystemManager;
+  const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => 
+    (r.station || '').trim().toUpperCase() === userStation && new Date(r.date).getTime() >= (Date.now() - (7 * 24 * 60 * 60 * 1000))
+  );
+  const hasSubmittedStats = (Array.isArray(stats) ? stats : []).some(s => 
+    (s.station || '').trim().toUpperCase() === userStation && new Date(s.date).getTime() >= (Date.now() - (7 * 24 * 60 * 60 * 1000))
+  );
+  const hasSubmittedThisWeek = hasSubmittedReport || hasSubmittedStats;
 
   const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && isTargetOfficer;
   const showComplianceSuccess = isEndOfWeek && hasSubmittedThisWeek && isTargetOfficer;
@@ -270,92 +271,44 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
     return () => clearTimeout(timer);
   }, [showComplianceWarning]);
 
-  const [viewingReceiptsFor, setViewingReceiptsFor] = useState(null);
-  const [receiptsData, setReceiptsData] = useState([]);
-  const [loadingReceipts, setLoadingReceipts] = useState(false);
-
-  const fetchReceipts = async (commId) => {
-    setViewingReceiptsFor(commId);
-    setLoadingReceipts(true);
-    try {
-      const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const res = await fetch(`${API_URL}/api/v1/communications/${commId}/readers`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if(res.ok) setReceiptsData(await res.json());
-    } catch(e) { console.error(e); } finally { setLoadingReceipts(false); }
-  };
-
-  const relevantComms = safeComms.filter(c => {
-    if (currentUser.role === 'SUPER_ADMIN') return true;
-    const audience = c.target_audience || c.audience || 'ALL_USERS';
-    const region = c.target_region || c.region;
-    if (audience === 'ALL_USERS' || audience === 'ALL') return true;
-    if (audience === 'ADMINS_ONLY' && isAdmin) return true;
-    if (audience === 'RPC_ONLY' && isRPC) return true;
-    if (audience === 'SPECIFIC_REGION' && region === currentUser.region) return true;
-    if (audience === 'SPECIFIC_USER' && c.target_fnum === currentUser.fnum) return true;
-    return false;
-  }).slice(0, 5);
-  
-  const hasUnread = relevantComms.some(c => !c.acknowledged);
+  const hasUnread = safeComms.some(c => !c.acknowledged);
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8 relative z-10 animate-in fade-in duration-300">
       
-      {viewingReceiptsFor && (
-        <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4">
-            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-300">
-                <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
-                   <h3 className="font-bold flex items-center text-sm"><CheckCircle size={16} className="mr-2 text-green-400"/> Acknowledgment Receipts</h3>
-                   <button onClick={() => setViewingReceiptsFor(null)} className="hover:bg-slate-700 p-1 rounded"><X size={18}/></button>
-                </div>
-                <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar bg-slate-50">
-                   {loadingReceipts ? (
-                      <p className="text-xs text-center text-gray-500 font-bold animate-pulse py-4">Fetching ledgers...</p>
-                   ) : receiptsData.length === 0 ? (
-                      <p className="text-xs text-center text-gray-500 font-medium py-4">No officers have acknowledged this dispatch yet.</p>
-                   ) : (
-                       <div className="space-y-2">
-                          {receiptsData.map((r, i) => (
-                             <div key={i} className="flex justify-between items-center text-xs p-3 bg-white rounded shadow-sm border border-slate-100">
-                                <div><span className="font-extrabold text-slate-800 block">{r.name}</span><span className="font-mono text-[9px] text-gray-400">{r.fnum}</span></div>
-                                <span className="text-xs text-green-600 font-bold bg-green-50 px-2 py-1 rounded border border-green-200">Read: {r.read_at}</span>
-                             </div>
-                          ))}
-                       </div>
-                   )}
-                </div>
-            </div>
-        </div>
-      )}
-
+      {/* FLOATING COMPLIANCE POPUP */}
       {showComplianceWarning && (
-        <div className={`transition-all duration-700 ease-in-out overflow-hidden rounded-xl shadow-lg border-2 ${
-          isBannerFolded ? 'bg-red-600 border-red-200 p-3 max-w-xs mx-auto cursor-pointer hover:bg-red-300' : 'bg-red-600 border-red-200 p-4 w-full animate-pulse'
-        }`}
-        onClick={() => isBannerFolded && setIsBannerFolded(false)}
+        <div 
+          className={`fixed bottom-24 right-6 z-[9980] transition-all duration-700 ease-in-out rounded-xl shadow-2xl border-2 bg-red-600 border-red-300 ${
+            isBannerFolded ? 'p-3 max-w-xs cursor-pointer hover:bg-red-500' : 'p-5 max-w-sm animate-pulse'
+          }`}
+          onClick={() => isBannerFolded && setIsBannerFolded(false)}
         >
           {isBannerFolded ? (
-            <div className="flex items-left justify-center space-x-2 text-white font-extrabold text-xs tracking-wide uppercase">
+            <div className="flex items-center space-x-2 text-white font-extrabold text-xs tracking-wide uppercase">
               <span className="flex h-3 w-3 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-45"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-400"></span>
               </span>
               <span>⚠️ Compliance Overdue: Click to View</span>
             </div>
           ) : (
-            <div className="flex flex-col md:flex-row items-center justify-between text-white font-extrabold">
-              <div className="flex items-center text-sm mb-3 md:mb-0">
-                <AlertTriangle className="mr-3 w-6 h-6 shrink-0 text-yellow-300 animate-bounce" />
+            <div className="flex flex-col space-y-3 text-white font-extrabold">
+              <div className="flex items-start text-xs leading-relaxed">
+                <AlertTriangle className="mr-2 w-5 h-5 shrink-0 text-yellow-300 animate-bounce mt-0.5" />
                 <span>COMPLIANCE ALERT: Your weekly entries are overdue for {currentUser.station}. Please submit records immediately.</span>
               </div>
-              <div className="flex space-x-2 shrink-0">
-                <button onClick={(e) => { e.stopPropagation(); setIsBannerFolded(true); }} className="bg-red-800 text-white px-3 py-2 rounded font-bold shadow text-xs hover:bg-red-900 transition">
-                  Fold Now
+              <div className="flex space-x-2 justify-end">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setIsBannerFolded(true); }} 
+                  className="bg-red-800 text-white px-3 py-1.5 rounded font-bold shadow text-xs hover:bg-red-900 transition"
+                >
+                  Minimize
                 </button>
-                <button onClick={() => setCurrentPage('statistics')} className="bg-white text-red-700 px-4 py-2 rounded font-bold shadow text-xs hover:bg-gray-100 transition">
+                <button 
+                  onClick={() => setCurrentPage('statistics')} 
+                  className="bg-white text-red-700 px-3 py-1.5 rounded font-bold shadow text-xs hover:bg-gray-100 transition"
+                >
                   Go to Statistics
                 </button>
               </div>
@@ -365,11 +318,9 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
       )}
 
       {showComplianceSuccess && (
-        <div className="bg-emerald-600 text-white font-extrabold p-4 rounded-xl shadow-lg flex items-center justify-between border-2 border-emerald-400">
-          <div className="flex items-center text-sm">
-            <CheckCircle className="mr-3 w-6 h-6 shrink-0 text-emerald-200" />
-            <span>COMMAND COMMENDATION: Thank you, {currentUser.rank} {currentUser.name}, for duly filing your weekly returns. Command records reflect full compliance.</span>
-          </div>
+        <div className="bg-emerald-600 text-white font-extrabold p-4 rounded-xl shadow-2xl flex items-center border-2 border-emerald-400 max-w-sm fixed bottom-24 right-6 z-[9980]">
+          <CheckCircle className="mr-3 w-6 h-6 shrink-0 text-emerald-200" />
+          <span className="text-xs">COMMENDATION: Thank you, {currentUser.rank} {currentUser.name}, for duly filing your weekly returns.</span>
         </div>
       )}
 
@@ -421,6 +372,12 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
           <div onClick={() => setCurrentPage('establishments')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-emerald-300 group">
             <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mr-4 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0"><Building size={24} /></div>
             <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-xs text-slate-500 font-medium mt-1">Map divisions, stations, posts and booths.</p></div>
+          </div>
+
+          {/* 🟢 NEW ANALYTICS DASHBOARD MODULE TILE */}
+          <div onClick={() => setCurrentPage('analytics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-cyan-400 group">
+            <div className="w-14 h-14 rounded-full bg-cyan-50 text-cyan-600 flex items-center justify-center mr-4 group-hover:bg-cyan-600 group-hover:text-white transition-colors shrink-0"><PieChart size={24} /></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Analytics Dashboard</h3><p className="text-xs text-slate-500 font-medium mt-1">Visual graphs, cross-tabs & Excel reports.</p></div>
           </div>
 
           {hasNominalClearance && (
@@ -625,7 +582,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     }
   };
 
-const handleFormSubmit = async (e) => {
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
     const token = localStorage.getItem('kmp_authToken');
     if (!token) return setNotification("Error: Security token missing. Please log out and log back in.");
@@ -643,7 +600,6 @@ const handleFormSubmit = async (e) => {
 
       const finalOffence = formData.offence === 'Other' ? formData.customOffence : formData.offence;
       
-      // 🟢 FIX 2: We no longer send `exactNextSN`. Let the backend DB handle the ID assignment!
       const apiPayload = {
         sd_ref: final_reference, region: formData.region, station: formData.station,
         date: formData.date, time: formData.time, offence: finalOffence, narrative: formData.narrative,
@@ -665,12 +621,9 @@ const handleFormSubmit = async (e) => {
             throw new Error(resData.detail || "Neon Database rejected the entry.");
         }
         
-        // 🟢 FIX 2: Grab the auto-generated SN and ID from the backend response
         const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
         setReports([newReportLocal, ...reports]);
         setNotification(`Case SN ${newReportLocal.sn} (Ref: ${newReportLocal.sd_ref}) successfully registered!`);
-        
-        // 🟢 FIX 3: Force complete reset of the form states!
         handleOperationToggle('new');
 
       } catch (err) {
@@ -842,262 +795,263 @@ const handleFormSubmit = async (e) => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-5 space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-white font-semibold flex items-center"><Shield className="w-5 h-5 mr-2 text-blue-400" /> ⚙️ File Controls</h3>
-            </div>
-            
-            <div className="p-5 space-y-6">
-              <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
-                  <PlusCircle className="w-4 h-4 inline mr-1" /> Register New
-                </button>
-                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
-                  <Edit className="w-4 h-4 inline mr-1" /> Update Existing
-                </button>
+        <>
+          <div className="lg:col-span-5 space-y-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+                <h3 className="text-white font-semibold flex items-center"><Shield className="w-5 h-5 mr-2 text-blue-400" /> ⚙️ File Controls</h3>
               </div>
-
-              {notification && (
-                <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
-                  {notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 min-w-[20px]" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 min-w-[20px]" />}
-                  <span className="text-sm font-medium">{notification}</span>
+              
+              <div className="p-5 space-y-6">
+                <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
+                  <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
+                    <PlusCircle className="w-4 h-4 inline mr-1" /> Register New
+                  </button>
+                  <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
+                    <Edit className="w-4 h-4 inline mr-1" /> Update Existing
+                  </button>
                 </div>
-              )}
 
-              {operation === 'update' && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Case to Update</label>
-                  <input type="text" placeholder="Search by Reference, SN, or Narrative..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
-                  <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
-                    {availableUpdateCases.length === 0 ? (
-                      <div className="p-3 text-xs text-gray-500 text-center">No cases found matching your search.</div>
-                    ) : (
-                      availableUpdateCases.map(c => (
-                        <div key={c.sn} onClick={() => populateUpdateCrimeForm(c)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === c.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
-                          <span className={formData.sn === c.sn ? 'text-blue-200' : 'text-gray-400'}>SN: {c.sn}</span> | <span className={formData.sn === c.sn ? 'text-white' : 'font-bold text-blue-700'}>{c.sdRef || c.sd_ref}</span> | {c.station}
-                        </div>
-                      ))
-                    )}
+                {notification && (
+                  <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
+                    {notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 min-w-[20px]" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 min-w-[20px]" />}
+                    <span className="text-sm font-medium">{notification}</span>
                   </div>
-                </div>
-              )}
-
-              <form onSubmit={handleFormSubmit} className="space-y-4">
-                {operation === 'update' && formData.sn && (
-                   <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
-                      Currently Editing: SN {formData.sn}
-                   </div>
                 )}
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className="block text-xs font-bold text-gray-700 mb-1">File Reference Prefix & Number *</label>
-                    {operation === 'update' ? (
-                      <input type="text" name="sd_ref" value={formData.sd_ref} disabled required className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 font-bold text-blue-700 bg-gray-100 disabled:text-gray-500" />
-                    ) : (
-                      <div className="flex shadow-sm rounded-md w-full">
-                        <select name="ref_type" value={formData.ref_type || 'SD Ref:'} onChange={handleInputChange} className="bg-gray-100 border border-gray-300 text-gray-800 text-sm rounded-l-md px-3 py-2 font-bold focus:ring-blue-500 outline-none cursor-pointer">
-                          <option value="SD Ref:">SD Ref:</option><option value="CRB:">CRB:</option><option value="DEF:">DEF:</option>
-                          <option value="GEF:">GEF:</option><option value="TAR:">TAR:</option><option value="CID:">CID:</option>
-                        </select>
-                        <input type="text" name="ref_number" value={formData.ref_number || ''} onChange={handleInputChange} required className="flex-1 text-sm border-gray-300 border-y border-r rounded-r-md p-2 focus:ring-blue-500 font-bold text-blue-700 uppercase outline-none" placeholder="e.g. 04/27/06/2026" />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
-                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                      {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{currentUser.station}</option>}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Date Recorded</label>
-                    <input type="date" name="date" value={formData.date} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 disabled:bg-gray-100 disabled:text-gray-500" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Time of Record</label>
-                    <input type="text" name="time" value={formData.time} onChange={handleInputChange} disabled={operation === 'update'} placeholder="0830Hrs" className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 disabled:bg-gray-100 disabled:text-gray-500" />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">Offence / Incident Type *</label>
-                  <select name="offence" value={formData.offence} onChange={handleInputChange} required disabled={operation === 'update'} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                    <option value="" disabled>-- Select Official Offence Category --</option>
-                    <option value="Murder">Murder</option><option value="Aggravated Robbery">Aggravated Robbery</option><option value="Theft">Theft</option><option value="Assault">Assault</option><option value="Burglary">Burglary</option><option value="Defilement / Rape">Defilement / Rape</option><option value="Traffic Accident (Fatal)">Traffic Accident (Fatal)</option><option value="Traffic Accident (Minor)">Traffic Accident (Minor)</option><option value="Fraud / Forgery">Fraud / Forgery</option><option value="Drug Offenses">Drug Offenses</option><option value="Other">Other (Specify Below)</option>
-                  </select>
-                  {formData.offence === 'Other' && operation === 'new' && (
-                    <input type="text" name="customOffence" required value={formData.customOffence} onChange={handleInputChange} placeholder="Type the specific offence here..." className="mt-2 w-full text-sm border-blue-400 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-blue-50" />
-                  )}
-                </div>
-
-                <div className="pb-8"> 
-                  <label className="block text-xs font-bold text-gray-700 mb-1">{operation === 'update' ? 'Original Incident Narrative (Read-Only)' : 'Incident Narrative'}</label>
-                  <ReactQuill theme="snow" value={formData.narrative} onChange={(content) => setFormData({ ...formData, narrative: autoCapitalize(content) })} readOnly={operation === 'update'} className={`bg-white rounded-md ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`} modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
-                </div>
 
                 {operation === 'update' && (
-                  <div className="pb-8 mt-4"> 
-                    <label className="block text-xs font-bold text-blue-700 mb-1">Append New Update / Action Taken *</label>
-                    <ReactQuill theme="snow" value={formData.updateText || ''} onChange={(content) => setFormData({ ...formData, updateText: autoCapitalize(content) })} className="bg-white rounded-md border-blue-300" placeholder="Enter new developments here. Use the toolbar for numbering..." modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Status</label>
-                    <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2">
-                      <option>ACTIVE INVESTIGATION</option><option>FORWARDED TO COURT</option><option>CLOSED / CONVICTED</option><option>ADR</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs font-bold text-red-600 mb-1 flex items-center"><Lock size={12} className="mr-1"/> Suspects in Custody</label>
-                    <div className="flex space-x-2">
-                      <div className="w-12 bg-red-100 border border-red-200 text-red-800 font-extrabold rounded-md flex items-center justify-center text-sm shadow-inner">
-                        {operation === 'update' ? formData.suspects : formData.suspectDetails.length}
-                      </div>
-                      <button type="button" onClick={() => setShowLockup(true)} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded shadow text-xs transition flex items-center justify-center">
-                        <Users size={14} className="mr-2"/> Manage Lockup
-                      </button>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Case to Update</label>
+                    <input type="text" placeholder="Search by Reference, SN, or Narrative..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
+                    <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
+                      {availableUpdateCases.length === 0 ? (
+                        <div className="p-3 text-xs text-gray-500 text-center">No cases found matching your search.</div>
+                      ) : (
+                        availableUpdateCases.map(c => (
+                          <div key={c.sn} onClick={() => populateUpdateCrimeForm(c)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === c.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
+                            <span className={formData.sn === c.sn ? 'text-blue-200' : 'text-gray-400'}>SN: {c.sn}</span> | <span className={formData.sn === c.sn ? 'text-white' : 'font-bold text-blue-700'}>{c.sdRef || c.sd_ref}</span> | {c.station}
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
-                </div>
-
-                <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center">
-                  {operation === 'new' ? '🚨 Submit New Case / Report' : '💾 Save Case Updates'}
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
-
-        {selectedRecord && (
-          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto shadow-2xl">
-              <h3 className="text-xl font-bold text-slate-800 mb-4">{selectedRecord.title || "Record Details"}</h3>
-              <div className="space-y-3 text-sm text-slate-600 mb-6">
-                <p><strong>Date/Time:</strong> {selectedRecord.date} - {selectedRecord.time}</p>
-                <p><strong>Narrative:</strong></p>
-                <div className="p-3 bg-slate-50 rounded border border-slate-200 whitespace-pre-wrap">
-                  {selectedRecord.narrative || selectedRecord.details}
-                </div>
-                {selectedRecord.image_url && (
-                  <div className="mt-4">
-                    <p className="font-semibold mb-2">Attached Exhibit / Evidence:</p>
-                    <img src={selectedRecord.image_url} alt="Evidence Exhibit" className="rounded-lg max-h-80 w-object-contain border" />
-                  </div>
                 )}
+
+                <form onSubmit={handleFormSubmit} className="space-y-4">
+                  {operation === 'update' && formData.sn && (
+                     <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
+                        Currently Editing: SN {formData.sn}
+                     </div>
+                  )}
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">File Reference Prefix & Number *</label>
+                      {operation === 'update' ? (
+                        <input type="text" name="sd_ref" value={formData.sd_ref} disabled required className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 font-bold text-blue-700 bg-gray-100 disabled:text-gray-500" />
+                      ) : (
+                        <div className="flex shadow-sm rounded-md w-full">
+                          <select name="ref_type" value={formData.ref_type || 'SD Ref:'} onChange={handleInputChange} className="bg-gray-100 border border-gray-300 text-gray-800 text-sm rounded-l-md px-3 py-2 font-bold focus:ring-blue-500 outline-none cursor-pointer">
+                            <option value="SD Ref:">SD Ref:</option><option value="CRB:">CRB:</option><option value="DEF:">DEF:</option>
+                            <option value="GEF:">GEF:</option><option value="TAR:">TAR:</option><option value="CID:">CID:</option>
+                          </select>
+                          <input type="text" name="ref_number" value={formData.ref_number || ''} onChange={handleInputChange} required className="flex-1 text-sm border-gray-300 border-y border-r rounded-r-md p-2 focus:ring-blue-500 font-bold text-blue-700 uppercase outline-none" placeholder="e.g. 04/27/06/2026" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
+                      <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                        {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
+                      <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                        {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{currentUser.station}</option>}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Date Recorded</label>
+                      <input type="date" name="date" value={formData.date} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 disabled:bg-gray-100 disabled:text-gray-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Time of Record</label>
+                      <input type="text" name="time" value={formData.time} onChange={handleInputChange} disabled={operation === 'update'} placeholder="0830Hrs" className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 disabled:bg-gray-100 disabled:text-gray-500" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Offence / Incident Type *</label>
+                    <select name="offence" value={formData.offence} onChange={handleInputChange} required disabled={operation === 'update'} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                      <option value="" disabled>-- Select Official Offence Category --</option>
+                      <option value="Murder">Murder</option><option value="Aggravated Robbery">Aggravated Robbery</option><option value="Theft">Theft</option><option value="Assault">Assault</option><option value="Burglary">Burglary</option><option value="Defilement / Rape">Defilement / Rape</option><option value="Traffic Accident (Fatal)">Traffic Accident (Fatal)</option><option value="Traffic Accident (Minor)">Traffic Accident (Minor)</option><option value="Fraud / Forgery">Fraud / Forgery</option><option value="Drug Offenses">Drug Offenses</option><option value="Other">Other (Specify Below)</option>
+                    </select>
+                    {formData.offence === 'Other' && operation === 'new' && (
+                      <input type="text" name="customOffence" required value={formData.customOffence} onChange={handleInputChange} placeholder="Type the specific offence here..." className="mt-2 w-full text-sm border-blue-400 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-blue-50" />
+                    )}
+                  </div>
+
+                  <div className="pb-8"> 
+                    <label className="block text-xs font-bold text-gray-700 mb-1">{operation === 'update' ? 'Original Incident Narrative (Read-Only)' : 'Incident Narrative'}</label>
+                    <ReactQuill theme="snow" value={formData.narrative} onChange={(content) => setFormData({ ...formData, narrative: autoCapitalize(content) })} readOnly={operation === 'update'} className={`bg-white rounded-md ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`} modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
+                  </div>
+
+                  {operation === 'update' && (
+                    <div className="pb-8 mt-4"> 
+                      <label className="block text-xs font-bold text-blue-700 mb-1">Append New Update / Action Taken *</label>
+                      <ReactQuill theme="snow" value={formData.updateText || ''} onChange={(content) => setFormData({ ...formData, updateText: autoCapitalize(content) })} className="bg-white rounded-md border-blue-300" placeholder="Enter new developments here. Use the toolbar for numbering..." modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Status</label>
+                      <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2">
+                        <option>ACTIVE INVESTIGATION</option><option>FORWARDED TO COURT</option><option>CLOSED / CONVICTED</option><option>ADR</option>
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-bold text-red-600 mb-1 flex items-center"><Lock size={12} className="mr-1"/> Suspects in Custody</label>
+                      <div className="flex space-x-2">
+                        <div className="w-12 bg-red-100 border border-red-200 text-red-800 font-extrabold rounded-md flex items-center justify-center text-sm shadow-inner">
+                          {operation === 'update' ? formData.suspects : formData.suspectDetails.length}
+                        </div>
+                        <button type="button" onClick={() => setShowLockup(true)} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded shadow text-xs transition flex items-center justify-center">
+                          <Users size={14} className="mr-2"/> Manage Lockup
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center">
+                    {operation === 'new' ? '🚨 Submit New Case / Report' : '💾 Save Case Updates'}
+                  </button>
+                </form>
               </div>
-              <button 
-                onClick={() => setSelectedRecord(null)}
-                className="w-full py-2 bg-slate-800 text-white rounded-lg font-medium hover:bg-slate-900"
-              >
-                Close View
-              </button>
-             </div>
-          </div>
-        )}  
-
-        <div className="lg:col-span-7 space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
             </div>
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-              ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
-            </select>
-            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
-              ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
-            </select>   
           </div>
 
-          <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
-            <div className="overflow-x-auto w-full">
-              <table className="min-w-full divide-y divide-gray-200 table-fixed w-full">
-                <thead className="bg-gray-50 sticky top-0 z-10">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-16">SN</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">REFERENCE</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Date & Time</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-25">Region/Post</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-1/2 max-w-[800px]">Incident Narrative</th>
-                    <th className="px-4 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider w-24">Suspects</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredReports.map((report) => (
-                    <tr key={report.id || report.sn} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateCrimeForm(report); }}>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">{report.id || report.sn}</td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-blue-700 align-top">{report.sdRef || report.sd_ref}</td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 align-top">{report.date}<br/><span className="text-xs text-gray-400">{report.time}</span></td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 align-top">{report.station} <br/><span className="text-xs text-gray-400">{report.region}</span></td>
-                      <td className="px-4 py-4 text-sm text-gray-700 align-top w-1/3 max-w-[600px] whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
-                        {report.offence && <div className="font-bold text-red-600 uppercase mb-1">{report.offence}</div>}
-                        <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: report.narrative }} />
-                        {report.suspectDetails && report.suspectDetails.length > 0 && (
-                          <div className="mt-3 bg-red-50 border border-red-100 rounded-lg p-3 shadow-sm">
-                            <span className="text-xs font-bold text-red-800 uppercase tracking-wider block mb-2 border-b border-red-200 pb-1">Suspects in Custody ({report.suspectDetails.length}):</span>
-                            <ul className="space-y-2.5">
-                              {report.suspectDetails.map((s, i) => (
-                                <li key={i} className="text-xs text-red-900 font-medium flex items-start space-x-3 bg-white p-2 rounded border border-red-100 shadow-xs">
-                                  <div className="shrink-0">
-                                    {s.photo_url ? <img src={s.photo_url} alt={s.name} className="w-12 h-12 rounded object-cover border border-red-200 shadow-xs" onError={(e) => { e.target.style.display = 'none'; }} /> : <div className="w-12 h-12 rounded bg-red-100 text-red-400 flex items-center justify-center font-bold text-[9px] border border-red-200 text-center p-0.5">No Photo</div>}
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="font-bold text-slate-900 uppercase">{i + 1}. {s.name}</div>
-                                    <div className="text-red-700 mt-0.5 space-y-0.5">
-                                      <div><span className="font-semibold">Particulars:</span> ({s.sex}{s.age ? `, ${s.age}yrs` : ''}{s.tribe ? `, ${s.tribe}` : ''})</div>
-                                      {s.residence && <div><span className="font-semibold">Residence:</span> {s.residence}</div>}
-                                      {s.contact && <div><span className="font-semibold">Contact:</span> {s.contact}</div>}
-                                      {s.mental_health_status && s.mental_health_status !== 'NORMAL' && <div className="text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded text-xs inline-block mt-0.5 border border-amber-200">Mental Status: {s.mental_health_status}</div>}
-                                    </div>
-                                  </div>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-extrabold text-red-600 text-center align-top">{report.suspects || 0}</td>
-                      <td className="px-4 py-4 whitespace-nowrap align-top">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800' : ''} ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800' : ''} ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800' : ''} ${report.status.includes('ADR') ? 'bg-orange-100 text-orange-800' : ''}`}>
-                          {report.status}
-                        </span>
-                        {report.narrative.includes('[UPDATE') && <div className="text-[9px] text-gray-400 mt-1 italic break-words max-w-[120px]">{report.narrative.split('[UPDATE').pop().split(']')[0].replace('by ', 'Update: ')}</div>}
-                      </td>
+          <div className="lg:col-span-7 space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
+              </div>
+              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                  <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+                ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+              </select>
+              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                  <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
+                ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+              </select>   
+            </div>
+
+            <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+              <div className="overflow-x-auto w-full">
+                <table className="min-w-full divide-y divide-gray-200 table-fixed w-full">
+                  <thead className="bg-gray-50 sticky top-0 z-10">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-16">SN</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">REFERENCE</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Date & Time</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-25">Region/Post</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-1/2 max-w-[800px]">Incident Narrative</th>
+                      <th className="px-4 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider w-24">Suspects</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Status</th>
                     </tr>
-                  ))}
-                  {filteredReports.length === 0 && <tr><td colSpan="7" className="text-center py-6 text-gray-500">No records found for this jurisdiction.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </ExpandableTableCard>
-        </div>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {filteredReports.map((report) => (
+                      <tr key={report.id || report.sn} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateCrimeForm(report); }}>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">{report.id || report.sn}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-blue-700 align-top">{report.sdRef || report.sd_ref}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 align-top">{report.date}<br/><span className="text-xs text-gray-400">{report.time}</span></td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 align-top">{report.station} <br/><span className="text-xs text-gray-400">{report.region}</span></td>
+                        <td className="px-4 py-4 text-sm text-gray-700 align-top w-1/3 max-w-[600px] whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
+                          {report.offence && <div className="font-bold text-red-600 uppercase mb-1">{report.offence}</div>}
+                          <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: report.narrative }} />
+                          {report.suspectDetails && report.suspectDetails.length > 0 && (
+                            <div className="mt-3 bg-red-50 border border-red-100 rounded-lg p-3 shadow-sm">
+                              <span className="text-xs font-bold text-red-800 uppercase tracking-wider block mb-2 border-b border-red-200 pb-1">Suspects in Custody ({report.suspectDetails.length}):</span>
+                              <ul className="space-y-2.5">
+                                {report.suspectDetails.map((s, i) => (
+                                  <li key={i} className="text-xs text-red-900 font-medium flex items-start space-x-3 bg-white p-2 rounded border border-red-100 shadow-xs">
+                                    <div className="shrink-0">
+                                      {s.photo_url ? <img src={s.photo_url} alt={s.name} className="w-12 h-12 rounded object-cover border border-red-200 shadow-xs" onError={(e) => { e.target.style.display = 'none'; }} /> : <div className="w-12 h-12 rounded bg-red-100 text-red-400 flex items-center justify-center font-bold text-[9px] border border-red-200 text-center p-0.5">No Photo</div>}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-bold text-slate-900 uppercase">{i + 1}. {s.name}</div>
+                                      <div className="text-red-700 mt-0.5 space-y-0.5">
+                                        <div><span className="font-semibold">Particulars:</span> ({s.sex}{s.age ? `, ${s.age}yrs` : ''}{s.tribe ? `, ${s.tribe}` : ''})</div>
+                                        {s.residence && <div><span className="font-semibold">Residence:</span> {s.residence}</div>}
+                                        {s.contact && <div><span className="font-semibold">Contact:</span> {s.contact}</div>}
+                                        {s.mental_health_status && s.mental_health_status !== 'NORMAL' && <div className="text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded text-xs inline-block mt-0.5 border border-amber-200">Mental Status: {s.mental_health_status}</div>}
+                                      </div>
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-extrabold text-red-600 text-center align-top">{report.suspects || 0}</td>
+                        <td className="px-4 py-4 whitespace-nowrap align-top">
+                          <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800' : ''} ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800' : ''} ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800' : ''} ${report.status.includes('ADR') ? 'bg-orange-100 text-orange-800' : ''}`}>
+                            {report.status}
+                          </span>
+                          {report.narrative.includes('[UPDATE') && <div className="text-[9px] text-gray-400 mt-1 italic break-words max-w-[120px]">{report.narrative.split('[UPDATE').pop().split(']')[0].replace('by ', 'Update: ')}</div>}
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredReports.length === 0 && <tr><td colSpan="7" className="text-center py-6 text-gray-500">No records found for this jurisdiction.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </ExpandableTableCard>
+          </div>
+        </>
       </div>
-    </div>
+
+      {selectedRecord && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto shadow-2xl">
+            <h3 className="text-xl font-bold text-slate-800 mb-4">{selectedRecord.title || "Record Details"}</h3>
+            <div className="space-y-3 text-sm text-slate-600 mb-6">
+              <p><strong>Date/Time:</strong> {selectedRecord.date} - {selectedRecord.time}</p>
+              <p><strong>Narrative:</strong></p>
+              <div className="p-3 bg-slate-50 rounded border border-slate-200 whitespace-pre-wrap">
+                {selectedRecord.narrative || selectedRecord.details}
+              </div>
+              {selectedRecord.image_url && (
+                <div className="mt-4">
+                  <p className="font-semibold mb-2">Attached Exhibit / Evidence:</p>
+                  <img src={selectedRecord.image_url} alt="Evidence Exhibit" className="rounded-lg max-h-80 w-object-contain border" />
+                </div>
+              )}
+            </div>
+            <button 
+              onClick={() => setSelectedRecord(null)}
+              className="w-full py-2 bg-slate-800 text-white rounded-lg font-medium hover:bg-slate-900"
+            >
+              Close View
+            </button>
+           </div>
+        </div>
+      )}
+    </div> 
   );
 };
-
 
 
 const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
@@ -1224,161 +1178,164 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-700 tracking-tight">Disruptive OPS Statistics</h1>
         <h3 className="text-sm sm:text-lg text-blue-700 mt-2 font-medium">Weekly Numerical Aggregates</h3>
       </div>
+      
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-4 space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-white font-semibold flex items-center"><BarChart3 className="w-5 h-5 mr-2 text-blue-400" /> ⚙️ Log Statistics</h3>
-            </div>
-            <div className="p-5 space-y-6">
-              <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
-                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
+        <>
+          <div className="lg:col-span-4 space-y-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+                <h3 className="text-white font-semibold flex items-center"><BarChart3 className="w-5 h-5 mr-2 text-blue-400" /> ⚙️ Log Statistics</h3>
               </div>
-              {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{notification}</span></div>}
-              {operation === 'update' && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Record to Update</label>
-                  <input type="text" placeholder="Search by SN, Station, or Date..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
-                  <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
-                    {availableUpdateStats.length === 0 ? <div className="p-3 text-xs text-gray-500 text-center">No records found matching your search.</div> : availableUpdateStats.map(s => (
+              <div className="p-5 space-y-6">
+                <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
+                  <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
+                  <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
+                </div>
+                {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{notification}</span></div>}
+                {operation === 'update' && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Record to Update</label>
+                    <input type="text" placeholder="Search by SN, Station, or Date..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
+                    <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
+                      {availableUpdateStats.length === 0 ? <div className="p-3 text-xs text-gray-500 text-center">No records found matching your search.</div> : availableUpdateStats.map(s => (
                         <div key={s.sn} onClick={() => populateUpdateForm(s)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === s.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
                           <span className={formData.sn === s.sn ? 'text-blue-200' : 'text-gray-400'}>SN: {s.sn}</span> | <span className={formData.sn === s.sn ? 'text-white' : 'font-bold text-blue-700'}>{s.date}</span> | {s.station}
                         </div>
                       ))}
-                  </div>
-                </div>
-              )}
-              <form onSubmit={handleFormSubmit} className="space-y-5">
-                {operation === 'update' && formData.sn && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing Record SN: {formData.sn}</div>}
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
-                      <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                        {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Station / Division *</label>
-                      <select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                        {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{currentUser.station}</option>}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Date of Record *</label>
-                      <input type="date" name="date" value={formData.date} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm border bg-white p-2 disabled:bg-gray-100 disabled:text-gray-500" />
                     </div>
                   </div>
-                </div> 
-                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                  <h4 className="text-sm font-bold text-blue-900 border-b border-blue-200 pb-2 mb-4 flex items-center">📊 Enter Weekly Metric Aggregates (8 Fields)</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Arrested</label><input type="number" name="arrested" min="0" value={formData.arrested} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Given Bond</label><input type="number" name="given_bond" min="0" value={formData.given_bond} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Cautioned</label><input type="number" name="cautioned" min="0" value={formData.cautioned} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Pending Court</label><input type="number" name="pending_court" min="0" value={formData.pending_court} onChange={handleInputChange} className="w-full text-lg font-bold text-yellow-600 border-b-2 border-transparent focus:border-yellow-500 outline-none p-1 bg-transparent" /></div>
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Taken to Court</label><input type="number" name="taken_to_court" min="0" value={formData.taken_to_court} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-600 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Released by Court</label><input type="number" name="released" min="0" value={formData.released} onChange={handleInputChange} className="w-full text-lg font-bold text-green-600 border-b-2 border-transparent focus:border-green-500 outline-none p-1 bg-transparent" /></div>
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Remanded</label><input type="number" name="remanded" min="0" value={formData.remanded} onChange={handleInputChange} className="w-full text-lg font-bold text-red-600 border-b-2 border-transparent focus:border-red-500 outline-none p-1 bg-transparent" /></div>
-                    <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Convicted</label><input type="number" name="convicted" min="0" value={formData.convicted} onChange={handleInputChange} className="w-full text-lg font-bold text-purple-600 border-b-2 border-transparent focus:border-purple-500 outline-none p-1 bg-transparent" /></div>
+                )}
+                <form onSubmit={handleFormSubmit} className="space-y-5">
+                  {operation === 'update' && formData.sn && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing Record SN: {formData.sn}</div>}
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
+                        <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                          {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Station / Division *</label>
+                        <select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                          {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{currentUser.station}</option>}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Date of Record *</label>
+                        <input type="date" name="date" value={formData.date} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm border bg-white p-2 disabled:bg-gray-100 disabled:text-gray-500" />
+                      </div>
+                    </div>
+                  </div> 
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                    <h4 className="text-sm font-bold text-blue-900 border-b border-blue-200 pb-2 mb-4 flex items-center">📊 Enter Weekly Metric Aggregates (8 Fields)</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Arrested</label><input type="number" name="arrested" min="0" value={formData.arrested} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
+                      <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Given Bond</label><input type="number" name="given_bond" min="0" value={formData.given_bond} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
+                      <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Cautioned</label><input type="number" name="cautioned" min="0" value={formData.cautioned} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
+                      <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Pending Court</label><input type="number" name="pending_court" min="0" value={formData.pending_court} onChange={handleInputChange} className="w-full text-lg font-bold text-yellow-600 border-b-2 border-transparent focus:border-yellow-500 outline-none p-1 bg-transparent" /></div>
+                      <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Taken to Court</label><input type="number" name="taken_to_court" min="0" value={formData.taken_to_court} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-600 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
+                      <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Released by Court</label><input type="number" name="released" min="0" value={formData.released} onChange={handleInputChange} className="w-full text-lg font-bold text-green-600 border-b-2 border-transparent focus:border-green-500 outline-none p-1 bg-transparent" /></div>
+                      <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Remanded</label><input type="number" name="remanded" min="0" value={formData.remanded} onChange={handleInputChange} className="w-full text-lg font-bold text-red-600 border-b-2 border-transparent focus:border-red-500 outline-none p-1 bg-transparent" /></div>
+                      <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Convicted</label><input type="number" name="convicted" min="0" value={formData.convicted} onChange={handleInputChange} className="w-full text-lg font-bold text-purple-600 border-b-2 border-transparent focus:border-purple-500 outline-none p-1 bg-transparent" /></div>
+                    </div>
                   </div>
-                </div>
-                <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center">
-                  {operation === 'new' ? '💾 Submit 8-Field Data Entry' : '💾 Save Updated Figures'}
-                </button>
-              </form>
+                  <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center">
+                    {operation === 'new' ? '💾 Submit 8-Field Data Entry' : '💾 Save Updated Figures'}
+                  </button>
+                </form>
+              </div>
             </div>
           </div>
-        </div>
-        
-        <div className="lg:col-span-8 space-y-4">
-          <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
-            <div className="absolute top-4 right-4 z-10">
-              <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none cursor-pointer">
-                <option value="ALL TIME">ALL TIME</option><option value="TODAY">TODAY ONLY</option><option value="LAST 7 DAYS">LAST 7 DAYS</option>
-                <option value="LAST 30 DAYS">LAST 30 DAYS</option><option value="LAST 90 DAYS">LAST 90 DAYS</option><option value="LAST 120 DAYS">LAST 120 DAYS</option>
+          
+          <div className="lg:col-span-8 space-y-4">
+            <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
+              <div className="absolute top-4 right-4 z-10">
+                <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none cursor-pointer">
+                  <option value="ALL TIME">ALL TIME</option><option value="TODAY">TODAY ONLY</option><option value="LAST 7 DAYS">LAST 7 DAYS</option>
+                  <option value="LAST 30 DAYS">LAST 30 DAYS</option><option value="LAST 90 DAYS">LAST 90 DAYS</option><option value="LAST 120 DAYS">LAST 120 DAYS</option>
+                </select>
+              </div>
+              <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+                <MetricCard title="Arrested" value={totals.arrested} colorClass="text-blue-700" />
+                <MetricCard title="Given Bond" value={totals.given_bond} colorClass="text-indigo-600" />
+                <MetricCard title="Cautioned" value={totals.cautioned} colorClass="text-gray-600" />
+                <MetricCard title="Pending Court" value={totals.pending_court} colorClass="text-yellow-600" />
+                <MetricCard title="To Court" value={totals.taken_to_court} colorClass="text-blue-500" />
+                <MetricCard title="Released" value={totals.released} colorClass="text-green-600" />
+                <MetricCard title="Remanded" value={totals.remanded} colorClass="text-red-600" />
+                <MetricCard title="Convicted" value={totals.convicted} colorClass="text-purple-600" />
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                  <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+                ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
               </select>
+              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                  <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
+                ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+              </select>   
             </div>
-            <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-              <MetricCard title="Arrested" value={totals.arrested} colorClass="text-blue-700" />
-              <MetricCard title="Given Bond" value={totals.given_bond} colorClass="text-indigo-600" />
-              <MetricCard title="Cautioned" value={totals.cautioned} colorClass="text-gray-600" />
-              <MetricCard title="Pending Court" value={totals.pending_court} colorClass="text-yellow-600" />
-              <MetricCard title="To Court" value={totals.taken_to_court} colorClass="text-blue-500" />
-              <MetricCard title="Released" value={totals.released} colorClass="text-green-600" />
-              <MetricCard title="Remanded" value={totals.remanded} colorClass="text-red-600" />
-              <MetricCard title="Convicted" value={totals.convicted} colorClass="text-purple-600" />
-            </div>
-          </div>
 
-          <div className="flex flex-col sm:flex-row gap-3">
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-              ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
-            </select>
-            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
-              ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
-            </select>   
+            <ExpandableTableCard title="Weekly Metrics Breakdown Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+              <div className="overflow-x-auto w-full">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">S/N</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Date</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Division</th>
+                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Suspects<br/>arrested</th>
+                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Given<br/>Bond</th>
+                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Cautioned</th>
+                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Pending<br/>Court</th>
+                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Taken to<br/>Court</th>
+                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Released<br/>by court</th>
+                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Suspects<br/>remanded</th>
+                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Suspects<br/>convicted</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {filteredStats.map((stat) => (
+                      <tr key={stat.id || stat.sn} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
+                        <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900">{stat.id || stat.sn}</td>
+                        <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-500">{stat.date}</td>
+                        <td className="px-3 py-3 whitespace-nowrap text-xs font-medium text-blue-700">{stat.station}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-gray-700">{stat.arrested}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-gray-700">{stat.given_bond}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-gray-700">{stat.cautioned}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-yellow-600">{stat.pending_court}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-blue-600">{stat.taken_to_court}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-green-600">{stat.released}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-red-600">{stat.remanded}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-purple-600">{stat.convicted}</td>
+                      </tr>
+                    ))}
+                    {filteredStats.length > 0 && (
+                      <tr className="bg-slate-200 font-bold text-gray-900 border-t-2 border-slate-400">
+                        <td colSpan="3" className="px-3 py-3 text-right text-xs uppercase tracking-wider">Total</td>
+                        <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.arrested}</td>
+                        <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.given_bond}</td>
+                        <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.cautioned}</td>
+                        <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.pending_court}</td>
+                        <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.taken_to_court}</td>
+                        <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.released}</td>
+                        <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.remanded}</td>
+                        <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.convicted}</td>
+                      </tr>
+                    )}
+                    {filteredStats.length === 0 && <tr><td colSpan="11" className="text-center py-6 text-gray-500">No statistics logged for this jurisdiction.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </ExpandableTableCard>
           </div>
-
-          <ExpandableTableCard title="Weekly Metrics Breakdown Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
-            <div className="overflow-x-auto w-full">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50 sticky top-0">
-                  <tr>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">S/N</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Date</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Division</th>
-                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Suspects<br/>arrested</th>
-                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Given<br/>Bond</th>
-                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Cautioned</th>
-                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Pending<br/>Court</th>
-                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Taken to<br/>Court</th>
-                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Released<br/>by court</th>
-                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Suspects<br/>remanded</th>
-                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">Suspects<br/>convicted</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredStats.map((stat) => (
-                    <tr key={stat.id || stat.sn} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
-                      <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900">{stat.id || stat.sn}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-500">{stat.date}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-xs font-medium text-blue-700">{stat.station}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-gray-700">{stat.arrested}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-gray-700">{stat.given_bond}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-gray-700">{stat.cautioned}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-yellow-600">{stat.pending_court}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-blue-600">{stat.taken_to_court}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-green-600">{stat.released}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-red-600">{stat.remanded}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-purple-600">{stat.convicted}</td>
-                    </tr>
-                  ))}
-                  {filteredStats.length > 0 && (
-                    <tr className="bg-slate-200 font-bold text-gray-900 border-t-2 border-slate-400">
-                      <td colSpan="3" className="px-3 py-3 text-right text-xs uppercase tracking-wider">Total</td>
-                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.arrested}</td>
-                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.given_bond}</td>
-                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.cautioned}</td>
-                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.pending_court}</td>
-                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.taken_to_court}</td>
-                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.released}</td>
-                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.remanded}</td>
-                      <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.convicted}</td>
-                    </tr>
-                  )}
-                  {filteredStats.length === 0 && <tr><td colSpan="11" className="text-center py-6 text-gray-500">No statistics logged for this jurisdiction.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </ExpandableTableCard>
-        </div>
+        </>
       </div>
     </div>
   );
@@ -1798,224 +1755,227 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
       </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-4 space-y-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-white font-semibold flex items-center">⚙️ Log Establishment</h3>
-            </div>
-            <div className="p-5 space-y-6">
-              <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
-                  Register New
-                </button>
-                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
-                  Update Existing
-                </button>
+        <>
+          {/* LEFT COLUMN: FORM & CONTROLS */}
+          <div className="lg:col-span-4 space-y-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+                <h3 className="text-white font-semibold flex items-center">⚙️ Log Establishment</h3>
               </div>
-
-              {notification && (
-                <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
-                  <span className="text-sm font-medium">{notification}</span>
+              <div className="p-5 space-y-6">
+                <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
+                  <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
+                    Register New
+                  </button>
+                  <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
+                    Update Existing
+                  </button>
                 </div>
-              )}
 
-              {operation === 'update' && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Record to Update</label>
-                  <input type="text" placeholder="Search by SN, Sub-Station, Post..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
-                  <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
-                    {availableUpdateEstablishments.length === 0 ? (
-                      <div className="p-3 text-xs text-gray-500 text-center">No records found matching your search.</div>
-                    ) : (
-                      availableUpdateEstablishments.map(e => (
-                        <div key={e.id} onClick={() => populateUpdateForm(e)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.id === e.id ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
-                          <span className={formData.id === e.id ? 'text-blue-200' : 'text-gray-400'}>SN: {e.id}</span> | <span className={formData.id === e.id ? 'text-white' : 'font-bold text-blue-700'}>{e.sub_station || e.post || e.station}</span>
-                        </div>
-                      ))
-                    )}
+                {notification && (
+                  <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
+                    <span className="text-sm font-medium">{notification}</span>
                   </div>
-                </div>
-              )}
-              
-              <form onSubmit={handleFormSubmit} className="space-y-4">
-                {operation === 'update' && formData.id && (
-                   <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
-                     Currently Editing Record ID: {formData.id}
-                   </div>
+                )}
+
+                {operation === 'update' && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Record to Update</label>
+                    <input type="text" placeholder="Search by SN, Sub-Station, Post..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
+                    <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
+                      {availableUpdateEstablishments.length === 0 ? (
+                        <div className="p-3 text-xs text-gray-500 text-center">No records found matching your search.</div>
+                      ) : (
+                        availableUpdateEstablishments.map(e => (
+                          <div key={e.id} onClick={() => populateUpdateForm(e)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.id === e.id ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
+                            <span className={formData.id === e.id ? 'text-blue-200' : 'text-gray-400'}>SN: {e.id}</span> | <span className={formData.id === e.id ? 'text-white' : 'font-bold text-blue-700'}>{e.sub_station || e.post || e.station}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
                 )}
                 
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
-                      <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster)} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                        {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
-                      </select>
+                <form onSubmit={handleFormSubmit} className="space-y-4">
+                  {operation === 'update' && formData.id && (
+                     <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
+                       Currently Editing Record ID: {formData.id}
+                     </div>
+                  )}
+                  
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="col-span-2">
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
+                        <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster)} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                          {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-bold text-gray-700 mb-1">DIVISION (Headquarter) *</label>
+                        <select name="division" value={formData.division} onChange={handleInputChange} disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster)} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                          {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
+                            formData.region && REGIONAL_HIERARCHY[formData.region] ? REGIONAL_HIERARCHY[formData.region].map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value="">Select Region First</option>
+                          ) : (
+                            <option value={currentUser.station || currentUser.division}>{currentUser.station || currentUser.division}</option>
+                          )}
+                        </select>
+                      </div>
                     </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">DIVISION (Headquarter) *</label>
-                      <select name="division" value={formData.division} onChange={handleInputChange} disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster)} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                        {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
-                          formData.region && REGIONAL_HIERARCHY[formData.region] ? REGIONAL_HIERARCHY[formData.region].map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value="">Select Region First</option>
-                        ) : (
-                          <option value={currentUser.station || currentUser.division}>{currentUser.station || currentUser.division}</option>
-                        )}
-                      </select>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="col-span-2">
+                        <label className="block text-xs font-bold text-gray-700 mb-1">STATION</label>
+                        <input type="text" name="station" value={formData.station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Station" />
+                      </div>
+                      <div className="col-span-2"> 
+                        <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL IN STATION</label> 
+                        <input type="number" name="personnel_in_station" min="0" value={formData.personnel_in_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-bold text-gray-700 mb-1">SUB-STATION</label>
+                        <input type="text" name="sub_station" value={formData.sub_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Sub-Station" />
+                      </div>  
+                      <div className="col-span-2">
+                        <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL IN SUB STATION</label>
+                        <input type="number" name="personnel_in_sub_station" min="0" value={formData.personnel_in_sub_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">POST</label>
+                        <input type="text" name="post" value={formData.post} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Post" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL (POST)</label>
+                        <input type="number" name="personnel_in_post" min="0" value={formData.personnel_in_post} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">BOOTHS</label>
+                        <input type="number" name="booths" min="0" value={formData.booths} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL (BOOTH)</label>
+                        <input type="number" name="personnel_in_booth" min="0" value={formData.personnel_in_booth} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                      </div>
+
+                      <div className="col-span-2">
+                        <label className="block text-xs font-bold text-gray-700 mb-1">LOCATION (Address/Area)</label>
+                        <input type="text" name="location" value={formData.location} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Detailed location..." />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-bold text-gray-700 mb-1">INSTALLED BY</label>
+                        <input type="text" name="installed_by" value={formData.installed_by} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Organization or Individual" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-bold text-gray-700 mb-1">STATUS</label>
+                        <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500">
+                          <option value="OPERATIONAL">OPERATIONAL</option>
+                          <option value="UNDER MAINTENANCE">UNDER MAINTENANCE</option>
+                          <option value="NON-OPERATIONAL">NON-OPERATIONAL</option>
+                          <option value="DECOMMISSIONED">DECOMMISSIONED</option>
+                          <option value="TO BE COMMISSIONED">TO BE COMMISSIONED</option>  
+                        </select>
+                      </div>
+                      <div className="col-span-2 pb-8">
+                        <label className="block text-xs font-bold text-gray-700 mb-1">COMMENT ON STATUS</label>
+                        <ReactQuill 
+                          theme="snow" 
+                          value={formData.comment || ''} 
+                          onChange={(content) => setFormData({ ...formData, comment: autoCapitalize(content) })}
+                          className="bg-white rounded-md"
+                          modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }}
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">STATION</label>
-                      <input type="text" name="station" value={formData.station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Station" />
-                    </div>
-                    <div className="col-span-2"> 
-                      <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL IN STATION</label> 
-                      <input type="number" name="personnel_in_station" min="0" value={formData.personnel_in_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">SUB-STATION</label>
-                      <input type="text" name="sub_station" value={formData.sub_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Sub-Station" />
-                    </div>  
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL IN SUB STATION</label>
-                      <input type="number" name="personnel_in_sub_station" min="0" value={formData.personnel_in_sub_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">POST</label>
-                      <input type="text" name="post" value={formData.post} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Post" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL (POST)</label>
-                      <input type="number" name="personnel_in_post" min="0" value={formData.personnel_in_post} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">BOOTHS</label>
-                      <input type="number" name="booths" min="0" value={formData.booths} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL (BOOTH)</label>
-                      <input type="number" name="personnel_in_booth" min="0" value={formData.personnel_in_booth} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
-                    </div>
-
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">LOCATION (Address/Area)</label>
-                      <input type="text" name="location" value={formData.location} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Detailed location..." />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">INSTALLED BY</label>
-                      <input type="text" name="installed_by" value={formData.installed_by} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Organization or Individual" />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">STATUS</label>
-                      <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500">
-                        <option value="OPERATIONAL">OPERATIONAL</option>
-                        <option value="UNDER MAINTENANCE">UNDER MAINTENANCE</option>
-                        <option value="NON-OPERATIONAL">NON-OPERATIONAL</option>
-                        <option value="DECOMMISSIONED">DECOMMISSIONED</option>
-                        <option value="TO BE COMMISSIONED">TO BE COMMISSIONED</option>  
-                      </select>
-                    </div>
-                    <div className="col-span-2 pb-8">
-                      <label className="block text-xs font-bold text-gray-700 mb-1">COMMENT ON STATUS</label>
-                      <ReactQuill 
-                        theme="snow" 
-                        value={formData.comment || ''} 
-                        onChange={(content) => setFormData({ ...formData, comment: autoCapitalize(content) })}
-                        className="bg-white rounded-md"
-                        modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <button 
-                  type="submit" disabled={isSubmitting}
-                  className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center disabled:bg-gray-400"
-                >
-                  {isSubmitting ? 'Processing...' : (operation === 'new' ? '💾 Log New Establishment' : '💾 Save Updates')}
-                </button>
-              </form>
+                  <button 
+                    type="submit" disabled={isSubmitting}
+                    className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center disabled:bg-gray-400"
+                  >
+                    {isSubmitting ? 'Processing...' : (operation === 'new' ? '💾 Log New Establishment' : '💾 Save Updates')}
+                  </button>
+                </form>
+              </div>
             </div>
           </div>
-        </div>
-        
-        <div className="lg:col-span-8 space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-              ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
-            </select>
-            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
-              ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
-            </select>
-          </div>
 
-          <ExpandableTableCard title="Regional Establishments Master Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
-            <div className="overflow-x-auto w-full">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50 sticky top-0 z-10">
-                  <tr>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">DIVISION</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">STATION</th>
-                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(STN)</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">SUB-STATION</th>
-                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(SUB-STN)</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">POST</th>
-                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(POST)</th>
-                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">BOOTHS</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">LOCATION</th>
-                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(BOOTH)</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">INSTALLED BY</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">STATUS</th>
-                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">COMMENT</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredEstablishments.map((est) => (
-                    <tr key={est.id} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(est); }}>
-                      <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900">{est.division || 'N/A'}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-blue-800">{est.station}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_station}</td> 
-                      <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.sub_station || '-'}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_sub_station}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.post || '-'}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_post}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.booths}</td>
-                      <td className="px-3 py-3 text-xs text-gray-800 break-words max-w-[150px]">{est.location || '-'}</td>
-                      <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_booth}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600">{est.installed_by || '-'}</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-xs font-bold">
-                        <span className={`px-2 py-1 rounded-full text-[9px] ${est.status === 'OPERATIONAL' ? 'bg-green-100 text-green-800' : est.status.includes('MAINTENANCE') ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
-                          {est.status}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-xs text-gray-500 italic max-w-[150px] break-words">
-                         <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: est.comment || '-' }} />
-                      </td>
+          {/* RIGHT COLUMN: FILTERS & TABLE */}
+          <div className="lg:col-span-8 space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                  <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+                ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+              </select>
+              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                  <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
+                ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+              </select>
+            </div>
+
+            <ExpandableTableCard title="Regional Establishments Master Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+              <div className="overflow-x-auto w-full">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50 sticky top-0 z-10">
+                    <tr>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">DIVISION</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">STATION</th>
+                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(STN)</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">SUB-STATION</th>
+                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(SUB-STN)</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">POST</th>
+                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(POST)</th>
+                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">BOOTHS</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">LOCATION</th>
+                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(BOOTH)</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">INSTALLED BY</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">STATUS</th>
+                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">COMMENT</th>
                     </tr>
-                  ))}
-                  {filteredEstablishments.length === 0 && <tr><td colSpan="13" className="text-center py-6 text-gray-500">No establishments logged for this jurisdiction.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </ExpandableTableCard>
-        </div>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {filteredEstablishments.map((est) => (
+                      <tr key={est.id} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(est); }}>
+                        <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900">{est.division || 'N/A'}</td>
+                        <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-blue-800">{est.station}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_station}</td> 
+                        <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.sub_station || '-'}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_sub_station}</td>
+                        <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.post || '-'}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_post}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.booths}</td>
+                        <td className="px-3 py-3 text-xs text-gray-800 break-words max-w-[150px]">{est.location || '-'}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_booth}</td>
+                        <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600">{est.installed_by || '-'}</td>
+                        <td className="px-3 py-3 whitespace-nowrap text-xs font-bold">
+                          <span className={`px-2 py-1 rounded-full text-[9px] ${est.status === 'OPERATIONAL' ? 'bg-green-100 text-green-800' : est.status.includes('MAINTENANCE') ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                            {est.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-xs text-gray-500 italic max-w-[150px] break-words">
+                           <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: est.comment || '-' }} />
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredEstablishments.length === 0 && <tr><td colSpan="13" className="text-center py-6 text-gray-500">No establishments logged for this jurisdiction.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </ExpandableTableCard>
+          </div>
+        </>
       </div>
     </div>
   );
 };
 
-
-
 const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Roll_archives, setNominal_Roll_archives, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
+  const [selectedOfficer, setSelectedOfficer] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');  
@@ -2074,43 +2034,44 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     });
   }, [Nominal_Rolls, currentUser, updateSearch]);
 
-  const metricsData = useMemo(() => {
-    const total = filteredRolls.length;
-    const male = filteredRolls.filter(n => n.sex === 'MALE').length;
-    const female = filteredRolls.filter(n => n.sex === 'FEMALE').length;
-    const stations = {};
-    filteredRolls.forEach(n => {
-       const s = n.station || 'UNSPECIFIED';
-       stations[s] = (stations[s] || 0) + 1;
-    });
-    return { total, male, female, stations };
-  }, [filteredRolls]);
-
   const calculatedMetrics = useMemo(() => {
       if (viewMode !== 'metrics') return [];
       const grouped = {};
+      
       filteredRolls.forEach(n => {
           let key = 'Unknown';
-          if (metricCategory === 'RANK') key = n.rank || 'Unranked';
-          else if (metricCategory === 'UNIT') key = `${n.station} ${n.section ? '- '+n.section : ''}`;
+          const isFemale = (n.sex || '').toUpperCase().includes('F') || (n.nin || '').toUpperCase().startsWith('CF');
+          
+          if (metricCategory === 'RANK') key = n.rank ? n.rank.trim().toUpperCase() : 'UNRANKED';
+          else if (metricCategory === 'UNIT') key = `${n.station || 'UNKNOWN'} ${n.section ? '- ' + n.section : ''}`.trim();
+          else if (metricCategory === 'SEX') key = isFemale ? 'FEMALE' : 'MALE';
+          else if (metricCategory === 'BANK') key = n.bankbranch ? n.bankbranch.trim().toUpperCase() : 'BANK UNKNOWN';
+          else if (metricCategory === 'DISTRICT') key = n.homedist ? n.homedist.trim().toUpperCase() : 'DISTRICT UNKNOWN';
+          else if (metricCategory === 'TRIBE') key = n.tribe ? n.tribe.trim().toUpperCase() : 'TRIBE UNKNOWN';
+          else if (metricCategory === 'EDUCATION') key = n.educlevel ? n.educlevel.trim().toUpperCase() : 'NOT SPECIFIED';
           else if (metricCategory === 'AGE') {
               if (n.dob) {
                   const age = new Date().getFullYear() - new Date(n.dob).getFullYear();
-                  if (age < 30) key = '18-29 Years';
-                  else if (age < 40) key = '30-39 Years';
-                  else if (age < 50) key = '40-49 Years';
-                  else key = '50+ Years';
-              } else key = 'Age Not Recorded';
+                  key = age < 30 ? '18-29 Years' : age < 40 ? '30-39 Years' : age < 50 ? '40-49 Years' : '50+ Years';
+              } else { key = 'Age Not Recorded'; }
           }
-          else if (metricCategory === 'SEX') key = n.sex || 'Unknown';
           
           if (!grouped[key]) grouped[key] = { category: key, total: 0, male: 0, female: 0 };
           grouped[key].total += 1;
-          if (n.sex === 'MALE') grouped[key].male += 1;
-          else if (n.sex === 'FEMALE') grouped[key].female += 1;
+          if (isFemale) grouped[key].female += 1;
+          else grouped[key].male += 1;
       });
-      return Object.values(grouped).sort((a,b) => b.total - a.total);
+      return Object.values(grouped).sort((a, b) => b.total - a.total);
   }, [filteredRolls, metricCategory, viewMode]);
+
+  const metricsData = useMemo(() => {
+    return {
+      total: filteredRolls.length,
+      male: filteredRolls.filter(n => (n.sex || '').toUpperCase().includes('M')).length,
+      female: filteredRolls.filter(n => (n.sex || '').toUpperCase().includes('F') || (n.nin || '').toUpperCase().startsWith('CF')).length,
+      stations: filteredRolls.reduce((acc, curr) => { if(curr.station) acc[curr.station] = true; return acc; }, {})
+    };
+  }, [filteredRolls]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -2182,6 +2143,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       const newEntry = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       
       try {
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const response = await fetch(`${API_URL}/api/v1/nominal-roll`, {
           method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newEntry)
         });
@@ -2195,6 +2157,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     } else if (operation === 'update') {
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       try {
+          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
           const response = await fetch(`${API_URL}/api/v1/nominal-roll/${formData.sn}`, {
             method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(updatedRecord)
           });
@@ -2205,7 +2168,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
   };
 
-  // 🟢 CLEANED UP CLEARANCE CHECK: Now safely placed before the return
   const canUploadHR = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role) || 
                       (currentUser?.position || '').toUpperCase().includes('HR') ||
                       currentUser?.permissions?.upload_hr || 
@@ -2239,257 +2201,271 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
         )}
       </div>
 
-<div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-  <div className="lg:col-span-5 space-y-5">
-
-    {canUploadHR && (
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3 overflow-hidden">
-        <div>
-          <h4 className="font-bold text-gray-800 text-sm flex items-center">
-            <Upload className="w-4 h-4 mr-2 text-blue-600 shrink-0" /> Batch Excel Import Existing Nominal Roll
-          </h4>
-          <p className="text-xs text-gray-500 mt-0.5">Upload your existing Nominal roll, Ensure your column headers are exactly as below for consistency:</p>
-        </div>
-        
-        {/* 🟢 FIXED: Added max-h-36 overflow-y-auto so the badge list scrolls neatly instead of spilling */}
-        <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-mono text-slate-700 flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">sn</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">fnum</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">rank</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">name</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">sex</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">position</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dob</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">doe</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dopost</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dopro</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">contact</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">educlevel</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">ipps</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">tin</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">nin</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">homedist</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">tribe</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">accno</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">bankbranch</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">station</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">district</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">region</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">section</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dir</span>
-          <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">status</span>
-        </div>
-
-        <BulkNominalRollUpload onUploadSuccess={() => window.location.reload()} />
-      </div>
-    )}
-  </div>
-</div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-white font-semibold flex items-center"><Users className="w-5 h-5 mr-2 text-blue-400" /> ⚙️ Log Personnel</h3>
-            </div>
-            <div className="p-5 space-y-6">
-              <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
-                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <>
+          <div className="lg:col-span-5 space-y-5">
+            {canUploadHR && (
+              <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3 overflow-hidden">
+                <div>
+                  <h4 className="font-bold text-gray-800 text-sm flex items-center">
+                    <Upload className="w-4 h-4 mr-2 text-blue-600 shrink-0" /> Batch Excel Import Existing Nominal Roll
+                  </h4>
+                  <p className="text-xs text-gray-500 mt-0.5">Upload your existing Nominal roll, Ensure your column headers are exactly as below for consistency:</p>
+                </div>
+                
+                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-mono text-slate-700 flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">sn</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">fnum</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">rank</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">name</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">sex</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">position</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dob</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">doe</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dopost</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dopro</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">contact</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">educlevel</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">ipps</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">tin</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">nin</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">homedist</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">tribe</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">accno</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">bankbranch</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">station</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">district</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">region</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">section</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dir</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">status</span>
+                </div>
+                <BulkNominalRollUpload onUploadSuccess={() => window.location.reload()} />
               </div>
+            )}
 
-              {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 min-w-[20px]" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 min-w-[20px]" />}<span className="text-sm font-medium">{notification}</span></div>}
-
-              {operation === 'update' && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Officer to Update</label>
-                  <input type="text" placeholder="Search by Force No, Name, IPPS..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
-                  <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
-                    {availableUpdateRolls.length === 0 ? <div className="p-3 text-xs text-gray-500 text-center">No personnel found.</div> : availableUpdateRolls.map(n => (
-                        <div key={n.sn} onClick={() => populateUpdateForm(n)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === n.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
-                          <span className={formData.sn === n.sn ? 'text-blue-200' : 'text-gray-400'}>F/NO: {n.fnum}</span> | <span className={formData.sn === n.sn ? 'text-white' : 'font-bold text-blue-700'}>{n.name}</span> | {n.station}
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              )}
-              
-              <form onSubmit={handleFormSubmit} className="space-y-6">
-                
-                {operation === 'update' && (formData.sn || formData.fnum) && (
-                   <div className="bg-red-50 p-4 rounded-lg border border-red-200 space-y-3 mb-6 shadow-sm">
-                      <h4 className="text-xs font-bold text-red-700 uppercase border-b border-red-200 pb-1 flex items-center"><AlertTriangle size={14} className="mr-2"/> Archive / Remove Personnel</h4>
-                      <div className="flex space-x-2">
-                         <select value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} className="flex-1 text-sm border-red-300 rounded shadow-sm border p-2 font-bold text-red-700 outline-none focus:ring-2 focus:ring-red-400">
-                            <option value="TRANSFERRED">Transferred</option><option value="DEATH">Death</option><option value="DISMISSAL">Dismissal</option><option value="DESERTION">Desertion</option><option value="RETIREMENT">Retirement</option>
-                         </select>
-                         <button type="button" onClick={handleArchivePersonnel} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-bold text-sm shadow transition border border-red-800">Move to Archive</button>
-                      </div>
-                   </div>
-                )}
-
-                {operation === 'update' && (formData.sn || formData.fnum) && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing Record: {formData.fnum}</div>}
-                
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
-                  <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">1. Primary Identifiers</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">F/NO. *</label><input type="text" name="fnum" value={formData.fnum} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 uppercase" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">IPPS NO. *</label><input type="text" name="ipps" value={formData.ipps} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div className="col-span-2"><label className="block text-xs font-bold text-gray-700 mb-1">NAME *</label><input type="text" name="name" value={formData.name} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 uppercase" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">RANK *</label><input type="text" name="rank" value={formData.rank} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">SEX</label><select name="sex" value={formData.sex} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white"><option>MALE</option><option>FEMALE</option></select></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">TIN NO.</label><input type="text" name="tin" value={formData.tin} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">NIN</label><input type="text" name="nin" value={formData.nin} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                  </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+                <h3 className="text-white font-semibold flex items-center"><Users className="w-5 h-5 mr-2 text-blue-400" /> ⚙️ Log Personnel</h3>
+              </div>
+              <div className="p-5 space-y-6">
+                <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
+                  <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
+                  <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
                 </div>
 
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
-                  <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">2. Service & Placement</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">REGION *</label><select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}</select></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">DUTY STATION *</label><select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : (<option value={currentUser.station}>{currentUser.station}</option>)}</select></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">POSITION *</label><input type="text" name="position" value={formData.position} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">DISTRICT</label><input type="text" name="district" value={formData.district} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">SECTION</label><input type="text" name="section" value={formData.section} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">DIR (Directorate)</label><input type="text" name="dir" value={formData.dir} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                  </div>
-                </div>
+                {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 min-w-[20px]" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 min-w-[20px]" />}<span className="text-sm font-medium">{notification}</span></div>}
 
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
-                  <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">3. Dates & Demographics</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O.B</label><input type="date" name="dob" value={formData.dob} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O.E</label><input type="date" name="doe" value={formData.doe} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O. POST</label><input type="date" name="dopost" value={formData.dopost} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O. PRO</label><input type="date" name="dopro" value={formData.dopro} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div className="col-span-2"><label className="block text-xs font-bold text-gray-700 mb-1">CONTACT</label><input type="text" name="contact" value={formData.contact} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">EDUC LEVEL</label><input type="text" name="educlevel" value={formData.educlevel} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">HOME DIST</label><input type="text" name="homedist" value={formData.homedist} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">TRIBE</label><input type="text" name="tribe" value={formData.tribe} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                  </div>
-                </div>
-
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
-                  <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">4. Financial & Status</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">ACC. NO</label><input type="text" name="accno" value={formData.accno} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div><label className="block text-xs font-bold text-gray-700 mb-1">BANK & BRANCH</label><input type="text" name="bankbranch" value={formData.bankbranch} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    <div className="col-span-2"><label className="block text-xs font-bold text-gray-700 mb-1">STATUS</label><select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white font-bold"><option>ACTIVE</option><option>ON LEAVE</option><option>SUSPENDED</option></select></div>
-                  </div>
-                </div>
-
-                <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center">
-                  {operation === 'new' ? '💾 Log Personnel Record' : '💾 Save Updates'}
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
-        
-        <div className="lg:col-span-7 space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(Nominal_Rolls || []).map(n => n.region).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-              ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
-            </select>
-            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-              {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(Nominal_Rolls || []).filter(n => n.region === filterRegion).map(n => n.station).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
-              ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
-            </select>
-          </div>
-
-          {viewMode === 'metrics' ? (
-            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm animate-in fade-in zoom-in-95 duration-200">
-                <div className="flex justify-between items-center mb-6 border-b pb-4">
-                    <h3 className="font-extrabold text-lg text-indigo-900 flex items-center"><PieChart className="mr-2"/> Nominal Roll Analytics</h3>
-                    <div className="flex items-center space-x-2 bg-indigo-50 p-2 rounded-lg border border-indigo-100">
-                       <label className="text-xs font-bold text-indigo-800 uppercase">Categorize By:</label>
-                       <select value={metricCategory} onChange={e => setMetricCategory(e.target.value)} className="border border-indigo-300 rounded p-1 text-sm font-bold text-indigo-700 outline-none bg-white">
-                          <option value="RANK">Rank Breakdown</option><option value="UNIT">Unit / Station Breakdown</option><option value="AGE">Age Demographics Breakdown</option><option value="SEX">Sex Distribution</option>
-                       </select>
-                    </div>
-                </div>
-                <table className="min-w-full divide-y divide-gray-200 border border-gray-200 rounded-lg overflow-hidden">
-                    <thead className="bg-indigo-50">
-                        <tr>
-                            <th className="px-4 py-3 text-left text-xs font-bold text-indigo-800 uppercase">{metricCategory}</th>
-                            <th className="px-4 py-3 text-center text-xs font-bold text-indigo-800 uppercase">Total Personnel</th>
-                            <th className="px-4 py-3 text-center text-xs font-bold text-indigo-800 uppercase">Male</th>
-                            <th className="px-4 py-3 text-center text-xs font-bold text-indigo-800 uppercase">Female</th>
-                        </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-100">
-                        {calculatedMetrics.map(m => (
-                            <tr key={m.category} className="hover:bg-indigo-50/30 transition-colors">
-                                <td className="px-4 py-3 text-sm font-bold text-gray-800">{m.category}</td>
-                                <td className="px-4 py-3 text-sm text-center font-extrabold text-indigo-600">{m.total}</td>
-                                <td className="px-4 py-3 text-sm text-center font-medium text-blue-600">{m.male}</td>
-                                <td className="px-4 py-3 text-sm text-center font-medium text-pink-600">{m.female}</td>
-                            </tr>
+                {operation === 'update' && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Officer to Update</label>
+                    <input type="text" placeholder="Search by Force No, Name, IPPS..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
+                    <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
+                      {availableUpdateRolls.length === 0 ? <div className="p-3 text-xs text-gray-500 text-center">No personnel found.</div> : availableUpdateRolls.map(n => (
+                          <div key={n.sn} onClick={() => populateUpdateForm(n)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === n.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
+                            <span className={formData.sn === n.sn ? 'text-blue-200' : 'text-gray-400'}>F/NO: {n.fnum}</span> | <span className={formData.sn === n.sn ? 'text-white' : 'font-bold text-blue-700'}>{n.name}</span> | {n.station}
+                          </div>
                         ))}
-                        {calculatedMetrics.length === 0 && <tr><td colSpan="4" className="text-center p-4 text-gray-500 font-medium">No data available for this filter constraint.</td></tr>}
-                    </tbody>
-                </table>
+                    </div>
+                  </div>
+                )}
+                
+                <form onSubmit={handleFormSubmit} className="space-y-6">
+                  
+                  {operation === 'update' && (formData.sn || formData.fnum) && (
+                     <div className="bg-red-50 p-4 rounded-lg border border-red-200 space-y-3 mb-6 shadow-sm">
+                        <h4 className="text-xs font-bold text-red-700 uppercase border-b border-red-200 pb-1 flex items-center"><AlertTriangle size={14} className="mr-2"/> Archive / Remove Personnel</h4>
+                        <div className="flex space-x-2">
+                           <select value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} className="flex-1 text-sm border-red-300 rounded shadow-sm border p-2 font-bold text-red-700 outline-none focus:ring-2 focus:ring-red-400">
+                              <option value="TRANSFERRED">Transferred</option><option value="DEATH">Death</option><option value="DISMISSAL">Dismissal</option><option value="DESERTION">Desertion</option><option value="RETIREMENT">Retirement</option>
+                           </select>
+                           <button type="button" onClick={handleArchivePersonnel} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-bold text-sm shadow transition border border-red-800">Move to Archive</button>
+                        </div>
+                     </div>
+                  )}
+
+                  {operation === 'update' && (formData.sn || formData.fnum) && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing Record: {formData.fnum}</div>}
+                  
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+                    <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">1. Primary Identifiers</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">F/NO. *</label><input type="text" name="fnum" value={formData.fnum} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 uppercase" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">IPPS NO. *</label><input type="text" name="ipps" value={formData.ipps} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div className="col-span-2"><label className="block text-xs font-bold text-gray-700 mb-1">NAME *</label><input type="text" name="name" value={formData.name} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 uppercase" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">RANK *</label><input type="text" name="rank" value={formData.rank} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">SEX</label><select name="sex" value={formData.sex} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white"><option>MALE</option><option>FEMALE</option></select></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">TIN NO.</label><input type="text" name="tin" value={formData.tin} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">NIN</label><input type="text" name="nin" value={formData.nin} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+                    <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">2. Service & Placement</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">REGION *</label><select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}</select></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">DUTY STATION *</label><select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : (<option value={currentUser.station}>{currentUser.station}</option>)}</select></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">POSITION *</label><input type="text" name="position" value={formData.position} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">DISTRICT</label><input type="text" name="district" value={formData.district} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">SECTION</label><input type="text" name="section" value={formData.section} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">DIR (Directorate)</label><input type="text" name="dir" value={formData.dir} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+                    <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">3. Dates & Demographics</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O.B</label><input type="date" name="dob" value={formData.dob} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O.E</label><input type="date" name="doe" value={formData.doe} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O. POST</label><input type="date" name="dopost" value={formData.dopost} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O. PRO</label><input type="date" name="dopro" value={formData.dopro} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div className="col-span-2"><label className="block text-xs font-bold text-gray-700 mb-1">CONTACT</label><input type="text" name="contact" value={formData.contact} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">EDUC LEVEL</label><input type="text" name="educlevel" value={formData.educlevel} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">HOME DIST</label><input type="text" name="homedist" value={formData.homedist} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">TRIBE</label><input type="text" name="tribe" value={formData.tribe} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+                    <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">4. Financial & Status</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">ACC. NO</label><input type="text" name="accno" value={formData.accno} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div><label className="block text-xs font-bold text-gray-700 mb-1">BANK & BRANCH</label><input type="text" name="bankbranch" value={formData.bankbranch} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                      <div className="col-span-2"><label className="block text-xs font-bold text-gray-700 mb-1">STATUS</label><select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white font-bold"><option>ACTIVE</option><option>ON LEAVE</option><option>SUSPENDED</option></select></div>
+                    </div>
+                  </div>
+
+                  <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center">
+                    {operation === 'new' ? '💾 Log Personnel Record' : '💾 Save Updates'}
+                  </button>
+                </form>
+              </div>
             </div>
-          ) : (
-            <ExpandableTableCard title={viewMode === 'active' ? "Active Nominal Roll" : "Archived Personnel Ledger"} onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
-              <div className="overflow-x-auto w-full">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50 sticky top-0 z-10">
-                    <tr>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">S/No</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">F/NO.</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">RANK</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">NAME</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">SEX</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">POSITION</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">D.O.B</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">D.O.E</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">D.O. POST</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">CONTACT</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">IPPS NO.</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">DUTY STATION</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">STATUS</th>
-                      {viewMode === 'archive' && (
-                        <><th className="px-3 py-3 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">REASON</th><th className="px-3 py-3 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">DATE ARCHIVED</th></>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).map((n) => (
-                      <tr key={n.sn} className={`${viewMode === 'archive' ? 'bg-slate-50 opacity-80' : 'hover:bg-blue-50'} transition-colors cursor-pointer`} onClick={() => { if(viewMode === 'active') { setOperation('update'); populateUpdateForm(n); window.scrollTo({ top: 0, behavior: 'smooth' }); }}}>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-gray-900">{n.sn}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800">{n.fnum || n.f_num}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold">{n.rank}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-medium">{n.name}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs">{n.sex}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">{n.position}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.dob}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.doe}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.dopost}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs">{n.contact}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-mono">{n.ipps}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-700">{n.station}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-green-700">{n.status}</td>
+          </div>
+
+          <div className="lg:col-span-7 space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                  <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(Nominal_Rolls || []).map(n => n.region).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+                ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+              </select>
+              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                  <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(Nominal_Rolls || []).filter(n => n.region === filterRegion).map(n => n.station).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
+                ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+              </select>
+            </div>
+
+            {viewMode === 'metrics' ? (
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm animate-in fade-in zoom-in-95 duration-200">
+                  <div className="flex justify-between items-center mb-6 border-b pb-4">
+                      <h3 className="font-extrabold text-lg text-indigo-900 flex items-center"><PieChart className="mr-2"/> Nominal Roll Analytics</h3>
+                      <div className="flex items-center space-x-2 bg-indigo-50 p-2 rounded-lg border border-indigo-100">
+                         <label className="text-xs font-bold text-indigo-800 uppercase">Categorize By:</label>
+                         <select value={metricCategory} onChange={e => setMetricCategory(e.target.value)} className="border border-indigo-300 rounded p-1 text-sm font-bold text-indigo-700 outline-none bg-white">
+                             <option value="RANK">Rank Breakdown</option>
+                             <option value="UNIT">Unit / Station Breakdown</option>
+                             <option value="SEX">Sex Distribution</option>
+                             <option value="DISTRICT">Home District Breakdown</option>
+                             <option value="BANK">Bank Branch Breakdown</option>
+                             <option value="TRIBE">Tribe Breakdown</option>
+                             <option value="EDUCATION">Education Level Breakdown</option>
+                             <option value="AGE">Age Demographics Breakdown</option>
+                         </select>
+                      </div>
+                  </div>
+                  <table className="min-w-full divide-y divide-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+                      <thead className="bg-indigo-50">
+                          <tr>
+                              <th className="px-4 py-3 text-left text-xs font-bold text-indigo-800 uppercase">{metricCategory}</th>
+                              <th className="px-4 py-3 text-center text-xs font-bold text-indigo-800 uppercase">Total Personnel</th>
+                              <th className="px-4 py-3 text-center text-xs font-bold text-indigo-800 uppercase">Male</th>
+                              <th className="px-4 py-3 text-center text-xs font-bold text-indigo-800 uppercase">Female</th>
+                          </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-100">
+                          {calculatedMetrics.map(m => (
+                              <tr key={m.category} className="hover:bg-indigo-50/30 transition-colors">
+                                  <td className="px-4 py-3 text-sm font-bold text-gray-800">{m.category}</td>
+                                  <td className="px-4 py-3 text-sm text-center font-extrabold text-indigo-600">{m.total}</td>
+                                  <td className="px-4 py-3 text-sm text-center font-medium text-blue-600">{m.male}</td>
+                                  <td className="px-4 py-3 text-sm text-center font-medium text-pink-600">{m.female}</td>
+                              </tr>
+                          ))}
+                          {calculatedMetrics.length === 0 && <tr><td colSpan="4" className="text-center p-4 text-gray-500 font-medium">No data available for this filter constraint.</td></tr>}
+                      </tbody>
+                  </table>
+              </div>
+            ) : (
+              <ExpandableTableCard title={viewMode === 'active' ? "Active Nominal Roll" : "Archived Personnel Ledger"} onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+                <div className="overflow-x-auto w-full">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50 sticky top-0 z-10">
+                      <tr>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">S/No</th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">F/NO.</th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">RANK</th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">NAME</th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">SEX</th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">POSITION</th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">D.O.B</th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">D.O.E</th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">D.O. POST</th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">CONTACT</th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">IPPS NO.</th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">DUTY STATION</th>
+                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">STATUS</th>
                         {viewMode === 'archive' && (
-                          <><td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-red-700 bg-red-50/50">{n.archive_reason}</td><td className="px-3 py-2 whitespace-nowrap text-xs text-red-500 bg-red-50/50">{n.archive_date}</td></>
+                          <><th className="px-3 py-3 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">REASON</th><th className="px-3 py-3 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">DATE ARCHIVED</th></>
                         )}
                       </tr>
-                    ))}
-                    {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).length === 0 && (
-                      <tr><td colSpan={viewMode === 'archive' ? "15" : "13"} className="text-center py-6 text-gray-500 font-medium">No personnel records found in this view.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </ExpandableTableCard>
-          )}
-        </div>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).map((n) => (
+                        <tr 
+                          key={n.sn || n.fnum} 
+                          className={`${viewMode === 'archive' ? 'bg-slate-50 opacity-80' : 'hover:bg-blue-50'} transition-colors cursor-pointer`} 
+                          onClick={() => setSelectedOfficer(n)}
+                        >
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-gray-900">{n.sn}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800">{n.fnum || n.f_num}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold">{n.rank}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-medium">{n.name}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs">{n.sex}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">{n.position}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.dob}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.doe}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.dopost}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs">{n.contact}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-mono">{n.ipps}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-700">{n.station}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-green-700">{n.status}</td>
+                          {viewMode === 'archive' && (
+                            <><td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-red-700 bg-red-50/50">{n.archive_reason}</td><td className="px-3 py-2 whitespace-nowrap text-xs text-red-500 bg-red-50/50">{n.archive_date}</td></>
+                          )}
+                        </tr>
+                      ))}
+                      {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).length === 0 && (
+                        <tr><td colSpan={viewMode === 'archive' ? "15" : "13"} className="text-center py-6 text-gray-500 font-medium">No personnel records found in this view.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </ExpandableTableCard>
+            )}
+          </div>
+        </>
       </div>
+
+      {selectedOfficer && (
+        <OfficerDossierModal 
+          officer={selectedOfficer} 
+          onClose={() => setSelectedOfficer(null)} 
+        />
+      )}
     </div>
   );
 };
-
 
 
 // ====================================================================
@@ -3731,14 +3707,14 @@ const DashboardLayout = ({
   }, []);
 
   
-// 🟢 ADVANCED IDLE TIMER & WARNING SCREEN
+// 🟢 REFINED IDLE TIMER & PERSISTENT DIALOGUE LOCK
   const [showIdleWarning, setShowIdleWarning] = useState(false);
   const [idleCountdown, setIdleCountdown] = useState(60);
+  const [isTimedOut, setIsTimedOut] = useState(false); // Tracks hard timeout state
   
   const isWarningActive = useRef(false);
   const resetIdleTimersRef = useRef(null);
   
-  // 🟢 FIX 1: Store the logout function in a ref so it doesn't trigger continuous timer resets
   const latestOnLogout = useRef(onLogout);
   useEffect(() => {
     latestOnLogout.current = onLogout;
@@ -3754,6 +3730,7 @@ const DashboardLayout = ({
     const WARNING_WINDOW = 60 * 1000;   // 1 minute final countdown
 
     const startTimers = () => {
+      if (isTimedOut) return; // Stop restarting if already locked out
       clearTimeout(warningTimer);
       clearTimeout(logoutTimer);
       clearInterval(countdownInterval);
@@ -3778,28 +3755,18 @@ const DashboardLayout = ({
         }, 1000);
       }, IDLE_LIMIT);
 
-      // 2. Set the absolute logout timer (30 mins total)
+      // 2. Hard Timeout: Instead of instantly wiping, lock the screen with the dialog open
       logoutTimer = setTimeout(() => {
         clearInterval(countdownInterval);
         isWarningActive.current = false;
-        setShowIdleWarning(false);
-        
-        alert("Session Expired: You have been securely logged out due to inactivity.");
-        if (latestOnLogout.current) {
-            latestOnLogout.current();
-        } else {
-            localStorage.removeItem('kmp_authToken'); 
-            window.location.reload(); 
-        }
+        setIsTimedOut(true); // Locks the screen in place with the modal active
       }, IDLE_LIMIT + WARNING_WINDOW);
     };
 
-    // Keep this accessible so the Modal button can reset the timers
     resetIdleTimersRef.current = startTimers;
 
-    // Throttled event listener to prevent performance lagging
     const handleUserActivity = () => {
-      if (isWarningActive.current) return;
+      if (isWarningActive.current || isTimedOut) return;
       
       if (!activityThrottle) {
          activityThrottle = setTimeout(() => {
@@ -3809,15 +3776,11 @@ const DashboardLayout = ({
       }
     };
 
-    // Swapped 'click' for 'mousedown' to catch interactions earlier
     const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart'];
-
-    // 🟢 FIX 2: Use the capture phase (true) so inner clicks don't block the tracker
     events.forEach(event => {
       window.addEventListener(event, handleUserActivity, true);
     });
 
-    // Kick off the timers when the component loads
     startTimers();
 
     return () => {
@@ -3829,7 +3792,7 @@ const DashboardLayout = ({
         window.removeEventListener(event, handleUserActivity, true);
       });
     };
-  }, []); // 🟢 FIX 3: Empty dependency array ensures background syncs never reset the idle clock!
+  }, [isTimedOut]);
 
 
 // 🟢 AUTOMATIC PAGE ACCESS TRACKER -> ROUTED CORRECTLY TO ACTIVITY_LOGS TABLE
@@ -3902,6 +3865,7 @@ const DashboardLayout = ({
     { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> },
     { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> },
     { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> },
+    { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> }, // 🟢 NEW ANALYTICS TAB
     ...(hasNominalClearance ? [{ name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> }] : []),
   ];
 
@@ -3953,24 +3917,68 @@ const DashboardLayout = ({
     }
   };
 
-  const IdleWarningModal = () => showIdleWarning && (
-    <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[500] flex justify-center items-center p-4 animate-in zoom-in duration-300">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center border-2 border-red-500">
-        <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4 animate-bounce" />
-        <h2 className="text-2xl font-extrabold text-slate-900 mb-2">Session Timeout Warning</h2>
-        <p className="text-slate-600 font-medium mb-6">Your connection to the KMP network has been idle. For security purposes, you will be logged out in:</p>
-        <div className="text-5xl font-mono font-extrabold text-red-600 mb-8">{idleCountdown}s</div>
-        <button 
-          onClick={() => {
-            if (resetIdleTimersRef.current) resetIdleTimersRef.current();
-          }} 
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all text-lg"
-        >
-          I am still here (Extend Session)
-        </button>
+const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
+  <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl border-2 border-slate-800 text-left font-sans">
+      
+      <div className="flex items-start space-x-4">
+        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border ${
+          isTimedOut ? 'bg-red-50 text-red-600 border-red-100' : 'bg-amber-50 text-amber-600 border-amber-100'
+        }`}>
+          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        
+        <div className="space-y-1">
+          <h4 className="text-base font-extrabold text-slate-900 tracking-tight">
+            {isTimedOut ? 'Session Expired Due to Inactivity' : 'Session Timeout Warning'}
+          </h4>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            {isTimedOut 
+              ? 'Your security token has expired because the system was left unattended. You have been securely logged out.' 
+              : `Your session will expire in ${idleCountdown}s due to inactivity. Click below to continue working.`}
+          </p>
+        </div>
       </div>
+
+      <div className="mt-6 flex justify-end space-x-3">
+        {isTimedOut ? (
+          <button 
+            type="button"
+            onClick={() => {
+              if (latestOnLogout.current) {
+                latestOnLogout.current();
+              } else {
+                localStorage.removeItem('kmp_authToken'); 
+                window.location.reload(); 
+              }
+            }}
+            className="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold px-4 py-3 rounded-xl shadow-md transition-all cursor-pointer uppercase tracking-wider"
+          >
+            Acknowledge & Return to Login
+          </button>
+        ) : (
+          <button 
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setShowIdleWarning(false);
+              if (resetIdleTimersRef.current) {
+                resetIdleTimersRef.current(); 
+              }
+            }}
+            className="w-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-3 rounded-xl shadow-md transition-all cursor-pointer"
+          >
+            I am still here (Extend Session)
+          </button>
+        )}
+      </div>
+
     </div>
-  );
+  </div>
+);
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
@@ -4527,17 +4535,28 @@ const App = () => {
 
   const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
 
-  const renderPage = () => {
+const renderPage = () => {
     switch (currentPage) {
       case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
       case 'reports': return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
       case 'statistics': return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
       case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
       case 'establishments': return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
+      
+      // 🟢 NEW ROUTER CASE FOR THE STANDALONE ANALYTICS DASHBOARD
+      case 'analytics': return (
+        <AnalyticsDashboard 
+          nominalRolls={Nominal_Rolls} 
+          crimeRegistry={reports} 
+          successStories={stories} 
+          operationalStats={stats} 
+        />
+      );
+
       case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
       case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
       case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
-case 'Admin_Communication': return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} />;
+      case 'Admin_Communication': return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} />;
       default: return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
     }
   };
