@@ -790,6 +790,7 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
 # 8. LEDGER MANAGEMENT (GET, POST, PUT)
 # ==========================================
 # --- CRIME REPORTS ---
+# --- CRIME REPORTS ---
 @app.get("/api/v1/reports")
 def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     query = db.query(models.Crime_Reports)
@@ -805,6 +806,7 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
     return [{
         "sn": r.sn, 
         "sdRef": r.sd_ref, 
+        "sd_ref": r.sd_ref, # Provided for both frontend naming variations
         "region": r.region, 
         "station": r.station,
         "date": r.date, 
@@ -814,19 +816,6 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
         "status": r.status, 
         "suspects": r.suspects, 
         "lastUpdatedBy": r.last_updated_by,
-        "dossier": {
-            "case_id": r.sn,
-            "reference": r.sd_ref,
-            "region": r.region,
-            "station": r.station,
-            "date": r.date,
-            "time": r.time,
-            "offence": r.offence,
-            "narrative": r.narrative,
-            "status": r.status,
-            "suspect_count": r.suspects,
-            "investigating_officer": r.last_updated_by
-        },
         "suspectDetails": [{
             "name": getattr(s, 'name', ''), 
             "sex": getattr(s, 'sex', ''), 

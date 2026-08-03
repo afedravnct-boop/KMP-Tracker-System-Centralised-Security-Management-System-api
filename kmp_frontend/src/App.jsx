@@ -447,9 +447,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
-  
-  // 🟢 Integrated Dossier Modal State (Matches your Nominal Roll behavior)
-  const [selectedOfficer, setSelectedOfficer] = useState(null);
+  const [selectedRecord, setSelectedRecord] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
@@ -1012,7 +1010,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                           if (operation === 'update') {
                             populateUpdateCrimeForm(report); 
                           } else {
-                            // 🟢 Opens the professional OfficerDossierModal popup just like Nominal Roll
+                            // 🟢 Opens the professional OfficerDossierModal popup when clicking any row
                             setSelectedOfficer({
                               fnum: report.sdRef || report.sd_ref,
                               rank: report.offence || 'CRIME INCIDENT',
