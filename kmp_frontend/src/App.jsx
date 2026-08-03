@@ -448,8 +448,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   
-  // State for the interactive full-page dossier popup when clicking a ledger row
-  const [selectedCrimeDossier, setSelectedCrimeDossier] = useState(null);
+  // 🟢 Integrated Dossier Modal State (Matches your Nominal Roll behavior)
+  const [selectedOfficer, setSelectedOfficer] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
@@ -798,94 +798,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         </div>
       )}
 
-      {/* 🟢 FULL-PAGE DOSSIER POPUP VIEW WHEN CLICKING LEDGER ROWS */}
-      {selectedCrimeDossier && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-3xl w-full p-8 max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 custom-scrollbar relative">
-            <button 
-              onClick={() => setSelectedCrimeDossier(null)}
-              className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 p-2 rounded-full transition"
-            >
-              <X size={20} />
-            </button>
-
-            <div className="flex items-center space-x-3 mb-6 border-b pb-4">
-              <div className="w-12 h-12 bg-blue-100 text-blue-700 rounded-xl flex items-center justify-center font-extrabold shadow-sm">
-                <Shield size={24} />
-              </div>
-              <div>
-                <span className="text-xs font-extrabold text-blue-600 uppercase tracking-widest bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200">
-                  Official Police Dossier View
-                </span>
-                <h2 className="text-2xl font-black text-slate-900 mt-1">Case Ref: {selectedCrimeDossier.sdRef || selectedCrimeDossier.sd_ref}</h2>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Station / Region</span>
-                <span className="text-sm font-extrabold text-slate-800">{selectedCrimeDossier.station} [{selectedCrimeDossier.region}]</span>
-              </div>
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Date & Time</span>
-                <span className="text-sm font-extrabold text-slate-800">{selectedCrimeDossier.date} ({selectedCrimeDossier.time})</span>
-              </div>
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Current Status</span>
-                <span className="text-sm font-extrabold text-red-600">{selectedCrimeDossier.status}</span>
-              </div>
-            </div>
-
-            <div className="space-y-4 mb-6">
-              <h4 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Offence Categorization</h4>
-              <div className="p-3 bg-red-50 text-red-700 font-bold rounded-lg border border-red-200 text-sm uppercase">
-                {selectedCrimeDossier.offence || 'General Inquiry'}
-              </div>
-            </div>
-
-            <div className="space-y-4 mb-6">
-              <h4 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Incident Narrative & Updates</h4>
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-sm text-slate-700 leading-relaxed ql-editor" dangerouslySetInnerHTML={{ __html: selectedCrimeDossier.narrative }}></div>
-            </div>
-
-            {selectedCrimeDossier.suspectDetails && selectedCrimeDossier.suspectDetails.length > 0 && (
-              <div className="space-y-4 mb-6">
-                <h4 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Registered Suspects ({selectedCrimeDossier.suspectDetails.length})</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {selectedCrimeDossier.suspectDetails.map((suspect, idx) => (
-                    <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex items-start space-x-3">
-                      {suspect.photo_url ? (
-                        <img src={suspect.photo_url} alt="" className="w-12 h-12 rounded-lg object-cover border border-slate-200 shrink-0" />
-                      ) : (
-                        <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 text-[10px] font-bold shrink-0">No Photo</div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="font-bold text-slate-900 text-xs uppercase truncate">{idx + 1}. {suspect.name}</div>
-                        <div className="text-[11px] text-slate-500 mt-0.5 space-y-0.5">
-                          <div>{suspect.sex} {suspect.age ? `• ${suspect.age}yrs` : ''} {suspect.tribe ? `• ${suspect.tribe}` : ''}</div>
-                          {suspect.residence && <div>Res: {suspect.residence}</div>}
-                          {suspect.contact && <div>Tel: {suspect.contact}</div>}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-between items-center pt-4 border-t text-xs text-slate-400 font-medium">
-              <span>Logged/Updated By: <strong className="text-slate-700">{selectedCrimeDossier.lastUpdatedBy || 'System Genesis'}</strong></span>
-              <button 
-                onClick={() => setSelectedCrimeDossier(null)}
-                className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-6 rounded-xl shadow transition"
-              >
-                Dismiss Dossier View
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="text-center mb-8 flex flex-col items-center">
         <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
         <h1 className="text-4xl text-red-500 mt-1 font-bold">Crime/Incident Registry</h1>
@@ -1100,8 +1012,21 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                           if (operation === 'update') {
                             populateUpdateCrimeForm(report); 
                           } else {
-                            // Opens the full-page dossier popup view when clicking any row
-                            setSelectedCrimeDossier(report);
+                            // 🟢 Opens the professional OfficerDossierModal popup just like Nominal Roll
+                            setSelectedOfficer({
+                              fnum: report.sdRef || report.sd_ref,
+                              rank: report.offence || 'CRIME INCIDENT',
+                              name: report.station,
+                              sex: report.region,
+                              position: report.status,
+                              dob: report.date,
+                              contact: report.time,
+                              station: report.station,
+                              region: report.region,
+                              status: report.status,
+                              narrative: report.narrative,
+                              suspectDetails: report.suspectDetails
+                            });
                           }
                         }}
                       >
@@ -1154,31 +1079,11 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         </>
       </div>
 
-      {selectedRecord && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto shadow-2xl">
-            <h3 className="text-xl font-bold text-slate-800 mb-4">{selectedRecord.title || "Record Details"}</h3>
-            <div className="space-y-3 text-sm text-slate-600 mb-6">
-              <p><strong>Date/Time:</strong> {selectedRecord.date} - {selectedRecord.time}</p>
-              <p><strong>Narrative:</strong></p>
-              <div className="p-3 bg-slate-50 rounded border border-slate-200 whitespace-pre-wrap">
-                {selectedRecord.narrative || selectedRecord.details}
-              </div>
-              {selectedRecord.image_url && (
-                <div className="mt-4">
-                  <p className="font-semibold mb-2">Attached Exhibit / Evidence:</p>
-                  <img src={selectedRecord.image_url} alt="Evidence Exhibit" className="rounded-lg max-h-80 w-object-contain border" />
-                </div>
-              )}
-            </div>
-            <button 
-              onClick={() => setSelectedRecord(null)}
-              className="w-full py-2 bg-slate-800 text-white rounded-lg font-medium hover:bg-slate-900"
-            >
-              Close View
-            </button>
-           </div>
-        </div>
+      {selectedOfficer && (
+        <OfficerDossierModal 
+          officer={selectedOfficer} 
+          onClose={() => setSelectedOfficer(null)} 
+        />
       )}
     </div>  
   );
