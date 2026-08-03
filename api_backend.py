@@ -811,6 +811,20 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
         "status": r.status, 
         "suspects": r.suspects, 
         "lastUpdatedBy": r.last_updated_by,
+        # 🟢 Embedded Full Dossier payload for interactive row popup integration
+        "dossier": {
+            "case_id": r.sn,
+            "reference": r.sd_ref,
+            "region": r.region,
+            "station": r.station,
+            "date": r.date,
+            "time": r.time,
+            "offence": r.offence,
+            "narrative": r.narrative,
+            "status": r.status,
+            "suspect_count": r.suspects,
+            "investigating_officer": r.last_updated_by
+        },
         "suspectDetails": [{
             "name": getattr(s, 'name', ''), 
             "sex": getattr(s, 'sex', ''), 
