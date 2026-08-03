@@ -447,7 +447,9 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
-  const [selectedRecord, setSelectedRecord] = useState(null);
+  
+  // 🟢 State for the full-page layout dossier popup view when clicking a row
+  const [selectedCrimeDossier, setSelectedCrimeDossier] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
@@ -796,6 +798,94 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         </div>
       )}
 
+      {/* 🟢 FULL-PAGE DOSSIER POPUP VIEW WHEN CLICKING LEDGER ROWS */}
+      {selectedCrimeDossier && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-3xl w-full p-8 max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 custom-scrollbar relative">
+            <button 
+              onClick={() => setSelectedCrimeDossier(null)}
+              className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 p-2 rounded-full transition"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="flex items-center space-x-3 mb-6 border-b pb-4">
+              <div className="w-12 h-12 bg-blue-100 text-blue-700 rounded-xl flex items-center justify-center font-extrabold shadow-sm">
+                <Shield size={24} />
+              </div>
+              <div>
+                <span className="text-xs font-extrabold text-blue-600 uppercase tracking-widest bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200">
+                  Official Police Dossier View
+                </span>
+                <h2 className="text-2xl font-black text-slate-900 mt-1">Case Ref: {selectedCrimeDossier.sdRef || selectedCrimeDossier.sd_ref}</h2>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Station / Region</span>
+                <span className="text-sm font-extrabold text-slate-800">{selectedCrimeDossier.station} [{selectedCrimeDossier.region}]</span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Date & Time</span>
+                <span className="text-sm font-extrabold text-slate-800">{selectedCrimeDossier.date} ({selectedCrimeDossier.time})</span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Current Status</span>
+                <span className="text-sm font-extrabold text-red-600">{selectedCrimeDossier.status}</span>
+              </div>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <h4 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Offence Categorization</h4>
+              <div className="p-3 bg-red-50 text-red-700 font-bold rounded-lg border border-red-200 text-sm uppercase">
+                {selectedCrimeDossier.offence || 'General Inquiry'}
+              </div>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <h4 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Incident Narrative & Updates</h4>
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-sm text-slate-700 leading-relaxed ql-editor" dangerouslySetInnerHTML={{ __html: selectedCrimeDossier.narrative }}></div>
+            </div>
+
+            {selectedCrimeDossier.suspectDetails && selectedCrimeDossier.suspectDetails.length > 0 && (
+              <div className="space-y-4 mb-6">
+                <h4 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Registered Suspects ({selectedCrimeDossier.suspectDetails.length})</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {selectedCrimeDossier.suspectDetails.map((suspect, idx) => (
+                    <div key={idx} className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex items-start space-x-3">
+                      {suspect.photo_url ? (
+                        <img src={suspect.photo_url} alt="" className="w-12 h-12 rounded-lg object-cover border border-slate-200 shrink-0" />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400 text-[10px] font-bold shrink-0">No Photo</div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-slate-900 text-xs uppercase truncate">{idx + 1}. {suspect.name}</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5 space-y-0.5">
+                          <div>{suspect.sex} {suspect.age ? `• ${suspect.age}yrs` : ''} {suspect.tribe ? `• ${suspect.tribe}` : ''}</div>
+                          {suspect.residence && <div>Res: {suspect.residence}</div>}
+                          {suspect.contact && <div>Tel: {suspect.contact}</div>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-between items-center pt-4 border-t text-xs text-slate-400 font-medium">
+              <span>Logged/Updated By: <strong className="text-slate-700">{selectedCrimeDossier.lastUpdatedBy || 'System Genesis'}</strong></span>
+              <button 
+                onClick={() => setSelectedCrimeDossier(null)}
+                className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-6 rounded-xl shadow transition"
+              >
+                Dismiss Dossier View
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="text-center mb-8 flex flex-col items-center">
         <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
         <h1 className="text-4xl text-red-500 mt-1 font-bold">Crime/Incident Registry</h1>
@@ -1010,12 +1100,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                           if (operation === 'update') {
                             populateUpdateCrimeForm(report); 
                           } else {
-                            setSelectedRecord({
-                              title: `Case File Dossier - Ref: ${report.sdRef || report.sd_ref}`,
-                              date: report.date,
-                              time: report.time,
-                              narrative: `OFFENCE: ${report.offence}\n\nSTATION: ${report.station} [${report.region}]\nSTATUS: ${report.status}\n\n--- NARRATIVE ---\n` + report.narrative.replace(/<[^>]*>?/gm, '')
-                            });
+                            // 🟢 Triggers the page-layout dossier view when clicking any row
+                            setSelectedCrimeDossier(report);
                           }
                         }}
                       >
@@ -1094,7 +1180,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
            </div>
         </div>
       )}
-    </div> 
+    </div>  
   );
 };
 
@@ -3765,6 +3851,9 @@ const DashboardLayout = ({
   const [newForcePassword, setNewForcePassword] = useState('');
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isAnimating, setIsAnimating] = useState(true);
+  
+  // 🟢 State for expanding the motion button on hover or click
+  const [isMotionExpanded, setIsMotionExpanded] = useState(false);
 
   const [lastViewedId, setLastViewedId] = useState(() => {
     const saved = localStorage.getItem('last_viewed_comm_id');
@@ -3804,11 +3893,10 @@ const DashboardLayout = ({
     return () => clearInterval(heartbeatInterval);
   }, []);
 
-  
-// 🟢 REFINED IDLE TIMER & PERSISTENT DIALOGUE LOCK
+  // 🟢 REFINED IDLE TIMER & PERSISTENT DIALOGUE LOCK
   const [showIdleWarning, setShowIdleWarning] = useState(false);
   const [idleCountdown, setIdleCountdown] = useState(60);
-  const [isTimedOut, setIsTimedOut] = useState(false); // Tracks hard timeout state
+  const [isTimedOut, setIsTimedOut] = useState(false);
   
   const isWarningActive = useRef(false);
   const resetIdleTimersRef = useRef(null);
@@ -3824,11 +3912,11 @@ const DashboardLayout = ({
     let countdownInterval;
     let activityThrottle;
 
-    const IDLE_LIMIT = 29 * 60 * 1000;  // 29 minutes before warning
-    const WARNING_WINDOW = 60 * 1000;   // 1 minute final countdown
+    const IDLE_LIMIT = 29 * 60 * 1000; 
+    const WARNING_WINDOW = 60 * 1000;  
 
     const startTimers = () => {
-      if (isTimedOut) return; // Stop restarting if already locked out
+      if (isTimedOut) return;
       clearTimeout(warningTimer);
       clearTimeout(logoutTimer);
       clearInterval(countdownInterval);
@@ -3836,7 +3924,6 @@ const DashboardLayout = ({
       isWarningActive.current = false;
       setShowIdleWarning(false);
 
-      // 1. Set the timer for the warning pop-up (29 mins)
       warningTimer = setTimeout(() => {
         isWarningActive.current = true;
         setShowIdleWarning(true);
@@ -3853,11 +3940,10 @@ const DashboardLayout = ({
         }, 1000);
       }, IDLE_LIMIT);
 
-      // 2. Hard Timeout: Instead of instantly wiping, lock the screen with the dialog open
       logoutTimer = setTimeout(() => {
         clearInterval(countdownInterval);
         isWarningActive.current = false;
-        setIsTimedOut(true); // Locks the screen in place with the modal active
+        setIsTimedOut(true);
       }, IDLE_LIMIT + WARNING_WINDOW);
     };
 
@@ -3892,14 +3978,11 @@ const DashboardLayout = ({
     };
   }, [isTimedOut]);
 
-
-// 🟢 AUTOMATIC PAGE ACCESS TRACKER -> ROUTED CORRECTLY TO ACTIVITY_LOGS TABLE
   const lastLoggedPage = useRef(null);
 
   useEffect(() => {
     if (!currentUser?.fnum || !currentPage) return;
     
-    // 🛑 INFINITE LOOP KILL SWITCH: Only fetch if the page actually changed
     if (lastLoggedPage.current === currentPage) return;
     lastLoggedPage.current = currentPage;
 
@@ -3922,8 +4005,6 @@ const DashboardLayout = ({
     .catch(err => console.error("Activity log error:", err));
 
   }, [currentPage, currentUser?.fnum]);
-
-
 
   const safeSidebarComms = Array.isArray(Admin_Communication) ? Admin_Communication : (Admin_Communication?.data || Admin_Communication?.items || []);
   const relevantComms = safeSidebarComms.filter(c => {
@@ -3963,7 +4044,7 @@ const DashboardLayout = ({
     { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> },
     { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> },
     { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> },
-    { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> }, // 🟢 NEW ANALYTICS TAB
+    { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> },
     ...(hasNominalClearance ? [{ name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> }] : []),
   ];
 
@@ -4045,16 +4126,12 @@ const DashboardLayout = ({
             <button 
               type="button"
               onClick={() => {
-                // 1. Immediately dismiss modal overlay by clearing timeout states
                 setIsTimedOut(false);
                 setShowIdleWarning(false);
-
-                // 2. Wipe local authentication tokens & user state
                 localStorage.removeItem('kmp_authToken');
                 localStorage.removeItem('kmp_currentUser');
                 localStorage.removeItem('kmp_currentPage');
                 
-                // 3. Execute logout ref if it exists, then force a hard window reload
                 if (latestOnLogout.current) {
                   try {
                     latestOnLogout.current();
@@ -4102,7 +4179,6 @@ const DashboardLayout = ({
         <div className={`p-4 flex items-center border-b border-slate-500 transition-all ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
           {sidebarOpen && (
             <div className="flex items-center min-w-max">
-              {/* Miniature 3D Spinning Globe Icon */}
               <div 
                 className="rounded-full bg-cover bg-repeat-x shrink-0 mr-2 border border-slate-700/50"
                 style={{ 
@@ -4293,19 +4369,32 @@ const DashboardLayout = ({
       <main className="flex-1 overflow-y-auto bg-gray-50 w-full relative flex flex-col">
         <IdleWarningModal /> 
         
-        {/* 🟢 Top Right Controls (Fullscreen & Motion Play/Pause Toggles) */}
+        {/* 🟢 Top Right Controls (Fullscreen & Interactive Expandable Motion Play/Pause Button) */}
         <div className="absolute top-4 right-6 z-50 flex items-center space-x-2">
-          {/* Motion Toggle Button */}
+          
+          {/* Expandable Motion Toggle Button */}
           <button 
-            onClick={() => setIsAnimating(!isAnimating)}
-            className={`px-3 py-1.5 rounded text-xs font-bold shadow-md transition-colors flex items-center gap-1.5 border ${
+            onMouseEnter={() => setIsMotionExpanded(true)}
+            onMouseLeave={() => setIsMotionExpanded(false)}
+            onClick={() => {
+              setIsMotionExpanded(prev => !prev);
+              setIsAnimating(!isAnimating);
+            }}
+            className={`transition-all duration-300 ease-in-out rounded-full shadow-md flex items-center justify-center border font-bold text-xs ${
+              isMotionExpanded ? 'px-3.5 py-1.5 gap-2' : 'p-2'
+            } ${
               isAnimating 
                 ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-500' 
                 : 'bg-slate-700 hover:bg-slate-800 text-slate-200 border-slate-600'
             }`}
-            title={isAnimating ? "Stop Background Motion" : "Start Background Motion"}
+            title={isAnimating ? "Pause Background Motion" : "Play Background Motion"}
           >
-            {isAnimating ? '⏸ Pause Motion' : '▶ Play Motion'}
+            <span className="text-sm">{isAnimating ? '⏸' : '▶'}</span>
+            {isMotionExpanded && (
+              <span className="whitespace-nowrap animate-in fade-in duration-200 font-bold">
+                {isAnimating ? 'Pause Motion' : 'Play Motion'}
+              </span>
+            )}
           </button>
 
           {/* Fullscreen Toggle */}
@@ -4317,10 +4406,11 @@ const DashboardLayout = ({
           </button>
         </div>
 
-        {/* Uganda Flag Diagonal Wave Watermark (Conditionally Animated via Play/Pause state) */}
-        <div className={`absolute inset-0 pointer-events-none z-0 uganda-flag-wave-diagonal opacity-[0.10] ${
-          !isAnimating ? '[animation-play-state:paused]' : ''
-        }`}></div>
+        {/* Uganda Flag Diagonal Wave Watermark (Guaranteed inline play state control) */}
+        <div 
+          className="absolute inset-0 pointer-events-none z-0 uganda-flag-wave-diagonal opacity-[0.10]"
+          style={{ animationPlayState: isAnimating ? 'running' : 'paused' }}
+        ></div>
 
         {/* UPF Badge Watermark */}
         <div className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.08]">
@@ -4419,7 +4509,6 @@ const DashboardLayout = ({
                       </div>
                     </label>
 
-                    {/* 🟢 NOMINAL ROLL ACCESS CHECKBOX IN MATRIX */}
                     <label className="flex items-center space-x-3 cursor-pointer group">
                       <input type="checkbox" className="w-4 h-4 text-blue-500 rounded border-gray-300 focus:ring-blue-500" 
                         checked={Boolean(selectedUserDetail.permissions?.view_nominal_roll) || String(selectedUserDetail.role || '').includes('ADMIN')} 
@@ -4541,6 +4630,8 @@ const DashboardLayout = ({
     </div>
   );
 };
+
+
 
 const App = () => {
   const [currentUser, setCurrentUser] = usePersistentState('kmp_currentUser', null);
