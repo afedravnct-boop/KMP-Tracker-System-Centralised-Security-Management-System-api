@@ -80,7 +80,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
         targetFnum: [] 
       });
     } else if (name === 'subject') {
-      // 🟢 Enforce auto-capitalization on subject inputs
       setFormData({ ...formData, subject: autoCapitalize(value) });
     } else {
       setFormData({ ...formData, [name]: type === 'checkbox' ? checked : value });
@@ -92,12 +91,10 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
     if (user.fnum === currentUser.fnum) return false;
     const region = (user.region || "").toUpperCase();
     
-    // Category Filter (Police HQ, KMP HQ, or Field Command)
     if (selectedCategoryFilter === 'POLICE_HQ' && !region.includes("POLICE HEADQUARTERS")) return false;
     if (selectedCategoryFilter === 'KMP_HQ' && !region.includes("KMP HEADQUARTERS")) return false;
     if (selectedCategoryFilter === 'FIELD_COMMAND' && region.includes("HEADQUARTERS")) return false;
 
-    // Region Dropdown Filter
     if (selectedRegionFilter !== 'ALL' && region !== selectedRegionFilter) return false;
 
     return true;
@@ -110,7 +107,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
       return setNotification({ type: 'error', text: 'Please select at least one recipient from the list.' });
     }
 
-    // Check if cross-region routing requires authorization flag
     const containsCrossRegion = formData.targetFnum.some(fnum => {
       const recipientObj = finalSelectableRecipients.find(u => u.fnum === fnum);
       return recipientObj && recipientObj.region !== currentUser.region;
@@ -126,8 +122,10 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const response = await fetch(`${API_URL}/api/v1/communications`, {
-        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        method: "POST", 
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
+          sender_fnum: currentUser.fnum, 
           sender_name: currentUser.name, 
           target_audience: formData.targetAudience,
           target_region: formData.targetRegion, 
@@ -142,7 +140,10 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
 
       if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.detail || "Database rejected the transmission.");
+          const errorMsg = Array.isArray(errData.detail)
+            ? errData.detail.map(err => `${err.loc.join(' -> ')}: ${err.msg}`).join(', ')
+            : (errData.detail || "Database rejected the transmission.");
+          throw new Error(errorMsg);
       }
 
       setNotification({ type: 'success', text: '✅ Message successfully dispatched securely.' });
@@ -154,7 +155,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
       if (activeTab === 'outbox') fetchMessages();
       
     } catch (err) {
-      setNotification({ type: 'error', text: `❌ ${err.message || "An unexpected error occurred during transmission."}` });
+      let errorMessage = err.message || "An unexpected error occurred during transmission.";
+      if (typeof err === 'object' && err.detail) {
+        errorMessage = Array.isArray(err.detail) 
+          ? err.detail.map(d => `${d.loc.join(' -> ')}: ${d.msg}`).join(', ') 
+          : err.detail;
+      }
+      setNotification({ type: 'error', text: `❌ ${errorMessage}` });
     } finally {
       setIsSubmitting(false);
       setTimeout(() => setNotification(null), 5000);
@@ -350,7 +357,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                   </div>
                 </div>
 
-                {/* 🟢 COMMAND CATEGORY & REGION-FILTERED MULTI-SELECT RECIPIENTS */}
                 {formData.targetAudience === 'SPECIFIC_USER' && (
                   <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -438,7 +444,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                     theme="snow" 
                     value={formData.message} 
                     onChange={(content) => {
-                      // 🟢 Enforce auto-capitalization on rich-text message bodies
                       setFormData({ ...formData, message: autoCapitalize(content) });
                     }}
                     className="bg-white rounded-md h-64 mb-4"

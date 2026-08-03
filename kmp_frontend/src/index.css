@@ -155,12 +155,15 @@
   100% { background-position: 0% 50%; }
 }
 
-/* 1. Diagonal wave for the main dashboard watermark (Tighter gradient layout) */
+/* 1. Diagonal wave for the main dashboard watermark (Strict 6-band loop: Black, Yellow, Red, Black, Yellow, Red) */
 .uganda-flag-wave-diagonal {
   background: linear-gradient(-45deg, 
-    #000000 12.5%, #facc15 12.5%, #facc15 25%, #dc2626 25%, #dc2626 37.5%, #000000 37.5%, 
-    #000000 50%, #ffffff 50%, #ffffff 62.5%, 
-    #000000 62.5%, #000000 75%, #ffffff 75%, #ffffff 100%
+    #000000 0%,   #000000 16.66%, 
+    #facc15 16.66%, #facc15 33.33%, 
+    #dc2626 33.33%, #dc2626 50%, 
+    #000000 50%,    #000000 66.66%, 
+    #facc15 66.66%, #facc15 83.33%, 
+    #dc2626 83.33%, #dc2626 100%
   );
   background-size: 200% 200%;
   animation: flagWaveBg 30s linear infinite;

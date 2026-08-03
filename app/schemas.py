@@ -255,16 +255,17 @@ class ModificationRequestResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
-class CommunicationCreate(BaseModel):
+class Admin_CommunicationCreate(BaseModel):
+    sender_fnum: str
+    sender_name: str
+    target_audience: str
+    target_region: Optional[str] = None
+    target_fnum: Optional[Union[str, List[str]]] = None
+    message_type: str
     subject: str
     message: str
-    message_type: Optional[str] = "GENERAL_INFO"
-    target_audience: Optional[str] = "SPECIFIC_USER"
-    target_region: Optional[str] = "ALL"
-    target_fnum: Optional[Union[str, List[str]]] = None
-    requires_command_approval: Optional[bool] = True
-    send_email: Optional[bool] = False
-    sender_name: Optional[str] = None
+    send_email: bool = False
+    requires_command_approval: Optional[bool] = False
 
 class LogResponse(BaseModel):
     id: int

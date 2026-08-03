@@ -1,10 +1,26 @@
 import React, { useState, useMemo } from 'react';
+import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart } from 'lucide-react';
+
+const REGIONAL_HIERARCHY = {
+  "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU"]
+};
+
+const CHART_COLORS = [
+  '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#16a34a', 
+  '#0891b2', '#4f46e5', '#9333ea', '#e11d48', '#ca8a04'
+];
 
 const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStories = [], operationalStats = [] }) => {
-  const [activeDomain, setActiveDomain] = useState('CRIME'); // 'CRIME' | 'PERSONNEL' | 'SUCCESS' | 'OPERATIONS'
+  const [activeDomain, setActiveDomain] = useState('CRIME');
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
+  
+  const [selectedRegion, setSelectedRegion] = useState('ALL REGIONS');
+  const [selectedStation, setSelectedStation] = useState('ALL STATIONS');
 
-  // 1. Dataset & Aggregator Resolver based on Domain and Grouping
   const currentDataset = useMemo(() => {
     if (activeDomain === 'CRIME') return crimeRegistry;
     if (activeDomain === 'PERSONNEL') return nominalRolls;
@@ -29,7 +45,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       } 
       else if (activeDomain === 'PERSONNEL') {
         if (metricCategory === 'RANK') key = (item.rank || 'UNRANKED').toUpperCase();
-        else if (metricCategory === 'UNIT') key = (item.station || 'UNKNOWN').toUpperCase();
+        else if (metricCategory === 'UNIT' || metricCategory === 'STATION') key = (item.station || 'UNKNOWN').toUpperCase();
         else if (metricCategory === 'DISTRICT') key = (item.homedist || item.home_dist || 'UNKNOWN').toUpperCase();
         else if (metricCategory === 'AGE') {
           const dob = item.dob;
@@ -67,7 +83,103 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
 
   const totalRecords = useMemo(() => aggregatedData.reduce((acc, curr) => acc + curr.count, 0), [aggregatedData]);
 
-  // 2. Secure Enterprise Encrypted Download Handler
+  const pieSlices = useMemo(() => {
+    if (totalRecords === 0) return [];
+    let cumulativePercent = 0;
+    return aggregatedData.map((item, index) => {
+      const percent = item.count / totalRecords;
+      const startAngle = cumulativePercent * 360;
+      cumulativePercent += percent;
+      const endAngle = cumulativePercent * 360;
+      
+      const x1 = 50 + 40 * Math.cos((Math.PI * (startAngle - 90)) / 180);
+      const y1 = 50 + 40 * Math.sin((Math.PI * (startAngle - 90)) / 180);
+      const x2 = 50 + 40 * Math.cos((Math.PI * (endAngle - 90)) / 180);
+      const y2 = 50 + 40 * Math.sin((Math.PI * (endAngle - 90)) / 180);
+      const largeArcFlag = percent > 0.5 ? 1 : 0;
+      
+      const pathData = totalRecords === 1 || percent === 1
+        ? "M 50 10 A 40 40 0 1 1 49.99 10 Z"
+        : `M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArcFlag} 1 ${x2} ${y2} Z`;
+
+      return {
+        label: item.label,
+        count: item.count,
+        percent: (percent * 100).toFixed(1),
+        color: CHART_COLORS[index % CHART_COLORS.length],
+        pathData
+      };
+    });
+  }, [aggregatedData, totalRecords]);
+
+  const getWeekIdentifier = (dateStr) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    
+    const target = new Date(d.valueOf());
+    const dayNr = (d.getDay() + 6) % 7;
+    target.setDate(target.getDate() - dayNr + 3);
+    const firstThursday = new Date(target.getFullYear(), 0, 4);
+    const weekNr = Math.ceil((((target - firstThursday) / 86400000) + 1) / 7);
+    return `${target.getFullYear()}-W${String(weekNr).padStart(2, '0')}`;
+  };
+
+  const weekComparisonData = useMemo(() => {
+    const reports = Array.isArray(crimeRegistry) ? crimeRegistry : [];
+
+    const filtered = reports.filter(r => {
+      const reg = (r.region || '').trim().toUpperCase();
+      const stn = (r.station || '').trim().toUpperCase();
+      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
+      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation.toUpperCase()) return false;
+      return true;
+    });
+
+    const stationWeekMap = {};
+    const allWeeksSet = new Set();
+
+    filtered.forEach(r => {
+      const weekId = getWeekIdentifier(r.date);
+      const station = (r.station || 'UNKNOWN STATION').trim().toUpperCase();
+      const region = (r.region || 'UNKNOWN REGION').trim().toUpperCase();
+
+      if (!weekId) return;
+      allWeeksSet.add(weekId);
+
+      if (!stationWeekMap[station]) {
+        stationWeekMap[station] = { region, station, weeks: {} };
+      }
+      stationWeekMap[station].weeks[weekId] = (stationWeekMap[station].weeks[weekId] || 0) + 1;
+    });
+
+    const sortedWeeks = Array.from(allWeeksSet).sort();
+    const currentWeek = sortedWeeks[sortedWeeks.length - 1] || 'N/A';
+    const previousWeek = sortedWeeks[sortedWeeks.length - 2] || 'N/A';
+
+    const rows = Object.values(stationWeekMap).map(item => {
+      const currentCount = item.weeks[currentWeek] || 0;
+      const previousCount = item.weeks[previousWeek] || 0;
+      const diff = currentCount - previousCount;
+      const pctChange = previousCount === 0 ? (currentCount > 0 ? 100 : 0) : Math.round((diff / previousCount) * 100);
+
+      return {
+        region: item.region,
+        station: item.station,
+        currentWeekCount: currentCount,
+        previousWeekCount: previousCount,
+        diff,
+        pctChange
+      };
+    });
+
+    return {
+      rows: rows.sort((a, b) => b.currentWeekCount - a.currentWeekCount),
+      currentWeek,
+      previousWeek
+    };
+  }, [crimeRegistry, selectedRegion, selectedStation]);
+
   const handleExportExcel = async () => {
     try {
       const token = localStorage.getItem('kmp_authToken');
@@ -81,6 +193,9 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       });
 
       if (!response.ok) {
+        if (response.status === 403) {
+          throw new Error("Clearance Denied: You are not authorized to download command analytics.");
+        }
         throw new Error("Server rejected secure export clearance.");
       }
 
@@ -89,7 +204,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       const link = document.createElement("a");
       link.style.display = 'none';
       link.href = downloadUrl;
-      link.download = `KMP_Secure_Analytics_${activeDomain}_${new Date().toISOString().split('T')[0]}.zip`;
+      link.download = `KMP_Command_Analytics_${activeDomain}_${new Date().toISOString().split('T')[0]}.xlsx`;
       
       document.body.appendChild(link);
       link.click();
@@ -98,7 +213,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         window.URL.revokeObjectURL(downloadUrl);
       }, 2000);
 
-      alert("🔒 Secure Analytics Report Downloaded Successfully!\n\nNote: The ZIP file is AES-encrypted. Unzip using your official Force Number (F/No) as the password.");
+      alert("🔒 Secure Analytics Report Downloaded Successfully!\n\nNote: The workbook contains 4 sieved sheets mapping your jurisdictional clearances.");
 
     } catch (error) {
       console.error("Secure Export Error:", error);
@@ -107,29 +222,28 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-300 font-sans">
+    <div className="p-6 max-w-[1600px] mx-auto space-y-6 animate-in fade-in duration-300 font-sans">
       
-      {/* HEADER & EXPORT BUTTON */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-200 gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">KMP Command Analytics Dashboard</h1>
-          <p className="text-xs text-slate-500 mt-1 font-medium">Real-time cross-tabulation, visual metrics, and exportable data intelligence.</p>
+          <p className="text-xs text-slate-500 mt-1 font-medium">Real-time cross-tabulation, visual metrics, intelligence tracking, and encrypted reporting.</p>
         </div>
         <button 
           onClick={handleExportExcel}
           className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-md transition flex items-center space-x-2 cursor-pointer"
         >
-          <span>📥 Download Analytics Report (Excel/CSV)</span>
+          <span>📥 Download 4-Sheet Analytics Report (Excel)</span>
         </button>
       </div>
 
-      {/* DOMAIN SWITCHER TABS */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
-          { id: 'CRIME', label: '📊 Crime Incident Registry' },
-          { id: 'PERSONNEL', label: '🛡️ Personnel & Nominal Roll' },
+          { id: 'CRIME', label: '📊 Crime Registry' },
+          { id: 'PERSONNEL', label: '🛡️ Nominal Roll' },
           { id: 'SUCCESS', label: '🌟 Success Stories' },
-          { id: 'OPERATIONS', label: '⚡ Operational Statistics' }
+          { id: 'OPERATIONS', label: '⚡ Operations' },
+          { id: 'TRENDS', label: '📈 Week-to-Week Trends' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -145,91 +259,282 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         ))}
       </div>
 
-      {/* SUB-CATEGORY FILTER BAR */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <span className="text-xs font-bold text-slate-500 uppercase">Group By:</span>
-          <select 
-            value={metricCategory}
-            onChange={e => setMetricCategory(e.target.value)}
-            className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer"
-          >
-            {activeDomain === 'CRIME' && (
-              <>
-                <option value="CATEGORY">Crime Category / Offence</option>
-                <option value="CASES">Cases Reported / Case Status</option>
-                <option value="ARRESTS">Offenders Arrested</option>
-                <option value="CONVICTIONS">Offenders Convicted</option>
-                <option value="CONCLUDED">Cases investigated to conclusion</option>
-                <option value="STATION">Police Station</option>
-              </>
-            )}
-            {activeDomain === 'PERSONNEL' && (
-              <>
-                <option value="RANK">Officer Rank</option>
-                <option value="UNIT">Station / Unit</option>
-                <option value="DISTRICT">Home District</option>
-                <option value="AGE">Age</option>
-                <option value="SEX">Sex</option>
-                <option value="DIR">Directorate</option>
-                <option value="SECTION">Section</option>
-              </>
-            )}
-            {activeDomain === 'SUCCESS' && (
-              <>
-                <option value="CATEGORY">Success Impact Type</option>
-                <option value="STATUS">Status</option>
-                <option value="STATION">Police Station</option>
-              </>
-            )}
-            {activeDomain === 'OPERATIONS' && (
-              <>
-                <option value="CATEGORY">Deployment / Outcome Type</option>
-                <option value="STATION">Police Station</option>
-              </>
-            )}
-          </select>
-        </div>
-        <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
-          Total Analyzed Entries: {totalRecords}
-        </span>
-      </div>
+      {activeDomain === 'TRENDS' ? (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          
+          <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-xl flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+              <h2 className="text-xl font-extrabold flex items-center tracking-wide">
+                <TrendingUp className="mr-3 text-blue-400 w-6 h-6" /> Week-to-Week Comparative Crime Volume
+              </h2>
+              <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider">
+                Analyzing trends across regions and stations ({weekComparisonData.previousWeek} vs {weekComparisonData.currentWeek})
+              </p>
+            </div>
 
-      {/* VISUAL CHARTS & BREAKDOWN GRID */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* BAR GRAPH VIEW */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide">Comparative Bar Graph ({metricCategory})</h3>
-          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
-            {aggregatedData.map((item, idx) => {
-              const percentage = totalRecords > 0 ? (item.count / totalRecords) * 100 : 0;
-              return (
-                <div key={idx} className="space-y-1">
-                  <div className="flex justify-between text-xs font-bold text-slate-700">
-                    <span>{item.label}</span>
-                    <span className="text-blue-600">{item.count} ({percentage.toFixed(1)}%)</span>
-                  </div>
-                  <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
-                    <div 
-                      className="bg-blue-600 h-full rounded-full transition-all duration-500" 
-                      style={{ width: `${Math.max(percentage, 2)}%` }}
-                    ></div>
-                  </div>
-                </div>
-              );
-            })}
-            {aggregatedData.length === 0 && (
-              <div className="p-8 text-center text-slate-400 text-xs">No records available for analysis in this view.</div>
-            )}
+            <div className="flex flex-wrap gap-3">
+              <select 
+                value={selectedRegion} 
+                onChange={(e) => { setSelectedRegion(e.target.value); setSelectedStation('ALL STATIONS'); }}
+                className="bg-slate-800 text-white border border-slate-700 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-blue-400 cursor-pointer"
+              >
+                <option value="ALL REGIONS">ALL REGIONS</option>
+                <option value="KMP NORTH">KMP NORTH</option>
+                <option value="KMP EAST">KMP EAST</option>
+                <option value="KMP SOUTH">KMP SOUTH</option>
+                <option value="KMP HEADQUARTERS">KMP HEADQUARTERS</option>
+                <option value="POLICE HEADQUARTERS">POLICE HEADQUARTERS</option>
+              </select>
+
+              <select 
+                value={selectedStation} 
+                onChange={(e) => setSelectedStation(e.target.value)}
+                className="bg-slate-800 text-white border border-slate-700 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-blue-400 cursor-pointer"
+              >
+                <option value="ALL STATIONS">ALL STATIONS</option>
+                {selectedRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[selectedRegion] || []).map(stn => (
+                  <option key={stn} value={stn}>{stn}</option>
+                ))}
+              </select>
+            </div>
           </div>
-        </div>
 
-        {/* STRUCTURED DATA TABLE VIEW */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between">
-          <div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Current Period ({weekComparisonData.currentWeek})</span>
+                <div className="text-3xl font-extrabold text-blue-700 mt-1">
+                  {weekComparisonData.rows.reduce((sum, r) => sum + r.currentWeekCount, 0)} <span className="text-sm font-medium text-slate-500">Cases</span>
+                </div>
+              </div>
+              <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600">
+                <Calendar size={24} />
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Previous Period ({weekComparisonData.previousWeek})</span>
+                <div className="text-3xl font-extrabold text-slate-700 mt-1">
+                  {weekComparisonData.rows.reduce((sum, r) => sum + r.previousWeekCount, 0)} <span className="text-sm font-medium text-slate-500">Cases</span>
+                </div>
+              </div>
+              <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center text-slate-600">
+                <Shield size={24} />
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Net Trend Shift</span>
+                {(() => {
+                  const curTotal = weekComparisonData.rows.reduce((sum, r) => sum + r.currentWeekCount, 0);
+                  const prevTotal = weekComparisonData.rows.reduce((sum, r) => sum + r.previousWeekCount, 0);
+                  const diff = curTotal - prevTotal;
+                  return (
+                    <div className={`text-3xl font-extrabold mt-1 flex items-center ${diff <= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {diff > 0 ? `+${diff}` : diff} 
+                      {diff <= 0 ? <ArrowDownRight className="ml-2 w-6 h-6" /> : <ArrowUpRight className="ml-2 w-6 h-6" />}
+                    </div>
+                  );
+                })()}
+              </div>
+              <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
+                <BarChart3 size={24} />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+              <h3 className="font-extrabold text-slate-800 text-sm uppercase tracking-wider flex items-center">
+                <Filter size={16} className="mr-2 text-blue-600" /> Week-to-Week Crime Volume Breakdown by Station
+              </h3>
+              <span className="text-xs font-bold text-slate-500 bg-white px-3 py-1 rounded-full border shadow-xs">
+                {weekComparisonData.rows.length} Stations Monitored
+              </span>
+            </div>
+
+            <div className="overflow-x-auto w-full">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-slate-100">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Region</th>
+                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Station / Division</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-600 uppercase tracking-wider">Previous Week ({weekComparisonData.previousWeek})</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-600 uppercase tracking-wider">Current Week ({weekComparisonData.currentWeek})</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-600 uppercase tracking-wider">Variance (Cases)</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-600 uppercase tracking-wider">Trend Direction</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {weekComparisonData.rows.map((row, index) => (
+                    <tr key={index} className="even:bg-slate-50 hover:bg-blue-50/50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-xs font-bold text-slate-500 uppercase">{row.region}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-extrabold text-blue-700">{row.station}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-bold text-slate-600">{row.previousWeekCount}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-extrabold text-slate-900">{row.currentWeekCount}</td>
+                      <td className={`px-6 py-4 whitespace-nowrap text-sm text-center font-extrabold ${row.diff > 0 ? 'text-red-600' : row.diff < 0 ? 'text-green-600' : 'text-slate-500'}`}>
+                        {row.diff > 0 ? `+${row.diff}` : row.diff}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        {row.diff > 0 ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800">
+                            <TrendingUp size={14} className="mr-1" /> +{row.pctChange}% (Up)
+                          </span>
+                        ) : row.diff < 0 ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800">
+                            <TrendingDown size={14} className="mr-1" /> {row.pctChange}% (Down)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+                            Stable (0%)
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {weekComparisonData.rows.length === 0 && (
+                    <tr>
+                      <td colSpan="6" className="text-center py-10 text-slate-400 font-medium text-sm">
+                        No crime incidents found matching the selected parameters.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      ) : (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center space-x-3 w-full sm:w-auto">
+              <span className="text-xs font-bold text-slate-500 uppercase">Group By:</span>
+              <select 
+                value={metricCategory}
+                onChange={e => setMetricCategory(e.target.value)}
+                className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer w-full sm:w-auto"
+              >
+                {activeDomain === 'CRIME' && (
+                  <>
+                    <option value="CATEGORY">Crime Category / Offence</option>
+                    <option value="CASES">Cases Reported / Case Status</option>
+                    <option value="ARRESTS">Offenders Arrested</option>
+                    <option value="CONVICTIONS">Offenders Convicted</option>
+                    <option value="CONCLUDED">Cases investigated to conclusion</option>
+                    <option value="STATION">Police Station</option>
+                  </>
+                )}
+                {activeDomain === 'PERSONNEL' && (
+                  <>
+                    <option value="RANK">Officer Rank</option>
+                    <option value="UNIT">Station / Unit</option>
+                    <option value="DISTRICT">Home District</option>
+                    <option value="AGE">Age</option>
+                    <option value="SEX">Sex</option>
+                    <option value="DIR">Directorate</option>
+                    <option value="SECTION">Section</option>
+                  </>
+                )}
+                {activeDomain === 'SUCCESS' && (
+                  <>
+                    <option value="CATEGORY">Success Impact Type</option>
+                    <option value="STATUS">Status</option>
+                    <option value="STATION">Police Station</option>
+                  </>
+                )}
+                {activeDomain === 'OPERATIONS' && (
+                  <>
+                    <option value="CATEGORY">Deployment / Outcome Type</option>
+                    <option value="STATION">Police Station</option>
+                  </>
+                )}
+              </select>
+            </div>
+            <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+              Total Analyzed Entries: {totalRecords}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide w-full text-left mb-4 flex items-center">
+                <PieChart size={16} className="mr-2 text-blue-600" /> Proportional Share ({metricCategory})
+              </h3>
+              
+              <div className="relative w-48 h-48 my-2">
+                {totalRecords > 0 ? (
+                  <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90 drop-shadow-sm">
+                    {pieSlices.map((slice, idx) => (
+                      <path
+                        key={idx}
+                        d={slice.pathData}
+                        fill={slice.color}
+                        className="transition-all duration-300 hover:opacity-80 cursor-pointer"
+                      />
+                    ))}
+                  </svg>
+                ) : (
+                  <div className="w-full h-full rounded-full border-4 border-dashed border-slate-200 flex items-center justify-center text-xs text-slate-400 font-bold">
+                    No Data
+                  </div>
+                )}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-xs text-slate-400 font-bold uppercase">Total</span>
+                  <span className="text-lg font-extrabold text-slate-800">{totalRecords}</span>
+                </div>
+              </div>
+
+              <div className="w-full mt-4 max-h-32 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
+                {pieSlices.map((slice, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-xs font-bold text-slate-700 px-2 py-1 bg-slate-50 rounded">
+                    <div className="flex items-center space-x-2 truncate">
+                      <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: slice.color }}></span>
+                      <span className="truncate">{slice.label}</span>
+                    </div>
+                    <span className="text-slate-500 font-mono shrink-0 ml-2">{slice.count} ({slice.percent}%)</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide flex items-center">
+                <BarChart3 size={16} className="mr-2 text-indigo-600" /> Comparative Bar Graph ({metricCategory})
+              </h3>
+              <div className="space-y-3 max-h-[340px] overflow-y-auto pr-2 custom-scrollbar">
+                {aggregatedData.map((item, idx) => {
+                  const percentage = totalRecords > 0 ? (item.count / totalRecords) * 100 : 0;
+                  return (
+                    <div key={idx} className="space-y-1">
+                      <div className="flex justify-between text-xs font-bold text-slate-700">
+                        <span className="truncate pr-2">{item.label}</span>
+                        <span className="text-blue-600 shrink-0">{item.count} ({percentage.toFixed(1)}%)</span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
+                        <div 
+                          className="bg-blue-600 h-full rounded-full transition-all duration-500" 
+                          style={{ width: `${Math.max(percentage, 2)}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {aggregatedData.length === 0 && (
+                  <div className="p-8 text-center text-slate-400 text-xs">No records available for analysis in this view.</div>
+                )}
+              </div>
+            </div>
+
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
             <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-4">Statistical Distribution Breakdown ({activeDomain})</h3>
-            <div className="border border-slate-100 rounded-xl overflow-hidden max-h-[340px] overflow-y-auto">
+            <div className="border border-slate-100 rounded-xl overflow-hidden max-h-[340px] overflow-y-auto custom-scrollbar">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-700 uppercase font-bold sticky top-0 border-b border-slate-200">
                   <tr>
@@ -249,14 +554,14 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
                 </tbody>
               </table>
             </div>
+            
+            <div className="pt-4 text-center border-t border-slate-100 mt-4">
+              <p className="text-[11px] text-slate-400 font-medium">Data compiled securely by KMP Centralised Security Data Management System.</p>
+            </div>
           </div>
-          
-          <div className="pt-4 text-center border-t border-slate-100 mt-4">
-            <p className="text-[11px] text-slate-400 font-medium">Data compiled securely by KMP Centralised Security Data Management System.</p>
-          </div>
-        </div>
 
-      </div>
+        </div>
+      )}
 
     </div>
   );

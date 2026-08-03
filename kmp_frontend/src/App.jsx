@@ -26,7 +26,7 @@ const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
   "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "POLICE HEADQUARTERS": ["NAGURU", "KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"]
 };
 
@@ -34,6 +34,23 @@ const autoCapitalize = (text) => {
   if (!text) return text;
   return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
     return separator + letter.toUpperCase();
+  });
+};
+
+export const formatEATDateTime = (dateStr) => {
+  if (!dateStr) return 'N/A';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+
+  return d.toLocaleString('en-GB', {
+    timeZone: 'Africa/Nairobi', // Forces East Africa Time (EAT)
+    hour12: false,              // Forces strict 24-hour format (e.g. 18:34 instead of 06:34 PM)
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
   });
 };
 
@@ -1995,8 +2012,8 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');  
   const [updateSearch, setUpdateSearch] = useState('');
 
-  const [viewMode, setViewMode] = useState('active'); 
-  const [metricCategory, setMetricCategory] = useState('RANK'); 
+  const [viewMode, setViewMode] = useState('active'); // 'active' | 'archive' | 'metrics'
+  const [metricCategory, setMetricCategory] = useState('RANK');  
   const [archiveReason, setArchiveReason] = useState('TRANSFERRED');
 
   const [formData, setFormData] = useState({
@@ -2007,7 +2024,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     district: '', region: currentUser.region, section: '', dir: '', status: 'ACTIVE'
   });
 
-  const filteredRolls = useMemo(() => {
+const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const dbRegion = (n.region || '').trim().toUpperCase();
       const dbStation = (n.station || '').trim().toUpperCase();
@@ -2017,6 +2034,14 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       if (selRegion !== 'ALL REGIONS' && selRegion !== '' && dbRegion !== selRegion) return false;
       if (selStation !== 'ALL STATIONS' && selStation !== '' && dbStation !== selStation) return false;
       return true;
+    }).sort((a, b) => {
+      // 🟢 Sort by rank seniority first, then alphabetically by name if ranks match
+      const weightA = getRankWeight(a.rank);
+      const weightB = getRankWeight(b.rank);
+      if (weightA !== weightB) {
+        return weightA - weightB;
+      }
+      return (a.name || '').localeCompare(b.name || '');
     });
   }, [Nominal_Rolls, filterRegion, filterStation]);
 
@@ -2034,8 +2059,21 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       if (dbRegion !== selRegion) return false;
       if (dbStation !== selStation) return false;
       return true;
+    }).sort((a, b) => {
+      // 🟢 Sort archives by seniority weight too
+      const weightA = getRankWeight(a.rank);
+      const weightB = getRankWeight(b.rank);
+      if (weightA !== weightB) {
+        return weightA - weightB;
+      }
+      return (a.name || '').localeCompare(b.name || '');
     });
   }, [Nominal_Roll_archives, filterRegion, filterStation, currentUser]);
+
+  // 🟢 Dynamically resolve dataset based on active vs archive view mode for metrics & counters
+  const currentRollDataset = useMemo(() => {
+    return viewMode === 'archive' ? filteredNominal_Roll_archives : filteredRolls;
+  }, [viewMode, filteredRolls, filteredNominal_Roll_archives]);
 
   const availableUpdateRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
@@ -2052,7 +2090,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       if (viewMode !== 'metrics') return [];
       const grouped = {};
       
-      filteredRolls.forEach(n => {
+      currentRollDataset.forEach(n => {
           let key = 'Unknown';
           const isFemale = (n.sex || '').toUpperCase().includes('F') || (n.nin || '').toUpperCase().startsWith('CF');
           
@@ -2076,16 +2114,52 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
           else grouped[key].male += 1;
       });
       return Object.values(grouped).sort((a, b) => b.total - a.total);
-  }, [filteredRolls, metricCategory, viewMode]);
+  }, [currentRollDataset, metricCategory, viewMode]);
+
+
+// 🟢 Official UPF Command Seniority Weighting (Lower index = Higher rank)
+const RANK_SENIORITY = {
+  // Officers
+  "IGP": 1,
+  "DIGP": 2,
+  "AIGP": 3,
+  "SCP": 4,
+  "CP": 5,
+  "ACP": 6,
+  "SSP": 7,
+  "SP": 8,
+  "ASP": 9,
+  "IP": 10,
+  "AIP": 11,
+  // NCOs & Enlisted Men
+  "HCM": 12,
+  "HC": 13,
+  "S/SGT": 14,
+  "SSGT": 14,
+  "SGT": 15,
+  "CPL": 16,
+  "L/CPL": 17,
+  "LCPL": 17,
+  "PC": 18,
+  "SPC": 19
+};
+
+// Helper function to get rank weight (defaults unlisted or blank ranks to bottom)
+const getRankWeight = (rankStr) => {
+  if (!rankStr) return 99;
+  const cleanRank = rankStr.trim().toUpperCase();
+  return RANK_SENIORITY[cleanRank] !== undefined ? RANK_SENIORITY[cleanRank] : 50;
+};
+
 
   const metricsData = useMemo(() => {
     return {
-      total: filteredRolls.length,
-      male: filteredRolls.filter(n => (n.sex || '').toUpperCase().includes('M')).length,
-      female: filteredRolls.filter(n => (n.sex || '').toUpperCase().includes('F') || (n.nin || '').toUpperCase().startsWith('CF')).length,
-      stations: filteredRolls.reduce((acc, curr) => { if(curr.station) acc[curr.station] = true; return acc; }, {})
+      total: currentRollDataset.length,
+      male: currentRollDataset.filter(n => (n.sex || '').toUpperCase().includes('M')).length,
+      female: currentRollDataset.filter(n => (n.sex || '').toUpperCase().includes('F') || (n.nin || '').toUpperCase().startsWith('CF')).length,
+      stations: currentRollDataset.reduce((acc, curr) => { if(curr.station) acc[curr.station] = true; return acc; }, {})
     };
-  }, [filteredRolls]);
+  }, [currentRollDataset]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -2183,9 +2257,9 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   };
 
   const canUploadHR = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role) || 
-                      (currentUser?.position || '').toUpperCase().includes('HR') ||
-                      currentUser?.permissions?.upload_hr || 
-                      currentUser?.permissions?.export_data;
+                     (currentUser?.position || '').toUpperCase().includes('HR') ||
+                     currentUser?.permissions?.upload_hr || 
+                     currentUser?.permissions?.export_data;
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
@@ -2197,7 +2271,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
         <div className="flex flex-col md:flex-row justify-between items-center mb-4 border-b pb-2">
-          <h3 className="font-bold text-slate-800 flex items-center"><BarChart3 className="w-5 h-5 mr-2 text-blue-600"/> Personnel Metrics Dashboard</h3>
+          <h3 className="font-bold text-slate-800 flex items-center"><BarChart3 className="w-5 h-5 mr-2 text-blue-600"/> Personnel Metrics Dashboard ({viewMode === 'archive' ? 'Archived Records' : viewMode === 'metrics' ? 'Analytics View' : 'Active Roll'})</h3>
           <div className="flex space-x-2 mt-2 md:mt-0">
              <button onClick={() => setViewMode('active')} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Active Roll</button>
              <button onClick={() => setViewMode('archive')} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'archive' ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Archived</button>
@@ -2207,7 +2281,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
         {viewMode !== 'metrics' && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-             <MetricCard title="Total Personnel" value={metricsData.total} colorClass="text-blue-700" />
+             <MetricCard title={viewMode === 'archive' ? "Total Archived" : "Total Personnel"} value={metricsData.total} colorClass={viewMode === 'archive' ? "text-red-700" : "text-blue-700"} />
              <MetricCard title="Male Officers" value={metricsData.male} colorClass="text-indigo-600" />
              <MetricCard title="Female Officers" value={metricsData.female} colorClass="text-pink-600" />
              <MetricCard title="Stations" value={Object.keys(metricsData.stations).length} colorClass="text-emerald-600" />
@@ -2224,7 +2298,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                   <h4 className="font-bold text-gray-800 text-sm flex items-center">
                     <Upload className="w-4 h-4 mr-2 text-blue-600 shrink-0" /> Batch Excel Import Existing Nominal Roll
                   </h4>
-                  <p className="text-xs text-gray-500 mt-0.5">Upload your existing Nominal roll, Ensure your column headers are exactly as below for consistency:</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Upload your existing Nominal roll. Existing records will intelligently append missing attributes (like missing tribe, dob, etc.) without duplicating entries:</p>
                 </div>
                 
                 <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-mono text-slate-700 flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
@@ -3319,73 +3393,67 @@ return (
       {/* MAIN CARD CONTAINER */}
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
         
-{/* 🟢 THE WAVING POLICE FLAG EMBLEM IDLE CURTAIN */}
-        <div 
-          className={`absolute inset-0 z-50 flex flex-col items-center justify-center transition-all duration-1000 ease-in-out shadow-2xl ${
-            isLoginIdle ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
-          }`}
-          style={{ backgroundColor: '#0f172a' }} 
-        >
-          {/* Top Stripes */}
-          <div className="absolute top-0 w-full h-2 bg-[#000000]"></div>
-          <div className="absolute top-2 w-full h-2 bg-[#facc15]"></div>
-          <div className="absolute top-4 w-full h-2 bg-[#dc2626]"></div>
+{/* 🟢 THE FULL-SCREEN CURTAIN (Uses your index.css .security-curtain-overlay class) */}
+<div 
+  className={`security-curtain-overlay transition-opacity duration-700 ease-in-out ${
+    isLoginIdle ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+  }`}
+>
+  {/* Top Stripes */}
+  <div className="absolute top-0 w-full h-2 bg-[#000000]"></div>
+  <div className="absolute top-2 w-full h-2 bg-[#facc15]"></div>
+  <div className="absolute top-4 w-full h-2 bg-[#dc2626]"></div>
 
-          {/* Faded Background Pattern */}
-          <div 
-            className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-cover mt-10" 
-            style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}
-          ></div>
+  {/* Faded Background Pattern */}
+  <div 
+    className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-cover mt-10" 
+    style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}
+  ></div>
 
-          <div className="relative z-10 flex flex-col items-center text-center">
-            <div className="upf-css-globe mb-6 border border-slate-600/50"></div>
-            
-            {/* Sweep-and-Settle Animated Title */}
-            <div className="overflow-hidden py-2 w-full max-w-4xl">
-              <h2 className="text-3xl font-bold text-center text-white tracking-wide uppercase drop-shadow-md flex justify-center flex-wrap">
-                {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM".split("").map((char, index) => {
-                  const delay = Math.pow(index, 1.2) * 0.025; 
-                  
-                  return (
-                    <span
-                      key={index}
-                      className="animate-sweep-letter"
-                      style={{ 
-                        animationDelay: `${delay}s`,
-                        // 🟢 FIX 1: Enforce space rendering so words don't collapse
-                        whiteSpace: "pre" 
-                      }}
-                    >
-                      {/* 🟢 FIX 2: Safely render empty spaces as non-breaking spaces */}
-                      {char === " " ? "\u00A0" : char}
-                    </span>
-                  );
-                })}
-              </h2>
-            </div>
+  <div className="relative z-10 flex flex-col items-center text-center">
+    <div className="upf-css-globe mb-6 border border-slate-600/50"></div>
+    
+    {/* Sweep-and-Settle Animated Title */}
+    <div className="curtain-title-container">
+      <h2 className="text-3xl font-bold text-center text-white tracking-wide uppercase drop-shadow-md flex justify-center flex-wrap">
+        {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM".split("").map((char, index) => {
+          const delay = Math.pow(index, 1.2) * 0.025; 
+          
+          return (
+            <span
+              key={index}
+              className="animate-sweep-letter"
+              style={{ 
+                animationDelay: `${delay}s`,
+                whiteSpace: "pre" 
+              }}
+            >
+              {char === " " ? "\u00A0" : char}
+            </span>
+          );
+        })}
+      </h2>
+    </div>
 
-            {/* Sparkling Globe Badge */}
-            <p className="text-blue-200 mt-3 text-sm font-bold bg-yellow-900/50 px-4 py-1.5 rounded-full border border-cyan-600/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
-              <Lock size={14} className="mr-2" /> 
-              
-              <span className="relative inline-flex items-center justify-center mx-2">
-                {/* 🟢 FIX 3: Corrected blur-xs to Tailwind standard blur-sm */}
-                <span className="absolute -inset-1 rounded-full bg-yellow-600/20 blur-sm animate-pulse-spin"></span>
-                <Globe size={28} className="relative z-10 animate-spin-globe" />
-                {/* 🟢 FIX 4: Corrected malformed class animate-text-white-700 */}
-                <span className="absolute -top-1 -right-1.5 text-[10px] animate-pulse text-white/90">✨</span>
-              </span>
+    {/* Sparkling Globe Badge */}
+    <p className="text-blue-200 mt-3 text-sm font-bold bg-yellow-900/50 px-4 py-1.5 rounded-full border border-cyan-600/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
+      <Lock size={14} className="mr-2" /> 
+      
+      <span className="relative inline-flex items-center justify-center mx-2">
+        <span className="absolute -inset-1 rounded-full bg-yellow-600/20 blur-sm animate-pulse-spin"></span>
+        <Globe size={28} className="relative z-10 animate-spin-globe" />
+        <span className="absolute -top-1 -right-1.5 text-[10px] animate-pulse text-white/90">✨</span>
+      </span>
 
-              KMP-CSDMS-TRACKER SYSTEM
-            </p>
-          </div>
+      KMP-CSDMS-TRACKER SYSTEM
+    </p>
+  </div>
 
-          {/* Bottom Stripes */}
-          <div className="absolute bottom-4 w-full h-2 bg-[#dc2626]"></div> 
-          <div className="absolute bottom-2 w-full h-2 bg-[#facc15]"></div> 
-          <div className="absolute bottom-0 w-full h-2 bg-[#000000]"></div> 
-        </div>
-        {/* 🟢 END OF CURTAIN */}
+  {/* Bottom Stripes */}
+  <div className="absolute bottom-4 w-full h-2 bg-[#dc2626]"></div> 
+  <div className="absolute bottom-2 w-full h-2 bg-[#facc15]"></div> 
+  <div className="absolute bottom-0 w-full h-2 bg-[#000000]"></div> 
+</div>
 
         {/* 🟢 LOGIN / SIGNUP FORM AREA */}
         <div className="bg-slate-900 p-6 text-center relative">
@@ -3542,9 +3610,6 @@ return (
 
 
 // ====================================================================
-// --- MAIN LAYOUT COMPONENT ---
-// ====================================================================
-// ====================================================================
 // --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN COMPONENT ---
 // ====================================================================
 const WorkspaceSecurityCurtain = () => {
@@ -3658,6 +3723,9 @@ const WorkspaceSecurityCurtain = () => {
   );
 };
 
+// ====================================================================
+// --- MAIN LAYOUT COMPONENT ---
+// ====================================================================
 const DashboardLayout = ({ 
   currentUser, 
   currentPage, 
@@ -3681,6 +3749,7 @@ const DashboardLayout = ({
   const [viewingProfileImage, setViewingProfileImage] = useState(null);
   const [newForcePassword, setNewForcePassword] = useState('');
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(true);
 
   const [lastViewedId, setLastViewedId] = useState(() => {
     const saved = localStorage.getItem('last_viewed_comm_id');
@@ -3857,10 +3926,10 @@ const DashboardLayout = ({
   const hasUnreadComms = relevantComms.some(c => !c.acknowledged);
 
   const hasNominalClearance = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
-                              (currentUser?.position || '').toUpperCase().includes('HR') ||
-                              currentUser?.permissions?.view_nominal_roll || 
-                              currentUser?.permissions?.upload_hr || 
-                              currentUser?.permissions?.system_admin;
+                            (currentUser?.position || '').toUpperCase().includes('HR') ||
+                            currentUser?.permissions?.view_nominal_roll || 
+                            currentUser?.permissions?.upload_hr || 
+                            currentUser?.permissions?.system_admin;
 
   const navItems = [
     { 
@@ -3931,75 +4000,80 @@ const DashboardLayout = ({
     }
   };
 
-const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
-  <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-    <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl border-2 border-slate-800 text-left font-sans">
-      
-      <div className="flex items-start space-x-4">
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border ${
-          isTimedOut ? 'bg-red-50 text-red-600 border-red-100' : 'bg-amber-50 text-amber-600 border-amber-100'
-        }`}>
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-        </div>
+  const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl border-2 border-slate-800 text-left font-sans">
         
-        <div className="space-y-1">
-          <h4 className="text-base font-extrabold text-slate-900 tracking-tight">
-            {isTimedOut ? 'Session Expired Due to Inactivity' : 'Session Timeout Warning'}
-          </h4>
-          <p className="text-xs text-slate-600 leading-relaxed">
-            {isTimedOut 
-              ? 'Your security token has expired because the system was left unattended. You have been securely logged out.' 
-              : `Your session will expire in ${idleCountdown}s due to inactivity. Click below to continue working.`}
-          </p>
+        <div className="flex items-start space-x-4">
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border ${
+            isTimedOut ? 'bg-red-50 text-red-600 border-red-100' : 'bg-amber-50 text-amber-600 border-amber-100'
+          }`}>
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          
+          <div className="space-y-1">
+            <h4 className="text-base font-extrabold text-slate-900 tracking-tight">
+              {isTimedOut ? 'Session Expired Due to Inactivity' : 'Session Timeout Warning'}
+            </h4>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {isTimedOut 
+                ? 'Your security token has expired because the system was left unattended. You have been securely logged out.' 
+                : `Your session will expire in ${idleCountdown}s due to inactivity. Click below to continue working.`}
+            </p>
+          </div>
         </div>
-      </div>
 
-      <div className="mt-6">
-        {isTimedOut ? (
-          <button 
-            type="button"
-            onClick={() => {
-              // 1. Wipe local authentication token immediately
-              localStorage.removeItem('kmp_authToken');
-              localStorage.removeItem('user');
-              
-              // 2. Execute logout ref if it exists, then force a hard window reload to reset the root app tree
-              if (latestOnLogout.current) {
-                try {
-                  latestOnLogout.current();
-                } catch (err) {
-                  console.error(err);
+        <div className="mt-6">
+          {isTimedOut ? (
+            <button 
+              type="button"
+              onClick={() => {
+                // 1. Immediately dismiss modal overlay by clearing timeout states
+                setIsTimedOut(false);
+                setShowIdleWarning(false);
+
+                // 2. Wipe local authentication tokens & user state
+                localStorage.removeItem('kmp_authToken');
+                localStorage.removeItem('kmp_currentUser');
+                localStorage.removeItem('kmp_currentPage');
+                
+                // 3. Execute logout ref if it exists, then force a hard window reload
+                if (latestOnLogout.current) {
+                  try {
+                    latestOnLogout.current();
+                  } catch (err) {
+                    console.error(err);
+                  }
                 }
-              }
-              window.location.href = '/';
-            }}
-            className="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold px-4 py-3 rounded-xl shadow-md transition-all cursor-pointer uppercase tracking-wider"
-          >
-            Acknowledge & Return to Login
-          </button>
-        ) : (
-          <button 
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setShowIdleWarning(false);
-              if (resetIdleTimersRef.current) {
-                resetIdleTimersRef.current(); 
-              }
-            }}
-            className="w-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-3 rounded-xl shadow-md transition-all cursor-pointer"
-          >
-            I am still here (Extend Session)
-          </button>
-        )}
-      </div>
+                window.location.href = '/';
+              }}
+              className="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold px-4 py-3 rounded-xl shadow-md transition-all cursor-pointer uppercase tracking-wider"
+            >
+              Acknowledge & Return to Login
+            </button>
+          ) : (
+            <button 
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowIdleWarning(false);
+                if (resetIdleTimersRef.current) {
+                  resetIdleTimersRef.current(); 
+                }
+              }}
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-3 rounded-xl shadow-md transition-all cursor-pointer"
+            >
+              I am still here (Extend Session)
+            </button>
+          )}
+        </div>
 
+      </div>
     </div>
-  </div>
-);
+  );
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
@@ -4010,30 +4084,30 @@ const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
           : (sidebarOpen ? 'w-64 md:w-72' : 'w-16')
       }`}>
         
-<div className={`p-4 flex items-center border-b border-slate-500 transition-all ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
-        {sidebarOpen && (
-          <div className="flex items-center min-w-max">
-            {/* Miniature 3D Spinning Globe Icon */}
-            <div 
-              className="rounded-full bg-cover bg-repeat-x shrink-0 mr-2 border border-slate-700/50"
-              style={{ 
-                width: '20px', 
-                height: '20px', 
-                backgroundImage: "url('/UPF Flag Emblem.png')",
-                animation: "spinFauxGlobe 12s linear infinite",
-                boxShadow: "inset -3px -3px 5px rgba(0, 0, 0, 0.8), inset 1px 1px 2px rgba(255, 255, 255, 0.5), 0 0 3px rgba(255, 255, 255, 0.2)"
-              }}
-            ></div>
-            <span className="font-bold text-[13px] tracking-wider text-white">KMP TRACKER SYSTEM</span>
-          </div>
+        <div className={`p-4 flex items-center border-b border-slate-500 transition-all ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
+          {sidebarOpen && (
+            <div className="flex items-center min-w-max">
+              {/* Miniature 3D Spinning Globe Icon */}
+              <div 
+                className="rounded-full bg-cover bg-repeat-x shrink-0 mr-2 border border-slate-700/50"
+                style={{ 
+                  width: '20px', 
+                  height: '20px', 
+                  backgroundImage: "url('/UPF Flag Emblem.png')",
+                  animation: "spinFauxGlobe 12s linear infinite",
+                  boxShadow: "inset -3px -3px 5px rgba(0, 0, 0, 0.8), inset 1px 1px 2px rgba(255, 255, 255, 0.5), 0 0 3px rgba(255, 255, 255, 0.2)"
+                }}
+              ></div>
+              <span className="font-bold text-[13px] tracking-wider text-white">KMP TRACKER SYSTEM</span>
+            </div>
           )}
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-500 rounded text-slate-150 transition-colors shrink-0">
-  {sidebarOpen ? (
-            <X size={20} className="text-yellow-400 animate-in spin-in-90 duration-200" />
-  ) : (
-            <Menu size={20} className="text-yellow-400 animate-in spin-in-[-90deg] duration-200" />
-  )}
-        </button>
+            {sidebarOpen ? (
+              <X size={20} className="text-yellow-400 animate-in spin-in-90 duration-200" />
+            ) : (
+              <Menu size={20} className="text-yellow-400 animate-in spin-in-[-90deg] duration-200" />
+            )}
+          </button>
         </div>
         
         <div className="flex-1 overflow-y-auto py-2 custom-scrollbar overflow-x-hidden">
@@ -4203,7 +4277,23 @@ const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
 
       <main className="flex-1 overflow-y-auto bg-gray-50 w-full relative flex flex-col">
         <IdleWarningModal /> 
-        <div className="absolute top-4 right-6 z-50">
+        
+        {/* 🟢 Top Right Controls (Fullscreen & Motion Play/Pause Toggles) */}
+        <div className="absolute top-4 right-6 z-50 flex items-center space-x-2">
+          {/* Motion Toggle Button */}
+          <button 
+            onClick={() => setIsAnimating(!isAnimating)}
+            className={`px-3 py-1.5 rounded text-xs font-bold shadow-md transition-colors flex items-center gap-1.5 border ${
+              isAnimating 
+                ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-500' 
+                : 'bg-slate-700 hover:bg-slate-800 text-slate-200 border-slate-600'
+            }`}
+            title={isAnimating ? "Stop Background Motion" : "Start Background Motion"}
+          >
+            {isAnimating ? '⏸ Pause Motion' : '▶ Play Motion'}
+          </button>
+
+          {/* Fullscreen Toggle */}
           <button 
             onClick={() => setIsFullScreen(!isFullScreen)}
             className="bg-blue-400 hover:bg-blue-450 text-white px-3 py-1.5 rounded text-xs font-bold shadow-md transition-colors flex items-center gap-2 border border-blue-400"
@@ -4212,8 +4302,10 @@ const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
           </button>
         </div>
 
-        {/* Uganda Flag Diagonal Wave Watermark */}
-        <div className="absolute inset-0 pointer-events-none z-0 uganda-flag-wave-diagonal opacity-[0.10]"></div>
+        {/* Uganda Flag Diagonal Wave Watermark (Conditionally Animated via Play/Pause state) */}
+        <div className={`absolute inset-0 pointer-events-none z-0 uganda-flag-wave-diagonal opacity-[0.10] ${
+          !isAnimating ? '[animation-play-state:paused]' : ''
+        }`}></div>
 
         {/* UPF Badge Watermark */}
         <div className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.08]">
@@ -4556,15 +4648,69 @@ const App = () => {
 
   const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
 
-const renderPage = () => {
+  const renderPage = () => {
     switch (currentPage) {
       case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
-      case 'reports': return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
+      
+      // 🟢 SCROLLABLE DOSSIER CONTAINER FOR CRIME INCIDENTS
+      case 'reports': return (
+        <div className="p-6 max-w-[1920px] mx-auto space-y-6 w-full">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden max-w-full">
+            <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+              <div>
+                <h3 className="font-extrabold text-sm uppercase tracking-wider">Crime Incident Dossier & Registry</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Comprehensive chronological log of recorded incidents.</p>
+              </div>
+              <span className="bg-slate-800 text-blue-400 text-xs px-3 py-1 rounded-lg border border-slate-700 font-mono">
+                Scrollable Dossier View
+              </span>
+            </div>
+
+            <div className="max-h-[700px] overflow-y-auto overflow-x-auto custom-scrollbar">
+              <table className="min-w-full divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-50 text-slate-700 uppercase font-bold sticky top-0 z-10 shadow-xs">
+                  <tr>
+                    <th className="p-3 text-left">Incident ID / Ref</th>
+                    <th className="p-3 text-left">Date / Time (EAT)</th>
+                    <th className="p-3 text-left">Station / Region</th>
+                    <th className="p-3 text-left">Offence / Category</th>
+                    <th className="p-3 text-left">Status</th>
+                    <th className="p-3 text-left">Investigating Officer</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
+                  {reports.map((report) => (
+                    <tr key={report.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="p-3 font-mono font-bold text-blue-700">{report.id || report.ref_no}</td>
+                      <td className="p-3 font-mono text-slate-500">{formatEATDateTime(report.date || report.created_at)}</td>
+                      <td className="p-3 font-bold uppercase">{report.station} <span className="text-[10px] text-slate-400 block">[{report.region}]</span></td>
+                      <td className="p-3 font-extrabold text-slate-900">{report.crime_category || report.offence}</td>
+                      <td className="p-3">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-700 border">
+                          {report.status || 'PENDING'}
+                        </span>
+                      </td>
+                      <td className="p-3 font-semibold text-slate-800">{report.officer_name || report.investigator || 'N/A'}</td>
+                    </tr>
+                  ))}
+                  {reports.length === 0 && (
+                    <tr>
+                      <td colSpan="6" className="text-center py-12 text-slate-400 font-medium text-xs">
+                        No crime records logged in the system.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+
       case 'statistics': return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
       case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
       case 'establishments': return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
       
-      // 🟢 NEW ROUTER CASE FOR THE STANDALONE ANALYTICS DASHBOARD
       case 'analytics': return (
         <AnalyticsDashboard 
           nominalRolls={Nominal_Rolls} 
