@@ -870,7 +870,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                 <form onSubmit={handleFormSubmit} className="space-y-4">
                   {operation === 'update' && formData.sn && (
                      <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
-                        Currently Editing: SN {formData.sn}
+                       Currently Editing: SN {formData.sn}
                      </div>
                   )}
                   
@@ -984,10 +984,10 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                 {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
                   <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
                 ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
-              </select>   
+              </select>    
             </div>
 
-<ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+            <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
               <div className="overflow-x-auto w-full">
                 <table className="w-full divide-y divide-gray-200 min-w-[1000px]">
                   <thead className="bg-gray-50 sticky top-0 z-10">
@@ -1003,7 +1003,22 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {filteredReports.map((report) => (
-                      <tr key={report.id || report.sn} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateCrimeForm(report); }}>
+                      <tr 
+                        key={report.id || report.sn} 
+                        className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" 
+                        onClick={() => { 
+                          if (operation === 'update') {
+                            populateUpdateCrimeForm(report); 
+                          } else {
+                            setSelectedRecord({
+                              title: `Case File Dossier - Ref: ${report.sdRef || report.sd_ref}`,
+                              date: report.date,
+                              time: report.time,
+                              narrative: `OFFENCE: ${report.offence}\n\nSTATION: ${report.station} [${report.region}]\nSTATUS: ${report.status}\n\n--- NARRATIVE ---\n` + report.narrative.replace(/<[^>]*>?/gm, '')
+                            });
+                          }
+                        }}
+                      >
                         <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">{report.id || report.sn}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-blue-700 align-top">{report.sdRef || report.sd_ref}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 align-top">{report.date}<br/><span className="text-xs text-gray-400">{report.time}</span></td>

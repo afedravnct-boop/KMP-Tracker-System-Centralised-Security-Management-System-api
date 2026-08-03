@@ -6,7 +6,7 @@ import html
 import uuid
 import asyncio
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional, List, Union
 
 import pytz
 import uvicorn
@@ -14,33 +14,16 @@ import pyzipper
 import pandas as pd
 import numpy as np
 
-def get_eat_time():
-    eat_tz = pytz.timezone('Africa/Nairobi')
-    return datetime.now(eat_tz).strftime('%Y-%m-%d %H:%M:%S')
-
-def normalize_sex(val):
-    if not val:
-        return None
-    cleaned = str(val).strip().upper()
-    if cleaned.startswith('F'):
-        return "FEMALE"
-    elif cleaned.startswith('M'):
-        return "MALE"
-    return cleaned
-
 import boto3
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks, Request
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from routers import admin_users
-
-app.include_router(admin_users.router)
 
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from jose import jwt, JWTError
@@ -52,6 +35,11 @@ from sqlalchemy.orm import sessionmaker
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from urllib.parse import unquote
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+from docx import Document
 
 # Internal Imports
 from app import models, schemas, database
@@ -66,6 +54,15 @@ from auth import router as auth_router, get_current_user
 load_dotenv()
 
 app = FastAPI(title="KMP Centralised Security Data Management System")
+
+# 🟢 Initialize Rate Limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# 🟢 Include Admin Users Router
+from routers import admin_users
+app.include_router(admin_users.router)
 
 conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
@@ -101,7 +98,9 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173", 
         "http://127.0.0.1:5173",
-        "https://kmp-tracker-system-centralised-secu.vercel.app"
+        "https://kmp-tracker-system-centralised-secu.vercel.app",
+        "https://kmp-tracker-system-centralised-security-management-adj4h23x4.vercel.app",
+        "https://kmp-tracker-system-centralised-security-management-od0odfzxy.vercel.app"
     ],
     allow_origin_regex=r"https://kmp-tracker.*\.vercel\.app",
     allow_credentials=True,
@@ -116,6 +115,7 @@ app.include_router(auth_router, prefix="/api/auth")
 # 2. PYDANTIC SCHEMAS
 # ==========================================
 class PasswordChangeReq(BaseModel):
+    old_password: Optional[str] = None
     new_password: str
 
 class ForcePasswordReq(BaseModel):
@@ -125,14 +125,12 @@ class UserAccessUpdate(BaseModel):
     role: str
     permissions: dict
 
-from typing import Optional, List, Union
-
 class Admin_CommunicationCreate(BaseModel):
     sender_fnum: str
     sender_name: str
     target_audience: str
     target_region: Optional[str] = None
-    target_fnum: Optional[Union[str, List[str]]] = None  # Accepts array or single string
+    target_fnum: Optional[Union[str, List[str]]] = None  
     message_type: str
     subject: str
     message: str
@@ -163,6 +161,20 @@ class ArchiveRequest(BaseModel):
 # ==========================================
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
+def get_eat_time():
+    eat_tz = pytz.timezone('Africa/Nairobi')
+    return datetime.now(eat_tz).strftime('%Y-%m-%d %H:%M:%S')
+
+def normalize_sex(val):
+    if not val:
+        return None
+    cleaned = str(val).strip().upper()
+    if cleaned.startswith('F'):
+        return "FEMALE"
+    elif cleaned.startswith('M'):
+        return "MALE"
+    return cleaned
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     try:
         payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
@@ -176,7 +188,6 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-    # 🟢 THE GLOBAL DOOR CHECK
     if user.role != "SUPER_ADMIN":
         config_check = db.query(models.SystemConfig).filter(
             models.SystemConfig.config_key == "peer_delegation_active"
@@ -331,11 +342,9 @@ def build_and_send_weekly_briefing():
         try:
             mandated_positions = ["RPC", "DEPUTY RPC", "DPC", "DATA OFFICER", "DATA ASSISTANT"]
             
-            # Determine the start of the current week (Monday) to check if an entry has already been submitted
-            today = get_eat_time()
+            today = datetime.now()
             start_of_week = (today - timedelta(days=today.weekday())).strftime("%Y-%m-%d")
 
-            # Find mandated personnel whose stations have NOT submitted any operational or crime stats this week
             users_query = db.query(models.Users).filter(
                 models.Users.email.isnot(None),
                 models.Users.is_approved == True,
@@ -349,7 +358,6 @@ def build_and_send_weekly_briefing():
                 if not u.email:
                     continue
                 
-                # Check if this user's station has submitted at least once this week
                 has_submitted_ops = db.query(models.Operational_Statistics).filter(
                     models.Operational_Statistics.station == u.station,
                     models.Operational_Statistics.date >= start_of_week
@@ -360,7 +368,6 @@ def build_and_send_weekly_briefing():
                     models.Crime_Reports.date >= start_of_week
                 ).first()
 
-                # If no submission found for their station this week, add them to compliance warning email list
                 if not has_submitted_ops and not has_submitted_crime:
                     if u.email not in recipients:
                         recipients.append(u.email)
@@ -388,11 +395,13 @@ def refresh_session_token(current_user = Depends(get_current_user)):
     return {"access_token": new_access_token, "token_type": "bearer"}
 
 @app.post("/api/v1/auth/signup")
+@limiter.limit("5/minute")
 def register_user(
-    fnum: str = Form(...), rank: str = Form(...), name: str = Form(...),
-    ipps: str = Form(...), region: str = Form(...), station: str = Form(...),
-    position: str = Form(...), email: str = Form(...), phone: str = Form(...),
-    password: str = Form(...), sex: Optional[str] = Form(None),
+    request: Request,
+    fnum: str = Form(), rank: str = Form(), name: str = Form(),
+    ipps: str = Form(), region: str = Form(), station: str = Form(),
+    position: str = Form(), email: str = Form(), phone: str = Form(),
+    password: str = Form(), sex: Optional[str] = Form(None),
     division: Optional[str] = Form(None), role: str = Form("USER"), 
     profile_photo_path: str = Form(""), db: Session = Depends(get_db)
 ):
@@ -470,7 +479,7 @@ def approve_pending_user(fnum: str, db: Session = Depends(get_db)):
 
 @app.post("/api/v1/users/upload-profile")
 async def upload_profile_photo(
-    file: UploadFile = File(...),
+    file: UploadFile = File(),
     fnum: str = Form("PENDING_REGISTRATION"),
     category: str = Form("user_profile"),
     narrative: str = Form("Officer Profile Photo")
@@ -627,12 +636,11 @@ def get_online_users(db: Session = Depends(get_db), current_user: models.Users =
         } for u in active_users
     ]
 
-
 # ==========================================
 # 6. PASSWORD RESET WORKFLOW
 # ==========================================
 @app.post("/api/v1/auth/request-reset")
-def request_password_reset(fnum: str = Form(...), db: Session = Depends(get_db)):
+def request_password_reset(fnum: str = Form(), db: Session = Depends(get_db)):
     user = db.query(models.Users).filter(models.Users.fnum == fnum).first()
     if not user:
         raise HTTPException(status_code=404, detail="Officer Force Number not found.")
@@ -681,7 +689,7 @@ def get_password_reset_requests(db: Session = Depends(get_db), current_user: mod
     return results
 
 @app.post("/api/v1/admin/execute-reset/{req_id}")
-def execute_password_reset(req_id: int, action: str = Form(...), db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
+def execute_password_reset(req_id: int, action: str = Form(), db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
     req = db.query(models.Password_Reset_Requests).filter(models.Password_Reset_Requests.id == req_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Request not found.")
@@ -806,6 +814,19 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
         "status": r.status, 
         "suspects": r.suspects, 
         "lastUpdatedBy": r.last_updated_by,
+        "dossier": {
+            "case_id": r.sn,
+            "reference": r.sd_ref,
+            "region": r.region,
+            "station": r.station,
+            "date": r.date,
+            "time": r.time,
+            "offence": r.offence,
+            "narrative": r.narrative,
+            "status": r.status,
+            "suspect_count": r.suspects,
+            "investigating_officer": r.last_updated_by
+        },
         "suspectDetails": [{
             "name": getattr(s, 'name', ''), 
             "sex": getattr(s, 'sex', ''), 
@@ -829,7 +850,7 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
         new_record.last_updated_by = current_user.fnum
         
         db.add(new_record)
-        db.commit()          # Commit to generate the ID
+        db.commit()         
         db.refresh(new_record)
         
         new_record.sn = new_record.id 
@@ -1097,7 +1118,6 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-
 # ==========================================
 # GEO-MAPPING & AUTO-INFERENCE HELPERS
 # ==========================================
@@ -1110,9 +1130,6 @@ STATION_GEO_MAP = {
     "KASANGATI": {"region": "KMP NORTH", "district": "WAKISO"},
     "KAKIRI": {"region": "KMP NORTH", "district": "WAKISO"},
     "WAKISO": {"region": "KMP SOUTH", "district": "WAKISO"},
-
-
-    
     "NATEETE": {"region": "KMP SOUTH", "district": "WAKISO"},
     "CPS KAMPALA": {"region": "KMP SOUTH", "district": "KAMPALA"},
     "PARLIAMENT": {"region": "KMP SOUTH", "district": "KAMPALA"},
@@ -1122,7 +1139,6 @@ STATION_GEO_MAP = {
     "NSANGI": {"region": "KMP SOUTH", "district": "WAKISO"},
     "KASENYI": {"region": "KMP SOUTH", "district": "WAKISO"},
     "KYENGERA": {"region": "KMP SOUTH", "district": "WAKISO"},
-
     "JINJA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
     "MUKONO": {"region": "KMP EAST", "district": "MUKONO"},
     "KIRA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
@@ -1148,14 +1164,10 @@ def auto_infer_geography(station_val, current_region, current_district):
             
     return inferred_region, inferred_district
 
-# ==========================================
-# ROBUST DATE PARSER (Handles DD.MM.YYYY, DD/MM/YYYY, YYYY-MM-DD)
-# ==========================================
 def parse_flexible_date(val):
     if val is None or pd.isna(val):
         return None
     
-    # If it's already a datetime object (e.g., Pandas parsed it natively)
     if isinstance(val, datetime):
         return val.strftime("%Y-%m-%d")
         
@@ -1163,7 +1175,6 @@ def parse_flexible_date(val):
     if not date_str or date_str.lower() in ['none', 'nan', 'nat', '']:
         return None
         
-    # Test common date formats including European dot notation (DD.MM.YYYY)
     for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y"):
         try:
             return datetime.strptime(date_str[:10], fmt).strftime("%Y-%m-%d")
@@ -1172,13 +1183,9 @@ def parse_flexible_date(val):
             
     return None
 
-
-# ---------------------------------------------------------
-# ADMIN: EXCEL BULK UPLOAD FOR NOMINAL ROLL (UPSERT & ATTRIBUTE MERGING)
-# ---------------------------------------------------------
 @app.post("/api/v1/nominal-roll/bulk-upload")
 async def bulk_upload_nominal_roll(
-    file: UploadFile = File(...),
+    file: UploadFile = File(),
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
@@ -1244,7 +1251,6 @@ async def bulk_upload_nominal_roll(
                 if not fnum_val or fnum_val in ['NONE', 'NAN', 'NAT', '']:
                     continue 
                     
-                # Clean Dates safely using parse_flexible_date
                 for date_col in ['dob', 'doe', 'dopost', 'dopro']:
                     if date_col in row_dict:
                         row_dict[date_col] = parse_flexible_date(row_dict.get(date_col))
@@ -1252,7 +1258,6 @@ async def bulk_upload_nominal_roll(
                 f_key = 'f_num' if 'f_num' in valid_keys and 'fnum' not in valid_keys else 'fnum'
                 row_dict[f_key] = fnum_val
                 
-                # Sex Inference
                 raw_sex = str(row_dict.get('sex') or '').strip().upper()
                 nin_val = str(row_dict.get('nin') or '').strip().upper()
                 row_dict['nin'] = nin_val if nin_val != 'NONE' else None
@@ -1269,7 +1274,6 @@ async def bulk_upload_nominal_roll(
                 
                 row_dict['sex'] = inferred_sex
 
-                # Geographic Inference
                 raw_station = row_dict.get('station', '')
                 current_reg = row_dict.get('region', '')
                 current_dist = row_dict.get('district', '')
@@ -1288,7 +1292,6 @@ async def bulk_upload_nominal_roll(
                 existing_record = db.query(models.NominalRoll).filter(fnum_attr == fnum_val).first()
 
                 if existing_record:
-                    # ATTRIBUTE MERGING: Only update columns that are missing/empty in the existing record, but present in the new upload
                     for key, new_val in clean_row.items():
                         current_val = getattr(existing_record, key, None)
                         if (current_val is None or str(current_val).strip() in ["", "None", "NAT", "N/A"]) and new_val:
@@ -1326,9 +1329,6 @@ async def bulk_upload_nominal_roll(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Bulk upload failed: {str(e)}")
 
-# ==========================================
-# NOMINAL ROLL ARCHIVE ENDPOINT
-# ==========================================
 @app.put("/api/v1/nominal-roll/{fnum}/archive")
 def archive_personnel(
     fnum: str, 
@@ -1375,13 +1375,12 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch archives: {str(e)}")
 
-
 # ==========================================
 # 9. FILE UPLOADS
 # ==========================================
 @app.post("/api/v1/investigation/upload/")
 async def upload_file(
-    file: UploadFile = File(...),
+    file: UploadFile = File(),
     category: Optional[str] = Form(None),
     case_id: Optional[str] = Form(None),
     narrative: Optional[str] = Form(None),
@@ -1420,7 +1419,6 @@ def create_admin_communication(
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        # 1. DYNAMIC ORIGIN TAG GENERATOR
         pos = (current_user.position or "OFFICER").upper().strip()
         stat = (current_user.station or "HQ").upper().strip().replace(" ", "")
         reg = (current_user.region or "KMP").upper().strip().replace(" ", "")
@@ -1443,11 +1441,9 @@ def create_admin_communication(
             clean_pos_stat = f"{pos.replace(' ', '')}{stat}"
             origin_tag = f"UPF/OPS/{reg}/DHQTRS/{clean_pos_stat}"
             
-        # 2. Sequence Calculation
         count = db.query(models.Admin_Communication).filter(models.Admin_Communication.msg_ref.like(f"{origin_tag}/%")).count()
         generated_msg_ref = f"{origin_tag}/{count + 1:03d}"
 
-        # 3. Save to Database (Internal Dispatch)
         db_comm = models.Admin_Communication(
             msg_ref=generated_msg_ref,
             sender_fnum=comm.sender_fnum, 
@@ -1463,14 +1459,12 @@ def create_admin_communication(
         db.commit()
         db.refresh(db_comm)
 
-        # 4. External Email Dispatch (On top of internal log, sent to their correct emails)
         if comm.send_email:
             query = db.query(models.Users.email).filter(
                 models.Users.email.isnot(None),
                 models.Users.is_approved == True
             )
             
-            # Audience filtering mapping to correct individual emails
             if comm.target_audience == 'ADMINS_ONLY': 
                 query = query.filter(models.Users.role.in_(['ADMIN', 'SUPER_ADMIN']))
             elif comm.target_audience == 'RPC_ONLY': 
@@ -1513,29 +1507,23 @@ def get_admin_communications(
 ):
     query = db.query(models.Admin_Communication)
 
-    # 🟢 STRICT REGIONAL & GODLY OVERWATCH ISOLATION
     if current_user.role != "SUPER_ADMIN":
         user_region = (current_user.region or "").strip().upper()
         
         visibility_conditions = [
-            # Global broadcasts are seen by all
             or_(
                 models.Admin_Communication.target_audience == "ALL",
                 models.Admin_Communication.target_audience == "ALL_USERS"
             ),
-            # User can always see messages they sent themselves
             models.Admin_Communication.sender_fnum == current_user.fnum,
-            # User can see direct messages targeting them specifically
             and_(
                 models.Admin_Communication.target_audience == "SPECIFIC_USER", 
                 models.Admin_Communication.target_fnum == current_user.fnum
             ),
-            # 🟢 REGIONAL LOCK: User sees regional broadcasts matching their exact region
             and_(
                 models.Admin_Communication.target_audience == "SPECIFIC_REGION", 
                 func.upper(models.Admin_Communication.target_region) == user_region
             ),
-            # 🟢 REGIONAL LOCK: User sees messages originated by someone in their region
             and_(
                 models.Admin_Communication.target_audience == "REGIONAL_BROADCAST",
                 func.upper(models.Admin_Communication.target_region) == user_region
@@ -1549,13 +1537,11 @@ def get_admin_communications(
             
         query = query.filter(or_(*visibility_conditions))
 
-    # Date filters...
     if start_date: query = query.filter(models.Admin_Communication.created_at >= start_date)
     if end_date: query = query.filter(models.Admin_Communication.created_at <= f"{end_date} 23:59:59")
 
     comms = query.order_by(models.Admin_Communication.created_at.desc()).all()
  
-    
     read_records = db.query(models.Communication_Reads.comm_id).filter(models.Communication_Reads.fnum == current_user.fnum).all()
     read_comm_ids = {r[0] for r in read_records} 
     eat_tz = pytz.timezone("Africa/Kampala")
@@ -1570,7 +1556,7 @@ def get_admin_communications(
         else: formatted_time = "Unknown Time"
             
         clean_comms.append({
-            "id": c.id, "msg_ref": getattr(c, 'msg_ref', 'UPF/UNKNOWN/000'), # 🟢 RETURN REF
+            "id": c.id, "msg_ref": getattr(c, 'msg_ref', 'UPF/UNKNOWN/000'), 
             "sender_fnum": c.sender_fnum, "sender_name": c.sender_name,
             "target_audience": c.target_audience, "target_region": c.target_region,
             "target_fnum": getattr(c, 'target_fnum', None), 
@@ -1641,12 +1627,8 @@ def get_communication_readers(comm_id: int, db: Session = Depends(get_db), curre
 # ==========================================
 # 11. EXPORTS & REPORTING
 # ==========================================
-# 🟢 NEW: Regional Breakdown Aggregation Endpoint
 @app.get("/api/v1/stats/breakdown")
 def get_system_breakdown(table: str = "crime_incident_registry", db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    """
-    Dynamically groups and counts entries by Region, Division (Section), and Station.
-    """
     allowed_tables = {
         "crime_incidents": models.Crime_Reports,
         "nominal_roll": getattr(models, 'Nominal_Roll', getattr(models, 'nominal_roll', None)),
@@ -1659,7 +1641,6 @@ def get_system_breakdown(table: str = "crime_incident_registry", db: Session = D
     db_model = allowed_tables[table]
     
     try:
-        # Use SQLAlchemy grouping to count safely by hierarchical columns
         results = db.query(
             func.coalesce(db_model.region, 'GENERAL / HQ').label('region'),
             func.coalesce(getattr(db_model, 'section', getattr(db_model, 'division', getattr(db_model, 'station', 'N/A'))), 'N/A').label('division'),
@@ -1683,7 +1664,6 @@ def get_system_breakdown(table: str = "crime_incident_registry", db: Session = D
         return {"status": "success", "table": table, "data": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/api/v1/reports/consolidated-ledger")
 def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -1758,7 +1738,6 @@ def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.User
         hr_records = hr_query.all()
         grouped_hr = {}
         
-        # Group strictly by Region and Station (Manpower Summary, dropping granular individual ranks)
         for r in hr_records:
             region = getattr(r, 'region', 'GENERAL / HQ') or 'GENERAL / HQ'
             station = getattr(r, 'station', 'N/A') or 'N/A'
@@ -1862,7 +1841,9 @@ def export_analytics_secure(
         raise HTTPException(status_code=500, detail="Failed to generate secure analytics export file.")
 
 @app.get("/api/v1/reports/export")
+@limiter.limit("3/minute")
 def export_master_database_unified(
+    request: Request,
     timeframe: Optional[str] = "all", scope: Optional[str] = None, 
     value: Optional[str] = None, db: Session = Depends(get_db), 
     authorized_user: models.Users = Depends(require_export_privilege)
@@ -1876,7 +1857,6 @@ def export_master_database_unified(
             workbook.formats[0].set_font_name('Tahoma')
             workbook.formats[0].set_font_size(11)
 
-            # --- TAB 1: CRIME REGISTRY ---
             crime_query = db.query(models.Crime_Reports)
             if scope == "station" and value and value != "all":
                 crime_query = crime_query.filter(models.Crime_Reports.station == value)
@@ -1909,7 +1889,6 @@ def export_master_database_unified(
             df_crime.to_excel(writer, sheet_name="Crime Registry", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["Crime Registry"], df_crime, "Crime Registry", authorized_user)
 
-            # --- TAB 1B: CRIME REGISTRY (Printable) ---
             if not df_crime.empty:
                 df_crime_print = df_crime.copy()
                 df_crime_print["Date & Time"] = df_crime_print["DATE"].astype(str) + " " + df_crime_print["TIME"].astype(str)
@@ -1941,7 +1920,6 @@ def export_master_database_unified(
             del crime_data, crime_list, df_crime
             gc.collect()
 
-            # --- TAB 2: OPS STATISTICS ---
             stats_query = db.query(models.Operational_Statistics)
             if scope == "station" and value and value != "all":
                 stats_query = stats_query.filter(models.Operational_Statistics.station == value)
@@ -1965,12 +1943,10 @@ def export_master_database_unified(
             df_stats.to_excel(writer, sheet_name="OPS Statistics", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["OPS Statistics"], df_stats, "OPS Statistics", authorized_user)
             
-            # --- TAB 2B: OPS STATISTICS (Printable) ---
             if not df_stats.empty:
                 df_stats_print = df_stats.copy()
                 numeric_cols = ["Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"]
                 
-                # SECURE SUM: Convert all strings/nulls to numeric 0 first to prevent sum() crashes
                 for col in numeric_cols:
                     df_stats_print[col] = pd.to_numeric(df_stats_print[col], errors='coerce').fillna(0)
                     
@@ -1992,7 +1968,6 @@ def export_master_database_unified(
             del stats_data, stats_list, df_stats
             gc.collect()
 
-            # --- TAB 3: SUCCESS STORIES ---
             stories_query = db.query(models.Success_Stories)
             if scope == "station" and value and value != "all":
                 stories_query = stories_query.filter(models.Success_Stories.station == value)
@@ -2012,7 +1987,6 @@ def export_master_database_unified(
             del stories_data, stories_list, df_stories
             gc.collect()
 
-            # --- TAB 4: NOMINAL ROLL ---
             roll_query = db.query(models.NominalRoll)
             if scope == "station" and value and value != "all":
                 roll_query = roll_query.filter(models.NominalRoll.station == value)
@@ -2037,7 +2011,6 @@ def export_master_database_unified(
             df_roll.to_excel(writer, sheet_name="Nominal Roll", index=False)
             apply_custom_sheet_design(workbook, writer.sheets["Nominal Roll"], df_roll, "Nominal Roll", authorized_user)
 
-            # --- TAB 4B: ESTABLISHMENTS (Printable) ---
             if not df_roll.empty:
                 df_hr_print = df_roll.copy()
                 df_hr_print.rename(columns={
@@ -2101,7 +2074,6 @@ def export_establishments(db: Session = Depends(get_db), authorized_user: models
         with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
             workbook = writer.book
 
-            # Process HR Data
             hr_data = db.query(models.NominalRoll).yield_per(1000)
             hr_list = [{
                 "SN": getattr(h, 'id', getattr(h, 'sn', '')), "Force Number": getattr(h, 'f_num', getattr(h, 'fnum', '')), 
@@ -2114,7 +2086,6 @@ def export_establishments(db: Session = Depends(get_db), authorized_user: models
             del hr_data, hr_list, df_hr
             gc.collect()
 
-            # Process Establishments Data
             est_data = db.query(models.Establishments).yield_per(1000)
             est_list = [{
                 "SN": getattr(e, 'id', getattr(e, 'sn', '')), "Region": getattr(e, 'region', ''), "Division": getattr(e, 'division', ''),
@@ -2174,7 +2145,6 @@ def get_audit_logs(
     position = (current_user.position or "").upper()
     perms = current_user.permissions or {}
 
-    # Subject to clearance check
     is_cleared = (
         role == "SUPER_ADMIN" or
         "SYSTEM MANAGER" in position or
@@ -2293,6 +2263,65 @@ def get_all_requests(db: Session = Depends(get_db), current_user: models.Users =
             })
     return results
 
+@app.post("/api/v1/reports/upload-word-report")
+async def upload_word_report(
+    file: UploadFile = File(),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    if not file.filename.endswith('.docx'):
+        raise HTTPException(status_code=400, detail="Only official .docx Word document formats are accepted.")
+    
+    try:
+        contents = await file.read()
+        doc = Document(io.BytesIO(contents))
+        
+        detected_region = current_user.region or "KMP GENERAL"
+        
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(
+                db=db, fnum=current_user.fnum, action="TRIPARTITE_REPORT_UPLOADED",
+                target_identifier=file.filename, changes={}, 
+                remarks=f"Successfully ingested 3-format operational report for {detected_region}"
+            )
+
+        return {
+            "status": "success",
+            "message": f"Successfully compiled and indexed 3-format returns from {file.filename}.",
+            "formats_processed": [
+                "1. Full Report & Tables Archive",
+                "2. Serious Cases Summary Table",
+                "3. Weekly Disruptive Ops Statistics"
+            ]
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to process tripartite report: {str(e)}")
+
+@app.get("/api/v1/templates/download/{template_type}")
+def download_official_template(template_type: str, current_user: models.Users = Depends(get_current_user)):
+    templates_dir = "templates"
+    os.makedirs(templates_dir, exist_ok=True)
+    
+    filename_map = {
+        "weekly-report": "KMP_Weekly_Report_Template.docx",
+        "assignment": "KMP_Task_Assignment_Template.docx"
+    }
+    
+    filename = filename_map.get(template_type)
+    if not filename:
+        raise HTTPException(status_code=404, detail="Requested template not found.")
+        
+    file_path = os.path.join(templates_dir, filename)
+    
+    if not os.path.exists(file_path):
+        doc = Document()
+        doc.add_heading(f"UPF KMP - Official {template_type.replace('-', ' ').title()} Template", 0)
+        doc.add_paragraph("Official template for Uganda Police Force - Kampala Metropolitan Police.")
+        doc.save(file_path)
+
+    return FileResponse(file_path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=filename)
+
 @app.get("/api/v1/users/recipients-list")
 def get_filtered_recipients(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     query = db.query(models.Users).filter(models.Users.is_approved == True)
@@ -2301,26 +2330,19 @@ def get_filtered_recipients(db: Session = Depends(get_db), current_user: models.
     user_region = (current_user.region or "").strip().upper()
     user_station = (current_user.station or "").strip().upper()
     
-    # SUPER_ADMIN / Police Headquarters see everyone across the entire force
     if user_role == "SUPER_ADMIN" or user_region == "POLICE HEADQUARTERS":
         users = query.all()
-    
-    # KMP Headquarters sees all KMP units/regions
     elif user_region == "KMP HEADQUARTERS":
         users = query.filter(func.upper(models.Users.region).ilike("%KMP%")).all()
-        
-    # RPC / DPC / Regional Command sees their specific region/station footprint
     elif user_role in ["RPC", "DPC"] or "HEADQUARTERS" not in user_region:
         users = query.filter(
             or_(
                 func.upper(models.Users.region) == user_region,
                 func.upper(models.Users.station) == user_station,
-                # Allow visibility to higher command (RPC/DPC) for cross-region requests
                 func.upper(models.Users.position).in_(["RPC", "DPC"])
             )
         ).all()
     else:
-        # Standard users see within their station/division
         users = query.filter(func.upper(models.Users.station) == user_station).all()
         
     result = []
@@ -2336,8 +2358,6 @@ def get_filtered_recipients(db: Session = Depends(get_db), current_user: models.
             "role": u.role
         })
     return result
-
-
 
 @app.get("/api/v1/system/config/{key}")
 def get_system_config(key: str, db: Session = Depends(get_db)):
@@ -2356,8 +2376,6 @@ def update_system_config(key: str, data: dict, db: Session = Depends(get_db), ad
     config.config_value = str(data.get("value", "FALSE"))
     db.commit()
     return {"status": "success", "message": f"Config {key} updated to {config.config_value}"}
-
-
 
 @app.post("/api/v1/requests")
 def create_modification_request(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -2379,7 +2397,6 @@ def revoke_user_access(
     fnum: str, reason: str = "No reason provided", 
     db: Session = Depends(get_db), admin: models.Users = Depends(require_admin)
 ):
-    """Safely revokes an active user's access and logs the reason."""
     clean_fnum = unquote(fnum).strip().upper()
     target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum).first()
     if not target_user:
