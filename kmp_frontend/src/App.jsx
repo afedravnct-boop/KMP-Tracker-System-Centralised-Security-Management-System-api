@@ -448,7 +448,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   
-  // 🟢 State for the full-page layout dossier popup view when clicking a row
+  // State for the interactive full-page dossier popup when clicking a ledger row
   const [selectedCrimeDossier, setSelectedCrimeDossier] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
@@ -1100,7 +1100,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                           if (operation === 'update') {
                             populateUpdateCrimeForm(report); 
                           } else {
-                            // 🟢 Triggers the page-layout dossier view when clicking any row
+                            // Opens the full-page dossier popup view when clicking any row
                             setSelectedCrimeDossier(report);
                           }
                         }}
