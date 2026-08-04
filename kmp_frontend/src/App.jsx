@@ -190,12 +190,12 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
 
   const openFullScreen = () => {
     setIsExpanded(true);
-    if (onToggle) onToggle(true);
+    if (typeof onToggle === 'function') onToggle(true);
   };
 
   const closeFullScreen = () => {
     setIsExpanded(false);
-    if (onToggle) onToggle(false);
+    if (typeof onToggle === 'function') onToggle(false);
   };
 
   return (
