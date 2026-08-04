@@ -2,7 +2,7 @@
 @import "tailwindcss";
 
 /* =========================================================
-   🟢 BASE DASHBOARD STYLES
+   1. BASE DASHBOARD & SYSTEM LAYOUT
    ========================================================= */
 .dashboard-container {
   display: flex;
@@ -111,8 +111,9 @@
   text-align: left;
 }
 
+
 /* =========================================================
-   🟢 NEW IDLE SCREEN GLOBE & TEXT ANIMATIONS
+   2. COMMON SECURITY CURTAIN OVERLAY BASE
    ========================================================= */
 .security-curtain-overlay {
   position: fixed;
@@ -120,7 +121,7 @@
   width: 100vw;
   height: 100vh;
   z-index: 99999;
-  background-color: #020617; /* Very dark slate to make the blue emblem pop */
+  background-color: #020617; /* Deep midnight slate for high contrast */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -128,6 +129,75 @@
   overflow: hidden;
 }
 
+
+/* =========================================================
+   3. LOGIN SCREEN CURTAIN (FAUX-3D GLOBE + NATIONAL STRIPES)
+   ========================================================= */
+
+/* Faux 3D CSS Sphere Globe Badge */
+.upf-css-globe {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background-image: url('/UPF Flag Emblem.png');
+  background-size: cover;
+  background-repeat: repeat-x;
+  animation: spinFauxGlobe 10s linear infinite;
+  box-shadow: inset -10px -10px 20px rgba(0, 0, 0, 0.9), 
+              inset 4px 4px 10px rgba(255, 255, 255, 0.5), 
+              0 0 25px rgba(234, 179, 8, 0.4);
+}
+
+@keyframes spinFauxGlobe {
+  0% { background-position: 0 0; }
+  100% { background-position: 500px 0; }
+}
+
+@keyframes spinGlobe {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.animate-spin-globe {
+  animation: spinGlobe 12s linear infinite;
+}
+
+@keyframes pulseSpin {
+  0%, 100% { transform: scale(1) rotate(0deg); opacity: 0.6; }
+  50% { transform: scale(1.15) rotate(180deg); opacity: 1; }
+}
+
+.animate-pulse-spin {
+  animation: pulseSpin 4s ease-in-out infinite;
+}
+
+/* Sweep & Settle Title Animation for Login Curtain */
+.curtain-title-container {
+  overflow: hidden;
+  max-w-xl;
+  padding: 0 1rem;
+}
+
+@keyframes sweepLetter {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) rotateX(-90deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotateX(0deg);
+  }
+}
+
+.animate-sweep-letter {
+  display: inline-block;
+  animation: sweepLetter 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+
+/* =========================================================
+   4. WORKSPACE STANDBY SECURITY CURTAIN (MAIN LAYOUT IDLE)
+   ========================================================= */
 .idle-backdrop-emblem {
   position: absolute;
   inset: 0;
@@ -135,46 +205,46 @@
   background-size: cover;
   background-position: center;
   opacity: 0.15;
-  /* Forces the emblem into a light blue spectrum */
   filter: invert(40%) sepia(100%) saturate(300%) hue-rotate(180deg) brightness(1.2);
 }
 
+/* 65vmin Radial Sphere Canvas */
 .idle-center-container {
   position: relative;
-  width: 75vmin; /* Exactly 75% of the shortest screen edge to maintain a perfect circle */
-  height: 75vmin;
+  width: 65vmin;
+  height: 65vmin;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 50%;
+  box-shadow: 0 0 50px rgba(14, 165, 233, 0.25), inset 0 0 50px rgba(14, 165, 233, 0.25);
+  background: radial-gradient(circle, rgba(15, 23, 42, 0.9) 0%, rgba(2, 6, 23, 1) 100%);
 }
 
-@keyframes spinGlobeClockwise {
+@keyframes spinGlobeUnified {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
 
+/* Central Map Surface */
 .spinning-map-globe {
   position: absolute;
-  width: 100%;
-  height: 100%;
+  width: 70%;
+  height: 70%;
   background-size: contain;
   background-position: center;
   background-repeat: no-repeat;
-  animation: spinGlobeClockwise 35s linear infinite;
   border-radius: 50%;
-  filter: drop-shadow(0 0 30px rgba(56, 189, 248, 0.4));
+  animation: spinGlobeUnified 40s linear infinite;
+  filter: drop-shadow(0 0 20px rgba(56, 189, 248, 0.3));
 }
 
-@keyframes spinTextCounterClockwise {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(-360deg); }
-}
-
+/* Orbital SVG Text Ring wrapping around the equator */
 .spinning-text-ring {
   position: absolute;
-  width: 95%; /* Hugs the center area closely */
-  height: 95%;
-  animation: spinTextCounterClockwise 25s linear infinite;
+  width: 100%;
+  height: 100%;
+  animation: spinGlobeUnified 30s linear infinite;
   pointer-events: none;
-  filter: drop-shadow(0 0 6px rgba(0,0,0,0.9));
+  filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.8));
 }

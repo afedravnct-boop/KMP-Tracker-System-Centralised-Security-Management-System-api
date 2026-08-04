@@ -444,6 +444,9 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
+  
+  // 🟢 State for the Official Case Dossier Popup Modal
+  const [selectedCase, setSelectedCase] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
@@ -536,7 +539,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && r.region !== currentUser.region) return false;
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
-        return (r.sdRef || r.sd_ref || '').toLowerCase().includes(query) || r.sn.toString().includes(query) || r.narrative.toLowerCase().includes(query);
+        return (r.sdRef || r.sd_ref || '').toLowerCase().includes(query) || (r.id || r.sn || '').toString().includes(query) || r.narrative.toLowerCase().includes(query);
       }
       return true;
     });
@@ -692,6 +695,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
+      {/* (Lockup Modal Registration UI Remains Unchanged) */}
       {showLockup && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex justify-center items-center p-4 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh] border border-red-200">
@@ -701,7 +705,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
             </div>
             
             <div className="p-6 overflow-y-auto bg-slate-50 space-y-6 flex-1 custom-scrollbar">
-              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+<div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">Add Suspect Details</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
                   <div className="md:col-span-2">
@@ -726,13 +730,22 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                     <label className="block text-xs font-bold text-gray-700 mb-1">Contact/Phone</label>
                     <input type="text" value={newSuspect.contact} onChange={e => setNewSuspect({...newSuspect, contact: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2"/>
                   </div>
-                  <div className="md:col-span-3">
+                  <div className="md:col-span-2">
                     <label className="block text-xs font-bold text-gray-700 mb-1">Residence/Location</label>
                     <input type="text" value={newSuspect.residence} onChange={e => setNewSuspect({...newSuspect, residence: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. Bwaise Zone 2"/>
                   </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Mental Health Status</label>
+                    <select value={newSuspect.mental_health_status} onChange={e => setNewSuspect({...newSuspect, mental_health_status: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 bg-white font-bold text-slate-800">
+                      <option value="NORMAL">NORMAL</option>
+                      <option value="SUSPECTED PSYCHOLOGICAL CONDITION">SUSPECTED PSYCHOLOGICAL CONDITION</option>
+                      <option value="UNSTABLE">UNSTABLE</option>
+                      <option value="UNDER OBSERVATION">UNDER OBSERVATION</option>
+                    </select>
+                  </div>
                 </div>
                 
-                <div className="md:col-span-3 bg-red-50 p-3 rounded-lg border border-red-100">
+                <div className="md:col-span-3 bg-red-50 p-3 rounded-lg border border-red-100 mt-3">
                   <label className="block text-xs font-bold text-red-800 mb-2 flex items-center">
                     <Camera size={12} className="mr-1"/> Suspect Mugshot (Optional)
                   </label>
@@ -855,8 +868,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                         <div className="p-3 text-xs text-gray-500 text-center">No cases found matching your search.</div>
                       ) : (
                         availableUpdateCases.map(c => (
-                          <div key={c.sn} onClick={() => populateUpdateCrimeForm(c)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === c.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
-                            <span className={formData.sn === c.sn ? 'text-blue-200' : 'text-gray-400'}>SN: {c.sn}</span> | <span className={formData.sn === c.sn ? 'text-white' : 'font-bold text-blue-700'}>{c.sdRef || c.sd_ref}</span> | {c.station}
+                          <div key={c.id || c.sn} onClick={() => populateUpdateCrimeForm(c)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === (c.id || c.sn) ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
+                            <span className={formData.sn === (c.id || c.sn) ? 'text-blue-200' : 'text-gray-400'}>DB-ID: {c.id || c.sn}</span> | <span className={formData.sn === (c.id || c.sn) ? 'text-white' : 'font-bold text-blue-700'}>{c.sdRef || c.sd_ref}</span> | {c.station}
                           </div>
                         ))
                       )}
@@ -867,7 +880,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                 <form onSubmit={handleFormSubmit} className="space-y-4">
                   {operation === 'update' && formData.sn && (
                      <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
-                       Currently Editing: SN {formData.sn}
+                       Currently Editing DB-ID: {formData.sn}
                      </div>
                   )}
                   
@@ -927,13 +940,13 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
                   <div className="pb-8"> 
                     <label className="block text-xs font-bold text-gray-700 mb-1">{operation === 'update' ? 'Original Incident Narrative (Read-Only)' : 'Incident Narrative'}</label>
-                    <ReactQuill theme="snow" value={formData.narrative} onChange={(content) => setFormData({ ...formData, narrative: autoCapitalize(content) })} readOnly={operation === 'update'} className={`bg-white rounded-md ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`} modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
+                    <ReactQuill theme="snow" value={formData.narrative} onChange={(content) => setFormData({ ...formData, narrative: autoCapitalize(content) })} readOnly={operation === 'update'} className={`bg-white rounded-md [&_.ql-editor]:min-h-[100px] ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`} modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
                   </div>
 
                   {operation === 'update' && (
                     <div className="pb-8 mt-4"> 
                       <label className="block text-xs font-bold text-blue-700 mb-1">Append New Update / Action Taken *</label>
-                      <ReactQuill theme="snow" value={formData.updateText || ''} onChange={(content) => setFormData({ ...formData, updateText: autoCapitalize(content) })} className="bg-white rounded-md border-blue-300" placeholder="Enter new developments here. Use the toolbar for numbering..." modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
+                      <ReactQuill theme="snow" value={formData.updateText || ''} onChange={(content) => setFormData({ ...formData, updateText: autoCapitalize(content) })} className="bg-white rounded-md border-blue-300 [&_.ql-editor]:min-h-[100px]" placeholder="Enter new developments here. Use the toolbar for numbering..." modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
                     </div>
                   )}
 
@@ -984,77 +997,60 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               </select>    
             </div>
 
-<ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { 
-  if (typeof setSidebarOpen === 'function') {
-    setSidebarOpen(!expanded);
-  }
-}}>
-
-                 <div className="overflow-x-auto w-full">
-                <table className="w-full divide-y divide-gray-200 min-w-[1000px]">
-                  <thead className="bg-gray-50 sticky top-0 z-10">
+            <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (typeof setSidebarOpen === 'function') setSidebarOpen(!expanded); }}>
+              <div className="overflow-x-hidden overflow-y-auto w-full max-h-[70vh] custom-scrollbar">
+                <table className="w-full divide-y divide-gray-200 table-fixed">
+                  <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-16">SN</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">REFERENCE</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Date & Time</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-36">Region/Post</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Incident Narrative</th>
-                      <th className="px-4 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider w-24">Suspects</th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-[5%]">SN</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-[15%]">REFERENCE</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-[12%]">Date & Time</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-[15%]">Region/Post</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-[35%]">Incident Narrative</th>
+                      <th className="px-4 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider w-[8%]">Suspects</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-[10%]">Status</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {filteredReports.map((report) => (
                       <tr 
                         key={report.id || report.sn} 
-                        className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" 
+                        className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer group" 
                         onClick={() => { 
                           if (operation === 'update') {
                             populateUpdateCrimeForm(report); 
+                          } else {
+                            setSelectedCase(report);
                           }
                         }}
                       >
-                        <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">{report.id || report.sn}</td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-blue-700 align-top">{report.sdRef || report.sd_ref}</td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 align-top">{report.date}<br/><span className="text-xs text-gray-400">{report.time}</span></td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-700 align-top">{report.station} <br/><span className="text-xs text-gray-400">{report.region}</span></td>
-                        <td className="px-4 py-4 text-sm text-gray-700 align-top whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
-                          {report.offence && <div className="font-bold text-red-600 uppercase mb-1">{report.offence}</div>}
-                          <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: report.narrative }} />
-                          {report.suspectDetails && report.suspectDetails.length > 0 && (
-                            <div className="mt-3 bg-red-50 border border-red-100 rounded-lg p-3 shadow-sm">
-                              <span className="text-xs font-bold text-red-800 uppercase tracking-wider block mb-2 border-b border-red-200 pb-1">Suspects in Custody ({report.suspectDetails.length}):</span>
-                              <ul className="space-y-2.5">
-                                {report.suspectDetails.map((s, i) => (
-                                  <li key={i} className="text-xs text-red-900 font-medium flex items-start space-x-3 bg-white p-2 rounded border border-red-100 shadow-xs">
-                                    <div className="shrink-0">
-                                      {s.photo_url ? <img src={s.photo_url} alt={s.name} className="w-12 h-12 rounded object-cover border border-red-200 shadow-xs" onError={(e) => { e.target.style.display = 'none'; }} /> : <div className="w-12 h-12 rounded bg-red-100 text-red-400 flex items-center justify-center font-bold text-[9px] border border-red-200 text-center p-0.5">No Photo</div>}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <div className="font-bold text-slate-900 uppercase">{i + 1}. {s.name}</div>
-                                      <div className="text-red-700 mt-0.5 space-y-0.5">
-                                        <div><span className="font-semibold">Particulars:</span> ({s.sex}{s.age ? `, ${s.age}yrs` : ''}{s.tribe ? `, ${s.tribe}` : ''})</div>
-                                        {s.residence && <div><span className="font-semibold">Residence:</span> {s.residence}</div>}
-                                        {s.contact && <div><span className="font-semibold">Contact:</span> {s.contact}</div>}
-                                        {s.mental_health_status && s.mental_health_status !== 'NORMAL' && <div className="text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded text-xs inline-block mt-0.5 border border-amber-200">Mental Status: {s.mental_health_status}</div>}
-                                      </div>
-                                    </div>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
+                        <td className="px-4 py-4 whitespace-nowrap text-xs font-bold text-gray-900 align-top group-hover:text-blue-700 transition-colors">
+                          {report.id || report.sn}
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm font-extrabold text-red-600 text-center align-top">{report.suspects || 0}</td>
-                        <td className="px-4 py-4 whitespace-nowrap align-top">
-                          <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800' : ''} ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800' : ''} ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800' : ''} ${report.status.includes('ADR') ? 'bg-orange-100 text-orange-800' : ''}`}>
+                        <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-blue-700 align-top break-words">
+                          {report.sdRef || report.sd_ref}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-500 align-top">
+                          {report.date}<br/><span className="text-[10px] text-gray-400">{report.time}</span>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-700 align-top font-bold">
+                          {report.station} <br/><span className="text-[10px] text-gray-400 font-medium">{report.region}</span>
+                        </td>
+                        <td className="px-4 py-4 text-xs text-gray-700 align-top whitespace-normal break-words">
+                          {report.offence && <div className="font-extrabold text-red-600 uppercase mb-1">{report.offence}</div>}
+                          <div className="ql-editor p-0 line-clamp-3 text-slate-600 [&_*]:!text-xs [&_*]:!bg-transparent" dangerouslySetInnerHTML={{ __html: report.narrative }} />
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-red-600 text-center align-top">
+                          {report.suspects || 0}
+                        </td>
+                        <td className="px-4 py-4 whitespace-normal break-words align-top">
+                          <span className={`px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' : ''} ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800 border border-purple-200' : ''} ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800 border border-green-200' : ''} ${report.status.includes('ADR') ? 'bg-orange-100 text-orange-800 border border-orange-200' : ''}`}>
                             {report.status}
                           </span>
-                          {report.narrative.includes('[UPDATE') && <div className="text-[9px] text-gray-400 mt-1 italic break-words max-w-[120px]">{report.narrative.split('[UPDATE').pop().split(']')[0].replace('by ', 'Update: ')}</div>}
                         </td>
                       </tr>
                     ))}
-                    {filteredReports.length === 0 && <tr><td colSpan="7" className="text-center py-6 text-gray-500">No records found for this jurisdiction.</td></tr>}
+                    {filteredReports.length === 0 && <tr><td colSpan="7" className="text-center py-8 text-gray-500 font-medium text-sm border-b-0">No records found for this jurisdiction.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -1062,6 +1058,120 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           </div>
         </>
       </div>
+
+      {/* 🟢 Dedicated Official Case Dossier Modal (A4 Vertically Scrollable Design) */}
+      {selectedCase && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 sm:p-6 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white shadow-2xl max-w-4xl w-full flex flex-col max-h-[95vh] rounded-xl overflow-hidden border border-slate-300">
+            
+            {/* Modal Header */}
+            <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0 shadow-md z-10">
+              <h3 className="font-bold flex items-center text-sm uppercase tracking-wider">
+                <Shield className="text-blue-400 mr-2" size={18} /> 
+                OFFICIAL CRIME DOSSIER — REF: {selectedCase.sdRef || selectedCase.sd_ref}
+              </h3>
+              <button onClick={() => setSelectedCase(null)} className="text-slate-400 hover:text-white hover:bg-slate-700 p-1.5 rounded transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* A4 Scrollable Body Flow */}
+            <div className="p-8 overflow-y-auto space-y-8 flex-1 custom-scrollbar bg-slate-50" style={{ backgroundImage: 'radial-gradient(#e5e7eb 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+              
+              {/* Report Header Logo & Title */}
+              <div className="flex flex-col items-center justify-center text-center border-b-2 border-slate-800 pb-6">
+                 <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-2 object-contain grayscale contrast-200 brightness-50" onError={(e) => { e.target.style.display = 'none'; }} />
+                 <h2 className="text-xl font-extrabold text-slate-900 tracking-widest uppercase">Uganda Police Force</h2>
+                 <h3 className="text-sm font-bold text-slate-600 uppercase mt-1 tracking-wider">Crime Incident Matrix Profile</h3>
+              </div>
+
+              {/* Horizontal Metadata Matrix Flow */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 bg-white p-6 border border-slate-200 shadow-sm rounded-lg">
+                <div className="border-l-4 border-blue-600 pl-3">
+                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Database SN (ID)</div>
+                  <div className="text-sm font-black text-slate-900">{selectedCase.id || selectedCase.sn}</div>
+                </div>
+                <div className="border-l-4 border-slate-600 pl-3">
+                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Time & Date Logged</div>
+                  <div className="text-sm font-bold text-slate-900">{selectedCase.date} <span className="text-slate-500 font-medium">@ {selectedCase.time}</span></div>
+                </div>
+                <div className="border-l-4 border-slate-600 pl-3">
+                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Command Jurisdiction</div>
+                  <div className="text-sm font-bold text-slate-900">{selectedCase.station}</div>
+                  <div className="text-xs text-slate-500 font-medium">{selectedCase.region}</div>
+                </div>
+                <div className="border-l-4 border-slate-600 pl-3">
+                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Investigation Status</div>
+                  <div className="text-sm font-extrabold text-blue-700 uppercase">{selectedCase.status}</div>
+                </div>
+              </div>
+
+              {/* Central Offence & Narrative */}
+              <div className="bg-white p-8 border border-slate-200 shadow-sm rounded-lg">
+                <div className="mb-6">
+                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 mb-3">Primary Offence Matrix</div>
+                  <div className="text-lg font-black text-red-600 uppercase">{selectedCase.offence || 'UNSPECIFIED OFFENCE'}</div>
+                </div>
+                
+                <div>
+                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 mb-3">Official Incident Narrative</div>
+                  <div className="text-sm text-slate-800 leading-loose ql-editor whitespace-normal break-words p-0 min-h-[150px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
+                </div>
+              </div>
+
+              {/* Suspect Matrix */}
+              {selectedCase.suspectDetails && selectedCase.suspectDetails.length > 0 && (
+                <div className="bg-white p-6 border border-red-200 shadow-sm rounded-lg">
+                  <div className="text-[10px] font-extrabold text-red-800 uppercase tracking-widest border-b border-red-100 pb-2 mb-4 flex items-center">
+                    <Lock size={14} className="mr-2"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {selectedCase.suspectDetails.map((s, idx) => (
+                      <div key={idx} className="bg-red-50 p-4 rounded-lg border border-red-200 flex items-start space-x-4">
+                        <div className="shrink-0">
+                          {s.photo_url ? (
+                            <img src={s.photo_url} alt={s.name} className="w-16 h-16 rounded object-cover border-2 border-red-300 shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
+                          ) : (
+                            <div className="w-16 h-16 rounded bg-red-100 text-red-400 flex items-center justify-center font-bold text-[10px] border-2 border-dashed border-red-200 text-center p-1">No Photo</div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-extrabold uppercase text-slate-900 text-sm truncate">{idx + 1}. {s.name}</div>
+                          <div className="text-xs text-red-900 font-medium mt-1">
+                            {s.sex} • {s.age ? `${s.age} Yrs` : 'Age Unk'} • {s.tribe || 'Tribe Unk'}
+                          </div>
+                          <div className="text-xs text-slate-700 mt-1">
+                            <span className="font-bold">Res:</span> {s.residence || 'N/A'} <br/>
+                            <span className="font-bold">Tel:</span> {s.contact || 'N/A'}
+                          </div>
+                          {s.mental_health_status && s.mental_health_status !== 'NORMAL' && (
+                             <div className="inline-block mt-2 text-[10px] bg-amber-100 text-amber-800 border border-amber-300 font-bold px-2 py-0.5 rounded-sm">
+                               Status: {s.mental_health_status}
+                             </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              <div className="text-center pt-6 opacity-40">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">End of Official Record Extract</p>
+                <p className="text-[9px] text-slate-400 mt-1">System Audit ID: {selectedCase.id || selectedCase.sn} • Printed: {new Date().toLocaleString()}</p>
+              </div>
+
+            </div>
+
+            {/* Modal Footer Controls */}
+            <div className="bg-slate-100 p-4 border-t border-slate-300 flex justify-end shrink-0 shadow-inner z-10">
+              <button onClick={() => setSelectedCase(null)} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all shadow border border-slate-950 flex items-center">
+                <X size={16} className="mr-2"/> Close Dossier
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>  
   );
 };
