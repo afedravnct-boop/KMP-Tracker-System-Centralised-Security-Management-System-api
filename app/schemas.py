@@ -54,6 +54,7 @@ class ReportBase(BaseModel):
     narrative: str
     status: str
     suspects: int
+    daily_lock_up: int
 
 class ReportResponse(ReportBase):
     id: int

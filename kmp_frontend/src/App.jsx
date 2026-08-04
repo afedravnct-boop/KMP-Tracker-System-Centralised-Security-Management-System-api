@@ -290,7 +290,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 
   const hasUnread = safeComms.some(c => !c.acknowledged);
 
-  return (
+return (
     <div className="p-6 max-w-5xl mx-auto space-y-8 relative z-10 animate-in fade-in duration-300">
       
 {/* 🟢 FLOATING COMPLIANCE OVERDUE PILL BUTTON */}
@@ -549,16 +549,16 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     });
   }, [reports, filterRegion, filterStation, searchQuery, dateFilter]);
 
-  const availableUpdateCases = useMemo(() => {
-    return (Array.isArray(reports) ? reports : []).filter(r => {
-      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && r.region !== currentUser.region) return false;
-      if (updateSearch) {
-        const query = updateSearch.toLowerCase();
-        return (r.sdRef || r.sd_ref || '').toLowerCase().includes(query) || (r.id || r.sn || '').toString().includes(query) || r.narrative.toLowerCase().includes(query);
-      }
-      return true;
-    });
-  }, [reports, currentUser, updateSearch]);
+const availableUpdateCases = useMemo(() => {
+  return (Array.isArray(reports) ? reports : []).filter(r => {
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && r.region !== currentUser.region) return false;
+    if (updateSearch) {
+      const query = updateSearch.toLowerCase();
+      return (r.sdRef || r.sd_ref || '').toLowerCase().includes(query) || (r.id || r.sn || '').toString().includes(query) || r.narrative.toLowerCase().includes(query);
+    }
+    return true;
+  });
+}, [reports, currentUser, updateSearch]);
 
   const metrics = useMemo(() => {
     const stationCellPop = {};
@@ -2302,38 +2302,6 @@ const calculatedMetrics = useMemo(() => {
   }, [currentRollDataset, metricCategory, viewMode]);
 
   const metricsData = useMemo(() => {
-    let maleCount = 0;
-    let femaleCount = 0;
-    const uniqueStations = {};
-
-    currentRollDataset.forEach(n => {
-      // 🟢 Strict evaluation loop for dashboard metrics
-      const sexStr = (n.sex || '').trim().toUpperCase();
-      const ninStr = (n.nin || '').trim().toUpperCase();
-      
-      if (sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF')) {
-        femaleCount++;
-      } else if (sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM')) {
-        maleCount++;
-      }
-
-      if (n.station) {
-        uniqueStations[n.station] = true;
-      }
-    });
-
-    return {
-      total: currentRollDataset.length,
-      male: maleCount,
-      female: femaleCount,
-      unassigned: currentRollDataset.length - (maleCount + femaleCount), // Captures blank/invalid entries
-      stations: Object.keys(uniqueStations).length
-    };
-  }, [currentRollDataset]);
-
-
-
-  const metricsData = useMemo(() => {
     return {
       total: currentRollDataset.length,
       male: currentRollDataset.filter(n => (n.sex || '').toUpperCase().includes('M')).length,
@@ -2346,18 +2314,6 @@ const calculatedMetrics = useMemo(() => {
     const { name, value } = e.target;
     if (name === 'region') setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] || '' });
     else setFormData({ ...formData, [name]: value });
-  };
-
-  const handleOperationToggle = (op) => {
-    setOperation(op); setNotification(null);
-    if (op === 'new') {
-      setFormData({
-        sn: null, fnum: '', rank: '', name: '', sex: 'MALE', position: '', dob: '', doe: '', do_post: '', do_pro: '', contact: '', educ_level: '',
-        ipps: '', tin: '', nin: '', home_dist: '', tribe: '', acc_no: '', bank_branch: '', station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
-        district: '', region: currentUser.region, section: '', dir: '', status: 'ACTIVE'
-      });
-      setUpdateSearch('');
-    }
   };
 
   const populateUpdateForm = (data) => setFormData({ ...data, fnum: data.fnum || data.f_num });
@@ -2460,8 +2416,6 @@ const calculatedMetrics = useMemo(() => {
           </div>
         </div>
 
-        {viewMode !== 'metrics' && (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
 {viewMode !== 'metrics' && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
              <MetricCard title={viewMode === 'archive' ? "Total Archived" : "Total Personnel"} value={metricsData.total} colorClass={viewMode === 'archive' ? "text-red-700" : "text-blue-700"} />

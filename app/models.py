@@ -32,28 +32,15 @@ class Crime_Reports(Base):
     narrative = Column(Text)
     status = Column(String, default="ACTIVE INVESTIGATION")
     suspects = Column(Integer, default=0)
+    
+    # 🟢 ADDED: Daily lock-up population column
+    daily_lock_up = Column(Integer, default=0) 
+    
     last_updated_by = Column(String)
     created_at = Column(DateTime, default=get_eat_time)
 
     # String reference solves circular dependency
     suspect_details = relationship("Suspect_Lockup", back_populates="crime_report", cascade="all, delete-orphan")
-
-class Suspect_Lockup(Base):
-    __tablename__ = "suspect_lockup"
-    __table_args__ = {'extend_existing': True}
-
-    id = Column(Integer, primary_key=True, index=True)
-    sd_ref = Column(Integer, ForeignKey("crime_reports.sn")) 
-    name = Column(String, index=True)
-    sex = Column(String)
-    age = Column(String, nullable=True)
-    tribe = Column(String, nullable=True)
-    residence = Column(String, nullable=True)
-    contact = Column(String, nullable=True)
-    mental_health_status = Column(String, nullable=True)
-    photo_url = Column(String, nullable=True) 
-
-    crime_report = relationship("Crime_Reports", back_populates="suspect_details")
 
 # ==========================================
 # 2. DISRUPTIVE OPS STATISTICS

@@ -33,6 +33,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy import Column, Integer
 
 from urllib.parse import unquote
 from slowapi import Limiter, _rate_limit_exceeded_handler
