@@ -789,8 +789,6 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
 # ==========================================
 # 8. LEDGER MANAGEMENT (GET, POST, PUT)
 # ==========================================
-# --- CRIME REPORTS ---
-# --- CRIME REPORTS ---
 @app.get("/api/v1/reports")
 def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     query = db.query(models.Crime_Reports)
@@ -803,10 +801,11 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
         
     reports = query.order_by(models.Crime_Reports.sn.desc()).all()
     
+    # 🟢 FULLY INTEGRATED TRIBE AND CONTACT FIELDS
     return [{
         "sn": r.sn, 
         "sdRef": r.sd_ref, 
-        "sd_ref": r.sd_ref, # Provided for both frontend naming variations
+        "sd_ref": r.sd_ref, 
         "region": r.region, 
         "station": r.station,
         "date": r.date, 
@@ -819,8 +818,10 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
         "suspectDetails": [{
             "name": getattr(s, 'name', ''), 
             "sex": getattr(s, 'sex', ''), 
-            "age": getattr(s, 'age', ''), 
+            "age": getattr(s, 'age', ''),
+            "tribe": getattr(s, 'tribe', ''),
             "residence": getattr(s, 'residence', ''),
+            "contact": getattr(s, 'contact', ''),
             "mental_health_status": getattr(s, 'mental_health_status', ''), 
             "photo_url": getattr(s, 'photo_url', '')
         } for s in getattr(r, 'suspect_details', [])]

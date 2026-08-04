@@ -112,168 +112,70 @@
 }
 
 /* =========================================================
-   🟢 FULL-SCREEN MULTI-COLOR ALTERNATING CURTAIN STYLES
+   🟢 NEW IDLE SCREEN GLOBE & TEXT ANIMATIONS
    ========================================================= */
-@keyframes colorCycleCurtain {
-  0%   { background-color: #0b3b2c; } /* Alps Green */
-  33%  { background-color: #002060; } /* Deep Police Blue */
-  66%  { background-color: #1e1b4b; } /* Deep Midnight Navy */
-  100% { background-color: #0b3b2c; } /* Cycles back to Alps Green */
-}
-
 .security-curtain-overlay {
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100vh;
-  z-index: 9999;
-  animation: colorCycleCurtain 15s ease infinite;
+  z-index: 99999;
+  background-color: #020617; /* Very dark slate to make the blue emblem pop */
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  padding: 2rem;
 }
 
-.curtain-title-container {
-  max-width: 90vw;
-  text-align: center;
-  word-break: break-word;
-  overflow-wrap: break-word;
-  margin-top: 1.5rem;
-  margin-bottom: 1.5rem;
-}
-
-/* =========================================================
-   🟢 CURTAIN & BACKGROUND ANIMATIONS
-   ========================================================= */
-
-@keyframes flagWaveBg {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-
-/* 1. Diagonal wave for the main dashboard watermark (Strict 6-band loop: Black, Yellow, Red, Black, Yellow, Red) */
-.uganda-flag-wave-diagonal {
-  background: linear-gradient(-45deg, 
-    #000000 0%,   #000000 16.66%, 
-    #facc15 16.66%, #facc15 33.33%, 
-    #dc2626 33.33%, #dc2626 50%, 
-    #000000 50%,    #000000 66.66%, 
-    #facc15 66.66%, #facc15 83.33%, 
-    #dc2626 83.33%, #dc2626 100%
-  );
-  background-size: 200% 200%;
-  animation: flagWaveBg 30s linear infinite;
-}
-
-/* 2. Horizontal wave for the Idle Security Curtain (Tighter stripes) */
-.uganda-flag-wave {
-  background: linear-gradient(to right, 
-    #000000 33.3%, #facc15 33.3%, #facc15 66.6%, #dc2626 66.6%
-  );
-  background-size: 200% 200%;
-  animation: flagWaveBg 20s linear infinite;
-}
-
-@keyframes scrollBwStripes {
-  0% { background-position: 0 0; }
-  100% { background-position: 50px 0; }
-}
-
-.bwbwb-wave {
-  background: repeating-linear-gradient(
-    to right,
-    #000000 0px,
-    #000000 25px,
-    #ffffff 25px,
-    #ffffff 50px
-  );
-  animation: scrollBwStripes 25s linear infinite; 
-}
-
-@keyframes flowFlag {
-  from { background-position: 0% 50%; }
-  to { background-position: 200% 50%; }
-}
-
-.png-flag-wave {
-  background-image: url('/UPF Flag Emblem.png');
-  background-size: cover; 
-  background-repeat: repeat-x;
-  animation: flowFlag 15s linear infinite;
-}
-
-/* =========================================================
-   🟢 STANDBY MODE & SPARKLE UI EFFECTS
-   ========================================================= */
-
-@keyframes diamondSparkleSpin {
-  0%, 100% {
-    transform: rotate(0deg);
-    color: #facc15;
-    filter: drop-shadow(0 0 4px rgba(250,204,21,0.4));
-  }
-  50% {
-    transform: rotate(360deg);
-    color: #ffffff;
-    filter: drop-shadow(0 0 15px rgba(255,255,255,1)) drop-shadow(0 0 25px #38bdf8);
-  }
-}
-
-.animate-diamond-globe {
-  animation: diamondSparkleSpin 4s linear infinite; 
-}
-
-@keyframes spinFauxGlobe {
-  from { background-position: 0% 50%; }
-  to { background-position: 200% 50%; }
-}
-
-.upf-css-globe {
-  width: 160px;
-  height: 160px;
-  border-radius: 50%;
+.idle-backdrop-emblem {
+  position: absolute;
+  inset: 0;
   background-image: url('/UPF Flag Emblem.png');
   background-size: cover;
-  background-repeat: repeat-x; 
-  box-shadow: 
-    inset -25px -25px 40px rgba(0, 0, 0, 0.8),
-    inset 10px 10px 20px rgba(255, 255, 255, 0.4),
-    0 0 25px rgba(255, 255, 255, 0.2);
-  animation: spinFauxGlobe 12s linear infinite;
-  margin: 0 auto;
+  background-position: center;
+  opacity: 0.15;
+  /* Forces the emblem into a light blue spectrum */
+  filter: invert(40%) sepia(100%) saturate(300%) hue-rotate(180deg) brightness(1.2);
 }
 
-@keyframes spinGlobe {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.idle-center-container {
+  position: relative;
+  width: 75vmin; /* Exactly 75% of the shortest screen edge to maintain a perfect circle */
+  height: 75vmin;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.animate-spin-globe {
-  animation: spinGlobe 12s linear infinite;
+@keyframes spinGlobeClockwise {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
-/* =========================================================
-   🟢 DYNAMIC LETTER-BY-LETTER SWEEP ANIMATION
-   ========================================================= */
-@keyframes sweepLetter {
-  0% {
-    opacity: 0;
-    transform: translateY(20px) scale(0.8);
-    filter: blur(4px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    filter: blur(0);
-  }
+.spinning-map-globe {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-image: url('/upf_kmp_map.png');
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  animation: spinGlobeClockwise 35s linear infinite;
+  border-radius: 50%;
+  filter: drop-shadow(0 0 30px rgba(56, 189, 248, 0.4));
 }
 
-.animate-sweep-letter {
-  display: inline-block;
-  opacity: 0;
-  animation: sweepLetter 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+@keyframes spinTextCounterClockwise {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(-360deg); }
+}
+
+.spinning-text-ring {
+  position: absolute;
+  width: 95%; /* Hugs the center area closely */
+  height: 95%;
+  animation: spinTextCounterClockwise 25s linear infinite;
+  pointer-events: none;
+  filter: drop-shadow(0 0 6px rgba(0,0,0,0.9));
 }

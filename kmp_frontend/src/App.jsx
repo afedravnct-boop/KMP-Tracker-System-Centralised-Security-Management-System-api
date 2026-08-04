@@ -43,8 +43,8 @@ export const formatEATDateTime = (dateStr) => {
   if (isNaN(d.getTime())) return dateStr;
 
   return d.toLocaleString('en-GB', {
-    timeZone: 'Africa/Nairobi', // Forces East Africa Time (EAT)
-    hour12: false,              // Forces strict 24-hour format (e.g. 18:34 instead of 06:34 PM)
+    timeZone: 'Africa/Nairobi', 
+    hour12: false,              
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -84,7 +84,6 @@ const NetworkStatusBadge = () => {
     window.addEventListener('online', updateStatus);
     window.addEventListener('offline', updateStatus);
     
-    // Check queue count periodically
     const interval = setInterval(updateStatus, 5000);
 
     return () => {
@@ -300,7 +299,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
             onMouseEnter={() => setIsBannerFolded(false)}
             onMouseLeave={() => setIsBannerFolded(true)}
             onClick={() => {
-              // If folded, clicking expands it. If expanded, clicking goes to statistics
               if (isBannerFolded) {
                 setIsBannerFolded(false);
               } else {
@@ -312,7 +310,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
             } bg-red-600 text-white border-red-300 shadow-[0_0_20px_rgba(239,68,68,0.6)] animate-pulse`}
           >
             {isBannerFolded ? (
-              /* Compact Pill State (matches style size) */
               <div className="flex items-center space-x-2 px-1">
                 <span className="flex h-3 w-3 relative">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-75"></span>
@@ -321,7 +318,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
                 <span className="text-xs font-extrabold tracking-wide uppercase">⚠️ Overdue</span>
               </div>
             ) : (
-              /* Expanded Popup State on Hover / Click */
               <div className="flex flex-col space-y-3 p-1 max-w-xs text-left" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-start text-xs leading-relaxed font-extrabold">
                   <AlertTriangle className="mr-2 w-5 h-5 shrink-0 text-yellow-300 animate-bounce mt-0.5" />
@@ -447,7 +443,9 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
-  const [selectedRecord, setSelectedRecord] = useState(null);
+  
+  // 🟢 Integrated Dossier Modal State (Matches your Nominal Roll behavior)
+  const [selectedOfficer, setSelectedOfficer] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
@@ -1010,7 +1008,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                           if (operation === 'update') {
                             populateUpdateCrimeForm(report); 
                           } else {
-                            // 🟢 Opens the professional OfficerDossierModal popup when clicking any row
                             setSelectedOfficer({
                               fnum: report.sdRef || report.sd_ref,
                               rank: report.offence || 'CRIME INCIDENT',
@@ -1086,6 +1083,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     </div>  
   );
 };
+
 
 
 const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
@@ -2007,6 +2005,45 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
   );
 };
 
+
+
+
+// 🟢 Official UPF Command Seniority Weighting (Lower index = Higher rank)
+const RANK_SENIORITY = {
+  // Officers
+  "IGP": 1,
+  "DIGP": 2,
+  "AIGP": 3,
+  "SCP": 4,
+  "CP": 5,
+  "ACP": 6,
+  "SSP": 7,
+  "SP": 8,
+  "ASP": 9,
+  "IP": 10,
+  "AIP": 11,
+  // NCOs & Enlisted Men
+  "HCM": 12,
+  "HC": 13,
+  "S/SGT": 14,
+  "SSGT": 14,
+  "SGT": 15,
+  "CPL": 16,
+  "L/CPL": 17,
+  "LCPL": 17,
+  "PC": 18,
+  "SPC": 19
+};
+
+// Helper function to get rank weight (defaults unlisted or blank ranks to bottom)
+const getRankWeight = (rankStr) => {
+  if (!rankStr) return 99;
+  const cleanRank = rankStr.trim().toUpperCase();
+  return RANK_SENIORITY[cleanRank] !== undefined ? RANK_SENIORITY[cleanRank] : 50;
+};
+
+
+
 const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Roll_archives, setNominal_Roll_archives, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -2120,40 +2157,6 @@ const filteredRolls = useMemo(() => {
       return Object.values(grouped).sort((a, b) => b.total - a.total);
   }, [currentRollDataset, metricCategory, viewMode]);
 
-
-// 🟢 Official UPF Command Seniority Weighting (Lower index = Higher rank)
-const RANK_SENIORITY = {
-  // Officers
-  "IGP": 1,
-  "DIGP": 2,
-  "AIGP": 3,
-  "SCP": 4,
-  "CP": 5,
-  "ACP": 6,
-  "SSP": 7,
-  "SP": 8,
-  "ASP": 9,
-  "IP": 10,
-  "AIP": 11,
-  // NCOs & Enlisted Men
-  "HCM": 12,
-  "HC": 13,
-  "S/SGT": 14,
-  "SSGT": 14,
-  "SGT": 15,
-  "CPL": 16,
-  "L/CPL": 17,
-  "LCPL": 17,
-  "PC": 18,
-  "SPC": 19
-};
-
-// Helper function to get rank weight (defaults unlisted or blank ranks to bottom)
-const getRankWeight = (rankStr) => {
-  if (!rankStr) return 99;
-  const cleanRank = rankStr.trim().toUpperCase();
-  return RANK_SENIORITY[cleanRank] !== undefined ? RANK_SENIORITY[cleanRank] : 50;
-};
 
 
   const metricsData = useMemo(() => {
@@ -2578,6 +2581,10 @@ const AdminApprovals = ({ currentUser }) => {
   const [resetRequests, setResetRequests] = useState([]);
   const [loadingResets, setLoadingResets] = useState(false);
 
+  // 🟢 NEW: Global Filter States for Super Admin / RPC capabilities
+  const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role)) ? 'ALL STATIONS' : currentUser?.station || '');
+
   const isRPC = currentUser && ['RPC', 'Deputy Commander'].includes(currentUser.role);
   const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
 
@@ -2626,6 +2633,31 @@ const AdminApprovals = ({ currentUser }) => {
         .catch(err => { console.error(err); setLoadingLogs(false); });
     }
   }, [activeTab]);
+
+  // 🟢 NEW: Filter logic applied to the data queues based on selected jurisdiction
+  const filteredPending = useMemo(() => {
+    return realPendingUsers.filter(u => {
+      if (filterRegion !== 'ALL REGIONS' && u.region !== filterRegion) return false;
+      if (filterStation !== 'ALL STATIONS' && u.station !== filterStation) return false;
+      return true;
+    });
+  }, [realPendingUsers, filterRegion, filterStation]);
+
+  const filteredRequests = useMemo(() => {
+    return modRequests.filter(r => {
+      if (filterRegion !== 'ALL REGIONS' && r.current_region !== filterRegion) return false;
+      if (filterStation !== 'ALL STATIONS' && r.current_station !== filterStation) return false;
+      return true;
+    });
+  }, [modRequests, filterRegion, filterStation]);
+
+  const filteredResets = useMemo(() => {
+    return resetRequests.filter(r => {
+      if (filterRegion !== 'ALL REGIONS' && r.region !== filterRegion) return false;
+      if (filterStation !== 'ALL STATIONS' && r.station !== filterStation) return false;
+      return true;
+    });
+  }, [resetRequests, filterRegion, filterStation]);
 
   const handleApproveUser = async (fnum) => {
     try {
@@ -2701,25 +2733,50 @@ const AdminApprovals = ({ currentUser }) => {
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
-      <div className="text-center mb-8 flex flex-col items-center">
+      <div className="text-center mb-6 flex flex-col items-center">
         <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" />
         <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Access & Command Approvals</h1>
         <h3 className="text-lg text-gray-500 mt-2 font-medium">Review pending officer signups, HR transfers, and Audit Logs.</h3>
       </div>
 
+      {/* 🟢 NEW: Dynamic Global Filters for Super Admins / RPCs */}
+      <div className="flex flex-col sm:flex-row justify-center gap-3 mb-4">
+        <select 
+          value={filterRegion} 
+          onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
+          disabled={currentUser?.role !== 'SUPER_ADMIN'} 
+          className="border border-slate-300 rounded-xl px-4 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
+        >
+          {currentUser?.role === 'SUPER_ADMIN' ? (
+            <><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+          ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+        </select>
+
+        <select 
+          value={filterStation} 
+          onChange={(e) => setFilterStation(e.target.value)} 
+          disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role))} 
+          className="border border-slate-300 rounded-xl px-4 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
+        >
+          {['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ? (
+            <><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
+          ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+        </select>
+      </div>
+
       <div className="flex space-x-2 border-b border-gray-200 mb-6 bg-white/50 backdrop-blur rounded-t-xl px-4 pt-4 overflow-x-auto custom-scrollbar">
-        <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>New Account Authorizations ({loadingPending ? '...' : realPendingUsers.length})</button>
-        <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'requests' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>HR Modification Requests ({modRequests.length})</button>
+        <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>New Account Authorizations ({loadingPending ? '...' : filteredPending.length})</button>
+        <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'requests' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>HR Modification Requests ({filteredRequests.length})</button>
         <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Audit Logs</button>
-        <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Password Resets ({activeTab === 'resets' ? resetRequests.length : '?'})</button>
+        <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Password Resets ({activeTab === 'resets' ? filteredResets.length : '?'})</button>
       </div>
 
       {activeTab === 'approvals' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-6xl mx-auto">
           {loadingPending ? (
             <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Syncing with Command Database...</div>
-          ) : realPendingUsers.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 font-medium">No active unapproved access requests pending in queue.</div>
+          ) : filteredPending.length === 0 ? (
+            <div className="p-8 text-center text-gray-500 font-medium">No active unapproved access requests pending in selected queue.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -2731,34 +2788,34 @@ const AdminApprovals = ({ currentUser }) => {
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Action</th>
                   </tr>
                 </thead>
-<tbody className="bg-white divide-y divide-gray-200">
-                {loadingLogs ? (
-                   <tr><td colSpan="5" className="p-8 text-center text-sm text-gray-500 font-bold animate-pulse">Decrypting server logs...</td></tr>
-                ) : audit_logs.length === 0 ? (
-                  <tr><td colSpan="5" className="p-4 text-center text-sm text-gray-500">No recent security events logged in main database.</td></tr>
-                ) : (
-                  audit_logs.map((log) => (
-                    <tr key={log.id} className="hover:bg-slate-50">
-                      {/* 🟢 FIX 5: Force 24-hour time format using en-GB standards */}
-                      <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">
-                        {log.created_at ? new Date(log.created_at).toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : 'Unknown Time'}
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredPending.map((user) => (
+                    <tr key={user.fnum} className="hover:bg-blue-50/50">
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <div className="font-bold text-slate-900">{user.name}</div>
+                        <div className="text-xs text-slate-500 font-medium">{user.fnum} | {user.rank}</div>
+                        <div className="text-xs text-slate-400 mt-1">{user.phone}</div>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm font-extrabold text-blue-700">
-                        {log.user_fnum}
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <div className="font-bold text-blue-700 text-sm">{user.station}</div>
+                        <div className="text-xs text-slate-500 font-medium">{user.region}</div>
+                        <div className="text-[10px] bg-slate-100 px-2 py-0.5 rounded mt-1 inline-block border font-bold text-slate-600">{user.position}</div>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm">
-                        <span className="font-extrabold text-slate-800 uppercase text-xs">{log.event_type}</span>
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full border ${user.role.includes('ADMIN') ? 'bg-purple-100 text-purple-800 border-purple-200' : user.role === 'RPC' ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>
+                          {user.role}
+                        </span>
                       </td>
-                       <td className="px-4 py-3 text-sm text-gray-600 font-medium">
-                        {log.target_user || 'N/A'}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        {log.details}
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <div className="flex space-x-2">
+                          <button onClick={() => handleApproveUser(user.fnum)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-4 rounded-lg shadow-sm text-xs transition flex items-center">
+                            <CheckCircle size={14} className="mr-1" /> Approve
+                          </button>
+                        </div>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
+                  ))}
+                </tbody>
               </table>
             </div>
           )}
@@ -2770,8 +2827,8 @@ const AdminApprovals = ({ currentUser }) => {
           <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold"><Shield className="w-5 h-5 mr-2 text-yellow-400" /> HR Modification Requests</div>
           {loadingRequests ? (
             <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Loading pending modifications...</div>
-          ) : modRequests.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 font-medium">No pending profile modification requests.</div>
+          ) : filteredRequests.length === 0 ? (
+            <div className="p-8 text-center text-gray-500 font-medium">No pending profile modification requests in selected queue.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -2783,7 +2840,7 @@ const AdminApprovals = ({ currentUser }) => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {modRequests.map((req) => (
+                  {filteredRequests.map((req) => (
                     <tr key={req.id} className="hover:bg-yellow-50/50">
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="font-extrabold text-blue-700">{req.current_name}</div>
@@ -2812,7 +2869,7 @@ const AdminApprovals = ({ currentUser }) => {
 
       {activeTab === 'logs' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold"><Shield className="w-5 h-5 mr-2 text-blue-400" /> System Audit Logs</div>
+          <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold"><Shield className="w-5 h-5 mr-2 text-blue-400" /> System Audit Logs (Global)</div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -2832,7 +2889,9 @@ const AdminApprovals = ({ currentUser }) => {
                 ) : (
                   audit_logs.map((log) => (
                     <tr key={log.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">{log.created_at ? new Date(log.created_at).toLocaleString() : 'Unknown Time'}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">
+                        {log.created_at ? formatEATDateTime(log.created_at) : 'Unknown Time'}
+                      </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm font-extrabold text-blue-700">{log.user_fnum}</td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm"><span className="font-extrabold text-slate-800 uppercase text-xs">{log.event_type}</span></td>
                       <td className="px-4 py-3 text-sm text-gray-600 font-medium">{log.target_user || 'N/A'}</td>
@@ -2851,8 +2910,8 @@ const AdminApprovals = ({ currentUser }) => {
           <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex items-center text-white font-semibold"><Lock className="w-5 h-5 mr-2 text-red-400" /> Authorized Password Recovery</div>
           {loadingResets ? (
             <div className="p-8 text-center text-gray-500 font-medium animate-pulse">Scanning jurisdiction for requests...</div>
-          ) : resetRequests.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 font-medium">No pending password reset requests in your command.</div>
+          ) : filteredResets.length === 0 ? (
+            <div className="p-8 text-center text-gray-500 font-medium">No pending password reset requests in selected queue.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -2865,7 +2924,7 @@ const AdminApprovals = ({ currentUser }) => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {resetRequests.map((req) => (
+                  {filteredResets.map((req) => (
                     <tr key={req.id} className="hover:bg-red-50/50">
                       <td className="px-4 py-3 whitespace-nowrap text-xs font-bold text-gray-500">{req.request_date}</td>
                       <td className="px-4 py-3 whitespace-nowrap">

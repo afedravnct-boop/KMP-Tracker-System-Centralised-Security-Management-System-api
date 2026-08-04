@@ -60,7 +60,13 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
             key = 'UNKNOWN AGE';
           }
         }
-        else if (metricCategory === 'SEX') key = (item.sex || 'UNSPECIFIED').toUpperCase();
+        else if (metricCategory === 'SEX') {
+          // 🟢 FIX: Ensure 'M'/'m' groups as MALE and 'F'/'f' groups as FEMALE
+          const rawSex = (item.sex || '').trim().toUpperCase();
+          if (rawSex.startsWith('M')) key = 'MALE';
+          else if (rawSex.startsWith('F')) key = 'FEMALE';
+          else key = 'UNSPECIFIED';
+        }
         else if (metricCategory === 'DIR') key = (item.dir || 'GENERAL DIRECTORATE').toUpperCase();
         else if (metricCategory === 'SECTION') key = (item.section || 'GENERAL SECTION').toUpperCase();
       }

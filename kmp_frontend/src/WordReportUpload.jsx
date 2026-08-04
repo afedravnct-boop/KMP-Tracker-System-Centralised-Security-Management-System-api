@@ -24,7 +24,7 @@ const WordReportUpload = ({ currentUser }) => {
       
       const response = await fetch(`${API_URL}/api/v1/reports/upload-word-report`, {
         method: "POST",
-        headers: { "Authorization": `Bearer {token}` },
+        headers: { "Authorization": `Bearer ${token}` },
         body: formData
       });
 
@@ -42,7 +42,7 @@ const WordReportUpload = ({ currentUser }) => {
 
   const downloadTemplate = (type) => {
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-    window.open(`${API_URL}/api/v1/templates/download/{type}`, '_blank');
+    window.open(`${API_URL}/api/v1/templates/download/${type}`, '_blank');
   };
 
   return (
@@ -93,7 +93,7 @@ const WordReportUpload = ({ currentUser }) => {
             )}
 
             {feedback && (
-              <div className={`p-4 rounded-xl text-xs font-bold {feedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+              <div className={`p-4 rounded-xl text-xs font-bold ${feedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
                 {feedback.message}
               </div>
             )}

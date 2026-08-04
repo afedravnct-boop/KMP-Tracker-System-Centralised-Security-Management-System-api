@@ -50,6 +50,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   const [receiptsData, setReceiptsData] = useState([]);
   const [loadingReceipts, setLoadingReceipts] = useState(false);
 
+  // 🟢 NEW: Track which messages have been clicked and expanded
+  const [expandedMsgs, setExpandedMsgs] = useState({});
+
   // Fetch hierarchical filtered recipients list on load
   useEffect(() => {
     fetchRecipientsList();
@@ -210,6 +213,31 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   useEffect(() => {
     if (activeTab === 'inbox' || activeTab === 'outbox') fetchMessages();
   }, [activeTab, dateFilter, customStartDate, customEndDate]);
+
+  // 🟢 NEW: Handles automatic marking of messages as "Read" upon opening
+  const handleOpenMessage = async (msg) => {
+    const isCurrentlyExpanded = expandedMsgs[msg.id];
+    
+    // Toggle the UI expansion
+    setExpandedMsgs(prev => ({ ...prev, [msg.id]: !isCurrentlyExpanded }));
+
+    // If it's being opened for the first time and is currently unread in the inbox
+    if (!isCurrentlyExpanded && activeTab === 'inbox' && !msg.acknowledged) {
+      
+      // Optimistically update the local state so the notification dot instantly disappears
+      setInboxMessages(prev => prev.map(m => m.id === msg.id ? { ...m, acknowledged: true } : m));
+      
+      try {
+        const token = localStorage.getItem('kmp_authToken');
+        await fetch(`${API_URL}/api/v1/communications/${msg.id}/acknowledge`, { 
+          method: 'POST', 
+          headers: { 'Authorization': `Bearer ${token}` } 
+        });
+      } catch (err) {
+        console.error("Failed to sync read receipt with backend:", err);
+      }
+    }
+  };
 
   const getPriorityStyle = (type) => {
     switch(type) {
@@ -570,51 +598,80 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                 <div className="space-y-4">
                   {(activeTab === 'inbox' ? inboxMessages : outboxMessages)
                     .filter(msg => activeFilter === 'all' || msg.message_type === activeFilter)
-                    .map((msg) => (
-                    <div key={msg.id} className="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
-                      
-                      <div className="bg-slate-50 px-5 py-3 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2">
-                        <div className="flex items-center space-x-3">
-                          <span className={`px-3 py-1 rounded-full text-[10px] uppercase font-extrabold border ${getPriorityStyle(msg.message_type)}`}>
-                            {msg.message_type.replace('_', ' ')}
-                          </span>
-                          <span className="text-[10px] font-bold text-slate-500 bg-slate-200 px-2 py-1 rounded border border-slate-300">
-                            TO: {msg.target_audience.replace('_', ' ')} {msg.target_audience === 'SPECIFIC_REGION' ? `(${msg.target_region})` : ''}
-                          </span>
-                        </div>
-                        <div className="flex items-center text-xs font-bold text-slate-400">
-                          <Clock size={14} className="mr-1"/> {msg.created_at}
-                        </div>
-                      </div>
+                    .map((msg) => {
+                      const isExpanded = expandedMsgs[msg.id];
+                      const isUnread = !msg.acknowledged && activeTab === 'inbox';
 
-                      <div className="p-5">
-                        <h3 className="text-lg font-extrabold text-slate-800 mb-3">{msg.subject}</h3>
-                        <div className="prose prose-sm max-w-none text-slate-700" dangerouslySetInnerHTML={{ __html: msg.message }} />
-                      </div>
-
-                      <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                        <div className="flex flex-col">
-                          <div className="mb-1">
-                            <span className="font-bold mr-2">Dispatched By:</span> 
-                            {msg.sender_name} <span className="ml-1 text-slate-400">({msg.sender_fnum})</span>
+                      return (
+                        <div key={msg.id} className={`bg-white border ${isUnread ? 'border-blue-400 shadow-md ring-1 ring-blue-400' : 'border-slate-200'} rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden`}>
+                          
+                          <div 
+                            className="bg-slate-50 px-5 py-3 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2 cursor-pointer"
+                            onClick={() => handleOpenMessage(msg)}
+                          >
+                            <div className="flex items-center space-x-3">
+                              {isUnread && (
+                                <span className="w-2.5 h-2.5 bg-blue-600 rounded-full animate-pulse shadow-[0_0_5px_#2563eb] shrink-0"></span>
+                              )}
+                              <span className={`px-3 py-1 rounded-full text-[10px] uppercase font-extrabold border ${getPriorityStyle(msg.message_type)}`}>
+                                {msg.message_type.replace('_', ' ')}
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-500 bg-slate-200 px-2 py-1 rounded border border-slate-300">
+                                TO: {msg.target_audience.replace('_', ' ')} {msg.target_audience === 'SPECIFIC_REGION' ? `(${msg.target_region})` : ''}
+                              </span>
+                            </div>
+                            <div className="flex items-center text-xs font-bold text-slate-400">
+                              <Clock size={14} className="mr-1"/> {msg.created_at}
+                            </div>
                           </div>
-                          {msg.msg_ref && msg.msg_ref !== 'UPF/UNKNOWN/000' && (
-                            <div className="font-mono text-[10px] text-slate-500 font-bold uppercase tracking-wider flex items-center">
-                              REF: <span className="text-blue-700 bg-blue-50/50 px-2 py-0.5 ml-1 border border-blue-100 rounded">{msg.msg_ref}</span>
+
+                          <div 
+                            className="p-5 cursor-pointer hover:bg-slate-50/50 transition-colors"
+                            onClick={() => handleOpenMessage(msg)}
+                          >
+                            <h3 className={`text-lg font-extrabold ${isUnread ? 'text-blue-900' : 'text-slate-800'}`}>{msg.subject}</h3>
+                            
+                            {!isExpanded && (
+                              <p className="text-xs text-blue-600 font-bold mt-2 flex items-center">
+                                <Eye size={14} className="mr-1"/> Click to open and read full message...
+                              </p>
+                            )}
+
+                            {isExpanded && (
+                              <div 
+                                className="prose prose-sm max-w-none text-slate-700 mt-4 pt-4 border-t border-slate-100 animate-in fade-in" 
+                                dangerouslySetInnerHTML={{ __html: msg.message }} 
+                                onClick={(e) => e.stopPropagation()} 
+                              />
+                            )}
+                          </div>
+
+                          {isExpanded && (
+                            <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 animate-in fade-in">
+                              <div className="flex flex-col">
+                                <div className="mb-1">
+                                  <span className="font-bold mr-2">Dispatched By:</span> 
+                                  {msg.sender_name} <span className="ml-1 text-slate-400">({msg.sender_fnum})</span>
+                                </div>
+                                {msg.msg_ref && msg.msg_ref !== 'UPF/UNKNOWN/000' && (
+                                  <div className="font-mono text-[10px] text-slate-500 font-bold uppercase tracking-wider flex items-center">
+                                    REF: <span className="text-blue-700 bg-blue-50/50 px-2 py-0.5 ml-1 border border-blue-100 rounded">{msg.msg_ref}</span>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); fetchReceipts(msg.id); }} 
+                                className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-1.5 px-3 rounded transition-colors flex items-center border border-blue-200 shrink-0 cursor-pointer"
+                              >
+                                <Eye size={14} className="mr-1" /> View Read Receipts
+                              </button>
                             </div>
                           )}
-                        </div>
-                        
-                        <button 
-                          onClick={() => fetchReceipts(msg.id)} 
-                          className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-1.5 px-3 rounded transition-colors flex items-center border border-blue-200 shrink-0 cursor-pointer"
-                        >
-                          <Eye size={14} className="mr-1" /> View Read Receipts
-                        </button>
-                      </div>
 
-                    </div>
-                  ))}
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </div>
