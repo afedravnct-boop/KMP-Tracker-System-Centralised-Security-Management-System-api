@@ -636,6 +636,55 @@ const availableUpdateCases = useMemo(() => {
     }
   };
 
+const handleStandalonePopSubmit = async () => {
+    if (formData.cell_population === '' || formData.cell_population === null) {
+      return setNotification("Error: Please enter a cell population number.");
+    }
+    
+    const token = localStorage.getItem('kmp_authToken');
+    if (!token) return setNotification("Error: Security token missing.");
+    
+    setNotification("⏳ Logging Daily Cell Population...");
+    
+    // Auto-generate a bypass SD reference like POP-KAW-982341
+    const popRef = `POP-${formData.station.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
+    
+    const apiPayload = {
+      sd_ref: popRef,
+      region: formData.region,
+      station: formData.station,
+      date: formData.date,
+      time: formData.time,
+      offence: 'Other', 
+      narrative: `Daily Lock-up / Detention Cell Population Log. Total suspects currently in custody at ${formData.station} is ${formData.cell_population}.`,
+      status: 'CLOSED / CONVICTED', // Set to closed so it doesn't inflate your active cases metric
+      suspects: 0,
+      last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
+      suspectDetails: [],
+      cell_population: formData.cell_population || 0
+    };
+
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const response = await fetch(`${API_URL}/api/v1/reports`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify(apiPayload)
+      });
+      
+      const resData = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(resData.detail || "Database rejected the entry.");
+      
+      const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
+      setReports([newReportLocal, ...reports]);
+      setNotification(`✅ Daily Cell Population (${formData.cell_population}) logged successfully for ${formData.station}!`);
+      setFormData(prev => ({ ...prev, cell_population: 0 })); // Reset field after success
+    } catch (err) {
+      setNotification(`❌ Error: ${err.message}`);
+    }
+  };
+
+
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     const token = localStorage.getItem('kmp_authToken');
@@ -998,32 +1047,37 @@ const availableUpdateCases = useMemo(() => {
                   </div>
                 </div>
 
-                <div className="col-span-2 bg-slate-200 p-4 rounded-lg border border-slate-300 shadow-inner mt-4">
+<div className="col-span-2 bg-slate-200 p-4 rounded-lg border border-slate-300 shadow-inner mt-4">
                   <label className="block text-sm font-extrabold text-slate-800 mb-1">
                     General Daily Lock-up / Detention Cell Population
                   </label>
                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 leading-relaxed">
-                    * Note: Enter the TOTAL number of suspects currently held in your station's cell. This operates independently of the suspects attached to this specific crime.
+                    * Note: Enter the TOTAL number of suspects currently held in your station's cell. You can log this independently without an SD Ref.
                   </p>
-                  <input 
-                    type="number" 
-                    name="cell_population" 
-                    value={formData.cell_population} 
-                    onChange={handleInputChange} 
-                    min="0" 
-                    className="w-full text-lg border-slate-400 rounded-md shadow-sm border p-3 bg-gray-50 focus:ring-slate-500 font-black text-slate-900" 
-                    placeholder="Total suspects in custody..." 
-                  />
+                  <div className="flex gap-3">
+                    <input 
+                      type="number" 
+                      name="cell_population" 
+                      value={formData.cell_population} 
+                      onChange={handleInputChange} 
+                      min="0" 
+                      className="flex-1 text-lg border-slate-400 rounded-md shadow-sm border p-3 bg-white focus:ring-blue-500 font-black text-slate-900" 
+                      placeholder="Total suspects in custody..." 
+                    />
+                    <button 
+                      type="button" 
+                      onClick={handleStandalonePopSubmit}
+                      className="bg-slate-800 hover:bg-black text-white text-sm font-bold px-6 rounded-md shadow transition-colors flex items-center shrink-0"
+                    >
+                      💾 Log Population Only
+                    </button>
+                  </div>
                 </div>
 
-                <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center">
+                <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center mt-4">
                   {operation === 'new' ? '🚨 Submit New Case / Report' : '💾 Save Case Updates'}
                 </button>
               </form>
-            </div>
-          </div>
-        </div>
-
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
@@ -1300,6 +1354,55 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
   };
 
   const populateUpdateForm = (statData) => setFormData({ ...statData });
+
+const handleStandalonePopSubmit = async () => {
+    if (formData.cell_population === '' || formData.cell_population === null || formData.cell_population === 0) {
+      return setNotification("Error: Please enter a valid cell population number.");
+    }
+    
+    const token = localStorage.getItem('kmp_authToken');
+    if (!token) return setNotification("Error: Security token missing.");
+    
+    setNotification("⏳ Logging Daily Cell Population...");
+    
+    // Auto-generate a bypass SD reference based on the station and timestamp
+    const popRef = `POP-${formData.station.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
+    
+    const apiPayload = {
+      sd_ref: popRef,
+      region: formData.region,
+      station: formData.station,
+      date: formData.date,
+      time: formData.time,
+      offence: 'Other', 
+      narrative: `Daily Lock-up / Detention Cell Population Log. Total suspects currently in custody at ${formData.station} is ${formData.cell_population}.`,
+      status: 'CLOSED / CONVICTED', // Set to closed so it doesn't inflate your active cases metric
+      suspects: 0,
+      last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
+      suspectDetails: [],
+      cell_population: formData.cell_population
+    };
+
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const response = await fetch(`${API_URL}/api/v1/reports`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify(apiPayload)
+      });
+      
+      const resData = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(resData.detail || "Database rejected the entry.");
+      
+      const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
+      setReports([newReportLocal, ...reports]);
+      setNotification(`✅ Daily Cell Population (${formData.cell_population}) logged successfully for ${formData.station}!`);
+      setFormData(prev => ({ ...prev, cell_population: 0 })); // Reset field after success
+    } catch (err) {
+      setNotification(`❌ Error: ${err.message}`);
+    }
+  };
+
 
   const handleFormSubmit = async (e) => { 
     e.preventDefault();
@@ -2301,20 +2404,34 @@ const calculatedMetrics = useMemo(() => {
       return Object.values(grouped).sort((a, b) => b.total - a.total);
   }, [currentRollDataset, metricCategory, viewMode]);
 
-  const metricsData = useMemo(() => {
+const metricsData = useMemo(() => {
+    let maleCount = 0;
+    let femaleCount = 0;
+    const uniqueStations = {};
+
+    currentRollDataset.forEach(n => {
+      const sexStr = (n.sex || '').trim().toUpperCase();
+      const ninStr = (n.nin || '').trim().toUpperCase();
+      
+      if (sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF')) {
+        femaleCount++;
+      } else if (sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM')) {
+        maleCount++;
+      }
+
+      if (n.station) {
+        uniqueStations[n.station] = true;
+      }
+    });
+
     return {
       total: currentRollDataset.length,
-      male: currentRollDataset.filter(n => (n.sex || '').toUpperCase().includes('M')).length,
-      female: currentRollDataset.filter(n => (n.sex || '').toUpperCase().includes('F') || (n.nin || '').toUpperCase().startsWith('CF')).length,
-      stations: currentRollDataset.reduce((acc, curr) => { if(curr.station) acc[curr.station] = true; return acc; }, {})
+      male: maleCount,
+      female: femaleCount,
+      unassigned: currentRollDataset.length - (maleCount + femaleCount),
+      stations: Object.keys(uniqueStations).length
     };
   }, [currentRollDataset]);
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    if (name === 'region') setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] || '' });
-    else setFormData({ ...formData, [name]: value });
-  };
 
   const populateUpdateForm = (data) => setFormData({ ...data, fnum: data.fnum || data.f_num });
 
