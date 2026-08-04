@@ -19,6 +19,7 @@ import BulkNominalRollUpload from './BulkNominalRollUpload';
 import { syncOfflineQueue, getOfflineQueueCount } from './utils/offlineSync';
 import AnalyticsDashboard from './AnalyticsDashboard';
 import OfficerDossierModal from './OfficerDossierModal';
+import upfMapGlobe from './upf_kmp_map.png';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -592,6 +593,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
       try {
         const token = localStorage.getItem('kmp_authToken');
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const response = await fetch(`${API_URL}/api/v1/investigation/upload/`, {
           method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: uploadData,
         });
@@ -646,7 +648,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         const resData = await response.json().catch(() => ({}));
         
         if (!response.ok) {
-            throw new Error(resData.detail || "Neon Database rejected the entry.");
+            throw new Error(resData.detail || "Database rejected the entry.");
         }
         
         const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
@@ -3670,8 +3672,6 @@ return (
 
 
 
-
-
 // ====================================================================
 // --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN COMPONENT ---
 // ====================================================================
@@ -3714,7 +3714,7 @@ const WorkspaceSecurityCurtain = () => {
   return (
     <>
       {/* 🟢 COLLAPSIBLE DISCREET IDLE GUARD TOGGLE */}
-      <div className="fixed bottom-6 right-6 z-[9990]">
+      <div className="fixed bottom-6 right-6 z-[99990]">
         <div
           onMouseEnter={() => setIsExpanded(true)}
           onMouseLeave={() => setIsExpanded(false)}
@@ -3745,46 +3745,45 @@ const WorkspaceSecurityCurtain = () => {
         </div>
       </div>
 
-      {/* 🟢 FULL-SCREEN STANDBY CURTAIN */}
+      {/* 🟢 FULL-SCREEN STANDBY CURTAIN WITH SPINNING GLOBE */}
       <div 
-        className={`fixed inset-0 w-screen h-screen z-[99999] flex flex-col items-center justify-center transition-transform duration-700 ease-in-out shadow-2xl overflow-hidden ${
-          isWorkspaceIdle && !isReadingMode ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-full opacity-0 pointer-events-none'
+        className={`security-curtain-overlay transition-opacity duration-700 ease-in-out ${
+          isWorkspaceIdle && !isReadingMode ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
-        style={{ backgroundColor: '#0f172a' }}
       >
-        <div className="absolute top-0 w-full h-2.5 bg-[#000000]"></div>
-        <div className="absolute top-2.5 w-full h-2.5 bg-[#facc15]"></div>
-        <div className="absolute top-5 w-full h-2.5 bg-[#dc2626]"></div>
+        {/* Light Blue Tinted Flag Background */}
+        <div className="idle-backdrop-emblem"></div>
 
-        <div className="absolute inset-0 w-full h-full opacity-15 uganda-flag-wave"></div>
-
-        <div className="relative z-10 flex flex-col items-center text-center">
-          <div className="w-72 h-44 mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.3)] png-flag-wave rounded-xl shadow-2xl border border-slate-600/50"></div>
+        {/* 75% Centered Orbital Container */}
+        <div className="idle-center-container">
           
-          <h2 className="text-3xl font-extrabold text-center text-white tracking-wide uppercase drop-shadow-md">
-            KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM
-          </h2>
-          <p className="text-blue-300 mt-3 text-sm font-bold bg-blue-900/50 px-4 py-1.5 rounded-full border border-blue-500/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
-            <Lock size={14} className="mr-2" /> 
-            
-            {/* Sparkling Globe Container */}
-            <span className="relative inline-flex items-center justify-center mx-2">
-              <span className="absolute -inset-1 rounded-full bg-yellow-400/20 blur-xs animate-pulse"></span>
-              <Globe size={20} className="relative z-10 animate-spin text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.6)]" style={{ animationDuration: '4s' }} />
-              <span className="absolute -top-1 -right-1.5 text-[10px] animate-ping text-yellow-200">✨</span>
-            </span>
+          {/* Map Globe (Spins Clockwise). Image passed directly via style */}
+          <div 
+            className="spinning-map-globe"
+            style={{ backgroundImage: `url(${upfMapGlobe})` }}
+          ></div>
 
-            KMP-CSDMS Standby Mode 
-          </p>
+          {/* Text Ring (Spins Counter-Clockwise using an SVG Path) */}
+          <svg viewBox="0 0 100 100" className="spinning-text-ring">
+            <path 
+              id="orbitPath" 
+              d="M 50, 50 m -48, 0 a 48,48 0 1,1 96,0 a 48,48 0 1,1 -96,0" 
+              fill="none" 
+            />
+            <text fill="#ffffff" fontSize="5" fontWeight="900" letterSpacing="0.2">
+              <textPath href="#orbitPath" startOffset="0%" textLength="301" lengthAdjust="spacingAndGlyphs">
+                KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • 
+              </textPath>
+            </text>
+          </svg>
+
         </div>
-
-        <div className="absolute bottom-5 w-full h-2.5 bg-[#dc2626]"></div> 
-        <div className="absolute bottom-2.5 w-full h-2.5 bg-[#facc15]"></div> 
-        <div className="absolute bottom-0 w-full h-2.5 bg-[#000000]"></div> 
       </div>
     </>
   );
 };
+
+
 
 // ====================================================================
 // --- MAIN LAYOUT COMPONENT ---
@@ -4674,8 +4673,16 @@ const App = () => {
           authFetch(`${API_URL}/api/v1/users`, { signal: controller.signal })
         ]);
 
-        if (!controller.signal.aborted) {
-          if (resReports.ok) setReports(await resReports.json());
+if (!controller.signal.aborted) {
+          // 🟢 DIAGNOSTIC TRIPWIRE: Catch silent backend failures immediately
+          if (!resReports.ok) {
+             const errorText = await resReports.text();
+             console.error("🚨 COMMAND BACKEND ERROR:", resReports.status, errorText);
+             alert(`Database Connection Alert: The server returned status ${resReports.status}. Open your browser console (F12) to see the exact error.`);
+          } else {
+             setReports(await resReports.json());
+          }
+
           if (resStats.ok) setStats(await resStats.json());
           if (resStories.ok) setStories(await resStories.json());
           if (resNom.ok) setNominal_Rolls(await resNom.json());
@@ -4692,9 +4699,13 @@ const App = () => {
             }
           }
         }
-      } catch (error) { if (error.name !== 'AbortError') console.error(error); } 
-    };
-    
+      } catch (error) { 
+        if (error.name !== 'AbortError') {
+          console.error("Network/Fetch Error:", error);
+          alert("Network Error: Could not reach the backend server. If you just deployed, it might still be booting up.");
+        }
+      } 
+    };    
     fetchAllData();
     return () => controller.abort();
   }, [currentUser?.fnum]); 
