@@ -1074,14 +1074,17 @@ const handleStandalonePopSubmit = async () => {
                   </div>
                 </div>
 
-                <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center mt-4">
+<button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center mt-4">
                   {operation === 'new' ? '🚨 Submit New Case / Report' : '💾 Save Case Updates'}
                 </button>
               </form>
+            </div>
+          </div>
+        </div>
+
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <div className="relative flex-1">              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
               <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
             </div>
             <select 
@@ -3991,17 +3994,24 @@ const WorkspaceSecurityCurtain = () => {
         </div>
       </div>
 
-      {/* 🟢 FULL-SCREEN STANDBY CURTAIN WITH SPINNING GLOBE */}
+{/* 🟢 FULL-SCREEN STANDBY CURTAIN WITH SPINNING GLOBE */}
       <div 
-        className={`security-curtain-overlay transition-opacity duration-700 ease-in-out ${
+        className={`security-curtain-overlay transition-opacity duration-700 ease-in-out relative overflow-hidden ${
           isWorkspaceIdle && !isReadingMode ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
+        {/* 🟢 National Flag Watermark Stripes (Black, Yellow, Red) */}
+        <div className="absolute inset-0 opacity-20 pointer-events-none flex flex-col justify-between z-0">
+          <div className="h-1/3 w-full bg-black"></div>
+          <div className="h-1/3 w-full bg-[#FCD116]"></div> {/* Official Ugandan Flag Yellow */}
+          <div className="h-1/3 w-full bg-[#D91B23]"></div> {/* Official Ugandan Flag Red */}
+        </div>
+
         {/* Light Blue Tinted Flag Background */}
-        <div className="idle-backdrop-emblem"></div>
+        <div className="idle-backdrop-emblem z-10"></div>
 
         {/* 75% Centered Orbital Container */}
-        <div className="idle-center-container">
+        <div className="idle-center-container relative z-20">
           
           {/* Map Globe (Spins Clockwise). Image passed directly via style */}
           <div 
