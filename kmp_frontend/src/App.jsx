@@ -444,7 +444,9 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
-  const [selectedRecord, setSelectedRecord] = useState(null);
+  
+  // 🟢 Corrected: State explicitly for viewing a Case File Dossier
+  const [selectedCase, setSelectedCase] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
@@ -1007,6 +1009,9 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                         onClick={() => { 
                           if (operation === 'update') {
                             populateUpdateCrimeForm(report); 
+                          } else {
+                            // 🟢 Only pops up when you click a case row in view mode
+                            setSelectedCase(report);
                           }
                         }}
                       >
@@ -1058,10 +1063,62 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           </div>
         </>
       </div>
+
+      {/* 🟢 Dedicated Case Dossier Modal Popup (Only opens when a case is clicked) */}
+      {selectedCase && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="bg-slate-900 text-white p-4 flex justify-between items-center shrink-0">
+              <h3 className="font-bold flex items-center text-sm">
+                <Shield className="text-blue-400 mr-2" size={18} /> 
+                CRIME CASE FILE DOSSIER — REF: {selectedCase.sdRef || selectedCase.sd_ref}
+              </h3>
+              <button onClick={() => setSelectedCase(null)} className="text-slate-400 hover:text-white transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-4 text-xs text-slate-700">
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded border">
+                <div><strong className="text-slate-900">SN / ID:</strong> {selectedCase.sn || selectedCase.id}</div>
+                <div><strong className="text-slate-900">Status:</strong> {selectedCase.status}</div>
+                <div><strong className="text-slate-900">Region / Station:</strong> {selectedCase.region} / {selectedCase.station}</div>
+                <div><strong className="text-slate-900">Date Recorded:</strong> {selectedCase.date} at {selectedCase.time}</div>
+              </div>
+              <div>
+                <strong className="text-slate-900 block mb-1 uppercase font-bold">Offence Category:</strong>
+                <div className="text-red-600 font-extrabold text-sm">{selectedCase.offence || 'N/A'}</div>
+              </div>
+              <div>
+                <strong className="text-slate-900 block mb-1 uppercase font-bold">Full Narrative:</strong>
+                <div className="bg-slate-50 p-3 rounded border max-h-48 overflow-y-auto ql-editor" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
+              </div>
+              {selectedCase.suspectDetails && selectedCase.suspectDetails.length > 0 && (
+                <div>
+                  <strong className="text-slate-900 block mb-1 uppercase font-bold">Suspects in Custody ({selectedCase.suspectDetails.length}):</strong>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {selectedCase.suspectDetails.map((s, idx) => (
+                      <div key={idx} className="bg-red-50 p-2 rounded border border-red-200 flex justify-between items-center">
+                        <div>
+                          <span className="font-bold uppercase text-slate-900">{idx + 1}. {s.name}</span> ({s.sex}, {s.age ? `${s.age}yrs` : 'Age Unk'})
+                          <div className="text-[10px] text-red-800">Res: {s.residence || 'N/A'} | Tel: {s.contact || 'N/A'}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="bg-slate-100 p-3 border-t flex justify-end shrink-0">
+              <button onClick={() => setSelectedCase(null)} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-4 rounded text-xs transition">
+                Close Dossier
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>  
   );
 };
-
 
 
 const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
