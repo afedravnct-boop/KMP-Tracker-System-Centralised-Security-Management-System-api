@@ -591,6 +591,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
       try {
         const token = localStorage.getItem('kmp_authToken');
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const response = await fetch(`${API_URL}/api/v1/investigation/upload/`, {
           method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: uploadData,
         });
