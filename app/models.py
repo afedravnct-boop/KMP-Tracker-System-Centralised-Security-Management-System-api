@@ -42,6 +42,27 @@ class Crime_Reports(Base):
     # String reference solves circular dependency
     suspect_details = relationship("Suspect_Lockup", back_populates="crime_report", cascade="all, delete-orphan")
 
+
+class Suspect_Lockup(Base):
+    __tablename__ = "suspect_lockup"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("crime_reports.id", ondelete="CASCADE"), nullable=False)
+    
+    name = Column(String, nullable=False)
+    sex = Column(String, default="MALE")
+    age = Column(Integer, nullable=True)
+    tribe = Column(String, nullable=True)
+    residence = Column(String, nullable=True)
+    contact = Column(String, nullable=True)
+    mental_health_status = Column(String, default="NORMAL")
+    photo_url = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime, default=get_eat_time)
+
+    # This connects back to the crime_report relationship
+    crime_report = relationship("Crime_Reports", back_populates="suspect_details")
+
 # ==========================================
 # 2. DISRUPTIVE OPS STATISTICS
 # ==========================================
