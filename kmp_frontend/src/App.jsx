@@ -4702,69 +4702,14 @@ if (!controller.signal.aborted) {
 
   const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
 
-  const renderPage = () => {
+
+const renderPage = () => {
     switch (currentPage) {
       case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
-      
-      // 🟢 SCROLLABLE DOSSIER CONTAINER FOR CRIME INCIDENTS
-      case 'reports': return (
-        <div className="p-6 max-w-[1920px] mx-auto space-y-6 w-full">
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden max-w-full">
-            <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
-              <div>
-                <h3 className="font-extrabold text-sm uppercase tracking-wider">Crime Incident Dossier & Registry</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Comprehensive chronological log of recorded incidents.</p>
-              </div>
-              <span className="bg-slate-800 text-blue-400 text-xs px-3 py-1 rounded-lg border border-slate-700 font-mono">
-                Scrollable Dossier View
-              </span>
-            </div>
-
-            <div className="max-h-[700px] overflow-y-auto overflow-x-auto custom-scrollbar">
-              <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-50 text-slate-700 uppercase font-bold sticky top-0 z-10 shadow-xs">
-                  <tr>
-                    <th className="p-3 text-left">Incident ID / Ref</th>
-                    <th className="p-3 text-left">Date / Time (EAT)</th>
-                    <th className="p-3 text-left">Station / Region</th>
-                    <th className="p-3 text-left">Offence / Category</th>
-                    <th className="p-3 text-left">Status</th>
-                    <th className="p-3 text-left">Investigating Officer</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
-                  {reports.map((report) => (
-                    <tr key={report.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="p-3 font-mono font-bold text-blue-700">{report.id || report.ref_no}</td>
-                      <td className="p-3 font-mono text-slate-500">{formatEATDateTime(report.date || report.created_at)}</td>
-                      <td className="p-3 font-bold uppercase">{report.station} <span className="text-[10px] text-slate-400 block">[{report.region}]</span></td>
-                      <td className="p-3 font-extrabold text-slate-900">{report.crime_category || report.offence}</td>
-                      <td className="p-3">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-700 border">
-                          {report.status || 'PENDING'}
-                        </span>
-                      </td>
-                      <td className="p-3 font-semibold text-slate-800">{report.officer_name || report.investigator || 'N/A'}</td>
-                    </tr>
-                  ))}
-                  {reports.length === 0 && (
-                    <tr>
-                      <td colSpan="6" className="text-center py-12 text-slate-400 font-medium text-xs">
-                        No crime records logged in the system.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      );
-
-      case 'statistics': return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
-      case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
-      case 'establishments': return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
-      
+      case 'reports': return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} setSidebarOpen={setSidebarOpen} />;
+      case 'statistics': return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} setSidebarOpen={setSidebarOpen} />;
+      case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} setSidebarOpen={setSidebarOpen} />;
+      case 'establishments': return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} setSidebarOpen={setSidebarOpen} />;
       case 'analytics': return (
         <AnalyticsDashboard 
           nominalRolls={Nominal_Rolls} 
@@ -4773,9 +4718,8 @@ if (!controller.signal.aborted) {
           operationalStats={stats} 
         />
       );
-
-      case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
-      case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+      case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} setSidebarOpen={setSidebarOpen} />; 
+      case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={users} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
       case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
       case 'Admin_Communication': return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} />;
       default: return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
@@ -4869,7 +4813,6 @@ if (!controller.signal.aborted) {
         </div>
       </DashboardLayout>
 
-      {/* 🟢 MOVED OUTSIDE of DashboardLayout to guarantee TRUE full-screen over everything */}
       <WorkspaceSecurityCurtain />
     </>
   );
