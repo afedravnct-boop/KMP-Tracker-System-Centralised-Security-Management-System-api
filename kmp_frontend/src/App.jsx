@@ -1669,6 +1669,14 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
     if (name === 'region') setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] });
     else setFormData({ ...formData, [name]: value });
   };
