@@ -3963,10 +3963,10 @@ const DashboardLayout = ({
   const hasUnreadComms = relevantComms.some(c => !c.acknowledged);
 
   const hasNominalClearance = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
-                            (currentUser?.position || '').toUpperCase().includes('HR') ||
-                            currentUser?.permissions?.view_nominal_roll || 
-                            currentUser?.permissions?.upload_hr || 
-                            currentUser?.permissions?.system_admin;
+                              (currentUser?.position || '').toUpperCase().includes('HR') ||
+                              currentUser?.permissions?.view_nominal_roll || 
+                              currentUser?.permissions?.upload_hr || 
+                              currentUser?.permissions?.system_admin;
 
   const navItems = [
     { 
@@ -4307,7 +4307,7 @@ const DashboardLayout = ({
         </div>
       </div>
 
-<main className="flex-1 overflow-y-auto bg-gray-50 w-full relative flex flex-col">
+      <main className="flex-1 overflow-y-auto bg-gray-50 w-full relative flex flex-col">
         <IdleWarningModal /> 
         
         {/* 🟢 Top Right Controls (Fullscreen & Interactive Expandable Motion Play/Pause Button) */}
@@ -4366,7 +4366,7 @@ const DashboardLayout = ({
         {React.Children.map(children, child => 
           (React.isValidElement(child) && typeof child.type !== 'string') 
             ? React.cloneElement(child, { 
-                setSidebarOpen: child.props.setSidebarOpen || ((val) => {}) 
+                setSidebarOpen: setSidebarOpen 
               }) 
             : child
         )}  
@@ -4574,8 +4574,6 @@ const DashboardLayout = ({
   );
 };
 
-
-
 const App = () => {
   const [currentUser, setCurrentUser] = usePersistentState('kmp_currentUser', null);
   const [currentPage, setCurrentPage] = usePersistentState('kmp_currentPage', 'home');
@@ -4655,7 +4653,7 @@ const App = () => {
           authFetch(`${API_URL}/api/v1/users`, { signal: controller.signal })
         ]);
 
-if (!controller.signal.aborted) {
+        if (!controller.signal.aborted) {
           // 🟢 DIAGNOSTIC TRIPWIRE: Catch silent backend failures immediately
           if (!resReports.ok) {
              const errorText = await resReports.text();
@@ -4709,14 +4707,13 @@ if (!controller.signal.aborted) {
 
   const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
 
-
-const renderPage = () => {
+  const renderPage = () => {
     switch (currentPage) {
       case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
-      case 'reports': return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} setSidebarOpen={setSidebarOpen} />;
-      case 'statistics': return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} setSidebarOpen={setSidebarOpen} />;
-      case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} setSidebarOpen={setSidebarOpen} />;
-      case 'establishments': return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} setSidebarOpen={setSidebarOpen} />;
+      case 'reports': return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
+      case 'statistics': return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
+      case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
+      case 'establishments': return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
       case 'analytics': return (
         <AnalyticsDashboard 
           nominalRolls={Nominal_Rolls} 
@@ -4725,7 +4722,7 @@ const renderPage = () => {
           operationalStats={stats} 
         />
       );
-      case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} setSidebarOpen={setSidebarOpen} />; 
+      case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
       case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={users} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
       case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
       case 'Admin_Communication': return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} />;
