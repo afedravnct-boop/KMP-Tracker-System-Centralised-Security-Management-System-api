@@ -984,8 +984,13 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               </select>    
             </div>
 
-            <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
-              <div className="overflow-x-auto w-full">
+<ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { 
+  if (typeof setSidebarOpen === 'function') {
+    setSidebarOpen(!expanded);
+  }
+}}>
+
+                 <div className="overflow-x-auto w-full">
                 <table className="w-full divide-y divide-gray-200 min-w-[1000px]">
                   <thead className="bg-gray-50 sticky top-0 z-10">
                     <tr>
