@@ -440,12 +440,11 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 };
 
 
+
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
-  
-  // 🟢 Integrated Dossier Modal State
-  const [selectedOfficer, setSelectedOfficer] = useState(null);
+  const [selectedRecord, setSelectedRecord] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
@@ -592,7 +591,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
       try {
         const token = localStorage.getItem('kmp_authToken');
-        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const response = await fetch(`${API_URL}/api/v1/investigation/upload/`, {
           method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: uploadData,
         });
@@ -647,7 +645,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         const resData = await response.json().catch(() => ({}));
         
         if (!response.ok) {
-            throw new Error(resData.detail || "Database rejected the entry.");
+            throw new Error(resData.detail || "Neon Database rejected the entry.");
         }
         
         const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
@@ -1008,21 +1006,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                         onClick={() => { 
                           if (operation === 'update') {
                             populateUpdateCrimeForm(report); 
-                          } else {
-                            setSelectedOfficer({
-                              fnum: report.sdRef || report.sd_ref,
-                              rank: report.offence || 'CRIME INCIDENT',
-                              name: report.station,
-                              sex: report.region,
-                              position: report.status,
-                              dob: report.date,
-                              contact: report.time,
-                              station: report.station,
-                              region: report.region,
-                              status: report.status,
-                              narrative: report.narrative,
-                              suspectDetails: report.suspectDetails
-                            });
                           }
                         }}
                       >
@@ -1074,13 +1057,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           </div>
         </>
       </div>
-
-      {selectedOfficer && (
-        <OfficerDossierModal 
-          officer={selectedOfficer} 
-          onClose={() => setSelectedOfficer(null)} 
-        />
-      )}
     </div>  
   );
 };
