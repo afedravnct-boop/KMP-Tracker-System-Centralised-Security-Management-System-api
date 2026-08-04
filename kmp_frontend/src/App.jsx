@@ -440,12 +440,11 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 };
 
 
-
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   
-  // 🟢 Integrated Dossier Modal State (Matches your Nominal Roll behavior)
+  // 🟢 Integrated Dossier Modal State
   const [selectedOfficer, setSelectedOfficer] = useState(null);
 
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
