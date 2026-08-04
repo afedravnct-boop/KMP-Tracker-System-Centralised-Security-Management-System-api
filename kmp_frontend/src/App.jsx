@@ -448,8 +448,23 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   // 🟢 State for the Official Case Dossier Popup Modal
   const [selectedCase, setSelectedCase] = useState(null);
 
-  const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
+// 🟢 COMMAND CLEARANCE HIERARCHY
+  const isGlobalCommand = 
+    currentUser?.role === 'SUPER_ADMIN' || 
+    currentUser?.permissions?.view_global_roster || 
+    ['IGP', 'DIGP'].some(title => (currentUser?.position || '').toUpperCase().includes(title)) ||
+    (currentUser?.position || '').toUpperCase().includes('DIRECTOR') ||
+    (currentUser?.position || '').toUpperCase().includes('KMP COMMANDER') ||
+    ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((currentUser?.region || '').toUpperCase());
+
+  const isRegionalCommand = 
+    isGlobalCommand || 
+    ['RPC', 'DEPUTY COMMANDER'].includes((currentUser?.role || '').toUpperCase()) || 
+    (currentUser?.position || '').toUpperCase().includes('DIVISIONAL COMMANDER');
+
+  // Set default views based on clearance weight
+  const [filterRegion, setFilterRegion] = useState(isGlobalCommand ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState(isRegionalCommand ? 'ALL STATIONS' : currentUser?.station || '');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
@@ -464,7 +479,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
     region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
     date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-    offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
+    offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: '',
+    cell_population: 0 // 🟢 NEW: Added standalone daily lock-up count
   });
 
   const handleOperationToggle = (mode) => {
@@ -475,7 +491,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
         region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
         date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-        offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
+        offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: '',
+        cell_population: 0 // Reset on new
       });
       setUpdateSearch(''); 
     }
@@ -484,7 +501,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const populateUpdateCrimeForm = (caseData) => {
     setFormData({ 
       ...caseData, sd_ref: caseData.sdRef || caseData.sd_ref, offence: caseData.offence || 'Other',
-      customOffence: '', suspectDetails: caseData.suspectDetails || [], updateText: '' 
+      customOffence: '', suspectDetails: caseData.suspectDetails || [], updateText: '',
+      cell_population: caseData.cell_population || 0 // Populate existing
     });
   };
 
@@ -546,13 +564,24 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   }, [reports, currentUser, updateSearch]);
 
   const metrics = useMemo(() => {
+    // 🟢 NEW: Mathematical Rollup for General Cell Population
+    // Extracts the latest cell population entry per unique station within the filtered jurisdiction
+    const stationCellPop = {};
+    filteredReports.forEach(r => {
+       if (stationCellPop[r.station] === undefined && r.cell_population !== undefined && r.cell_population !== null) {
+           stationCellPop[r.station] = parseInt(r.cell_population) || 0;
+       }
+    });
+    const totalCellPop = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
+
     return {
       newCases: filteredReports.length,
       active: filteredReports.filter(r => r.status === 'ACTIVE INVESTIGATION').length,
       sanctioned: filteredReports.filter(r => r.status === 'FORWARDED TO COURT').length,
       closed: filteredReports.filter(r => r.status === 'CLOSED / CONVICTED').length,
       adr: filteredReports.filter(r => r.status === 'ADR').length,
-      totalSuspects: filteredReports.reduce((sum, r) => sum + (parseInt(r.suspects) || 0), 0)
+      totalSuspects: filteredReports.reduce((sum, r) => sum + (parseInt(r.suspects) || 0), 0),
+      totalCellPop: totalCellPop // Send to UI
     };
   }, [filteredReports]);
 
@@ -634,7 +663,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         sd_ref: final_reference, region: formData.region, station: formData.station,
         date: formData.date, time: formData.time, offence: finalOffence, narrative: formData.narrative,
         status: formData.status, suspects: formData.suspectDetails.length, 
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails
+        last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails,
+        cell_population: formData.cell_population || 0 // 🟢 Added to payload
       };
       
       try {
@@ -669,7 +699,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       const updatedRecord = { 
         ...formData, narrative: updatedNarrative, sd_ref: formData.sd_ref, 
         suspects: (formData.suspects || 0) + formData.suspectDetails.length,
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails
+        last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails,
+        cell_population: formData.cell_population || 0 // 🟢 Added to payload
       };
       delete updatedRecord.updateText; delete updatedRecord.ref_type; delete updatedRecord.ref_number;
       
@@ -695,7 +726,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
-      {/* (Lockup Modal Registration UI Remains Unchanged) */}
+      
       {showLockup && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex justify-center items-center p-4 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh] border border-red-200">
@@ -705,7 +736,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
             </div>
             
             <div className="p-6 overflow-y-auto bg-slate-50 space-y-6 flex-1 custom-scrollbar">
-<div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">Add Suspect Details</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
                   <div className="md:col-span-2">
@@ -824,9 +855,15 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           </select>
         </div>
         <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        
+        {/* 🟢 NEW: 7-Column Grid to fit the new Cell Population Card */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
           <MetricCard title="Total Cases" value={metrics.newCases} colorClass="text-blue-700" />
-          <MetricCard title="Suspects (Custody)" value={metrics.totalSuspects} colorClass="text-red-600" />
+          <MetricCard title="Suspects (Case)" value={metrics.totalSuspects} colorClass="text-red-600" />
+          
+          {/* 🟢 NEW METRIC CARD: Daily Station Lock-up */}
+          <MetricCard title="Cell Population" value={metrics.totalCellPop} colorClass="text-slate-800" />
+          
           <MetricCard title="Active" value={metrics.active} colorClass="text-yellow-600" />
           <MetricCard title="Sanctioned" value={metrics.sanctioned} colorClass="text-purple-600" />
           <MetricCard title="Closed" value={metrics.closed} colorClass="text-green-600" />
@@ -971,6 +1008,25 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                     </div>
                   </div>
 
+                  {/* 🟢 NEW: DAILY LOCK-UP INPUT (GRAY BOX) */}
+                  <div className="col-span-2 bg-slate-200 p-4 rounded-lg border border-slate-300 shadow-inner mt-4">
+                    <label className="block text-sm font-extrabold text-slate-800 mb-1">
+                      General Daily Lock-up / Detention Cell Population
+                    </label>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 leading-relaxed">
+                      * Note: Enter the TOTAL number of suspects currently held in your station's cell. This operates independently of the suspects attached to this specific crime.
+                    </p>
+                    <input 
+                      type="number" 
+                      name="cell_population" 
+                      value={formData.cell_population} 
+                      onChange={handleInputChange} 
+                      min="0" 
+                      className="w-full text-lg border-slate-400 rounded-md shadow-sm border p-3 bg-gray-50 focus:ring-slate-500 font-black text-slate-900" 
+                      placeholder="Total suspects in custody..." 
+                    />
+                  </div>
+
                   <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center">
                     {operation === 'new' ? '🚨 Submit New Case / Report' : '💾 Save Case Updates'}
                   </button>
@@ -980,18 +1036,28 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           </div>
 
           <div className="lg:col-span-7 space-y-4">
-            <div className="flex flex-col sm:flex-row gap-3">
+<div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
               </div>
-              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+              <select 
+                value={filterRegion} 
+                onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
+                disabled={!isGlobalCommand} 
+                className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
+              >
+                {isGlobalCommand ? (
                   <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
                 ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
               </select>
-              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+              <select 
+                value={filterStation} 
+                onChange={(e) => setFilterStation(e.target.value)} 
+                disabled={!isRegionalCommand} 
+                className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
+              >
+                {isRegionalCommand ? (
                   <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
                 ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
               </select>    
@@ -2219,17 +2285,22 @@ const filteredRolls = useMemo(() => {
     });
   }, [Nominal_Rolls, currentUser, updateSearch]);
 
-  const calculatedMetrics = useMemo(() => {
+const calculatedMetrics = useMemo(() => {
       if (viewMode !== 'metrics') return [];
       const grouped = {};
       
       currentRollDataset.forEach(n => {
           let key = 'Unknown';
-          const isFemale = (n.sex || '').toUpperCase().includes('F') || (n.nin || '').toUpperCase().startsWith('CF');
+          
+          // 🟢 Strict Sex Evaluation (Prevents "FEMALE" from being counted as "MALE")
+          const sexStr = (n.sex || '').trim().toUpperCase();
+          const ninStr = (n.nin || '').trim().toUpperCase();
+          const isFemale = sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF');
+          const isMale = sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM');
           
           if (metricCategory === 'RANK') key = n.rank ? n.rank.trim().toUpperCase() : 'UNRANKED';
           else if (metricCategory === 'UNIT') key = `${n.station || 'UNKNOWN'} ${n.section ? '- ' + n.section : ''}`.trim();
-          else if (metricCategory === 'SEX') key = isFemale ? 'FEMALE' : 'MALE';
+          else if (metricCategory === 'SEX') key = isFemale ? 'FEMALE' : (isMale ? 'MALE' : 'UNSPECIFIED');
           else if (metricCategory === 'BANK') key = n.bankbranch ? n.bankbranch.trim().toUpperCase() : 'BANK UNKNOWN';
           else if (metricCategory === 'DISTRICT') key = n.homedist ? n.homedist.trim().toUpperCase() : 'DISTRICT UNKNOWN';
           else if (metricCategory === 'TRIBE') key = n.tribe ? n.tribe.trim().toUpperCase() : 'TRIBE UNKNOWN';
@@ -2241,13 +2312,44 @@ const filteredRolls = useMemo(() => {
               } else { key = 'Age Not Recorded'; }
           }
           
-          if (!grouped[key]) grouped[key] = { category: key, total: 0, male: 0, female: 0 };
+          if (!grouped[key]) grouped[key] = { category: key, total: 0, male: 0, female: 0, unknown: 0 };
           grouped[key].total += 1;
           if (isFemale) grouped[key].female += 1;
-          else grouped[key].male += 1;
+          else if (isMale) grouped[key].male += 1;
+          else grouped[key].unknown += 1;
       });
       return Object.values(grouped).sort((a, b) => b.total - a.total);
   }, [currentRollDataset, metricCategory, viewMode]);
+
+  const metricsData = useMemo(() => {
+    let maleCount = 0;
+    let femaleCount = 0;
+    const uniqueStations = {};
+
+    currentRollDataset.forEach(n => {
+      // 🟢 Strict evaluation loop for dashboard metrics
+      const sexStr = (n.sex || '').trim().toUpperCase();
+      const ninStr = (n.nin || '').trim().toUpperCase();
+      
+      if (sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF')) {
+        femaleCount++;
+      } else if (sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM')) {
+        maleCount++;
+      }
+
+      if (n.station) {
+        uniqueStations[n.station] = true;
+      }
+    });
+
+    return {
+      total: currentRollDataset.length,
+      male: maleCount,
+      female: femaleCount,
+      unassigned: currentRollDataset.length - (maleCount + femaleCount), // Captures blank/invalid entries
+      stations: Object.keys(uniqueStations).length
+    };
+  }, [currentRollDataset]);
 
 
 
@@ -2379,11 +2481,14 @@ const filteredRolls = useMemo(() => {
         </div>
 
         {viewMode !== 'metrics' && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+{viewMode !== 'metrics' && (
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
              <MetricCard title={viewMode === 'archive' ? "Total Archived" : "Total Personnel"} value={metricsData.total} colorClass={viewMode === 'archive' ? "text-red-700" : "text-blue-700"} />
              <MetricCard title="Male Officers" value={metricsData.male} colorClass="text-indigo-600" />
              <MetricCard title="Female Officers" value={metricsData.female} colorClass="text-pink-600" />
-             <MetricCard title="Stations" value={Object.keys(metricsData.stations).length} colorClass="text-emerald-600" />
+             <MetricCard title="Unassigned Sex" value={metricsData.unassigned} colorClass="text-slate-400" />
+             <MetricCard title="Stations" value={metricsData.stations} colorClass="text-emerald-600" />
           </div>
         )}
       </div>
@@ -4835,7 +4940,7 @@ const App = () => {
       case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
       case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={users} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
       case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
-      case 'Admin_Communication': return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} />;
+      case 'Admin_Communication': return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} onAcknowledgeComm={handleAcknowledgeComm} />;
       default: return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
     }
   };

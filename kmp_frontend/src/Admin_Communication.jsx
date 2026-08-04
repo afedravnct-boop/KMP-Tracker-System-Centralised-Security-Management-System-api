@@ -13,7 +13,8 @@ const autoCapitalize = (text) => {
   });
 };
 
-const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
+// 🟢 Added onAcknowledgeComm prop to sync with global App.jsx state
+const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm }) => {
   const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
   
   const [activeTab, setActiveTab] = useState(canBroadcast ? 'dispatch' : 'inbox'); 
@@ -29,7 +30,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   const [formData, setFormData] = useState({
     targetAudience: canBroadcast ? 'ALL_USERS' : 'SPECIFIC_USER', 
     targetRegion: 'ALL', 
-    targetFnum: [], // Multi-select array for officers
+    targetFnum: [], 
     messageType: canBroadcast ? 'GENERAL_INFO' : 'DIRECT_MESSAGE',
     subject: '', 
     message: '', 
@@ -50,10 +51,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
   const [receiptsData, setReceiptsData] = useState([]);
   const [loadingReceipts, setLoadingReceipts] = useState(false);
 
-  // 🟢 NEW: Track which messages have been clicked and expanded
   const [expandedMsgs, setExpandedMsgs] = useState({});
 
-  // Fetch hierarchical filtered recipients list on load
   useEffect(() => {
     fetchRecipientsList();
   }, []);
@@ -89,7 +88,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
     }
   };
 
-  // Dynamic Filtering Logic for Checkboxes based on Headquarters & Categories
   const finalSelectableRecipients = (filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || [])).filter(user => {
     if (user.fnum === currentUser.fnum) return false;
     const region = (user.region || "").toUpperCase();
@@ -214,28 +212,37 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
     if (activeTab === 'inbox' || activeTab === 'outbox') fetchMessages();
   }, [activeTab, dateFilter, customStartDate, customEndDate]);
 
-  // 🟢 NEW: Handles automatic marking of messages as "Read" upon opening
-  const handleOpenMessage = async (msg) => {
-    const isCurrentlyExpanded = expandedMsgs[msg.id];
-    
-    // Toggle the UI expansion
-    setExpandedMsgs(prev => ({ ...prev, [msg.id]: !isCurrentlyExpanded }));
+  // 🟢 ONLY expands the message. No longer auto-acknowledges.
+  const handleOpenMessage = (msg) => {
+    setExpandedMsgs(prev => ({ ...prev, [msg.id]: !prev[msg.id] }));
+  };
 
-    // If it's being opened for the first time and is currently unread in the inbox
-    if (!isCurrentlyExpanded && activeTab === 'inbox' && !msg.acknowledged) {
+  // 🟢 NEW: Manual Kill Switch to Acknowledge Receipt
+  const handleManualAcknowledge = async (e, msg) => {
+    e.stopPropagation(); // Prevent row click from collapsing the message
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const res = await fetch(`${API_URL}/api/v1/communications/${msg.id}/acknowledge`, { 
+        method: 'POST', 
+        headers: { 'Authorization': `Bearer ${token}` } 
+      });
       
-      // Optimistically update the local state so the notification dot instantly disappears
-      setInboxMessages(prev => prev.map(m => m.id === msg.id ? { ...m, acknowledged: true } : m));
-      
-      try {
-        const token = localStorage.getItem('kmp_authToken');
-        await fetch(`${API_URL}/api/v1/communications/${msg.id}/acknowledge`, { 
-          method: 'POST', 
-          headers: { 'Authorization': `Bearer ${token}` } 
-        });
-      } catch (err) {
-        console.error("Failed to sync read receipt with backend:", err);
+      if (res.ok) {
+        // 1. Update local inbox immediately to remove the blue border
+        setInboxMessages(prev => prev.map(m => m.id === msg.id ? { ...m, acknowledged: true } : m));
+        
+        // 2. Kill the global notification by calling the App.jsx callback
+        if (typeof onAcknowledgeComm === 'function') {
+          onAcknowledgeComm(msg.id);
+        }
+        
+        setNotification({ type: 'success', text: '✅ Message acknowledged successfully.' });
+        setTimeout(() => setNotification(null), 3000);
       }
+    } catch (err) {
+      console.error("Failed to acknowledge receipt:", err);
+      setNotification({ type: 'error', text: '❌ Failed to acknowledge receipt.' });
+      setTimeout(() => setNotification(null), 3000);
     }
   };
 
@@ -496,6 +503,17 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
           {(activeTab === 'inbox' || activeTab === 'outbox') && (
             <div className="space-y-6">
               
+              {notification && (
+                <div className={`p-4 rounded-lg text-sm font-bold flex items-center shadow-sm ${
+                  notification.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 
+                  notification.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 
+                  'bg-blue-50 text-blue-700 border border-blue-200'
+                }`}>
+                  {notification.type === 'error' ? <AlertTriangle className="w-5 h-5 mr-2" /> : <CheckCircle className="w-5 h-5 mr-2" />}
+                  {notification.text}
+                </div>
+              )}
+
               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-4">
                 <div className="flex flex-col md:flex-row gap-4 items-end">
                   <div className="flex-1 w-full">
@@ -647,7 +665,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                           </div>
 
                           {isExpanded && (
-                            <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 animate-in fade-in">
+                            <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex flex-wrap gap-3 items-center justify-between text-xs text-slate-500 animate-in fade-in">
                               <div className="flex flex-col">
                                 <div className="mb-1">
                                   <span className="font-bold mr-2">Dispatched By:</span> 
@@ -660,12 +678,22 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage }) => {
                                 )}
                               </div>
                               
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); fetchReceipts(msg.id); }} 
-                                className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-1.5 px-3 rounded transition-colors flex items-center border border-blue-200 shrink-0 cursor-pointer"
-                              >
-                                <Eye size={14} className="mr-1" /> View Read Receipts
-                              </button>
+                              <div className="flex items-center space-x-2">
+                                {isUnread && (
+                                  <button 
+                                    onClick={(e) => handleManualAcknowledge(e, msg)} 
+                                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-4 rounded transition-colors flex items-center shadow-sm cursor-pointer"
+                                  >
+                                    <CheckCircle size={14} className="mr-1.5" /> Acknowledge Receipt
+                                  </button>
+                                )}
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); fetchReceipts(msg.id); }} 
+                                  className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-1.5 px-3 rounded transition-colors flex items-center border border-blue-200 shrink-0 cursor-pointer"
+                                >
+                                  <Eye size={14} className="mr-1" /> View Read Receipts
+                                </button>
+                              </div>
                             </div>
                           )}
 
