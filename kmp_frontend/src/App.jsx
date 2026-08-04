@@ -4307,7 +4307,7 @@ const DashboardLayout = ({
         </div>
       </div>
 
-      <main className="flex-1 overflow-y-auto bg-gray-50 w-full relative flex flex-col">
+<main className="flex-1 overflow-y-auto bg-gray-50 w-full relative flex flex-col">
         <IdleWarningModal /> 
         
         {/* 🟢 Top Right Controls (Fullscreen & Interactive Expandable Motion Play/Pause Button) */}
@@ -4365,7 +4365,9 @@ const DashboardLayout = ({
         
         {React.Children.map(children, child => 
           (React.isValidElement(child) && typeof child.type !== 'string') 
-            ? React.cloneElement(child, { setSidebarOpen }) 
+            ? React.cloneElement(child, { 
+                setSidebarOpen: child.props.setSidebarOpen || ((val) => {}) 
+              }) 
             : child
         )}  
       </main>
