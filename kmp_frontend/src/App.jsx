@@ -20,6 +20,7 @@ import { syncOfflineQueue, getOfflineQueueCount } from './utils/offlineSync';
 import AnalyticsDashboard from './AnalyticsDashboard';
 import OfficerDossierModal from './OfficerDossierModal';
 import upfMapGlobe from './upf_kmp_map.png';
+import WordReportUpload from './WordReportUpload';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -1136,6 +1137,14 @@ const handleStandalonePopSubmit = async () => {
                         }
                       }}
                     >
+                      {/* 🟢 Neon Database ID mapped directly as the SN Column */}
+      <td className="px-4 py-4 whitespace-nowrap text-xs font-bold text-gray-900 align-top group-hover:text-blue-700 transition-colors">
+        {report.id || report.sn}
+      </td>
+      
+      <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-blue-700 align-top break-words">
+        {report.sdRef || report.sd_ref}
+      </td>
                       <td className="px-4 py-4 whitespace-nowrap text-xs font-bold text-gray-900 align-top group-hover:text-blue-700 transition-colors">
                         {report.id || report.sn}
                       </td>
@@ -2562,7 +2571,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
           </div>
         </div>
 
-{viewMode !== 'metrics' && (
+        {viewMode !== 'metrics' && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
              <MetricCard title={viewMode === 'archive' ? "Total Archived" : "Total Personnel"} value={metricsData.total} colorClass={viewMode === 'archive' ? "text-red-700" : "text-blue-700"} />
              <MetricCard title="Male Officers" value={metricsData.male} colorClass="text-indigo-600" />
@@ -2839,7 +2848,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   );
 };
 
-
 // ====================================================================
 // --- ADMIN COMPONENTS: APPROVALS, LOGS & HR REQUESTS ---
 // ====================================================================
@@ -2858,20 +2866,26 @@ const AdminApprovals = ({ currentUser }) => {
   const [resetRequests, setResetRequests] = useState([]);
   const [loadingResets, setLoadingResets] = useState(false);
 
-  // 🟢 NEW: Global Filter States for Super Admin / RPC capabilities
+  // 🟢 NEW: State for Active System Roster & Granular Matrix management
+  const [allSystemUsers, setAllSystemUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+
+  // 🟢 Global Filter States for Super Admin / RPC capabilities
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role)) ? 'ALL STATIONS' : currentUser?.station || '');
 
   const isRPC = currentUser && ['RPC', 'Deputy Commander'].includes(currentUser.role);
-  const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
+  const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN'].includes(currentUser.role);
 
   useEffect(() => {
+    // 1. Fetch HR Modification Requests
     setLoadingRequests(true);
     authFetch("/api/v1/requests")
       .then(res => res.json())
       .then(data => { setModRequests(Array.isArray(data) ? data : []); setLoadingRequests(false); })
       .catch(err => { console.error(err); setLoadingRequests(false); });
 
+    // 2. Fetch Pending Signups
     const fetchPendingUsers = async () => {
       setLoadingPending(true);
       try {
@@ -2888,6 +2902,7 @@ const AdminApprovals = ({ currentUser }) => {
     };
     fetchPendingUsers();
 
+    // 3. Fetch Password Resets
     const fetchResets = async () => {
       setLoadingResets(true);
       try {
@@ -2902,6 +2917,20 @@ const AdminApprovals = ({ currentUser }) => {
     };
     fetchResets();
 
+    // 4. Fetch All Active System Users for the Granular Matrix Tab
+    const fetchAllSystemUsers = async () => {
+      setLoadingUsers(true);
+      try {
+        const res = await authFetch("/api/v1/users");
+        if (res.ok) {
+          const data = await res.json();
+          setAllSystemUsers(Array.isArray(data) ? data : []);
+        }
+      } catch (err) { console.error("Failed to sync system user roster:", err); } finally { setLoadingUsers(false); }
+    };
+    fetchAllSystemUsers();
+
+    // 5. Fetch Audit Logs if tab is active
     if (activeTab === 'logs') {
       setLoadingLogs(true);
       authFetch("/api/v1/audit-logs")
@@ -2911,7 +2940,7 @@ const AdminApprovals = ({ currentUser }) => {
     }
   }, [activeTab]);
 
-  // 🟢 NEW: Filter logic applied to the data queues based on selected jurisdiction
+  // 🟢 Filter logic applied to queues based on selected jurisdiction
   const filteredPending = useMemo(() => {
     return realPendingUsers.filter(u => {
       if (filterRegion !== 'ALL REGIONS' && u.region !== filterRegion) return false;
@@ -2935,6 +2964,51 @@ const AdminApprovals = ({ currentUser }) => {
       return true;
     });
   }, [resetRequests, filterRegion, filterStation]);
+
+  // 🟢 Granular Matrix Toggle Handler (Allows immediate granting or revoking of specific sub-permissions)
+  const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
+    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
+    if (!targetUser) return;
+
+    const updatedPermissions = {
+      ...(targetUser.permissions || {}),
+      [permissionKey]: value
+    };
+
+    // Optimistic UI update
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, permissions: updatedPermissions } : u));
+
+    try {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum)}/access`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
+      });
+      if (!response.ok) throw new Error("Server rejected permission update.");
+    } catch (err) {
+      alert(`Failed to save permission: ${err.message}`);
+    }
+  };
+
+  // 🟢 Role Tier Update Handler (Differentiating Super Admin, System Admin, Admin, User)
+  const handleRoleTierChange = async (fnum, newRole) => {
+    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
+    if (!targetUser) return;
+
+    // Optimistic UI update
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, role: newRole } : u));
+
+    try {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum)}/access`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: newRole, permissions: targetUser.permissions || {} })
+      });
+      if (!response.ok) throw new Error("Server rejected role update.");
+    } catch (err) {
+      alert(`Failed to update administrative tier: ${err.message}`);
+    }
+  };
 
   const handleApproveUser = async (fnum) => {
     try {
@@ -3013,10 +3087,10 @@ const AdminApprovals = ({ currentUser }) => {
       <div className="text-center mb-6 flex flex-col items-center">
         <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" />
         <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Access & Command Approvals</h1>
-        <h3 className="text-lg text-gray-500 mt-2 font-medium">Review pending officer signups, HR transfers, and Audit Logs.</h3>
+        <h3 className="text-lg text-gray-500 mt-2 font-medium">Review pending officer signups, granular clearance tiers, HR transfers, and Audit Logs.</h3>
       </div>
 
-      {/* 🟢 NEW: Dynamic Global Filters for Super Admins / RPCs */}
+      {/* Global Filter States for Super Admin / RPC capabilities */}
       <div className="flex flex-col sm:flex-row justify-center gap-3 mb-4">
         <select 
           value={filterRegion} 
@@ -3041,12 +3115,152 @@ const AdminApprovals = ({ currentUser }) => {
         </select>
       </div>
 
+      {/* Navigation Tabs */}
       <div className="flex space-x-2 border-b border-gray-200 mb-6 bg-white/50 backdrop-blur rounded-t-xl px-4 pt-4 overflow-x-auto custom-scrollbar">
         <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>New Account Authorizations ({loadingPending ? '...' : filteredPending.length})</button>
+        <button onClick={() => setActiveTab('matrix')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'matrix' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Active Roster & Clearance Matrix ({allSystemUsers.length})</button>
         <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'requests' ? 'border-yellow-500 text-yellow-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>HR Modification Requests ({filteredRequests.length})</button>
         <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Audit Logs</button>
         <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Password Resets ({activeTab === 'resets' ? filteredResets.length : '?'})</button>
       </div>
+
+      {/* 🟢 NEW: ACTIVE ROSTER & GRANULAR MATRIX TAB */}
+      {activeTab === 'matrix' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden max-w-[1500px] mx-auto">
+          <div className="bg-slate-900 text-white p-4 text-xs font-extrabold uppercase tracking-wider flex items-center justify-between">
+            <span className="flex items-center">
+              <Shield className="w-4 h-4 mr-2 text-indigo-400" /> Active Roster & Granular Clearance Matrix
+            </span>
+            <span className="text-[10px] text-slate-400 font-mono">
+              Role Tiers: SUPER_ADMIN | SYSTEM_ADMIN | ADMIN | USER
+            </span>
+          </div>
+          {loadingUsers ? (
+            <div className="p-12 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
+          ) : allSystemUsers.length === 0 ? (
+            <div className="p-12 text-center text-slate-400 text-xs font-medium">No registered system users found.</div>
+          ) : (
+            <div className="overflow-x-auto w-full">
+              <table className="min-w-full divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-50 text-slate-700 uppercase font-extrabold">
+                  <tr>
+                    <th className="p-4 text-left">Officer Details</th>
+                    <th className="p-4 text-center">Administrative Tier</th>
+                    <th className="p-4 text-center">View Ledger</th>
+                    <th className="p-4 text-center">Register New</th>
+                    <th className="p-4 text-center">Update / Edit</th>
+                    <th className="p-4 text-center text-red-600 bg-red-50/50">Master Download</th>
+                    <th className="p-4 text-center text-emerald-700 bg-emerald-50/50">Analytics / Reports</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                  {allSystemUsers.map(u => {
+                    const p = u.permissions || {};
+                    const isSuperAdmin = u.role === 'SUPER_ADMIN';
+
+                    return (
+                      <tr key={u.fnum} className="hover:bg-slate-50">
+                        <td className="p-4">
+                          <div className="font-extrabold text-slate-900 text-sm flex items-center">
+                            {u.name}
+                            {isSuperAdmin && (
+                              <span className="ml-2 px-2 py-0.5 text-[9px] bg-red-100 text-red-700 font-bold rounded-full border border-red-200">
+                                GOD-MODE
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                            {u.fnum} | {u.rank} • Station: <strong className="text-slate-700">{u.station}</strong>
+                          </div>
+                        </td>
+
+                        {/* TIER SELECTOR: Differentiating Super Admin, System Admin, Admin */}
+                        <td className="p-4 text-center">
+                          <select 
+                            value={u.role || 'USER'}
+                            onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)}
+                            className={`border rounded-lg px-2.5 py-1.5 font-bold outline-none cursor-pointer text-[11px] shadow-xs ${
+                              u.role === 'SUPER_ADMIN' ? 'bg-red-50 text-red-700 border-red-300' :
+                              u.role === 'SYSTEM_ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-300' :
+                              u.role === 'ADMIN' ? 'bg-blue-50 text-blue-700 border-blue-300' :
+                              'bg-slate-100 text-slate-700 border-slate-300'
+                            }`}
+                          >
+                            <option value="USER">USER (Standard)</option>
+                            <option value="ADMIN">ADMIN (Station)</option>
+                            <option value="SYSTEM_ADMIN">SYSTEM ADMIN (Tech)</option>
+                            <option value="SUPER_ADMIN">SUPER ADMIN (Global)</option>
+                          </select>
+                        </td>
+
+                        {/* VIEW PRIVILEGE */}
+                        <td className="p-4 text-center">
+                          <input 
+                            type="checkbox" 
+                            checked={isSuperAdmin || Boolean(p.can_view !== false)} 
+                            disabled={isSuperAdmin}
+                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_view', e.target.checked)} 
+                            className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
+                          />
+                        </td>
+
+                        {/* REGISTER PRIVILEGE */}
+                        <td className="p-4 text-center">
+                          <input 
+                            type="checkbox" 
+                            checked={isSuperAdmin || Boolean(p.can_register !== false)} 
+                            disabled={isSuperAdmin}
+                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_register', e.target.checked)} 
+                            className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
+                          />
+                        </td>
+
+                        {/* UPDATE PRIVILEGE */}
+                        <td className="p-4 text-center">
+                          <input 
+                            type="checkbox" 
+                            checked={isSuperAdmin || Boolean(p.can_update !== false)} 
+                            disabled={isSuperAdmin}
+                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_update', e.target.checked)} 
+                            className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
+                          />
+                        </td>
+
+                        {/* MASTER DOWNLOAD PRIVILEGE (Explicitly toggleable to remove or grant) */}
+                        <td className="p-4 text-center bg-red-50/20">
+                          <input 
+                            type="checkbox" 
+                            checked={isSuperAdmin || Boolean(p.export_data)} 
+                            disabled={isSuperAdmin}
+                            onChange={e => handleGranularPermissionChange(u.fnum, 'export_data', e.target.checked)} 
+                            className="w-4 h-4 text-red-600 rounded cursor-pointer disabled:opacity-40" 
+                          />
+                          {!isSuperAdmin && (
+                            <span className="block text-[9px] text-slate-400 mt-0.5 font-bold">
+                              {p.export_data ? 'Allowed' : 'Revoked'}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* ANALYTICS PRIVILEGE */}
+                        <td className="p-4 text-center bg-emerald-50/20">
+                          <input 
+                            type="checkbox" 
+                            checked={isSuperAdmin || Boolean(p.can_view_analytics !== false)} 
+                            disabled={isSuperAdmin}
+                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_view_analytics', e.target.checked)} 
+                            className="w-4 h-4 text-emerald-600 rounded cursor-pointer disabled:opacity-40" 
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {activeTab === 'approvals' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-6xl mx-auto">
@@ -3229,6 +3443,7 @@ const AdminApprovals = ({ currentUser }) => {
     </div>
   );
 };
+
 
 // ====================================================================
 // --- PROFILE UPDATE SYSTEM (COMMAND WORKFLOW ENABLED FOR ALL USERS) ---
@@ -4022,7 +4237,7 @@ const WorkspaceSecurityCurtain = () => {
 
 {/* 🟢 FULL-SCREEN STANDBY CURTAIN WITH SPINNING GLOBE */}
       <div 
-        className={`security-curtain-overlay transition-opacity duration-700 ease-in-out relative overflow-hidden ${
+        className={`security-curtain-overlay transition-opacity duration-700 ease-in-out fixed inset-0 bg-slate-900 flex flex-col items-center justify-center overflow-hidden z-50 ${
           isWorkspaceIdle && !isReadingMode ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
@@ -4034,7 +4249,7 @@ const WorkspaceSecurityCurtain = () => {
         </div>
 
         {/* Light Blue Tinted Flag Background */}
-        <div className="idle-backdrop-emblem z-10"></div>
+        <div className="idle-backdrop-emblem z-10 pointer-events-none"></div>
 
         {/* 75% Centered Orbital Container */}
         <div className="idle-center-container relative z-20">
@@ -4270,7 +4485,7 @@ const DashboardLayout = ({
                               currentUser?.permissions?.upload_hr || 
                               currentUser?.permissions?.system_admin;
 
-  const navItems = [
+const navItems = [
     { 
       name: 'Home Dashboard', 
       id: 'home', 
@@ -4289,7 +4504,9 @@ const DashboardLayout = ({
     { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> },
     { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> },
     ...(hasNominalClearance ? [{ name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> }] : []),
+    { name: 'Tripartite Reports', id: 'reports_hub', icon: <FileText size={20} /> }
   ];
+
 
   const handleExportLogs = async () => {
     try {
@@ -4339,7 +4556,7 @@ const DashboardLayout = ({
     }
   };
 
-  const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
+const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
     <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl border-2 border-slate-800 text-left font-sans">
         
@@ -4369,20 +4586,18 @@ const DashboardLayout = ({
             <button 
               type="button"
               onClick={() => {
+                // 🟢 Force wipe local session storage and trigger full application reload to return to login
                 setIsTimedOut(false);
                 setShowIdleWarning(false);
                 localStorage.removeItem('kmp_authToken');
                 localStorage.removeItem('kmp_currentUser');
                 localStorage.removeItem('kmp_currentPage');
                 
-                if (latestOnLogout.current) {
-                  try {
-                    latestOnLogout.current();
-                  } catch (err) {
-                    console.error(err);
-                  }
+                if (typeof onLogout === 'function') {
+                  onLogout();
+                } else {
+                  window.location.reload();
                 }
-                window.location.href = '/';
               }}
               className="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold px-4 py-3 rounded-xl shadow-md transition-all cursor-pointer uppercase tracking-wider"
             >
@@ -5024,7 +5239,8 @@ const App = () => {
           operationalStats={stats} 
         />
       );
-      case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />; 
+      case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />;
+      case 'reports_hub': return <WordReportUpload currentUser={currentUser} />; 
       case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={users} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
       case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
       case 'Admin_Communication': return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} onAcknowledgeComm={handleAcknowledgeComm} />;

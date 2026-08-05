@@ -1,137 +1,5 @@
-/* 🟢 TAILWIND IMPORT */
-@import "tailwindcss";
-
 /* =========================================================
-   1. BASE DASHBOARD & SYSTEM LAYOUT
-   ========================================================= */
-.dashboard-container {
-  display: flex;
-  min-height: 100vh;
-  background-color: #F0F2F6;
-}
-
-.sidebar {
-  width: 250px;
-  background-color: #ffffff;
-  border-right: 1px solid #E6E8F1;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-}
-
-.sidebar-nav button {
-  width: 100%;
-  padding: 10px;
-  margin-bottom: 5px;
-  text-align: left;
-  background: none;
-  border: none;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.sidebar-nav button.active {
-  background-color: #E0F2FE;
-  font-weight: bold;
-}
-
-.main-content {
-  flex-grow: 1;
-  padding: 20px;
-}
-
-.header-title {
-  text-align: center;
-  margin-bottom: 30px;
-}
-
-.split-layout {
-  display: flex;
-  gap: 20px;
-}
-
-.left-panel {
-  flex: 1.2;
-  background: white;
-  padding: 20px;
-  border-radius: 8px;
-}
-
-.right-panel {
-  flex: 1.8;
-  background: white;
-  padding: 20px;
-  border-radius: 8px;
-}
-
-.entry-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.entry-form input, .entry-form textarea, .entry-form select {
-  padding: 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-
-.submit-btn {
-  padding: 12px;
-  background-color: #004B87;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.metrics-row {
-  display: flex;
-  gap: 15px;
-  margin-bottom: 20px;
-}
-
-.metric-card {
-  background: #F8F9FA;
-  padding: 15px;
-  border-radius: 6px;
-  border: 1px solid #E6E8F1;
-  flex: 1;
-  text-align: center;
-}
-
-.kmp-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.kmp-table th, .kmp-table td {
-  padding: 12px;
-  border-bottom: 1px solid #eee;
-  text-align: left;
-}
-
-
-/* =========================================================
-   2. COMMON SECURITY CURTAIN OVERLAY BASE
-   ========================================================= */
-.security-curtain-overlay {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 99999;
-  background-color: #020617; /* Deep midnight slate for high contrast */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-
-/* =========================================================
-   3. LOGIN SCREEN CURTAIN (FAUX-3D GLOBE + NATIONAL STRIPES)
+   3. LOGIN SCREEN CURTAIN & GLOBE SYSTEM
    ========================================================= */
 
 /* Faux 3D CSS Sphere Globe Badge */
@@ -196,7 +64,7 @@
 
 
 /* =========================================================
-   4. WORKSPACE STANDBY SECURITY CURTAIN (MAIN LAYOUT IDLE)
+   4. WORKSPACE STANDBY SECURITY CURTAIN & ORBITAL GLOBE
    ========================================================= */
 .idle-backdrop-emblem {
   position: absolute;
@@ -208,7 +76,7 @@
   filter: invert(40%) sepia(100%) saturate(300%) hue-rotate(180deg) brightness(1.2);
 }
 
-/* 65vmin Radial Sphere Canvas */
+/* 65vmin Radial Sphere Canvas with 3D Depth */
 .idle-center-container {
   position: relative;
   width: 65vmin;
@@ -219,32 +87,98 @@
   border-radius: 50%;
   box-shadow: 0 0 50px rgba(14, 165, 233, 0.25), inset 0 0 50px rgba(14, 165, 233, 0.25);
   background: radial-gradient(circle, rgba(15, 23, 42, 0.9) 0%, rgba(2, 6, 23, 1) 100%);
+  
+  /* 🟢 3D Context setup: This tells the browser to allow elements to physically cross each other */
+  perspective: 1000px;
+  transform-style: preserve-3d; 
 }
 
-@keyframes spinGlobeUnified {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+/* 🟢 NEW: 3D Equatorial Orbit (Tilts it flat like a ring, then spins it) */
+@keyframes spinEquator {
+  0% { transform: rotateX(65deg) rotateZ(0deg); }
+  100% { transform: rotateX(65deg) rotateZ(360deg); }
+}
+
+/* 3D Rolling texture animation for the map sphere */
+@keyframes spinMapSphere {
+  0% { background-position: 0 0; }
+  100% { background-position: 800px 0; } 
 }
 
 /* Central Map Surface */
 .spinning-map-globe {
   position: absolute;
-  width: 70%;
-  height: 70%;
-  background-size: contain;
-  background-position: center;
-  background-repeat: no-repeat;
+  width: 50%;
+  height: 50%;
   border-radius: 50%;
-  animation: spinGlobeUnified 40s linear infinite;
-  filter: drop-shadow(0 0 20px rgba(56, 189, 248, 0.3));
+  
+  /* 🟢 Lock the globe at depth 0 so the text ring can wrap around it */
+  transform: translateZ(0); 
+  
+  background-size: auto 100%;
+  background-repeat: repeat-x;
+  animation: spinMapSphere 20s linear infinite;
+  
+  box-shadow: inset -20px -20px 40px rgba(0, 0, 0, 0.8), 
+              inset 10px 10px 20px rgba(255, 255, 255, 0.3), 
+              0 0 20px rgba(56, 189, 248, 0.4);
 }
 
-/* Orbital SVG Text Ring wrapping around the equator */
+/* Orbital SVG Text Ring wrapping exactly around the equator */
 .spinning-text-ring {
   position: absolute;
-  width: 100%;
-  height: 100%;
-  animation: spinGlobeUnified 30s linear infinite;
+  width: 90%;
+  height: 90%;
+  
+  /* 🟢 Apply the 3D tilt and spin. Browser hides the back half automatically! */
+  animation: spinEquator 20s linear infinite;
+  
   pointer-events: none;
   filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.8));
+}
+
+
+/* =========================================================
+   SNOW SMOKE METRIC CARD (OPTIMIZED FOR WHITE BACKGROUNDS)
+   ========================================================= */
+.metric-card-snow-smoke {
+  background: linear-gradient(135deg, rgba(241, 245, 249, 0.8) 0%, rgba(226, 232, 240, 0.4) 100%);
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  border-radius: 16px;
+  border: 1px solid rgba(203, 213, 225, 0.6);
+  box-shadow: 
+    0 10px 30px rgba(100, 116, 139, 0.15),
+    inset 0 0 25px rgba(255, 255, 255, 0.9), 
+    inset 2px 2px 6px rgba(255, 255, 255, 1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.metric-card-snow-smoke:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 
+    0 15px 35px rgba(100, 116, 139, 0.22),
+    inset 0 0 35px rgba(255, 255, 255, 1),
+    inset 2px 2px 10px rgba(255, 255, 255, 1);
+}
+
+.metric-card-snow-smoke::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255,255,255,0.7) 0%, transparent 60%);
+  transform: rotate(45deg);
+  pointer-events: none;
+  animation: driftSmoke 15s linear infinite;
+}
+
+@keyframes driftSmoke {
+  0% { transform: rotate(0deg) translate(0, 0); }
+  50% { transform: rotate(180deg) translate(10%, 10%); }
+  100% { transform: rotate(360deg) translate(0, 0); }
 }

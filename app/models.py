@@ -4,7 +4,6 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 from datetime import datetime
 import pytz
-from sqlalchemy.orm import declarative_base
 
 def get_eat_time():
     # Explicitly set to Africa/Nairobi (which is EAT)
@@ -33,7 +32,7 @@ class Crime_Reports(Base):
     status = Column(String, default="ACTIVE INVESTIGATION")
     suspects = Column(Integer, default=0)
     
-    # 🟢 ADDED: Daily lock-up population column
+    # 🟢 Daily lock-up population column
     daily_lock_up = Column(Integer, default=0) 
     
     last_updated_by = Column(String)
@@ -260,7 +259,6 @@ class Audit_Logs(Base):
     created_at = Column(DateTime, default=get_eat_time)
     user_fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
 
-# 🟢 ACTIVITY LOGS (Perfectly matched to NeonDB columns: id, fnum, action, module, details, created_at)
 class Activity_Logs(Base):
     __tablename__ = "activity_logs"
     __table_args__ = {'extend_existing': True}
@@ -270,7 +268,7 @@ class Activity_Logs(Base):
     action = Column(String, nullable=True)
     module = Column(String, nullable=True)
     details = Column(String, nullable=True)
-    created_at = Column(DateTime, default=get_eat_time)  # Changed to get_eat_time for consistency
+    created_at = Column(DateTime, default=get_eat_time)
 
 # ==========================================
 # 9. ADMIN COMMUNICATION
@@ -285,10 +283,7 @@ class Admin_Communication(Base):
     sender_name = Column(String)
     target_audience = Column(String, index=True)
     target_region = Column(String, index=True, nullable=True)
-    
-    # 🟢 FIX: Changed from String to JSON so it can natively store the ['F/123', 'F/456'] array
     target_fnum = Column(JSON, nullable=True) 
-    
     message_type = Column(String)
     subject = Column(String)
     message = Column(Text)
@@ -319,13 +314,6 @@ class Password_Reset_Requests(Base):
     region = Column(String)
     status = Column(String, default="PENDING") 
     request_date = Column(DateTime, default=get_eat_time)
-
-class SystemConfig(Base):
-    __tablename__ = "system_config"
-    __table_args__ = {'extend_existing': True}
-    
-    config_key = Column(String, primary_key=True, index=True)
-    config_value = Column(String, nullable=True)
 
 class SystemConfig(Base):
     __tablename__ = "system_config"
