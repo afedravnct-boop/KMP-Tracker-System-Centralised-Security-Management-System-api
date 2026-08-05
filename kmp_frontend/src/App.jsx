@@ -6,7 +6,7 @@ import {
   Award, Maximize2, Minimize2, Activity, User, Lock, 
   AlertTriangle, RadioReceiver, Eye, X, Building, Image, 
   Camera, Users, Home, Unlock, Send, Archive, PieChart,
-  Bell, MessageSquare, Upload, ArrowLeft, Globe, WifiOff, Wifi
+  Bell, MessageSquare, Upload, ArrowLeft, Globe, WifiOff, Wifi, FileText
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReactQuill from 'react-quill-new';
@@ -4484,7 +4484,7 @@ const DashboardLayout = ({
                               currentUser?.permissions?.upload_hr || 
                               currentUser?.permissions?.system_admin;
 
-const navItems = [
+  const navItems = [
     { 
       name: 'Home Dashboard', 
       id: 'home', 
@@ -4505,7 +4505,6 @@ const navItems = [
     ...(hasNominalClearance ? [{ name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> }] : []),
     { name: 'Tripartite Reports', id: 'reports_hub', icon: <FileText size={20} /> }
   ];
-
 
   const handleExportLogs = async () => {
     try {
@@ -4555,24 +4554,36 @@ const navItems = [
     }
   };
 
-const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
-    <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl border-2 border-slate-800 text-left font-sans">
-        
+  // 🟢 COMBINED WORKSPACE CURTAIN & IDLE MODAL
+  const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-950 animate-in fade-in duration-700">
+      
+      {/* 3D GLOBE IDLE BACKGROUND */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden flex flex-col items-center justify-center">
+        <div className="idle-backdrop-emblem absolute inset-0 opacity-[0.12] pointer-events-none"></div>
+        <div className="idle-center-container relative z-0 opacity-40 scale-125 sm:scale-100">
+          <div className="spinning-map-globe" style={{ backgroundImage: `url('/upf_kmp_map.png')` }}></div>
+          <img src="/text_ring.svg" className="spinning-text-ring" alt="KMP Centralised Security Data Management System" onError={(e) => e.target.style.display = 'none'} />
+        </div>
+        <div className="absolute bottom-8 text-slate-500 font-mono text-xs sm:text-sm font-bold tracking-[0.2em] animate-pulse">
+          SYSTEM STANDBY • AWAITING COMMAND INPUT
+        </div>
+      </div>
+
+      {/* FOREGROUND WARNING MODAL */}
+      <div className="relative z-10 bg-white/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full mx-4 shadow-[0_0_40px_rgba(0,0,0,0.5)] border border-slate-700 text-left font-sans animate-in zoom-in-95 duration-300">
         <div className="flex items-start space-x-4">
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border ${
-            isTimedOut ? 'bg-red-50 text-red-600 border-red-100' : 'bg-amber-50 text-amber-600 border-amber-100'
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border shadow-inner ${
+            isTimedOut ? 'bg-red-50 text-red-600 border-red-200' : 'bg-amber-50 text-amber-600 border-amber-200'
           }`}>
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
+            <AlertTriangle className="w-6 h-6" />
           </div>
           
           <div className="space-y-1">
             <h4 className="text-base font-extrabold text-slate-900 tracking-tight">
               {isTimedOut ? 'Session Expired Due to Inactivity' : 'Session Timeout Warning'}
             </h4>
-            <p className="text-xs text-slate-600 leading-relaxed">
+            <p className="text-xs text-slate-600 leading-relaxed font-medium">
               {isTimedOut 
                 ? 'Your security token has expired because the system was left unattended. You have been securely logged out.' 
                 : `Your session will expire in ${idleCountdown}s due to inactivity. Click below to continue working.`}
@@ -4585,7 +4596,6 @@ const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
             <button 
               type="button"
               onClick={() => {
-                // 🟢 Force wipe local session storage and trigger full application reload to return to login
                 setIsTimedOut(false);
                 setShowIdleWarning(false);
                 localStorage.removeItem('kmp_authToken');
@@ -4609,9 +4619,7 @@ const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
                 e.preventDefault();
                 e.stopPropagation();
                 setShowIdleWarning(false);
-                if (resetIdleTimersRef.current) {
-                  resetIdleTimersRef.current(); 
-                }
+                if (resetIdleTimersRef.current) resetIdleTimersRef.current(); 
               }}
               className="w-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-3 rounded-xl shadow-md transition-all cursor-pointer"
             >
@@ -4619,7 +4627,6 @@ const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
             </button>
           )}
         </div>
-
       </div>
     </div>
   );
