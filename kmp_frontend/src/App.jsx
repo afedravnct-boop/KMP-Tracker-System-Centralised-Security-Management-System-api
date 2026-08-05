@@ -3950,60 +3950,52 @@ return (
         
 {/* 🟢 THE FULL-SCREEN LOGIN CURTAIN */}
 <div 
-  className={`security-curtain-overlay fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center transition-opacity duration-700 ease-in-out ${
+  className={`fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center transition-opacity duration-700 ease-in-out ${
     isLoginIdle ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
   }`}
 >
   {/* Top Flag Stripes */}
-  <div className="absolute top-0 w-full h-2 bg-[#000000]"></div>
-  <div className="absolute top-2 w-full h-2 bg-[#facc15]"></div>
-  <div className="absolute top-4 w-full h-2 bg-[#dc2626]"></div>
+  <div className="absolute top-0 w-full h-2 bg-black"></div>
+  <div className="absolute top-2 w-full h-2 bg-[#FCD116]"></div>
+  <div className="absolute top-4 w-full h-2 bg-[#D91B23]"></div>
 
-  {/* Faded Background Emblem */}
+  {/* Faded Background Emblem Watermark */}
   <div 
-    className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-contain" 
-    style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}
+    className="absolute inset-0 opacity-15 bg-center bg-no-repeat bg-contain pointer-events-none" 
+    style={{ backgroundImage: `url('/upf_badge.png')` }}
   ></div>
 
-  <div className="relative z-10 flex flex-col items-center text-center p-6">
-    <div className="upf-css-globe mb-6 border border-slate-600/50"></div>
+  <div className="relative z-10 flex flex-col items-center text-center p-6 max-w-3xl">
+    {/* Central Emblem Badge */}
+    <img 
+      src="/upf_badge.png" 
+      alt="UPF Emblem" 
+      className="w-28 h-28 mb-6 object-contain contrast-200 brightness-75 drop-shadow-[0_0_15px_rgba(252,209,22,0.4)] animate-pulse" 
+    />
     
-    {/* Animated Title */}
-    <div className="curtain-title-container max-w-2xl">
-      <h2 className="text-2xl sm:text-3xl font-bold text-center text-white tracking-wide uppercase drop-shadow-md flex justify-center flex-wrap">
-        {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM".split("").map((char, index) => {
-          const delay = Math.pow(index, 1.2) * 0.025; 
-          return (
-            <span
-              key={index}
-              className="animate-sweep-letter"
-              style={{ 
-                animationDelay: `${delay}s`,
-                whiteSpace: "pre" 
-              }}
-            >
-              {char === " " ? "\u00A0" : char}
-            </span>
-          );
-        })}
-      </h2>
-    </div>
+    {/* Title */}
+    <h2 className="text-2xl sm:text-3xl font-extrabold text-center text-white tracking-widest uppercase drop-shadow-lg leading-relaxed">
+      KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM
+    </h2>
 
     {/* Subtitle Badge */}
-    <p className="text-blue-200 mt-4 text-xs sm:text-sm font-bold bg-slate-800/80 px-4 py-2 rounded-full border border-cyan-600/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
-      <Lock size={14} className="mr-2 text-yellow-400" /> 
-      <span className="relative inline-flex items-center justify-center mx-2">
-        <span className="absolute -inset-1 rounded-full bg-yellow-600/20 blur-sm animate-pulse"></span>
-        <Globe size={24} className="relative z-10 animate-spin text-blue-300" />
+    <div className="mt-6 inline-flex items-center space-x-2 bg-slate-900/90 px-5 py-2.5 rounded-full border border-cyan-500/30 shadow-xl backdrop-blur-md">
+      <Lock size={16} className="text-yellow-400 animate-bounce" />
+      <span className="text-xs sm:text-sm font-bold text-blue-200 tracking-wider">
+        SECURE COMMAND PORTAL • IDLE STANDBY MODE
       </span>
-      KMP-CSDMS-TRACKER SYSTEM
+      <Globe size={18} className="text-cyan-400 animate-spin" />
+    </div>
+
+    <p className="text-xs text-slate-400 mt-4 font-medium tracking-wide">
+      Move your mouse, click, or press any key to return to the login interface.
     </p>
   </div>
 
   {/* Bottom Flag Stripes */}
-  <div className="absolute bottom-4 w-full h-2 bg-[#dc2626]"></div> 
-  <div className="absolute bottom-2 w-full h-2 bg-[#facc15]"></div> 
-  <div className="absolute bottom-0 w-full h-2 bg-[#000000]"></div> 
+  <div className="absolute bottom-4 w-full h-2 bg-[#D91B23]"></div> 
+  <div className="absolute bottom-2 w-full h-2 bg-[#FCD116]"></div> 
+  <div className="absolute bottom-0 w-full h-2 bg-black"></div> 
 </div>
 
         {/* 🟢 LOGIN / SIGNUP FORM AREA */}
