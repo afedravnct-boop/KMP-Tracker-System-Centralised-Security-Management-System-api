@@ -3948,32 +3948,31 @@ return (
       {/* MAIN CARD CONTAINER */}
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
         
-{/* 🟢 THE FULL-SCREEN CURTAIN (Uses your index.css .security-curtain-overlay class) */}
+{/* 🟢 THE FULL-SCREEN LOGIN CURTAIN */}
 <div 
-  className={`security-curtain-overlay transition-opacity duration-700 ease-in-out ${
+  className={`security-curtain-overlay fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center transition-opacity duration-700 ease-in-out ${
     isLoginIdle ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
   }`}
 >
-  {/* Top Stripes */}
+  {/* Top Flag Stripes */}
   <div className="absolute top-0 w-full h-2 bg-[#000000]"></div>
   <div className="absolute top-2 w-full h-2 bg-[#facc15]"></div>
   <div className="absolute top-4 w-full h-2 bg-[#dc2626]"></div>
 
-  {/* Faded Background Pattern */}
+  {/* Faded Background Emblem */}
   <div 
-    className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-cover mt-10" 
+    className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-contain" 
     style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}
   ></div>
 
-  <div className="relative z-10 flex flex-col items-center text-center">
+  <div className="relative z-10 flex flex-col items-center text-center p-6">
     <div className="upf-css-globe mb-6 border border-slate-600/50"></div>
     
-    {/* Sweep-and-Settle Animated Title */}
-    <div className="curtain-title-container">
-      <h2 className="text-3xl font-bold text-center text-white tracking-wide uppercase drop-shadow-md flex justify-center flex-wrap">
+    {/* Animated Title */}
+    <div className="curtain-title-container max-w-2xl">
+      <h2 className="text-2xl sm:text-3xl font-bold text-center text-white tracking-wide uppercase drop-shadow-md flex justify-center flex-wrap">
         {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM".split("").map((char, index) => {
           const delay = Math.pow(index, 1.2) * 0.025; 
-          
           return (
             <span
               key={index}
@@ -3990,21 +3989,18 @@ return (
       </h2>
     </div>
 
-    {/* Sparkling Globe Badge */}
-    <p className="text-blue-200 mt-3 text-sm font-bold bg-yellow-900/50 px-4 py-1.5 rounded-full border border-cyan-600/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
-      <Lock size={14} className="mr-2" /> 
-      
+    {/* Subtitle Badge */}
+    <p className="text-blue-200 mt-4 text-xs sm:text-sm font-bold bg-slate-800/80 px-4 py-2 rounded-full border border-cyan-600/30 backdrop-blur-sm shadow-inner flex items-center justify-center">
+      <Lock size={14} className="mr-2 text-yellow-400" /> 
       <span className="relative inline-flex items-center justify-center mx-2">
-        <span className="absolute -inset-1 rounded-full bg-yellow-600/20 blur-sm animate-pulse-spin"></span>
-        <Globe size={28} className="relative z-10 animate-spin-globe" />
-        <span className="absolute -top-1 -right-1.5 text-[10px] animate-pulse text-white/90">✨</span>
+        <span className="absolute -inset-1 rounded-full bg-yellow-600/20 blur-sm animate-pulse"></span>
+        <Globe size={24} className="relative z-10 animate-spin text-blue-300" />
       </span>
-
       KMP-CSDMS-TRACKER SYSTEM
     </p>
   </div>
 
-  {/* Bottom Stripes */}
+  {/* Bottom Flag Stripes */}
   <div className="absolute bottom-4 w-full h-2 bg-[#dc2626]"></div> 
   <div className="absolute bottom-2 w-full h-2 bg-[#facc15]"></div> 
   <div className="absolute bottom-0 w-full h-2 bg-[#000000]"></div> 
