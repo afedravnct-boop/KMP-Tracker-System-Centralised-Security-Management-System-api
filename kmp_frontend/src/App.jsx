@@ -2304,13 +2304,13 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
   const [formData, setFormData] = useState({
     sn: null, fnum: '', rank: '', name: '', sex: 'MALE', position: '',
-    dob: '', doe: '', do_post: '', do_pro: '', contact: '', educ_level: '',
-    ipps: '', tin: '', nin: '', home_dist: '', tribe: '', acc_no: '', bank_branch: '',
+    dob: '', doe: '', dopost: '', dopro: '', contact: '', educlevel: '',
+    ipps: '', tin: '', nin: '', homedist: '', tribe: '', accno: '', bankbranch: '',
     station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
     district: '', region: currentUser.region, section: '', dir: '', status: 'ACTIVE'
   });
 
-const filteredRolls = useMemo(() => {
+  const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const dbRegion = (n.region || '').trim().toUpperCase();
       const dbStation = (n.station || '').trim().toUpperCase();
@@ -2372,7 +2372,7 @@ const filteredRolls = useMemo(() => {
     });
   }, [Nominal_Rolls, currentUser, updateSearch]);
 
-const calculatedMetrics = useMemo(() => {
+  const calculatedMetrics = useMemo(() => {
       if (viewMode !== 'metrics') return [];
       const grouped = {};
       
@@ -2408,7 +2408,7 @@ const calculatedMetrics = useMemo(() => {
       return Object.values(grouped).sort((a, b) => b.total - a.total);
   }, [currentRollDataset, metricCategory, viewMode]);
 
-const metricsData = useMemo(() => {
+  const metricsData = useMemo(() => {
     let maleCount = 0;
     let femaleCount = 0;
     const uniqueStations = {};
@@ -2438,6 +2438,31 @@ const metricsData = useMemo(() => {
   }, [currentRollDataset]);
 
   const populateUpdateForm = (data) => setFormData({ ...data, fnum: data.fnum || data.f_num });
+
+  // 🟢 1. Handles typing in the form inputs
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    if (name === 'region') {
+      setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value]?.[0] || '' });
+    } else {
+      setFormData({ ...formData, [name]: value });
+    }
+  };
+
+  // 🟢 2. Handles switching between "Register New" and "Update Existing" tabs
+  const handleOperationToggle = (mode) => {
+    setOperation(mode);
+    if (mode === 'new') {
+      setFormData({
+        sn: null, fnum: '', rank: '', name: '', sex: 'MALE', position: '',
+        dob: '', doe: '', dopost: '', dopro: '', contact: '', educlevel: '',
+        ipps: '', tin: '', nin: '', homedist: '', tribe: '', accno: '', bankbranch: '',
+        station: currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
+        district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
+      });
+      setUpdateSearch('');
+    }
+  };
 
   const handleArchivePersonnel = async () => {
     if (!formData.fnum) return alert("Missing Force Number. Cannot archive this record.");
@@ -2515,9 +2540,9 @@ const metricsData = useMemo(() => {
   };
 
   const canUploadHR = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role) || 
-                     (currentUser?.position || '').toUpperCase().includes('HR') ||
-                     currentUser?.permissions?.upload_hr || 
-                     currentUser?.permissions?.export_data;
+                      (currentUser?.position || '').toUpperCase().includes('HR') ||
+                      currentUser?.permissions?.upload_hr || 
+                      currentUser?.permissions?.export_data;
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
