@@ -21,6 +21,7 @@ import AnalyticsDashboard from './AnalyticsDashboard';
 import OfficerDossierModal from './OfficerDossierModal';
 import upfMapGlobe from './upf_kmp_map.png';
 import WordReportUpload from './WordReportUpload';
+import './index.css';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
