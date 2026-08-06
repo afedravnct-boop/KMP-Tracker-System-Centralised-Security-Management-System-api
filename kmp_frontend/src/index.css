@@ -1,9 +1,7 @@
 /* =========================================================
    MANDATORY TAILWIND DIRECTIVES (DO NOT REMOVE)
    ========================================================= */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 /* =========================================================
    1. GLOBAL UTILITIES & SCROLLBARS
@@ -140,10 +138,10 @@
   transform-style: preserve-3d; 
 }
 
-/* 🟢 NEW: 3D Equatorial Orbit (Tilts it flat like a ring, then spins it) */
+/* 🟢 UPDATED: Removed the 65deg X-axis tilt so text stands upright facing the screen */
 @keyframes spinEquator {
-  0% { transform: rotateX(65deg) rotateZ(0deg); }
-  100% { transform: rotateX(65deg) rotateZ(360deg); }
+  0% { transform: rotateZ(0deg); }
+  100% { transform: rotateZ(360deg); }
 }
 
 /* 3D Rolling texture animation for the map sphere */

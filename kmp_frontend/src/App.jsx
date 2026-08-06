@@ -2474,6 +2474,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
   };
 
+  // 🟢 FIXED: Properly formats the URL using API_URL and standard fetch
   const handleArchivePersonnel = async () => {
     if (!formData.fnum) return alert("Missing Force Number. Cannot archive this record.");
     if (!window.confirm(`Are you sure you want to move ${formData.name} to archives?`)) return;
@@ -2481,8 +2482,15 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     try {
       setNotification("Moving record to archive...");
       const token = localStorage.getItem('kmp_authToken');
-      const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(formData.fnum)}/archive`, {
-        method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify({ archive_reason: archiveReason })
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      
+      const response = await fetch(`${API_URL}/api/v1/nominal-roll/${encodeURIComponent(formData.fnum)}/archive`, {
+        method: "PUT", 
+        headers: { 
+            "Content-Type": "application/json", 
+            "Authorization": `Bearer ${token}` 
+        }, 
+        body: JSON.stringify({ archive_reason: archiveReason })
       });
 
       if (!response.ok) {
