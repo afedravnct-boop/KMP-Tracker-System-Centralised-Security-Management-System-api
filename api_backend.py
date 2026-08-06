@@ -1341,12 +1341,26 @@ def archive_personnel(
         record_data.pop("id", None) 
         record_data.pop("sn", None) 
         
+        # 🟢 FIX 1: Explicitly map known column mismatches
+        if "home_dist" in record_data:
+            record_data["homedist"] = record_data.pop("home_dist")
+            
+        # (Optional safety check if f_num vs fnum is also mismatched between tables)
+        if "f_num" in record_data and not hasattr(models.NominalRollArchive, "f_num"):
+            record_data["fnum"] = record_data.pop("f_num")
+
         record_data["status"] = "ARCHIVED"
         record_data["archive_reason"] = request_data.archive_reason
         record_data["archive_date"] = datetime.now().date()
         record_data["last_updated_by"] = current_user.fnum
 
-        archived_record = models.NominalRollArchive(**record_data)
+        # 🟢 FIX 2: Dynamically filter the dictionary to ONLY include valid columns
+        # This guarantees that if a column exists in NominalRoll but NOT in NominalRollArchive, 
+        # it is safely ignored instead of crashing the system.
+        valid_archive_columns = [c.key for c in models.NominalRollArchive.__table__.columns]
+        safe_record_data = {k: v for k, v in record_data.items() if k in valid_archive_columns}
+
+        archived_record = models.NominalRollArchive(**safe_record_data)
         db.add(archived_record)
         db.delete(active_record)
         db.commit()
