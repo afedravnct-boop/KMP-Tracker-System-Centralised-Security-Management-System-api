@@ -2270,7 +2270,7 @@ def get_all_requests(db: Session = Depends(get_db), current_user: models.Users =
 
 @app.post("/api/v1/reports/upload-word-report")
 async def upload_word_report(
-    file: UploadFile = File(),
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
@@ -2279,8 +2279,25 @@ async def upload_word_report(
     
     try:
         contents = await file.read()
-        doc = Document(io.BytesIO(contents))
         
+        # 1. Save the physical file to the server
+        archive_dir = "reports_archive"
+        os.makedirs(archive_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_filename = f"{timestamp}_{file.filename}"
+        file_path = os.path.join(archive_dir, safe_filename)
+        
+        with open(file_path, "wb") as f:
+            f.write(contents)
+            
+        # 2. Calculate file size for the UI
+        file_size_kb = max(1, round(len(contents) / 1024))
+        file_size_str = f"{file_size_kb} KB" if file_size_kb < 1024 else f"{round(file_size_kb / 1024, 1)} MB"
+
+        # 3. Handle document data logic (as you had before)
+        from docx import Document
+        doc = Document(io.BytesIO(contents))
         detected_region = current_user.region or "KMP GENERAL"
         
         if hasattr(models, 'Audit_Logs'):
@@ -2289,6 +2306,18 @@ async def upload_word_report(
                 target_identifier=file.filename, changes={}, 
                 remarks=f"Successfully ingested 3-format operational report for {detected_region}"
             )
+
+        # 4. Save metadata to Neon Database
+        new_archive = models.DocumentArchive(
+            file_name=file.filename,
+            doc_type="Uploaded Raw",
+            file_size=file_size_str,
+            file_path=file_path,
+            uploaded_by=current_user.fnum,
+            upload_date=datetime.now()
+        )
+        db.add(new_archive)
+        db.commit()
 
         return {
             "status": "success",
@@ -2302,6 +2331,38 @@ async def upload_word_report(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to process tripartite report: {str(e)}")
+
+
+@app.get("/api/v1/reports/archive")
+def get_document_archive(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        docs = db.query(models.DocumentArchive).order_by(models.DocumentArchive.upload_date.desc()).all()
+        return [
+            {
+                "id": doc.id,
+                "name": doc.file_name,
+                "type": doc.doc_type,
+                "date": doc.upload_date.strftime("%Y-%m-%d"),
+                "size": doc.file_size,
+                "file_path": doc.file_path
+            } for doc in docs
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch archive: {str(e)}")
+
+
+@app.get("/api/v1/reports/download/{doc_id}")
+def download_archive_file(doc_id: int, db: Session = Depends(get_db)):
+    doc = db.query(models.DocumentArchive).filter(models.DocumentArchive.id == doc_id).first()
+    
+    if not doc or not os.path.exists(doc.file_path):
+        raise HTTPException(status_code=404, detail="File not found on server.")
+    
+    return FileResponse(
+        doc.file_path, 
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
+        filename=doc.file_name
+    )
 
 @app.get("/api/v1/templates/download/{template_type}")
 def download_official_template(template_type: str, current_user: models.Users = Depends(get_current_user)):

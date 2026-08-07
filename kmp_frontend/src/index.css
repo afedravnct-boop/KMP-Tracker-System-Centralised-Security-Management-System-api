@@ -138,10 +138,10 @@
   transform-style: preserve-3d; 
 }
 
-/* 🟢 UPDATED: Removed the 65deg X-axis tilt so text stands upright facing the screen */
+/* 🟢 UPDATED: 45-degree X-axis tilt creates a true 3D equatorial orbit while keeping text readable */
 @keyframes spinEquator {
-  0% { transform: rotateZ(0deg); }
-  100% { transform: rotateZ(360deg); }
+  0% { transform: rotateX(45deg) rotateZ(0deg); }
+  100% { transform: rotateX(45deg) rotateZ(360deg); }
 }
 
 /* 3D Rolling texture animation for the map sphere */
