@@ -1093,7 +1093,7 @@ const handleFormSubmit = async (e) => {
                     <button 
                       type="button" 
                       onClick={handleStandalonePopSubmit}
-                      className="bg-slate-800 hover:bg-black text-white text-sm font-bold px-6 rounded-md shadow transition-colors flex items-center shrink-0"
+                      className="bg-slate-800 hover:bg-black text-white text-sm font-bold px-3 rounded-md shadow transition-colors flex items-center shrink-0"
                     >
                       💾 Log Population Only
                     </button>
@@ -4277,28 +4277,30 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
             {/* Light Blue Tinted Flag Background */}
             <div className="idle-backdrop-emblem z-10 pointer-events-none"></div>
 
-            {/* 75% Centered Orbital Container */}
-            <div className="idle-center-container relative z-20">
+{/* 75% Centered Orbital Container */}
+            <div className="idle-center-container relative z-20" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
               
-              {/* Map Globe (Spins Clockwise). Image passed directly via style */}
+              {/* Map Globe (Remains static in the center at Z:0) */}
               <div 
-                className="spinning-map-globe"
-                style={{ backgroundImage: `url(${upfMapGlobe})` }}
+                className="spinning-map-globe absolute inset-0 w-full h-full"
+                style={{ backgroundImage: `url(${upfMapGlobe})`, transform: 'translateZ(0)' }}
               ></div>
 
-              {/* Text Ring (Spins Counter-Clockwise using an SVG Path) */}
-              <svg viewBox="0 0 100 100" className="spinning-text-ring">
-                <path 
-                  id="orbitPath" 
-                  d="M 50, 50 m -48, 0 a 48,48 0 1,1 96,0 a 48,48 0 1,1 -96,0" 
-                  fill="none" 
-                />
-                <text fill="#ffffff" fontSize="5" fontWeight="900" letterSpacing="0.2">
-                  <textPath href="#orbitPath" startOffset="0%" textLength="301" lengthAdjust="spacingAndGlyphs">
-                    KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • 
-                  </textPath>
-                </text>
-              </svg>
+              {/* 🟢 3D EQUATORIAL TEXT RING */}
+              <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
+                {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
+                  <span 
+                    key={i} 
+                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-xs sm:text-sm tracking-widest drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]"
+                    style={{
+                      // Spaces the characters evenly around a 360-degree circle and pushes them out 34vmin from the center
+                      transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)`
+                    }}
+                  >
+                    {char === ' ' ? '\u00A0' : char}
+                  </span>
+                ))}
+              </div>
 
             </div>
           </div>
@@ -4585,17 +4587,31 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
       const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/90 backdrop-blur-md">
           
-          {/* 3D GLOBE IDLE BACKGROUND */}
-          <div className="absolute inset-0 pointer-events-none overflow-hidden flex flex-col items-center justify-center">
-            <div className="idle-backdrop-emblem absolute inset-0 opacity-[0.12] pointer-events-none"></div>
-            <div className="idle-center-container relative z-0 opacity-40 scale-125 sm:scale-100">
-              <div className="spinning-map-globe" style={{ backgroundImage: `url('/upf_kmp_map.png')` }}></div>
-              <img src="/text_ring.svg" className="spinning-text-ring" alt="KMP Centralised Security Data Management System" onError={(e) => e.target.style.display = 'none'} />
-            </div>
-            <div className="absolute bottom-8 text-slate-500 font-mono text-xs sm:text-sm font-bold tracking-[0.2em] animate-pulse">
-              SYSTEM STANDBY • AWAITING COMMAND INPUT
-            </div>
+{/* 3D GLOBE IDLE BACKGROUND */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden flex flex-col items-center justify-center">
+        <div className="idle-backdrop-emblem absolute inset-0 opacity-[0.12] pointer-events-none"></div>
+        
+        {/* 🟢 3D Orbital Setup */}
+        <div className="idle-center-container relative z-0 opacity-40 scale-125 sm:scale-100" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
+          <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
+          
+          <div className="absolute inset-0 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
+            {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
+              <span 
+                key={i} 
+                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-[10px] sm:text-xs tracking-widest"
+                style={{ transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)` }}
+              >
+                {char === ' ' ? '\u00A0' : char}
+              </span>
+            ))}
           </div>
+        </div>
+
+        <div className="absolute bottom-8 text-slate-500 font-mono text-xs sm:text-sm font-bold tracking-[0.2em] animate-pulse">
+          SYSTEM STANDBY • AWAITING COMMAND INPUT
+        </div>
+      </div>
 
           {/* FOREGROUND WARNING MODAL */}
           <div className="relative z-10 bg-white/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full mx-4 shadow-[0_0_40px_rgba(0,0,0,0.5)] border border-slate-700 text-left font-sans animate-in zoom-in-95 duration-300">

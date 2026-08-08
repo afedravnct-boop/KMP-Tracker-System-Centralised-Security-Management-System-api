@@ -224,3 +224,8 @@
   50% { transform: rotate(180deg) translate(10%, 10%); }
   100% { transform: rotate(360deg) translate(0, 0); }
 }
+
+@keyframes spin-orbit-y {
+  0% { transform: rotateY(0deg); }
+  100% { transform: rotateY(360deg); }
+}
