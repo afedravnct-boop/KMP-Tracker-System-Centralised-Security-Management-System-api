@@ -1775,10 +1775,6 @@ def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depend
         print(f"Ledger Crash: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database Ledger Error: {str(e)}")
 
-except Exception as e:
-            print(f"Ledger Crash: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Database Ledger Error: {str(e)}")
-
 
 @app.get("/api/v1/reports/establishments-json")
 @app.get("/api/v1/reports/hr-establishments-json")
@@ -1843,6 +1839,71 @@ def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.User
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load HR aggregate data: {str(e)}")
 
+
+@app.get("/api/v1/analytics/export")
+def export_analytics_secure(
+    domain: str = "CRIME", category: str = "CATEGORY",
+    db: Session = Depends(get_db), authorized_user: models.Users = Depends(require_export_privilege)
+):
+    try:
+        excel_buffer = io.BytesIO()
+        zip_buffer = io.BytesIO()
+
+        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+            workbook = writer.book
+            workbook.formats[0].set_font_name('Tahoma')
+            workbook.formats[0].set_font_size(11)
+
+            if domain == "CRIME":
+                data = db.query(models.Crime_Reports).all()
+                rows = [{"Category Attribute": getattr(r, 'offence', 'GENERAL'), "Frequency Count": 1} for r in data]
+            elif domain == "PERSONNEL":
+                data = db.query(models.NominalRoll).all()
+                rows = [{"Category Attribute": getattr(r, 'rank', 'UNRANKED'), "Frequency Count": 1} for r in data]
+            elif domain == "SUCCESS":
+                data = db.query(models.Success_Stories).all()
+                rows = [{"Category Attribute": getattr(r, 'status', 'SUCCESS'), "Frequency Count": 1} for r in data]
+            else:
+                data = db.query(models.Operational_Statistics).all()
+                rows = [{"Category Attribute": "OPERATIONAL DEPLOYMENT", "Frequency Count": 1} for r in data]
+
+            df = pd.DataFrame(rows)
+            if not df.empty:
+                df = df.groupby("Category Attribute", as_index=False).sum()
+            else:
+                df = pd.DataFrame(columns=["Category Attribute", "Frequency Count"])
+
+            sheet_name = f"{domain} Analytics"
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+            apply_custom_sheet_design(workbook, writer.sheets[sheet_name], df, sheet_name, authorized_user)
+
+            workbook.set_properties({
+                'title': f'KMP Analytics Intelligence ({domain}) - RESTRICTED',
+                'author': f'{authorized_user.rank} {authorized_user.name}',
+                'manager': authorized_user.fnum,
+                'comments': f'FORENSIC TRACE: Analytics exported by {authorized_user.fnum} [{authorized_user.station}]'
+            })
+
+        zip_password = authorized_user.fnum.encode('utf-8')
+        with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(zip_password)
+            zf.writestr(f"KMP_Analytics_{domain}_{authorized_user.fnum}.xlsx", excel_buffer.getvalue())
+
+        zip_buffer.seek(0)
+
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(
+                db=db, fnum=authorized_user.fnum, action="ANALYTICS_DATA_EXPORT",
+                target_identifier=domain, changes={}, remarks="AES-Encrypted Analytics Intelligence ZIP Downloaded"
+            )
+
+        return StreamingResponse(
+            zip_buffer, media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename=KMP_Analytics_{domain}_{authorized_user.fnum}.zip"}
+        )
+    except Exception as e:
+        print(f"Analytics Export Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate secure analytics export file.")
 
 @app.get("/api/v1/reports/export")
 @limiter.limit("3/minute")
