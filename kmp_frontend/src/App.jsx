@@ -520,7 +520,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 const filteredReports = useMemo(() => {
     if (!Array.isArray(reports)) return [];
     
-    // 🟢 1. Check if a specific region/station is actively selected
+    // 🟢 1. Extract exact active filters
     const activeRegion = (filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion.trim().toUpperCase() : null;
     const activeStation = (filterStation && filterStation !== 'ALL STATIONS') ? filterStation.trim().toUpperCase() : null;
 
@@ -528,18 +528,11 @@ const filteredReports = useMemo(() => {
       const dbRegion = (r.region || '').trim().toUpperCase();
       const dbStation = (r.station || '').trim().toUpperCase();
       
-      // 🟢 2. Strict Jurisdictional Overrides
-      // If a region is selected, the report MUST match that region.
-      if (activeRegion && dbRegion !== activeRegion) {
-        return false;
-      }
+      // 🟢 2. ULTRA-STRICT Jurisdiction Check
+      if (activeRegion && dbRegion !== activeRegion) return false;
+      if (activeStation && dbStation !== activeStation) return false;
       
-      // If a station is selected, the report MUST match that station.
-      if (activeStation && dbStation !== activeStation) {
-        return false;
-      }
-      
-      // 🟢 3. Search Query Filter
+      // 🟢 3. Search Query
       if (searchQuery) {
         const query = searchQuery.toLowerCase().trim();
         const textMatch = 
@@ -573,10 +566,12 @@ const filteredReports = useMemo(() => {
         }
       }
       
-      // If it passed all filters, keep it!
       return true;
     });
   }, [reports, filterRegion, filterStation, searchQuery, dateFilter]);
+
+  // 🟢 Define this boolean right below filteredReports to use for dynamic numbering
+  const isStationSpecific = filterStation && filterStation !== 'ALL STATIONS';
 
   const availableUpdateCases = useMemo(() => {
     return (Array.isArray(reports) ? reports : []).filter(r => {
@@ -1273,10 +1268,10 @@ const filteredReports = useMemo(() => {
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-[10%]">Status</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredReports.map((report) => (
+<tbody className="bg-white divide-y divide-gray-200">
+                  {filteredReports.map((report, index) => (
                     <tr 
-                      key={report.id || report.sn} 
+                      key={report.id || report.sn || index} 
                       className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer group" 
                       onClick={() => { 
                         if (operation === 'update') {
@@ -1286,9 +1281,14 @@ const filteredReports = useMemo(() => {
                         }
                       }}
                     >
-      <td className="px-4 py-4 whitespace-nowrap text-xs font-bold text-gray-900 align-top group-hover:text-blue-700 transition-colors">
-        {report.id || report.sn}
-      </td>
+                      {/* 🟢 DYNAMIC SN COLUMN */}
+                      <td className="px-4 py-4 whitespace-nowrap text-[13px] font-black text-gray-900 align-top group-hover:text-blue-700 transition-colors">
+                        {isStationSpecific ? (index + 1) : (report.id || report.sn || '—')}
+                      </td>
+                      
+                      <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-blue-700 align-top break-words">
+                        {report.sdRef || report.sd_ref}
+                      </td>
       
       <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-blue-700 align-top break-words">
         {report.sdRef || report.sd_ref}
@@ -1345,9 +1345,14 @@ const filteredReports = useMemo(() => {
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 bg-white p-6 border border-slate-200 shadow-sm rounded-lg">
                 <div className="border-l-4 border-blue-600 pl-3">
-                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Database SN (ID)</div>
-                  <div className="text-sm font-black text-slate-900">{selectedCase.id || selectedCase.sn}</div>
-                </div>
+                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">System Audit SN</div>
+                  <div className="text-sm font-black text-slate-900">
+                    {/* 🟢 Shows Station List SN + Permanent NeonDB ID */}
+                    {isStationSpecific 
+                      ? `SN: ${filteredReports.findIndex(r => (r.id || r.sn) === (selectedCase.id || selectedCase.sn)) + 1} (Audit: ${selectedCase.id || selectedCase.sn || '—'})` 
+                      : (selectedCase.id || selectedCase.sn || '—')}
+                  </div>
+                </div>  
                 <div className="border-l-4 border-slate-600 pl-3">
                   <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Time & Date Logged</div>
                   <div className="text-sm font-bold text-slate-900">{selectedCase.date} <span className="text-slate-500 font-medium">@ {selectedCase.time}</span></div>
