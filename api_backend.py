@@ -841,6 +841,7 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
         "status": r.status, 
         "suspects": r.suspects, 
         "lastUpdatedBy": r.last_updated_by,
+        "daily_lock_up": getattr(r, 'daily_lock_up', 0), 
         "suspectDetails": [{
             "name": getattr(s, 'name', ''), 
             "sex": getattr(s, 'sex', ''), 

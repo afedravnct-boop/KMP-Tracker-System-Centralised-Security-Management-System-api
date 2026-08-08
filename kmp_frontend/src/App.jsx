@@ -564,21 +564,23 @@ const availableUpdateCases = useMemo(() => {
 
   const metrics = useMemo(() => {
     const stationCellPop = {};
+    
     filteredReports.forEach(r => {
-       if (stationCellPop[r.station] === undefined && r.cell_population !== undefined && r.cell_population !== null) {
-           stationCellPop[r.station] = parseInt(r.cell_population) || 0;
+       if (stationCellPop[r.station] === undefined && r.daily_lock_up !== undefined && r.daily_lock_up !== null) {
+           stationCellPop[r.station] = parseInt(r.daily_lock_up) || 0;
        }
     });
+    
     const totalCellPop = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
 
     return {
+      totalLockup: totalCellPop, // 🟢 Renamed to totalLockup
       newCases: filteredReports.length,
       active: filteredReports.filter(r => r.status === 'ACTIVE INVESTIGATION').length,
       sanctioned: filteredReports.filter(r => r.status === 'FORWARDED TO COURT').length,
       closed: filteredReports.filter(r => r.status === 'CLOSED / CONVICTED').length,
       adr: filteredReports.filter(r => r.status === 'ADR').length,
-      totalSuspects: filteredReports.reduce((sum, r) => sum + (parseInt(r.suspects) || 0), 0),
-      totalCellPop: totalCellPop
+      totalSuspects: filteredReports.reduce((sum, r) => sum + (parseInt(r.suspects) || 0), 0)
     };
   }, [filteredReports]);
 
@@ -908,9 +910,11 @@ const handleFormSubmit = async (e) => {
         <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
         
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+          {/* 🟢 Moved to the very front and updated the title/value */}
+          <MetricCard title="Total Lockup" value={metrics.totalLockup} colorClass="text-slate-800" />
+          
           <MetricCard title="Total Cases" value={metrics.newCases} colorClass="text-blue-700" />
           <MetricCard title="Suspects (Case)" value={metrics.totalSuspects} colorClass="text-red-600" />
-          <MetricCard title="Cell Population" value={metrics.totalCellPop} colorClass="text-slate-800" />
           <MetricCard title="Active" value={metrics.active} colorClass="text-yellow-600" />
           <MetricCard title="Sanctioned" value={metrics.sanctioned} colorClass="text-purple-600" />
           <MetricCard title="Closed" value={metrics.closed} colorClass="text-green-600" />
