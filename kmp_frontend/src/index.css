@@ -159,12 +159,14 @@
 /* Central Map Surface */
 .spinning-map-globe {
   position: absolute;
-  width: 50%;
-  height: 50%;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
   
-  /* Lock the globe at depth 0 so the text ring can wrap around it */
-  transform: translateZ(0); 
+  /* Center the globe origin */
+  transform: translate(-50%, -50%) translateZ(0); 
   
   background-size: auto 100%;
   background-repeat: repeat-x;

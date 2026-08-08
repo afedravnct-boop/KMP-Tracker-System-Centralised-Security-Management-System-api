@@ -216,7 +216,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     };
   }, [crimeRegistry, selectedRegion, selectedStation]);
 
-  const handleExportExcel = async () => {
+const handleExportExcel = async () => {
     try {
       const wb = XLSX.utils.book_new();
 
@@ -224,6 +224,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       const stampedBy = `${currentUser?.rank || 'OFFICER'} ${currentUser?.name || 'UNKNOWN'} (F/NO: ${currentUser?.fnum || 'HQ'})`;
       const commandPost = `${currentUser?.station || 'KMP HEADQUARTERS'}, ${currentUser?.region || 'KMP HEADQUARTERS'}`;
 
+      // 1. Audit Stamp Sheet
       const metaSheetData = [
         ["KAMPALA METROPOLITAN POLICE - CENTRAL SECURITY DATA MANAGEMENT SYSTEM"],
         ["OFFICIAL FORENSIC ANALYTICS AUDIT REPORT"],
@@ -237,9 +238,11 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       const wsMeta = XLSX.utils.aoa_to_sheet(metaSheetData);
       XLSX.utils.book_append_sheet(wb, wsMeta, "Forensic Audit Stamp");
 
+      // 🟢 2. Crime Registry Sheet (Chronological S/N + NeonDB Audit ID)
       if (Array.isArray(crimeRegistry) && crimeRegistry.length > 0) {
-        const crimeData = crimeRegistry.map(r => ({
-          "Database ID": r.id || r.sn,
+        const crimeData = crimeRegistry.map((r, index) => ({
+          "S/N": index + 1, // 🟢 Chronological 1 to N for sheet legibility
+          "Database Audit ID": r.id || r.sn, // 🟢 NeonDB persistent ID preserved
           "Reference": r.sdRef || r.sd_ref,
           "Date": r.date,
           "Region": r.region,
@@ -251,9 +254,11 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(crimeData), "Crime Registry");
       }
 
+      // 🟢 3. Nominal Roll Sheet (Chronological S/N + NeonDB Audit ID)
       if (Array.isArray(nominalRolls) && nominalRolls.length > 0) {
-        const nomData = nominalRolls.map(n => ({
-          "Database ID": n.id || n.sn,
+        const nomData = nominalRolls.map((n, index) => ({
+          "S/N": index + 1, // 🟢 Chronological 1 to N for regional/station export
+          "Database Audit ID": n.id || n.sn, // 🟢 NeonDB persistent ID preserved
           "Force Number": n.fnum || n.f_num,
           "Rank": n.rank,
           "Full Name": n.name,
@@ -266,11 +271,24 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(nomData), "Nominal Roll");
       }
 
+      // 🟢 4. Operations Stats Sheet
       if (Array.isArray(operationalStats) && operationalStats.length > 0) {
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(operationalStats), "Operations Stats");
+        const opsData = operationalStats.map((o, index) => ({
+          "S/N": index + 1,
+          "Database Audit ID": o.id || o.sn || 'N/A',
+          ...o
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(opsData), "Operations Stats");
       }
+
+      // 🟢 5. Success Stories Sheet
       if (Array.isArray(successStories) && successStories.length > 0) {
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(successStories), "Success Stories");
+        const successData = successStories.map((s, index) => ({
+          "S/N": index + 1,
+          "Database Audit ID": s.id || s.sn || 'N/A',
+          ...s
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(successData), "Success Stories");
       }
 
       wb.Props = {
@@ -300,7 +318,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         window.URL.revokeObjectURL(downloadUrl);
       }, 2000);
 
-      alert("🔒 Secure Analytics Report Downloaded Successfully!\n\nNote: The workbook is forensically stamped with your officer credentials and formatted for native Microsoft Office compatibility.");
+      alert("🔒 Secure Analytics Report Downloaded Successfully!\n\nNote: Serial numbers (S/N) are chronologically numbered 1 through N for your regional jurisdiction, with Database Audit IDs preserved.");
 
     } catch (error) {
       console.error("Secure Export Error:", error);

@@ -1050,25 +1050,32 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
     db.commit()
     return {"status": "success"}
 
-# --- NOMINAL ROLL ---
+# --- NOMINAL ROLL (ACTIVE + ARCHIVED) ---
 @app.get("/api/v1/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    query = db.query(models.NominalRoll)
+    # 🟢 Query Active Records
+    active_query = db.query(models.NominalRoll)
+    # 🟢 Query Archived Records
+    archive_query = db.query(models.NominalRollArchive)
     
     user_role = (current_user.role or "").upper()
     user_region = (current_user.region or "").strip().upper()
     user_station = (current_user.station or "").strip().upper()
 
+    # Jurisdiction Filtering
     if user_role in ["ADMIN", "SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or user_region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]:
         pass 
     else:
-        query = query.filter(func.upper(models.NominalRoll.station) == user_station)
+        active_query = active_query.filter(func.upper(models.NominalRoll.station) == user_station)
+        archive_query = archive_query.filter(func.upper(models.NominalRollArchive.station) == user_station)
         
-    query = query.order_by(models.NominalRoll.id.desc())
-    records = query.all()
+    active_records = active_query.order_by(models.NominalRoll.id.desc()).all()
+    archive_records = archive_query.order_by(models.NominalRollArchive.id.desc()).all()
     
     clean_results = []
-    for r in records:
+    
+    # Process Active Records
+    for r in active_records:
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
         
@@ -1081,7 +1088,30 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
             
         if 'id' in r_dict:
             r_dict['sn'] = r_dict['id']
+            r_dict['dbAuditId'] = r_dict['id']
             
+        r_dict['is_archived'] = False
+        r_dict['status'] = r_dict.get('status') or 'ACTIVE'
+        clean_results.append(r_dict)
+
+    # Process Archived Records
+    for r in archive_records:
+        r_dict = r.__dict__.copy()
+        r_dict.pop("_sa_instance_state", None)
+        
+        if 'dopost' in r_dict: r_dict['do_post'] = r_dict['dopost']
+        if 'dopro' in r_dict: r_dict['do_pro'] = r_dict['dopro']
+        if 'educlevel' in r_dict: r_dict['educ_level'] = r_dict['educlevel']
+        if 'homedist' in r_dict: r_dict['home_dist'] = r_dict['homedist']
+        if 'accno' in r_dict: r_dict['acc_no'] = r_dict['accno']
+        if 'bankbranch' in r_dict: r_dict['bank_branch'] = r_dict['bankbranch']
+            
+        if 'id' in r_dict:
+            r_dict['sn'] = r_dict['id']
+            r_dict['dbAuditId'] = f"ARC-{r_dict['id']}"
+            
+        r_dict['is_archived'] = True
+        r_dict['status'] = r_dict.get('status') or 'ARCHIVED'
         clean_results.append(r_dict)
         
     return clean_results
