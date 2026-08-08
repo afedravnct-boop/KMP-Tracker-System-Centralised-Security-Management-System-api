@@ -4606,24 +4606,29 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
           <div className="absolute inset-0 pointer-events-none overflow-hidden flex flex-col items-center justify-center">
             <div className="idle-backdrop-emblem absolute inset-0 opacity-[0.12] pointer-events-none"></div>
             
-            {/* 🟢 3D Orbital Setup */}
-            <div className="idle-center-container relative z-0 opacity-40 scale-125 sm:scale-100" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
-              
-              {/* Map Globe (Flexbox centered, no absolute positioning) */}
-              <div className="spinning-map-globe" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
-              
-              <div className="absolute inset-0 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
-                {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
-                  <span 
-                    key={i} 
-                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-[10px] sm:text-xs tracking-widest"
-                    style={{ transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)` }}
-                  >
-                    {char === ' ' ? '\u00A0' : char}
-                  </span>
-                ))}
-              </div>
-            </div>
+{/* 🟢 3D Orbital Setup */}
+<div className="idle-center-container relative flex items-center justify-center" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
+  
+  {/* Centered Map Globe (CSS handles the absolute dead-centering) */}
+  <div 
+    className="spinning-map-globe" 
+    style={{ backgroundImage: `url('/upf_kmp_map.png')` }}
+  ></div>
+
+  {/* Orbiting Text Layer */}
+  <div className="absolute inset-0 pointer-events-none flex items-center justify-center" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
+    {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
+      <span 
+        key={i} 
+        className="absolute text-white font-black text-[10px] sm:text-xs tracking-widest drop-shadow-md"
+        style={{ transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)` }}
+      >
+        {char === ' ' ? '\u00A0' : char}
+      </span>
+    ))}
+  </div>
+
+</div>
             
             {/* Standby Text */}
             <div className="absolute bottom-8 text-slate-500 font-mono text-xs sm:text-sm font-bold tracking-[0.2em] animate-pulse">
