@@ -3013,15 +3013,17 @@ const AdminApprovals = ({ currentUser }) => {
     }
   };
 
-  const handleApproveUser = async (fnum) => {
+const handleApproveUser = async (fnum) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const safeFnum = encodeURIComponent(fnum);
       const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
 
-      let response = await fetch(`${API_URL}/api/v1/admin/approve/${safeFnum}`, { method: "POST", headers });
-      if (response.status === 404) response = await fetch(`${API_URL}/api/v1/auth/approve/${safeFnum}`, { method: "POST", headers });
-      if (response.status === 404) response = await fetch(`${API_URL}/api/v1/approve/${safeFnum}`, { method: "POST", headers });
+      // 🟢 FIX: We are now correctly targeting the PATCH route we built in the backend
+      const response = await fetch(`${API_URL}/api/v1/admin/approve-user/${safeFnum}`, { 
+        method: "PATCH", 
+        headers 
+      });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));

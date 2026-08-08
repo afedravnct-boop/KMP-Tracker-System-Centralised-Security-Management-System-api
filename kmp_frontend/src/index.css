@@ -121,7 +121,7 @@
   filter: invert(40%) sepia(100%) saturate(300%) hue-rotate(180deg) brightness(1.2);
 }
 
-/* 65vmin Radial Sphere Canvas with 3D Depth */
+/* 65vmin Radial Sphere Canvas (Removed dark shield) */
 .idle-center-container {
   position: relative;
   width: 65vmin;
@@ -130,18 +130,15 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  box-shadow: 0 0 50px rgba(14, 165, 233, 0.25), inset 0 0 50px rgba(14, 165, 233, 0.25);
-  background: radial-gradient(circle, rgba(15, 23, 42, 0.9) 0%, rgba(2, 6, 23, 1) 100%);
-  
-  /* 🟢 3D Context setup: This tells the browser to allow elements to physically cross each other */
-  perspective: 1000px;
-  transform-style: preserve-3d; 
+  /* Replaced the heavy black gradient with a soft, transparent blue glow */
+  box-shadow: 0 0 50px rgba(14, 165, 233, 0.15), inset 0 0 50px rgba(14, 165, 233, 0.15);
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.05) 0%, transparent 60%);
 }
 
-/* 🟢 UPDATED: 45-degree X-axis tilt creates a true 3D equatorial orbit while keeping text readable */
+/* Flattened the spin so text is perfectly upright and readable */
 @keyframes spinEquator {
-  0% { transform: rotateX(45deg) rotateZ(0deg); }
-  100% { transform: rotateX(45deg) rotateZ(360deg); }
+  0% { transform: rotateZ(0deg); }
+  100% { transform: rotateZ(360deg); }
 }
 
 /* 3D Rolling texture animation for the map sphere */

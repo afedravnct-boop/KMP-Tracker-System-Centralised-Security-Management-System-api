@@ -7,11 +7,11 @@ const WordReportUpload = ({ currentUser }) => {
   const [feedback, setFeedback] = useState(null);
   
   const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'archive'
+  const [docCategory, setDocCategory] = useState('weekly_report'); // 🟢 NEW: Category Toggle
 
   const [documents, setDocuments] = useState([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
 
-  // 🟢 Fetches live data from Neon via your backend when the Archive tab is opened
   useEffect(() => {
     if (activeTab === 'archive') {
       fetchArchiveList();
@@ -50,6 +50,7 @@ const WordReportUpload = ({ currentUser }) => {
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("doc_type", docCategory); // 🟢 NEW: Send category to backend
 
     setUploading(true);
     try {
@@ -68,7 +69,6 @@ const WordReportUpload = ({ currentUser }) => {
       setFeedback({ type: 'success', message: data.message });
       setFile(null);
       
-      // 🟢 Refresh the archive list silently in the background after a successful upload
       fetchArchiveList();
     } catch (err) {
       setFeedback({ type: 'error', message: err.message });
@@ -114,21 +114,35 @@ const WordReportUpload = ({ currentUser }) => {
       {activeTab === 'upload' ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in zoom-in-95 duration-200">
           
-          {/* Left 2 Cols: 3-Format Upload Portal */}
+          {/* Left 2 Cols: Upload Portal */}
           <div className="md:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
             <div className="border-b border-slate-100 pb-4">
-              <h3 className="font-extrabold text-sm text-slate-900 uppercase">Upload 3-Format Weekly Return (.docx)</h3>
+              <h3 className="font-extrabold text-sm text-slate-900 uppercase">Document Upload Center</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Your submission will automatically parse and segregate into:
+                Select the type of document you are uploading to apply the correct processing rules.
               </p>
-              <ul className="text-xs text-slate-600 list-disc list-inside mt-2 space-y-1 font-medium">
-                <li><strong className="text-slate-800">Format 1:</strong> Full report archive with regional incident tables.</li>
-                <li><strong className="text-slate-800">Format 2:</strong> Summary matrix of serious cases reported.</li>
-                <li><strong className="text-slate-800">Format 3:</strong> Weekly disruptive operations arrest & court statistics.</li>
-              </ul>
             </div>
 
             <form onSubmit={handleUpload} className="space-y-4">
+              
+              {/* 🟢 NEW: Document Category Toggle */}
+              <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-200 flex mb-4">
+                <button
+                  type="button"
+                  onClick={() => setDocCategory('weekly_report')}
+                  className={`flex-1 py-2 text-xs font-bold rounded shadow-sm transition-colors ${docCategory === 'weekly_report' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+                >
+                  Weekly Report Returns
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDocCategory('general_doc')}
+                  className={`flex-1 py-2 text-xs font-bold rounded shadow-sm transition-colors ${docCategory === 'general_doc' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+                >
+                  General Documents / Essays
+                </button>
+              </div>
+
               <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center bg-slate-50 hover:bg-blue-50 hover:border-blue-300 transition cursor-pointer relative">
                 <input 
                   type="file" 
@@ -149,7 +163,7 @@ const WordReportUpload = ({ currentUser }) => {
 
               {feedback && (
                 <div className={`p-4 rounded-xl text-xs font-bold flex items-center ${feedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
-                  {feedback.type === 'success' ? <CheckCircle className="w-4 h-4 mr-2 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 mr-2 text-red-600" />}
+                  {feedback.type === 'success' ? <CheckCircle className="w-4 h-4 mr-2 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 mr-2 text-red-600 shrink-0" />}
                   {feedback.message}
                 </div>
               )}
@@ -157,9 +171,9 @@ const WordReportUpload = ({ currentUser }) => {
               <button 
                 type="submit" 
                 disabled={!file || uploading}
-                className="w-full py-3 flex justify-center items-center bg-blue-700 hover:bg-blue-800 disabled:bg-slate-300 text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition"
+                className={`w-full py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition ${docCategory === 'weekly_report' ? 'bg-blue-700 hover:bg-blue-800' : 'bg-slate-800 hover:bg-slate-900'} disabled:bg-slate-300`}
               >
-                {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Parsing & Compiling 3-Format Returns...</> : 'Submit & Compile Report'}
+                {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing Document...</> : `Upload ${docCategory === 'weekly_report' ? 'Weekly Report' : 'Document'}`}
               </button>
             </form>
           </div>
@@ -232,7 +246,7 @@ const WordReportUpload = ({ currentUser }) => {
                       {doc.name}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-xs">
-                      <span className={`px-2 py-1 rounded font-bold uppercase tracking-wide ${doc.type === 'System Generated' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>
+                      <span className={`px-2 py-1 rounded font-bold uppercase tracking-wide ${doc.type === 'Formatted Weekly Report' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>
                         {doc.type}
                       </span>
                     </td>

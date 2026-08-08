@@ -2296,6 +2296,7 @@ def get_all_requests(db: Session = Depends(get_db), current_user: models.Users =
 @app.post("/api/v1/reports/upload-word-report")
 async def upload_word_report(
     file: UploadFile = File(...),
+    doc_type: str = Form(...),  # 🟢 NEW: Catches the toggle from React
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
@@ -2304,8 +2305,42 @@ async def upload_word_report(
     
     try:
         contents = await file.read()
+        file_size_kb = max(1, round(len(contents) / 1024))
+        file_size_str = f"{file_size_kb} KB" if file_size_kb < 1024 else f"{round(file_size_kb / 1024, 1)} MB"
+
+        # 🟢 DUPLICATION CHECK
+        # Checks if this exact file name and size has already been uploaded
+        is_duplicate = db.query(models.DocumentArchive).filter(
+            models.DocumentArchive.file_name == file.filename,
+            models.DocumentArchive.file_size == file_size_str
+        ).first()
         
-        # 1. Save the physical file to the server
+        if is_duplicate:
+            raise HTTPException(status_code=400, detail="DUPLICATE DETECTED: This document has already been uploaded to the archives.")
+
+        # 🟢 AUTO-FORMATTING LOGIC
+        doc = Document(io.BytesIO(contents))
+        detected_region = current_user.region or "KMP GENERAL"
+        
+        # If they uploaded a weekly report, we force standard formatting on it
+        if doc_type == "weekly_report":
+            # 1. Add an official header paragraph at the very top
+            doc.insert_paragraph_before(f"UGANDA POLICE FORCE - {detected_region}")
+            doc.insert_paragraph_before(f"PROCESSED DATE: {datetime.now().strftime('%Y-%m-%d')}")
+            
+            # 2. Iterate through all paragraphs to standardize font and alignment
+            for para in doc.paragraphs:
+                para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                for run in para.runs:
+                    run.font.name = 'Arial'
+                    run.font.size = Pt(11)
+
+            # Save the formatted document back to bytes
+            formatted_io = io.BytesIO()
+            doc.save(formatted_io)
+            contents = formatted_io.getvalue()
+        
+        # Save the physical file to the server
         archive_dir = "reports_archive"
         os.makedirs(archive_dir, exist_ok=True)
         
@@ -2315,27 +2350,13 @@ async def upload_word_report(
         
         with open(file_path, "wb") as f:
             f.write(contents)
-            
-        # 2. Calculate file size for the UI
-        file_size_kb = max(1, round(len(contents) / 1024))
-        file_size_str = f"{file_size_kb} KB" if file_size_kb < 1024 else f"{round(file_size_kb / 1024, 1)} MB"
 
-        # 3. Handle document data logic (as you had before)
-        from docx import Document
-        doc = Document(io.BytesIO(contents))
-        detected_region = current_user.region or "KMP GENERAL"
+        # Save metadata to Neon Database
+        display_type = "Formatted Weekly Report" if doc_type == "weekly_report" else "General Document"
         
-        if hasattr(models, 'Audit_Logs'):
-            log_semantic_audit(
-                db=db, fnum=current_user.fnum, action="TRIPARTITE_REPORT_UPLOADED",
-                target_identifier=file.filename, changes={}, 
-                remarks=f"Successfully ingested 3-format operational report for {detected_region}"
-            )
-
-        # 4. Save metadata to Neon Database
         new_archive = models.DocumentArchive(
             file_name=file.filename,
-            doc_type="Uploaded Raw",
+            doc_type=display_type,
             file_size=file_size_str,
             file_path=file_path,
             uploaded_by=current_user.fnum,
@@ -2344,18 +2365,27 @@ async def upload_word_report(
         db.add(new_archive)
         db.commit()
 
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(
+                db=db, fnum=current_user.fnum, action="DOCUMENT_UPLOADED",
+                target_identifier=file.filename, changes={}, 
+                remarks=f"Successfully ingested {display_type} for {detected_region}"
+            )
+
         return {
             "status": "success",
-            "message": f"Successfully compiled and indexed 3-format returns from {file.filename}.",
+            "message": f"Successfully processed and archived {file.filename}.",
             "formats_processed": [
-                "1. Full Report & Tables Archive",
-                "2. Serious Cases Summary Table",
-                "3. Weekly Disruptive Ops Statistics"
+                f"Document Type: {display_type}",
+                "Checked against duplication ledger.",
+                "Formatting standards applied." if doc_type == "weekly_report" else "Saved as raw upload."
             ]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to process tripartite report: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process document: {str(e)}")
 
 
 @app.get("/api/v1/reports/archive")
