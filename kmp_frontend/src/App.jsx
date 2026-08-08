@@ -562,19 +562,34 @@ const availableUpdateCases = useMemo(() => {
   });
 }, [reports, currentUser, updateSearch]);
 
-  const metrics = useMemo(() => {
+const metrics = useMemo(() => {
     const stationCellPop = {};
     
+    // 🟢 Get today's date dynamically in YYYY-MM-DD format
+    const todayStr = new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
+    let hasLockupUpdateToday = false;
+    
     filteredReports.forEach(r => {
-       if (stationCellPop[r.station] === undefined && r.daily_lock_up !== undefined && r.daily_lock_up !== null) {
-           stationCellPop[r.station] = parseInt(r.daily_lock_up) || 0;
+       // 🟢 ONLY look at reports logged TODAY for the lockup metric
+       if (r.date === todayStr) {
+           if (stationCellPop[r.station] === undefined && r.daily_lock_up !== undefined && r.daily_lock_up !== null) {
+               stationCellPop[r.station] = parseInt(r.daily_lock_up) || 0;
+               hasLockupUpdateToday = true;
+           }
        }
     });
     
     const totalCellPop = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
 
+    // 🟢 If no update is found for today, create a pulsing red "Pending" badge
+    const lockupDisplay = hasLockupUpdateToday 
+      ? totalCellPop 
+      : <span className="text-[14px] leading-none tracking-normal text-red-600 bg-red-50 px-3 py-1.5 rounded-md border border-red-200 shadow-inner animate-pulse whitespace-nowrap">
+          Pending Today
+        </span>;
+
     return {
-      totalLockup: totalCellPop, // 🟢 Renamed to totalLockup
+      totalLockup: lockupDisplay,
       newCases: filteredReports.length,
       active: filteredReports.filter(r => r.status === 'ACTIVE INVESTIGATION').length,
       sanctioned: filteredReports.filter(r => r.status === 'FORWARDED TO COURT').length,
