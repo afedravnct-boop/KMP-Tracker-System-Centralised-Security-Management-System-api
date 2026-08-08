@@ -3053,24 +3053,31 @@ const AdminApprovals = ({ currentUser }) => {
 const handleApproveUser = async (fnum) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      
+      // 🟢 Safely encode the force number to preserve slashes like Q/1 -> Q%2F1
       const safeFnum = encodeURIComponent(fnum);
-      const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${token}` };
 
-      // 🟢 FIX: We are now correctly targeting the PATCH route we built in the backend
-      const response = await fetch(`${API_URL}/api/v1/admin/approve-user/${safeFnum}`, { 
-        method: "PATCH", 
-        headers 
+      // 🟢 Use PATCH or POST matching your backend route definition
+      const response = await fetch(`${API_URL}/api/v1/admin/approve-user/${safeFnum}`, {
+        method: "POST", // Match this to your FastAPI decorator (@app.post or @app.patch)
+        headers: { 
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        }
       });
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `Server Error: ${response.status}`);
-      }
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Failed to approve user.");
+
+      alert(`Success: ${data.message}`);
       
-      setRealPendingUsers(realPendingUsers.filter(u => u.fnum !== fnum));
-      alert(`Officer ${fnum} successfully authorized!`);
+      // Refresh your pending users state list here
+      if (typeof fetchPendingUsers === 'function') {
+        fetchPendingUsers();
+      }
     } catch (err) {
-      alert(`Authorization Failed: ${err.message}`);
+      alert(`Approval Error: ${err.message}`);
     }
   };
 
