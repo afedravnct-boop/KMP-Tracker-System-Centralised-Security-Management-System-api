@@ -1775,7 +1775,7 @@ def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depend
         print(f"Ledger Crash: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database Ledger Error: {str(e)}")
 
-def get_hr_summary_json
+def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
 
 @app.get("/api/v1/analytics/export")
 def export_analytics_secure(
