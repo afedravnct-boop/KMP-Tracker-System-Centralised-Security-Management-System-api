@@ -458,9 +458,20 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     ['RPC', 'DEPUTY COMMANDER'].includes((currentUser?.role || '').toUpperCase()) || 
     (currentUser?.position || '').toUpperCase().includes('DIVISIONAL COMMANDER');
 
+  // 🟢 HQ / 999 Clearance Check for Fallback Grand Totals
+  const isHQOr999 = 
+    ['SUPER_ADMIN', 'ADMIN'].includes((currentUser?.role || '').toUpperCase()) || 
+    (currentUser?.station || '').toUpperCase().includes('HEADQUARTERS') ||
+    (currentUser?.region || '').toUpperCase().includes('HEADQUARTERS') ||
+    (currentUser?.position || '').toUpperCase().includes('999');
+
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   const [selectedCase, setSelectedCase] = useState(null);
+  
+  // 🟢 State for HQ Fallback Grand Total Modal
+  const [showHqGrandModal, setShowHqGrandModal] = useState(false);
+  const [hqGrandTotalInput, setHqGrandTotalInput] = useState('');
 
   const [filterRegion, setFilterRegion] = useState(isGlobalCommand ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(isRegionalCommand ? 'ALL STATIONS' : currentUser?.station || '');
@@ -501,7 +512,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     setFormData({ 
       ...caseData, sd_ref: caseData.sdRef || caseData.sd_ref, offence: caseData.offence || 'Other',
       customOffence: '', suspectDetails: caseData.suspectDetails || [], updateText: '',
-      cell_population: caseData.daily_lock_up || 0 // 🟢 Reads from daily_lock_up
+      cell_population: caseData.daily_lock_up || 0 
     });
   };
 
@@ -551,37 +562,41 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     });
   }, [reports, filterRegion, filterStation, searchQuery, dateFilter]);
 
-const availableUpdateCases = useMemo(() => {
-  return (Array.isArray(reports) ? reports : []).filter(r => {
-    if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && r.region !== currentUser.region) return false;
-    if (updateSearch) {
-      const query = updateSearch.toLowerCase();
-      return (r.sdRef || r.sd_ref || '').toLowerCase().includes(query) || (r.id || r.sn || '').toString().includes(query) || r.narrative.toLowerCase().includes(query);
-    }
-    return true;
-  });
-}, [reports, currentUser, updateSearch]);
+  const availableUpdateCases = useMemo(() => {
+    return (Array.isArray(reports) ? reports : []).filter(r => {
+      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && r.region !== currentUser.region) return false;
+      if (updateSearch) {
+        const query = updateSearch.toLowerCase();
+        return (r.sdRef || r.sd_ref || '').toLowerCase().includes(query) || (r.id || r.sn || '').toString().includes(query) || r.narrative.toLowerCase().includes(query);
+      }
+      return true;
+    });
+  }, [reports, currentUser, updateSearch]);
 
-const metrics = useMemo(() => {
+  const metrics = useMemo(() => {
     const stationCellPop = {};
-    
-    // 🟢 Get today's date dynamically in YYYY-MM-DD format
     const todayStr = new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
     let hasLockupUpdateToday = false;
+    let hqGrandTotalToday = null;
     
     filteredReports.forEach(r => {
-       // 🟢 ONLY look at reports logged TODAY for the lockup metric
        if (r.date === todayStr) {
-           if (stationCellPop[r.station] === undefined && r.daily_lock_up !== undefined && r.daily_lock_up !== null) {
+           // Check if this is an HQ Override / General Total entry
+           if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) {
+               hqGrandTotalToday = parseInt(r.daily_lock_up) || parseInt(r.suspects) || 0;
+               hasLockupUpdateToday = true;
+           } else if (stationCellPop[r.station] === undefined && r.daily_lock_up !== undefined && r.daily_lock_up !== null) {
                stationCellPop[r.station] = parseInt(r.daily_lock_up) || 0;
                hasLockupUpdateToday = true;
            }
        }
     });
     
-    const totalCellPop = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
+    // 🟢 If HQ logged a general fallback total for today, it overrides individual sum ups
+    const totalCellPop = hqGrandTotalToday !== null 
+      ? hqGrandTotalToday 
+      : Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
 
-    // 🟢 If no update is found for today, create a pulsing red "Pending" badge
     const lockupDisplay = hasLockupUpdateToday 
       ? totalCellPop 
       : <span className="text-[14px] leading-none tracking-normal text-red-600 bg-red-50 px-3 py-1.5 rounded-md border border-red-200 shadow-inner animate-pulse whitespace-nowrap">
@@ -655,7 +670,7 @@ const metrics = useMemo(() => {
     }
   };
 
-const handleStandalonePopSubmit = async () => {
+  const handleStandalonePopSubmit = async () => {
     if (formData.cell_population === '' || formData.cell_population === null) {
       return setNotification("Error: Please enter a cell population number.");
     }
@@ -664,8 +679,6 @@ const handleStandalonePopSubmit = async () => {
     if (!token) return setNotification("Error: Security token missing.");
     
     setNotification("⏳ Logging Daily Cell Population...");
-    
-    // Auto-generate a bypass SD reference like POP-KAW-982341
     const popRef = `POP-${formData.station.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
     
     const apiPayload = {
@@ -680,7 +693,7 @@ const handleStandalonePopSubmit = async () => {
       suspects: 0,
       last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
       suspectDetails: [],
-      daily_lock_up: formData.cell_population || 0 // 🟢 Maps to backend column
+      daily_lock_up: formData.cell_population || 0 
     };
 
     try {
@@ -697,14 +710,61 @@ const handleStandalonePopSubmit = async () => {
       const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
       setReports([newReportLocal, ...reports]);
       setNotification(`✅ Daily Cell Population (${formData.cell_population}) logged successfully for ${formData.station}!`);
-      setFormData(prev => ({ ...prev, cell_population: 0 })); // Reset field after success
+      setFormData(prev => ({ ...prev, cell_population: 0 })); 
     } catch (err) {
       setNotification(`❌ Error: ${err.message}`);
     }
   };
 
+  // 🟢 Handler for HQ Fallback Grand Total Submission
+  const handleHqGrandTotalSubmit = async (e) => {
+    e.preventDefault();
+    if (!hqGrandTotalInput && hqGrandTotalInput !== 0) return alert("Please enter a valid Grand Total.");
+    
+    const token = localStorage.getItem('kmp_authToken');
+    if (!token) return alert("Security token missing.");
 
-const handleFormSubmit = async (e) => {
+    setNotification("⏳ Submitting Headquarters General Grand Total...");
+    const hqRef = `HQ-GRAND-${Date.now().toString().slice(-6)}`;
+
+    const apiPayload = {
+      sd_ref: hqRef,
+      region: "KMP HEADQUARTERS",
+      station: "HEADQUARTERS GENERAL TOTAL",
+      date: getTodayString(),
+      time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+      offence: "HQ GENERAL SUSPECT LOCK-UP TOTAL",
+      narrative: `Command Fallback Entry: Headquarters fallback general suspect lock-up grand total logged as ${hqGrandTotalInput} due to delayed station returns.`,
+      status: "CLOSED / CONVICTED",
+      suspects: parseInt(hqGrandTotalInput) || 0,
+      last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
+      suspectDetails: [],
+      daily_lock_up: parseInt(hqGrandTotalInput) || 0,
+      is_hq_general_total: true
+    };
+
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const response = await fetch(`${API_URL}/api/v1/reports`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify(apiPayload)
+      });
+
+      const resData = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(resData.detail || "Database rejected HQ total.");
+
+      const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
+      setReports([newReportLocal, ...reports]);
+      setNotification(`✅ Headquarters General Total (${hqGrandTotalInput}) successfully posted as override!`);
+      setShowHqGrandModal(false);
+      setHqGrandTotalInput('');
+    } catch (err) {
+      setNotification(`❌ Error: ${err.message}`);
+    }
+  };
+
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
     const token = localStorage.getItem('kmp_authToken');
     if (!token) return setNotification("Error: Security token missing. Please log out and log back in.");
@@ -727,7 +787,7 @@ const handleFormSubmit = async (e) => {
         date: formData.date, time: formData.time, offence: finalOffence, narrative: formData.narrative,
         status: formData.status, suspects: formData.suspectDetails.length, 
         last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails,
-        daily_lock_up: formData.cell_population || 0 // 🟢 Maps to backend column
+        daily_lock_up: formData.cell_population || 0 
       };
       
       try {
@@ -763,10 +823,9 @@ const handleFormSubmit = async (e) => {
         ...formData, narrative: updatedNarrative, sd_ref: formData.sd_ref, 
         suspects: (formData.suspects || 0) + formData.suspectDetails.length,
         last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails,
-        daily_lock_up: formData.cell_population || 0 // 🟢 Maps to backend column
+        daily_lock_up: formData.cell_population || 0 
       };
       
-      // 🟢 Prevent frontend-only fields from hitting the backend
       delete updatedRecord.cell_population; 
       delete updatedRecord.updateText; 
       delete updatedRecord.ref_type; 
@@ -795,6 +854,40 @@ const handleFormSubmit = async (e) => {
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
       
+      {/* 🟢 HQ / 999 Fallback Grand Total Modal */}
+      {showHqGrandModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-amber-300 animate-in zoom-in-95">
+            <div className="bg-amber-600 text-white px-6 py-4 flex justify-between items-center">
+              <h3 className="font-extrabold uppercase text-sm tracking-wider flex items-center">
+                <Shield className="mr-2" size={18} /> Command Fallback: General Grand Total
+              </h3>
+              <button onClick={() => setShowHqGrandModal(false)} className="hover:bg-amber-700 p-1 rounded transition"><X size={18}/></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                Use this section to log the combined national/regional general grand total if individual stations fail to submit their cell populations before the deadline. This will serve as the master metric total for today.
+              </p>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Enter Master Grand Total Suspects *</label>
+                <input 
+                  type="number" 
+                  min="0" 
+                  value={hqGrandTotalInput} 
+                  onChange={(e) => setHqGrandTotalInput(e.target.value)} 
+                  placeholder="e.g. 450" 
+                  className="w-full text-lg font-black text-slate-900 border border-slate-300 rounded-lg p-3 outline-none focus:border-amber-600"
+                />
+              </div>
+              <div className="flex justify-end space-x-3 pt-2">
+                <button type="button" onClick={() => setShowHqGrandModal(false)} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg font-bold text-xs">Cancel</button>
+                <button type="button" onClick={handleHqGrandTotalSubmit} className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs uppercase tracking-wider shadow">Post Grand Total</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showLockup && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex justify-center items-center p-4 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh] border border-red-200">
@@ -911,6 +1004,23 @@ const handleFormSubmit = async (e) => {
         <h2 className="text-xl text-red-300 mt-1 font-medium">Centralised Crime/Incident Compilation</h2>
       </div>
 
+      {/* 🟢 HQ / 999 Independent Fallback Header Banner */}
+      {isHQOr999 && (
+        <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md">
+          <div>
+            <h3 className="text-white text-xs font-extrabold uppercase tracking-wider">Command Fallback Portal</h3>
+            <p className="text-slate-400 text-[11px] mt-0.5">If stations fail to submit individual cell population returns in time, log the master grand total here.</p>
+          </div>
+          <button 
+            type="button"
+            onClick={() => setShowHqGrandModal(true)}
+            className="bg-amber-600 hover:bg-amber-500 text-white font-extrabold px-4 py-2 rounded-lg text-xs uppercase tracking-wider transition shadow-sm cursor-pointer whitespace-nowrap"
+          >
+            + Log HQ General Grand Total
+          </button>
+        </div>
+      )}
+
       <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
         <div className="absolute top-4 right-4 z-10">
           <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none">
@@ -925,9 +1035,7 @@ const handleFormSubmit = async (e) => {
         <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
         
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-          {/* 🟢 Moved to the very front and updated the title/value */}
           <MetricCard title="Total Lockup" value={metrics.totalLockup} colorClass="text-slate-800" />
-          
           <MetricCard title="Total Cases" value={metrics.newCases} colorClass="text-blue-700" />
           <MetricCard title="Suspects (Case)" value={metrics.totalSuspects} colorClass="text-red-600" />
           <MetricCard title="Active" value={metrics.active} colorClass="text-yellow-600" />
@@ -955,8 +1063,8 @@ const handleFormSubmit = async (e) => {
               </div>
 
               {notification && (
-                <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
-                  {notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 min-w-[20px]" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 min-w-[20px]" />}
+                <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
+                  {notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 min-w-[20px]" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 min-w-[20px]" />}
                   <span className="text-sm font-medium">{notification}</span>
                 </div>
               )}
@@ -1073,7 +1181,7 @@ const handleFormSubmit = async (e) => {
                   </div>
                 </div>
 
-<div className="col-span-2 bg-slate-200 p-4 rounded-lg border border-slate-300 shadow-inner mt-4">
+                <div className="col-span-2 bg-slate-200 p-4 rounded-lg border border-slate-300 shadow-inner mt-4">
                   <label className="block text-sm font-extrabold text-slate-800 mb-1">
                     General Daily Lock-up / Detention Cell Population
                   </label>
@@ -1094,13 +1202,13 @@ const handleFormSubmit = async (e) => {
                       type="button"
                       onClick={handleStandalonePopSubmit}
                       className="w-full sm:w-auto px-3 py-1.5 text-xs font-extrabold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg shadow-xs transition-all whitespace-nowrap overflow-hidden text-ellipsis cursor-pointer"
->
+                    >
                       📋 Log Daily Cell Population
                     </button>
                   </div>
                 </div>
 
-<button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center mt-4">
+                <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center mt-4">
                   {operation === 'new' ? '🚨 Submit New Case / Report' : '💾 Save Case Updates'}
                 </button>
               </form>
@@ -1110,7 +1218,7 @@ const handleFormSubmit = async (e) => {
 
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <div className="relative flex-1">             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
               <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
             </div>
             <select 
@@ -1162,7 +1270,6 @@ const handleFormSubmit = async (e) => {
                         }
                       }}
                     >
-                      {/* 🟢 Neon Database ID mapped directly as the SN Column */}
       <td className="px-4 py-4 whitespace-nowrap text-xs font-bold text-gray-900 align-top group-hover:text-blue-700 transition-colors">
         {report.id || report.sn}
       </td>
@@ -3055,12 +3162,11 @@ const handleApproveUser = async (fnum) => {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       
-      // 🟢 Safely encode the force number to preserve slashes like Q/1 -> Q%2F1
+      // Safely encode the force number to handle slashes like Q/1 -> Q%2F1
       const safeFnum = encodeURIComponent(fnum);
 
-      // 🟢 Use PATCH or POST matching your backend route definition
       const response = await fetch(`${API_URL}/api/v1/admin/approve-user/${safeFnum}`, {
-        method: "POST", // Match this to your FastAPI decorator (@app.post or @app.patch)
+        method: "PATCH", // 🟢 Must be PATCH to match your FastAPI backend decorator
         headers: { 
           "Authorization": `Bearer ${token}`,
           "Content-Type": "application/json"
@@ -3072,9 +3178,11 @@ const handleApproveUser = async (fnum) => {
 
       alert(`Success: ${data.message}`);
       
-      // Refresh your pending users state list here
+      // Refresh pending list state or reload
       if (typeof fetchPendingUsers === 'function') {
         fetchPendingUsers();
+      } else {
+        window.location.reload();
       }
     } catch (err) {
       alert(`Approval Error: ${err.message}`);
@@ -4635,21 +4743,22 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
                 style={{ backgroundImage: `url('/upf_kmp_map.png')` }}
               ></div>
             
-              {/* 🟢 Orbiting Text Layer (Light Blue text + Mobile Wrap Fix) */}
-              <div className="absolute inset-0 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
-                {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
-                  <span 
-                    key={i} 
-                    className="absolute top-1/2 left-1/2 text-sky-400 font-black text-[10px] sm:text-xs tracking-widest drop-shadow-md"
-                    style={{ 
-                      transform: `translate(-50%, -50%) rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)`,
-                      whiteSpace: 'nowrap'
-                    }}
-                  >
-                    {char === ' ' ? '\u00A0' : char}
-                  </span>
-                ))}
-              </div>
+{/* 🟢 Orbiting Text Layer (Forced Light Blue Hex Color + Mobile Wrap Fix) */}
+<div className="absolute inset-0 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
+  {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
+    <span 
+      key={i} 
+      className="absolute top-1/2 left-1/2 font-black text-[10px] sm:text-xs tracking-widest drop-shadow-md"
+      style={{ 
+        transform: `translate(-50%, -50%) rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)`,
+        whiteSpace: 'nowrap',
+        color: '#38bdf8' // 🟢 Hardcoded light blue hex code overrides any white inherited styles
+      }}
+    >
+      {char === ' ' ? '\u00A0' : char}
+    </span>
+  ))}
+</div>
             
             </div>
             

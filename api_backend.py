@@ -459,14 +459,13 @@ def force_user_password(target_fnum: str, data: ForcePasswordReq, db: Session = 
 
 @app.patch("/api/v1/admin/approve-user/{target_fnum:path}")
 def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # 🟢 1. Safely decode the Force Number so slashes don't break the query
+    # 🟢 Safely decode the Force Number so slashes like q/1 don't trigger a 404
     clean_fnum = unquote(target_fnum).strip().upper()
     
     target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum, models.Users.is_approved == False).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="Pending user not found.")
 
-    # 🟢 2. Regional / Command Security Checks
     if current_user.role != "SUPER_ADMIN":
         if target_user.region != current_user.region:
             raise HTTPException(status_code=403, detail="Cannot approve users outside your region.")
@@ -482,14 +481,12 @@ def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: 
         if active_count >= 3:
             raise HTTPException(status_code=400, detail=f"Quota full: Max 3 active {target_user.position}s allowed in {target_user.station}.")
 
-    # 🟢 3. Apply Approvals & Status Updates
     target_user.is_approved = True
     if hasattr(target_user, 'status'): 
         target_user.status = "ACTIVE"
     if hasattr(target_user, 'is_active'): 
         target_user.is_active = True
 
-    # 🟢 4. Log the action securely
     if hasattr(models, 'Audit_Logs'):
         log_semantic_audit(
             db=db, 
@@ -754,30 +751,6 @@ def get_pending_users(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch pending users: {str(e)}")
 
-@app.patch("/api/v1/admin/approve-user/{target_fnum}")
-def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    target_user = db.query(models.Users).filter(models.Users.fnum == target_fnum, models.Users.is_approved == False).first()
-    if not target_user:
-        raise HTTPException(status_code=404, detail="Pending user not found.")
-
-    if current_user.role != "SUPER_ADMIN":
-        if target_user.region != current_user.region:
-            raise HTTPException(status_code=403, detail="Cannot approve users outside your region.")
-        if "Commander" in current_user.position and current_user.role != "RPC" and target_user.station != current_user.station:
-            raise HTTPException(status_code=403, detail="Cannot approve users outside your division.")
-
-    if current_user.role != "SUPER_ADMIN":
-        active_count = db.query(models.Users).filter(
-            models.Users.is_approved == True,
-            models.Users.station == target_user.station,
-            models.Users.position == target_user.position
-        ).count()
-        if active_count >= 3:
-            raise HTTPException(status_code=400, detail=f"Quota full: Max 3 active {target_user.position}s allowed in {target_user.station}.")
-
-    target_user.is_approved = True
-    db.commit()
-    return {"message": "User approved successfully."}
 
 @app.get("/api/v1/users")
 def get_all_active_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -858,10 +831,28 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
 def create_report(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         data.pop('sn', None) 
-        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
-            data["region"] = current_user.region
-            data["station"] = current_user.station
-            
+        
+        user_station = (current_user.station or "").strip().upper()
+        user_region = (current_user.region or "").strip().upper()
+        is_hq_admin = current_user.role in ["SUPER_ADMIN", "ADMIN"] or "HEADQUARTERS" in user_station or "HEADQUARTERS" in user_region or "999" in (current_user.position or "").upper()
+
+        is_hq_general_total = data.pop('is_hq_general_total', False)
+
+        if is_hq_general_total:
+            if not is_hq_admin:
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Clearance Denied: Only KMP Headquarters admins or 999 Data Officers can input independent General Totals."
+                )
+            # Force jurisdiction to HQ/General pool for fallback totals
+            data["region"] = "KMP HEADQUARTERS"
+            data["station"] = "HEADQUARTERS GENERAL TOTAL"
+            data["offence"] = data.get("offence", "HQ GENERAL SUSPECT LOCK-UP TOTAL")
+        else:
+            if current_user.role not in ["SUPER_ADMIN", "RPC"]:
+                data["region"] = current_user.region
+                data["station"] = current_user.station
+
         suspects_data = data.pop('suspectDetails', []) 
         new_record = models.Crime_Reports(**data)
         new_record.last_updated_by = current_user.fnum
@@ -886,11 +877,9 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
                 photo_url=s.get('photo_url') 
             )
             db.add(new_suspect)
-        
+            
+        db.commit()
         return {"status": "success", "id": new_record.id, "sn": new_record.sn}
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=400, detail="Duplicate Reference for this station.")
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
