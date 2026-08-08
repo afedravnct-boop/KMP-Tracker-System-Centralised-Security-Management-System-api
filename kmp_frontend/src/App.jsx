@@ -4338,7 +4338,7 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
       const [isFullScreen, setIsFullScreen] = useState(false);
       const [isAnimating, setIsAnimating] = useState(true);
       
-      // 🟢 State for expanding the motion button on hover or click
+// 🟢 State for expanding the motion button on hover or click
       const [isMotionExpanded, setIsMotionExpanded] = useState(false);
 
       const [lastViewedId, setLastViewedId] = useState(() => {
@@ -4349,6 +4349,15 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
       // 🟢 LIVE DATABASE HEARTBEAT & ONLINE ROSTER SYNC
       const [realOnlineUsers, setRealOnlineUsers] = useState([]);
 
+      // 🟢 NEW: Listen for 401 Unauthorized events from the backend to trigger the Modal
+      useEffect(() => {
+        const handleAuthExpired = () => {
+          setIsTimedOut(true); // Forces the red timeout modal to drop immediately
+        };
+        window.addEventListener('auth-expired', handleAuthExpired);
+        return () => window.removeEventListener('auth-expired', handleAuthExpired);
+      }, []);
+
       useEffect(() => {
         const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -4357,10 +4366,16 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
           if (!currentToken) return;
 
           try {
-            await fetch(`${API_URL}/api/v1/users/heartbeat`, {
+            const hb = await fetch(`${API_URL}/api/v1/users/heartbeat`, {
               method: 'POST',
               headers: { 'Authorization': `Bearer ${currentToken}` }
             });
+
+            // 🟢 If the backend rejects the token, fire the expiration event
+            if (hb.status === 401) {
+              window.dispatchEvent(new Event('auth-expired'));
+              return;
+            }
 
             const response = await fetch(`${API_URL}/api/v1/users/online`, {
               headers: { 'Authorization': `Bearer ${currentToken}` }
@@ -4583,30 +4598,38 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
         }
       };
 
-      // 🟢 COMBINED WORKSPACE CURTAIN & IDLE MODAL
+// 🟢 COMBINED WORKSPACE CURTAIN & IDLE MODAL
       const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/90 backdrop-blur-md">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/90 backdrop-blur-md">
           
-{/* 3D GLOBE IDLE BACKGROUND */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden flex flex-col items-center justify-center">
-        <div className="idle-backdrop-emblem absolute inset-0 opacity-[0.12] pointer-events-none"></div>
-        
-        {/* 🟢 3D Orbital Setup */}
-        <div className="idle-center-container relative z-0 opacity-40 scale-125 sm:scale-100" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
-          <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
-          
-          <div className="absolute inset-0 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
-            {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
-              <span 
-                key={i} 
-                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-[10px] sm:text-xs tracking-widest"
-                style={{ transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)` }}
-              >
-                {char === ' ' ? '\u00A0' : char}
-              </span>
-            ))}
+          {/* 3D GLOBE IDLE BACKGROUND */}
+          <div className="absolute inset-0 pointer-events-none overflow-hidden flex flex-col items-center justify-center">
+            <div className="idle-backdrop-emblem absolute inset-0 opacity-[0.12] pointer-events-none"></div>
+            
+            {/* 🟢 3D Orbital Setup */}
+            <div className="idle-center-container relative z-0 opacity-40 scale-125 sm:scale-100" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
+              
+              {/* Map Globe (Flexbox centered, no absolute positioning) */}
+              <div className="spinning-map-globe" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
+              
+              <div className="absolute inset-0 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
+                {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
+                  <span 
+                    key={i} 
+                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-[10px] sm:text-xs tracking-widest"
+                    style={{ transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)` }}
+                  >
+                    {char === ' ' ? '\u00A0' : char}
+                  </span>
+                ))}
+              </div>
+            </div>
+            
+            {/* Fallback Standby Text */}
+            <div className="absolute bottom-8 text-slate-500 font-mono text-xs sm:text-sm font-bold tracking-[0.2em] animate-pulse">
+              SYSTEM STANDBY • AWAITING COMMAND INPUT
+            </div>
           </div>
-        </div>
 
         <div className="absolute bottom-8 text-slate-500 font-mono text-xs sm:text-sm font-bold tracking-[0.2em] animate-pulse">
           SYSTEM STANDBY • AWAITING COMMAND INPUT
@@ -5220,12 +5243,18 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
               authFetch(`${API_URL}/api/v1/users`, { signal: controller.signal })
             ]);
 
-            if (!controller.signal.aborted) {
-              // 🟢 DIAGNOSTIC TRIPWIRE: Catch silent backend failures immediately
+              if (!controller.signal.aborted) {
+              // 🟢 Catch 401 Unauthorized instantly before data zeros out
+              if (resReports.status === 401) {
+                 window.dispatchEvent(new Event('auth-expired'));
+                 return;
+              }
+
+              // DIAGNOSTIC TRIPWIRE: Catch silent backend failures immediately
               if (!resReports.ok) {
                  const errorText = await resReports.text();
                  console.error("🚨 COMMAND BACKEND ERROR:", resReports.status, errorText);
-                 alert(`Database Connection Alert: The server returned status ${resReports.status}. Open your browser console (F12) to see the exact error.`);
+                 alert(`Database Connection Alert: The server returned status ${resReports.status}.`);
               } else {
                  setReports(await resReports.json());
               }
