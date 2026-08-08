@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UploadCloud, FileText, Download, CheckCircle, AlertTriangle, Loader2, FolderOpen, Clock, FileArchive } from 'lucide-react';
+import { UploadCloud, FileText, Download, CheckCircle, AlertTriangle, Loader2, FolderOpen, Clock, FileArchive, Eye, Lock } from 'lucide-react';
 
 const WordReportUpload = ({ currentUser }) => {
   const [file, setFile] = useState(null);
@@ -7,10 +7,13 @@ const WordReportUpload = ({ currentUser }) => {
   const [feedback, setFeedback] = useState(null);
   
   const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'archive'
-  const [docCategory, setDocCategory] = useState('weekly_report'); // 🟢 NEW: Category Toggle
+  const [docCategory, setDocCategory] = useState('weekly_report'); 
 
   const [documents, setDocuments] = useState([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
+
+  // 🟢 Clearance Logic: Only Admins, RPCs, or specific roles can DOWNLOAD reports
+  const hasDownloadClearance = ['SUPER_ADMIN', 'ADMIN', 'RPC'].includes(currentUser?.role?.toUpperCase());
 
   useEffect(() => {
     if (activeTab === 'archive') {
@@ -50,7 +53,7 @@ const WordReportUpload = ({ currentUser }) => {
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("doc_type", docCategory); // 🟢 NEW: Send category to backend
+    formData.append("doc_type", docCategory); 
 
     setUploading(true);
     try {
@@ -80,6 +83,34 @@ const WordReportUpload = ({ currentUser }) => {
   const downloadTemplate = (type) => {
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
     window.open(`${API_URL}/api/v1/templates/download/${type}`, '_blank');
+  };
+
+  // 🟢 SECURE READ FUNCTION: Fetches into a temporary browser Blob to prevent hard drive saves
+  const handleSecureRead = async (docId) => {
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      
+      const response = await fetch(`${API_URL}/api/v1/reports/download/${docId}`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      
+      if (!response.ok) throw new Error("Failed to fetch document for reading.");
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      
+      // Revoke the URL after a short delay to clear memory and prevent sharing
+      setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+    } catch (err) {
+      alert(`Read Error: ${err.message}`);
+    }
+  };
+
+  const handleSecureDownload = (docId) => {
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+    window.open(`${API_URL}/api/v1/reports/download/${docId}`, '_blank');
   };
 
   return (
@@ -125,7 +156,6 @@ const WordReportUpload = ({ currentUser }) => {
 
             <form onSubmit={handleUpload} className="space-y-4">
               
-              {/* 🟢 NEW: Document Category Toggle */}
               <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-200 flex mb-4">
                 <button
                   type="button"
@@ -184,10 +214,10 @@ const WordReportUpload = ({ currentUser }) => {
               <h3 className="font-extrabold text-sm text-slate-900 uppercase border-b border-slate-100 pb-3 flex items-center">
                 <Download className="w-4 h-4 mr-2 text-slate-500" /> Report Templates
               </h3>
-              <p className="text-xs text-slate-500">Download official standardized formatting templates to ensure compliance.</p>
+              <p className="text-xs text-slate-500">Official formatting templates available for all personnel.</p>
               <button 
                 onClick={() => downloadTemplate('weekly-report')}
-                className="w-full py-2.5 px-4 bg-slate-50 hover:bg-blue-50 text-slate-800 hover:text-blue-700 font-bold rounded-xl text-xs text-left flex justify-between items-center transition border border-slate-200 hover:border-blue-200"
+                className="w-full py-2.5 px-4 bg-slate-50 hover:bg-blue-50 text-slate-800 hover:text-blue-700 font-bold rounded-xl text-xs text-left flex justify-between items-center transition border border-slate-200 hover:border-blue-200 cursor-pointer"
               >
                 <span>Weekly Report Return</span>
                 <span className="font-mono text-blue-600 text-[10px] bg-white px-2 py-1 rounded border shadow-sm">.DOCX</span>
@@ -198,10 +228,10 @@ const WordReportUpload = ({ currentUser }) => {
               <h3 className="font-extrabold text-sm text-slate-900 uppercase border-b border-slate-100 pb-3 flex items-center">
                 <Download className="w-4 h-4 mr-2 text-slate-500" /> Assignment Templates
               </h3>
-              <p className="text-xs text-slate-500">Download operational deployment and task assignment directive sheets.</p>
+              <p className="text-xs text-slate-500">Operational deployment directive sheets available for all personnel.</p>
               <button 
                 onClick={() => downloadTemplate('assignment')}
-                className="w-full py-2.5 px-4 bg-slate-50 hover:bg-emerald-50 text-slate-800 hover:text-emerald-700 font-bold rounded-xl text-xs text-left flex justify-between items-center transition border border-slate-200 hover:border-emerald-200"
+                className="w-full py-2.5 px-4 bg-slate-50 hover:bg-emerald-50 text-slate-800 hover:text-emerald-700 font-bold rounded-xl text-xs text-left flex justify-between items-center transition border border-slate-200 hover:border-emerald-200 cursor-pointer"
               >
                 <span>Task Assignment Template</span>
                 <span className="font-mono text-emerald-600 text-[10px] bg-white px-2 py-1 rounded border shadow-sm">.DOCX</span>
@@ -217,7 +247,7 @@ const WordReportUpload = ({ currentUser }) => {
                 <FileArchive className="w-5 h-5 mr-2 text-emerald-600" /> 
                 System Document Archive
               </h3>
-              <p className="text-xs text-slate-500 mt-1">Review previously uploaded raw reports and download auto-generated compiled summaries.</p>
+              <p className="text-xs text-slate-500 mt-1">Review previously uploaded raw reports. Downloads are restricted by command clearance.</p>
             </div>
           </div>
           
@@ -229,7 +259,7 @@ const WordReportUpload = ({ currentUser }) => {
                   <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Type</th>
                   <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Date Logged</th>
                   <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Size</th>
-                  <th className="px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase tracking-wider">Action</th>
+                  <th className="px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-100">
@@ -256,16 +286,38 @@ const WordReportUpload = ({ currentUser }) => {
                     <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500 font-mono">
                       {doc.size}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button 
-                        onClick={() => {
-                          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-                          window.open(`${API_URL}/api/v1/reports/download/${doc.id}`, '_blank');
-                        }}
-                        className="text-blue-600 hover:text-white hover:bg-blue-600 border border-blue-600 px-3 py-1.5 rounded transition flex items-center justify-center ml-auto text-xs font-bold"
-                      >
-                        <Download className="w-3 h-3 mr-1" /> Download
-                      </button>
+                    
+                    {/* 🟢 ACTION BUTTONS: READ (Everyone) + SECURE DOWNLOAD (Clearance Only) */}
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <div className="flex justify-end space-x-2">
+                        
+                        {/* Always available to all authenticated users */}
+                        <button 
+                          onClick={() => handleSecureRead(doc.id)}
+                          className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer"
+                        >
+                          <Eye className="w-3 h-3 mr-1" /> Read
+                        </button>
+
+                        {/* Restricted by Clearance */}
+                        {hasDownloadClearance ? (
+                          <button 
+                            onClick={() => handleSecureDownload(doc.id)}
+                            className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer"
+                          >
+                            <Download className="w-3 h-3 mr-1" /> Download
+                          </button>
+                        ) : (
+                          <button 
+                            disabled
+                            className="text-slate-400 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded flex items-center text-xs font-bold cursor-not-allowed opacity-60"
+                            title="Command Clearance Required to Download"
+                          >
+                            <Lock className="w-3 h-3 mr-1" /> Restricted
+                          </button>
+                        )}
+
+                      </div>
                     </td>
                   </tr>
                 ))}

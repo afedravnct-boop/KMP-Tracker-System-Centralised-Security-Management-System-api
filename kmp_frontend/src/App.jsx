@@ -1929,8 +1929,15 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
                       <td className="px-4 py-4 text-sm text-gray-600 align-top whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
                         <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: story.narrative }} />
                         {story.photo_url && (
-                          <div className="mt-3 border rounded-lg overflow-hidden max-w-xs bg-slate-100">
-                            <img src={story.photo_url} alt={`Exploit SN ${story.sn}`} className="w-full h-auto object-cover max-h-40" onError={(e) => { e.target.style.display = 'none'; }} />
+                          /* 🟢 Expanded max-width and added padding for a cleaner photo display */
+                          <div className="mt-4 border rounded-xl overflow-hidden max-w-md bg-slate-50 flex justify-center items-center p-1 shadow-sm">
+                            <img 
+                              src={story.photo_url} 
+                              alt={`Exploit SN ${story.sn}`} 
+                              /* 🟢 object-contain ensures 100% of the photo is visible without cropping, while max-h-96 allows the row to expand gracefully */
+                              className="w-full h-auto object-contain max-h-96 rounded-lg" 
+                              onError={(e) => { e.target.style.display = 'none'; }} 
+                            />
                           </div>
                         )}
                       </td>
@@ -1940,7 +1947,13 @@ const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen }) =>
                       </td>
                     </tr>
                   ))}
-                  {filteredStories.length === 0 && <tr><td colSpan="6" className="text-center py-6 text-gray-500">No success stories logged for this jurisdiction.</td></tr>}
+                  {filteredStories.length === 0 && (
+                    <tr>
+                      <td colSpan="6" className="text-center py-6 text-gray-500">
+                        No success stories logged for this jurisdiction.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -4598,37 +4611,40 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
         }
       };
 
-// 🟢 COMBINED WORKSPACE CURTAIN & IDLE MODAL
+{/* 🟢 COMBINED WORKSPACE CURTAIN & IDLE MODAL */}
       const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/90 backdrop-blur-md">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/90 backdrop-blur-md pointer-events-auto">
           
           {/* 3D GLOBE IDLE BACKGROUND */}
           <div className="absolute inset-0 pointer-events-none overflow-hidden flex flex-col items-center justify-center">
             <div className="idle-backdrop-emblem absolute inset-0 opacity-[0.12] pointer-events-none"></div>
             
-{/* 🟢 3D Orbital Setup */}
-<div className="idle-center-container relative flex items-center justify-center" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
-  
-  {/* Centered Map Globe (CSS handles the absolute dead-centering) */}
-  <div 
-    className="spinning-map-globe" 
-    style={{ backgroundImage: `url('/upf_kmp_map.png')` }}
-  ></div>
-
-  {/* Orbiting Text Layer */}
-  <div className="absolute inset-0 pointer-events-none flex items-center justify-center" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
-    {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
-      <span 
-        key={i} 
-        className="absolute text-white font-black text-[10px] sm:text-xs tracking-widest drop-shadow-md"
-        style={{ transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)` }}
-      >
-        {char === ' ' ? '\u00A0' : char}
-      </span>
-    ))}
-  </div>
-
-</div>
+            {/* 🟢 3D Orbital Setup */}
+            <div className="idle-center-container relative flex items-center justify-center" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
+              
+              {/* Centered Map Globe */}
+              <div 
+                className="spinning-map-globe" 
+                style={{ backgroundImage: `url('/upf_kmp_map.png')` }}
+              ></div>
+            
+              {/* 🟢 Orbiting Text Layer (Light Blue text + Mobile Wrap Fix) */}
+              <div className="absolute inset-0 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
+                {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
+                  <span 
+                    key={i} 
+                    className="absolute top-1/2 left-1/2 text-sky-400 font-black text-[10px] sm:text-xs tracking-widest drop-shadow-md"
+                    style={{ 
+                      transform: `translate(-50%, -50%) rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)`,
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {char === ' ' ? '\u00A0' : char}
+                  </span>
+                ))}
+              </div>
+            
+            </div>
             
             {/* Standby Text */}
             <div className="absolute bottom-8 text-slate-500 font-mono text-xs sm:text-sm font-bold tracking-[0.2em] animate-pulse">
@@ -4638,7 +4654,7 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
 
           {/* FOREGROUND WARNING MODAL */}
           <div className="relative z-10 bg-white/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full mx-4 shadow-[0_0_40px_rgba(0,0,0,0.5)] border border-slate-700 text-left font-sans animate-in zoom-in-95 duration-300">
-            <div className="flex items-start space-x-4">
+            <div className="flex items-start space-x-4 mb-6">
               <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border shadow-inner ${
                 isTimedOut ? 'bg-red-50 text-red-600 border-red-200' : 'bg-amber-50 text-amber-600 border-amber-200'
               }`}>
@@ -4657,43 +4673,29 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
               </div>
             </div>
 
-            <div className="mt-6">
+            {/* 🟢 Clickable Action Buttons */}
+            <div className="relative z-50">
               {isTimedOut ? (
                 <button 
-                  type="button"
                   onClick={() => {
-                    setIsTimedOut(false);
-                    setShowIdleWarning(false);
                     localStorage.removeItem('kmp_authToken');
-                    localStorage.removeItem('kmp_currentUser');
-                    localStorage.removeItem('kmp_currentPage');
-                    
-                    if (typeof onLogout === 'function') {
-                      onLogout();
-                    } else {
-                      window.location.reload();
-                    }
+                    window.location.reload();
                   }}
-                  className="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold px-4 py-3 rounded-xl shadow-md transition-all cursor-pointer uppercase tracking-wider"
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
                 >
                   Acknowledge & Return to Login
                 </button>
               ) : (
                 <button 
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setShowIdleWarning(false);
-                    if (resetIdleTimersRef.current) resetIdleTimersRef.current(); 
-                  }}
-                  className="w-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-3 rounded-xl shadow-md transition-all cursor-pointer"
+                  onClick={() => setShowIdleWarning(false)}
+                  className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
                 >
-                  I am still here (Extend Session)
+                  Continue Session
                 </button>
               )}
             </div>
           </div>
+
         </div>
       );
 
