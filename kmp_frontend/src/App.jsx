@@ -1090,12 +1090,12 @@ const handleFormSubmit = async (e) => {
                       className="flex-1 text-lg border-slate-400 rounded-md shadow-sm border p-3 bg-white focus:ring-blue-500 font-black text-slate-900" 
                       placeholder="Total suspects in custody..." 
                     />
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       onClick={handleStandalonePopSubmit}
-                      className="bg-slate-800 hover:bg-black text-white text-sm font-bold px-3 rounded-md shadow transition-colors flex items-center shrink-0"
-                    >
-                      💾 Log Population Only
+                      className="w-full sm:w-auto px-3 py-1.5 text-xs font-extrabold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg shadow-xs transition-all whitespace-nowrap overflow-hidden text-ellipsis cursor-pointer"
+>
+                      📋 Log Daily Cell Population
                     </button>
                   </div>
                 </div>

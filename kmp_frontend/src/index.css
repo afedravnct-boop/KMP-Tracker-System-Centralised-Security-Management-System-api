@@ -238,3 +238,12 @@
   0% { transform: rotateY(0deg); }
   100% { transform: rotateY(360deg); }
 }
+
+/* Expands padding specifically for touchscreen users */
+@media (pointer: coarse) {
+  button, input, select {
+    min-height: 44px;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+}
