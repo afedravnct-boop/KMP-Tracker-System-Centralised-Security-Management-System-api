@@ -22,6 +22,7 @@ import OfficerDossierModal from './OfficerDossierModal';
 import upfMapGlobe from './upf_kmp_map.png';
 import WordReportUpload from './WordReportUpload';
 import './index.css';
+import SessionExpiredModal from './SessionExpiredModal';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -4758,7 +4759,7 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
                 style={{ backgroundImage: `url('/upf_kmp_map.png')` }}
               ></div>
             
-{/* 🟢 Orbiting Text Layer (Forced Light Blue Hex Color + Mobile Wrap Fix) */}
+{/* Orbiting Text Layer */}
 <div className="absolute inset-0 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
   {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
     <span 
@@ -4767,7 +4768,8 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
       style={{ 
         transform: `translate(-50%, -50%) rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)`,
         whiteSpace: 'nowrap',
-        color: '#38bdf8' // 🟢 Hardcoded light blue hex code overrides any white inherited styles
+        color: '#38bdf8', // 🟢 Forces the light blue color
+        textShadow: '0px 0px 8px rgba(56, 189, 248, 0.6)' // 🟢 Optional: Tints the drop shadow light blue to match
       }}
     >
       {char === ' ' ? '\u00A0' : char}
@@ -4783,49 +4785,39 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
             </div>
           </div>
 
-          {/* FOREGROUND WARNING MODAL */}
-          <div className="relative z-10 bg-white/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full mx-4 shadow-[0_0_40px_rgba(0,0,0,0.5)] border border-slate-700 text-left font-sans animate-in zoom-in-95 duration-300">
-            <div className="flex items-start space-x-4 mb-6">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border shadow-inner ${
-                isTimedOut ? 'bg-red-50 text-red-600 border-red-200' : 'bg-amber-50 text-amber-600 border-amber-200'
-              }`}>
-                <AlertTriangle className="w-6 h-6" />
+{/* FOREGROUND WARNING MODAL / EXPIRED MODAL */}
+          {isTimedOut ? (
+            /* 🟢 The new standalone component takes over when time is up */
+            <SessionExpiredModal />
+          ) : (
+            /* 🟡 The original countdown warning stays here */
+            <div className="relative z-10 bg-white/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full mx-4 shadow-[0_0_40px_rgba(0,0,0,0.5)] border border-slate-700 text-left font-sans animate-in zoom-in-95 duration-300">
+              <div className="flex items-start space-x-4 mb-6">
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border shadow-inner bg-amber-50 text-amber-600 border-amber-200">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                
+                <div className="space-y-1">
+                  <h4 className="text-base font-extrabold text-slate-900 tracking-tight">
+                    Session Timeout Warning
+                  </h4>
+                  <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                    Your session will expire in {idleCountdown}s due to inactivity. Click below to continue working.
+                  </p>
+                </div>
               </div>
-              
-              <div className="space-y-1">
-                <h4 className="text-base font-extrabold text-slate-900 tracking-tight">
-                  {isTimedOut ? 'Session Expired Due to Inactivity' : 'Session Timeout Warning'}
-                </h4>
-                <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                  {isTimedOut 
-                    ? 'Your security token has expired because the system was left unattended. You have been securely logged out.' 
-                    : `Your session will expire in ${idleCountdown}s due to inactivity. Click below to continue working.`}
-                </p>
-              </div>
-            </div>
 
-            {/* 🟢 Clickable Action Buttons */}
-            <div className="relative z-50">
-              {isTimedOut ? (
-                <button 
-                  onClick={() => {
-                    localStorage.removeItem('kmp_authToken');
-                    window.location.reload();
-                  }}
-                  className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
-                >
-                  Acknowledge & Return to Login
-                </button>
-              ) : (
+              {/* 🟢 Clickable Action Buttons */}
+              <div className="relative z-50">
                 <button 
                   onClick={() => setShowIdleWarning(false)}
                   className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
                 >
                   Continue Session
                 </button>
-              )}
+              </div>
             </div>
-          </div>
+          )}
 
         </div>
       );
