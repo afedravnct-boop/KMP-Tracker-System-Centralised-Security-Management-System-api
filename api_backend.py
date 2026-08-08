@@ -1775,68 +1775,7 @@ def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depend
         print(f"Ledger Crash: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database Ledger Error: {str(e)}")
 
-@app.get("/api/v1/reports/establishments-json")
-@app.get("/api/v1/reports/hr-establishments-json")
-def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        # 🟢 Query live nominal roll directly from NeonDB
-        hr_query = db.query(models.NominalRoll)
-        if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
-            hr_query = hr_query.filter(models.NominalRoll.station == current_user.station)
-        elif current_user.role in ["ADMIN", "RPC"]:
-            hr_query = hr_query.filter(models.NominalRoll.region == current_user.region)
-            
-        hr_records = hr_query.all()
-        grouped_hr = {}
-        
-        for r in hr_records:
-            region = getattr(r, 'region', 'GENERAL / HQ') or 'GENERAL / HQ'
-            station = getattr(r, 'station', 'N/A') or 'N/A'
-            rank = getattr(r, 'rank', 'UNRANKED') or 'UNRANKED'
-            
-            key = (region.strip().upper(), station.strip().upper())
-            if key not in grouped_hr:
-                grouped_hr[key] = {"total_personnel": 0, "ranks": {}}
-            
-            grouped_hr[key]["total_personnel"] += 1
-            grouped_hr[key]["ranks"][rank] = grouped_hr[key]["ranks"].get(rank, 0) + 1
-            
-        hr_list = []
-        for (region, station), data in grouped_hr.items():
-            hr_list.append({
-                "region": region,
-                "station": station,
-                "total_personnel": data["total_personnel"],
-                "rank_breakdown": data["ranks"]
-            })
-
-        # 🟢 Query Establishments metrics
-        est_query = db.query(models.Establishments)
-        if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
-            est_query = est_query.filter(models.Establishments.station == current_user.station)
-        elif current_user.role in ["ADMIN", "RPC"]:
-            est_query = est_query.filter(models.Establishments.region == current_user.region)
-            
-        est_records = est_query.all()
-        est_list = []
-        for e in est_records:
-            pers_stn = getattr(e, 'personnel_in_station', 0) or 0
-            pers_post = getattr(e, 'personnel_in_post', 0) or 0
-            pers_booth = getattr(e, 'personnel_in_booth', getattr(e, 'booths', 0)) or 0
-            est_list.append({
-                "region": getattr(e, 'region', '-'), 
-                "division": getattr(e, 'division', '-'), 
-                "station": getattr(e, 'station', '-'),
-                "pers_stn": pers_stn, 
-                "sub_station": getattr(e, 'sub_station', '-'), 
-                "post": getattr(e, 'post', '-'),
-                "pers_post": pers_post, 
-                "sub_total": pers_stn + pers_post + pers_booth
-            })
-
-        return {"hr": hr_list, "establishments": est_list}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load HR aggregate data: {str(e)}")
+def get_hr_summary_json
 
 @app.get("/api/v1/analytics/export")
 def export_analytics_secure(

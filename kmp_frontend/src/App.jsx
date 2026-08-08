@@ -516,17 +516,29 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     });
   };
 
-  const filteredReports = useMemo(() => {
+const filteredReports = useMemo(() => {
     if (!Array.isArray(reports)) return [];
+    
+    // 🟢 1. Check if a specific region/station is actively selected
+    const activeRegion = (filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion.trim().toUpperCase() : null;
+    const activeStation = (filterStation && filterStation !== 'ALL STATIONS') ? filterStation.trim().toUpperCase() : null;
+
     return reports.filter(r => {
       const dbRegion = (r.region || '').trim().toUpperCase();
       const dbStation = (r.station || '').trim().toUpperCase();
-      const selectedRegion = (filterRegion || '').trim().toUpperCase();
-      const selectedStation = (filterStation || '').trim().toUpperCase();
-
-      if (selectedRegion !== 'ALL REGIONS' && selectedRegion !== '' && dbRegion !== selectedRegion) return false;
-      if (selectedStation !== 'ALL STATIONS' && selectedStation !== '' && dbStation !== selectedStation) return false;
       
+      // 🟢 2. Strict Jurisdictional Overrides
+      // If a region is selected, the report MUST match that region.
+      if (activeRegion && dbRegion !== activeRegion) {
+        return false;
+      }
+      
+      // If a station is selected, the report MUST match that station.
+      if (activeStation && dbStation !== activeStation) {
+        return false;
+      }
+      
+      // 🟢 3. Search Query Filter
       if (searchQuery) {
         const query = searchQuery.toLowerCase().trim();
         const textMatch = 
@@ -536,6 +548,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         if (!textMatch) return false;
       }
       
+      // 🟢 4. Date Filters
       if (dateFilter && dateFilter !== 'ALL TIME') {
         if (dateFilter === 'TODAY') {
           const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
@@ -558,6 +571,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           if (diffDays > 120) return false;
         }
       }
+      
+      // If it passed all filters, keep it!
       return true;
     });
   }, [reports, filterRegion, filterStation, searchQuery, dateFilter]);
