@@ -324,22 +324,12 @@ class SystemConfig(Base):
 
 class DocumentArchive(Base):
     __tablename__ = "document_archive"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     file_name = Column(String, index=True, nullable=False)
-    doc_type = Column(String, nullable=False)  # e.g., 'Uploaded Raw' or 'System Generated'
-    file_size = Column(String)  # e.g., '245 KB'
-    file_path = Column(String, nullable=False) # The secure AWS S3 link or local server path
-    uploaded_by = Column(String) # Force Number of the officer who uploaded it
-    upload_date = Column(DateTime, default=datetime.utcnow)
-
-class DocumentArchive(Base):
-    __tablename__ = "document_archive"
-
-    id = Column(Integer, primary_key=True, index=True)
-    file_name = Column(String, index=True, nullable=False)
-    doc_type = Column(String, nullable=False) 
-    file_size = Column(String) 
+    doc_type = Column(String, nullable=False)  
+    file_size = Column(String)  
     file_path = Column(String, nullable=False) 
     uploaded_by = Column(String)
     upload_date = Column(DateTime, default=datetime.utcnow)

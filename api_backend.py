@@ -457,26 +457,51 @@ def force_user_password(target_fnum: str, data: ForcePasswordReq, db: Session = 
         log_semantic_audit(db, admin.fnum, "ADMIN_FORCE_PASSWORD", clean_fnum, {}, "Super Admin forced a new security key.")
     return {"status": "success", "message": "Password forced successfully."}
 
-@app.post("/api/v1/admin/approve/{fnum:path}")
-def approve_pending_user(fnum: str, db: Session = Depends(get_db)):
-    clean_fnum = unquote(fnum).strip().upper()
-    target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum).first()
+@app.patch("/api/v1/admin/approve-user/{target_fnum:path}")
+def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    # 🟢 1. Safely decode the Force Number so slashes don't break the query
+    clean_fnum = unquote(target_fnum).strip().upper()
     
+    target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum, models.Users.is_approved == False).first()
     if not target_user:
-        raise HTTPException(status_code=404, detail=f"Officer {clean_fnum} not found in database.")
-        
-    if hasattr(target_user, 'status'):
+        raise HTTPException(status_code=404, detail="Pending user not found.")
+
+    # 🟢 2. Regional / Command Security Checks
+    if current_user.role != "SUPER_ADMIN":
+        if target_user.region != current_user.region:
+            raise HTTPException(status_code=403, detail="Cannot approve users outside your region.")
+        if "Commander" in current_user.position and current_user.role != "RPC" and target_user.station != current_user.station:
+            raise HTTPException(status_code=403, detail="Cannot approve users outside your division.")
+
+        # Quota Check
+        active_count = db.query(models.Users).filter(
+            models.Users.is_approved == True,
+            models.Users.station == target_user.station,
+            models.Users.position == target_user.position
+        ).count()
+        if active_count >= 3:
+            raise HTTPException(status_code=400, detail=f"Quota full: Max 3 active {target_user.position}s allowed in {target_user.station}.")
+
+    # 🟢 3. Apply Approvals & Status Updates
+    target_user.is_approved = True
+    if hasattr(target_user, 'status'): 
         target_user.status = "ACTIVE"
-    if hasattr(target_user, 'is_approved'):
-        target_user.is_approved = True
-    if hasattr(target_user, 'is_active'):
+    if hasattr(target_user, 'is_active'): 
         target_user.is_active = True
 
+    # 🟢 4. Log the action securely
     if hasattr(models, 'Audit_Logs'):
-        log_semantic_audit(db, "SYSTEM", "ACCOUNT_APPROVAL", target_user.fnum, {}, f"User {clean_fnum} was approved for system access.")
+        log_semantic_audit(
+            db=db, 
+            fnum=current_user.fnum, 
+            action="ACCOUNT_APPROVAL", 
+            target_identifier=clean_fnum, 
+            changes={}, 
+            remarks=f"User {clean_fnum} was securely approved for system access."
+        )
 
     db.commit()
-    return {"status": "success", "message": f"Officer {clean_fnum} successfully authorized."}
+    return {"message": f"Officer {clean_fnum} approved successfully."}
 
 @app.post("/api/v1/users/upload-profile")
 async def upload_profile_photo(
