@@ -15,9 +15,17 @@ const CHART_COLORS = [
   '#0891b2', '#4f46e5', '#9333ea', '#e11d48', '#ca8a04'
 ];
 
+// OFFICIAL UPF RANK HIERARCHY
+const RANK_HIERARCHY = [
+  "IGP", "DIGP", "AIGP", "SCP", "CP", "ACP", "SSP", "SP", 
+  "SASP", "ASP", "IP", "AIP", "HCM", "HC", "S/SGT", "SGT", 
+  "CPL", "L/CPL", "PC", "SPC"
+];
+
 const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStories = [], operationalStats = [], currentUser }) => {
   const [activeDomain, setActiveDomain] = useState('CRIME');
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
+  const [sortOrder, setSortOrder] = useState('DEFAULT');
   
   const [selectedRegion, setSelectedRegion] = useState('ALL REGIONS');
   const [selectedStation, setSelectedStation] = useState('ALL STATIONS');
@@ -45,7 +53,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         else if (metricCategory === 'STATION') key = (item.station || 'UNKNOWN STATION').toUpperCase();
       } 
       else if (activeDomain === 'PERSONNEL') {
-        if (metricCategory === 'RANK') key = (item.rank || 'UNRANKED').toUpperCase();
+        if (metricCategory === 'RANK') key = (item.rank || 'UNRANKED').toUpperCase().trim();
         else if (metricCategory === 'UNIT' || metricCategory === 'STATION') key = (item.station || 'UNKNOWN').toUpperCase();
         else if (metricCategory === 'DISTRICT') key = (item.homedist || item.home_dist || 'UNKNOWN').toUpperCase();
         else if (metricCategory === 'AGE') {
@@ -84,8 +92,30 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       grouped[key].count += 1;
     });
 
-    return Object.values(grouped).sort((a, b) => b.count - a.count);
-  }, [currentDataset, activeDomain, metricCategory]);
+    // DYNAMIC SORTING LOGIC
+    return Object.values(grouped).sort((a, b) => {
+      // 1. SMART DEFAULT OR FORCED HIERARCHY
+      if (sortOrder === 'HIERARCHY' || (sortOrder === 'DEFAULT' && activeDomain === 'PERSONNEL' && metricCategory === 'RANK')) {
+        const indexA = RANK_HIERARCHY.indexOf(a.label);
+        const indexB = RANK_HIERARCHY.indexOf(b.label);
+        const weightA = indexA === -1 ? 999 : indexA;
+        const weightB = indexB === -1 ? 999 : indexB;
+        return weightA - weightB;
+      }
+      
+      // 2. ALPHABETICAL ASCENDING (A-Z)
+      if (sortOrder === 'ALPHA_ASC') return a.label.localeCompare(b.label);
+      
+      // 3. ALPHABETICAL DESCENDING (Z-A)
+      if (sortOrder === 'ALPHA_DESC') return b.label.localeCompare(a.label);
+      
+      // 4. FREQUENCY ASCENDING (Lowest First)
+      if (sortOrder === 'FREQ_ASC') return a.count - b.count;
+      
+      // 5. FREQUENCY DESCENDING (Highest First)
+      return b.count - a.count;
+    });
+  }, [currentDataset, activeDomain, metricCategory, sortOrder]);
 
   const totalRecords = useMemo(() => aggregatedData.reduce((acc, curr) => acc + curr.count, 0), [aggregatedData]);
 
@@ -304,7 +334,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         ].map(tab => (
           <button
             key={tab.id}
-            onClick={() => { setActiveDomain(tab.id); setMetricCategory('CATEGORY'); }}
+            onClick={() => { setActiveDomain(tab.id); setMetricCategory('CATEGORY'); setSortOrder('DEFAULT'); }}
             className={`p-4 rounded-xl font-bold text-xs transition border text-left shadow-sm cursor-pointer ${
               activeDomain === tab.id 
                 ? 'bg-slate-900 text-white border-slate-900' 
@@ -467,51 +497,78 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       ) : (
         <div className="space-y-6 animate-in fade-in duration-200">
           
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="flex items-center space-x-3 w-full sm:w-auto">
-              <span className="text-xs font-bold text-slate-500 uppercase">Group By:</span>
-              <select 
-                value={metricCategory}
-                onChange={e => setMetricCategory(e.target.value)}
-                className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer w-full sm:w-auto"
-              >
-                {activeDomain === 'CRIME' && (
-                  <>
-                    <option value="CATEGORY">Crime Category / Offence</option>
-                    <option value="CASES">Cases Reported / Case Status</option>
-                    <option value="ARRESTS">Offenders Arrested</option>
-                    <option value="CONVICTIONS">Offenders Convicted</option>
-                    <option value="CONCLUDED">Cases investigated to conclusion</option>
-                    <option value="STATION">Police Station</option>
-                  </>
-                )}
-                {activeDomain === 'PERSONNEL' && (
-                  <>
-                    <option value="RANK">Officer Rank</option>
-                    <option value="UNIT">Station / Unit</option>
-                    <option value="DISTRICT">Home District</option>
-                    <option value="AGE">Age</option>
-                    <option value="SEX">Sex</option>
-                    <option value="DIR">Directorate</option>
-                    <option value="SECTION">Section</option>
-                  </>
-                )}
-                {activeDomain === 'SUCCESS' && (
-                  <>
-                    <option value="CATEGORY">Success Impact Type</option>
-                    <option value="STATUS">Status</option>
-                    <option value="STATION">Police Station</option>
-                  </>
-                )}
-                {activeDomain === 'OPERATIONS' && (
-                  <>
-                    <option value="CATEGORY">Deployment / Outcome Type</option>
-                    <option value="STATION">Police Station</option>
-                  </>
-                )}
-              </select>
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto">
+              {/* Group By Filter */}
+              <div className="flex items-center space-x-3 w-full sm:w-auto">
+                <span className="text-xs font-bold text-slate-500 uppercase whitespace-nowrap">Group By:</span>
+                <select 
+                  value={metricCategory}
+                  onChange={e => {
+                    setMetricCategory(e.target.value);
+                    setSortOrder('DEFAULT');
+                  }}
+                  className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer w-full sm:w-auto"
+                >
+                  {activeDomain === 'CRIME' && (
+                    <>
+                      <option value="CATEGORY">Crime Category / Offence</option>
+                      <option value="CASES">Cases Reported / Case Status</option>
+                      <option value="ARRESTS">Offenders Arrested</option>
+                      <option value="CONVICTIONS">Offenders Convicted</option>
+                      <option value="CONCLUDED">Cases investigated to conclusion</option>
+                      <option value="STATION">Police Station</option>
+                    </>
+                  )}
+                  {activeDomain === 'PERSONNEL' && (
+                    <>
+                      <option value="RANK">Officer Rank</option>
+                      <option value="UNIT">Station / Unit</option>
+                      <option value="DISTRICT">Home District</option>
+                      <option value="AGE">Age</option>
+                      <option value="SEX">Sex</option>
+                      <option value="DIR">Directorate</option>
+                      <option value="SECTION">Section</option>
+                    </>
+                  )}
+                  {activeDomain === 'SUCCESS' && (
+                    <>
+                      <option value="CATEGORY">Success Impact Type</option>
+                      <option value="STATUS">Status</option>
+                      <option value="STATION">Police Station</option>
+                    </>
+                  )}
+                  {activeDomain === 'OPERATIONS' && (
+                    <>
+                      <option value="CATEGORY">Deployment / Outcome Type</option>
+                      <option value="STATION">Police Station</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              {/* Sort By Filter */}
+              <div className="flex items-center space-x-3 w-full sm:w-auto">
+                <span className="text-xs font-bold text-slate-500 uppercase whitespace-nowrap">Sort By:</span>
+                <select 
+                  value={sortOrder}
+                  onChange={e => setSortOrder(e.target.value)}
+                  className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer w-full sm:w-auto"
+                >
+                  <option value="DEFAULT">Smart Default</option>
+                  <option value="FREQ_DESC">Frequency (Highest First)</option>
+                  <option value="FREQ_ASC">Frequency (Lowest First)</option>
+                  <option value="ALPHA_ASC">Alphabetical (A - Z)</option>
+                  <option value="ALPHA_DESC">Alphabetical (Z - A)</option>
+                  {activeDomain === 'PERSONNEL' && metricCategory === 'RANK' && (
+                    <option value="HIERARCHY">UPF Chain of Command</option>
+                  )}
+                </select>
+              </div>
             </div>
-            <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+
+            <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100 whitespace-nowrap">
               Total Analyzed Entries: {totalRecords}
             </span>
           </div>

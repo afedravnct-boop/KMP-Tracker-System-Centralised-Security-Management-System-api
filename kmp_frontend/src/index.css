@@ -4,6 +4,15 @@
 @import "tailwindcss";
 
 /* =========================================================
+   0. GLOBAL SYSTEM FONT OVERRIDE
+   ========================================================= */
+@layer base {
+  html, body {
+    font-family: 'Tahoma', Geneva, Verdana, sans-serif;
+  }
+}
+
+/* =========================================================
    1. GLOBAL UTILITIES & SCROLLBARS
    ========================================================= */
 .custom-scrollbar::-webkit-scrollbar {
@@ -154,7 +163,7 @@
   height: 50%;
   border-radius: 50%;
   
-  /* 🟢 Lock the globe at depth 0 so the text ring can wrap around it */
+  /* Lock the globe at depth 0 so the text ring can wrap around it */
   transform: translateZ(0); 
   
   background-size: auto 100%;
@@ -172,7 +181,7 @@
   width: 90%;
   height: 90%;
   
-  /* 🟢 Apply the 3D tilt and spin. Browser hides the back half automatically! */
+  /* Apply the 3D tilt and spin. Browser hides the back half automatically! */
   animation: spinEquator 20s linear infinite;
   
   pointer-events: none;

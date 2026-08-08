@@ -4017,7 +4017,7 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
               <div className="mt-6 inline-flex items-center space-x-2 bg-slate-900/90 px-5 py-2.5 rounded-full border border-cyan-500/30 shadow-xl backdrop-blur-md">
                 <Lock size={16} className="text-yellow-400 animate-bounce" />
                 <span className="text-xs sm:text-sm font-bold text-blue-200 tracking-wider">
-                  SECURE COMMAND PORTAL • IDLE STANDBY MODE
+                  KMP TRACKER SYSTEM - KMPCSDMS160626 • IDLE STANDBY MODE
                 </span>
                 <Globe size={18} className="text-cyan-400 animate-spin-globe" />
               </div>
@@ -4625,16 +4625,11 @@ text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster..
               </div>
             </div>
             
-            {/* Fallback Standby Text */}
+            {/* Standby Text */}
             <div className="absolute bottom-8 text-slate-500 font-mono text-xs sm:text-sm font-bold tracking-[0.2em] animate-pulse">
               SYSTEM STANDBY • AWAITING COMMAND INPUT
             </div>
           </div>
-
-        <div className="absolute bottom-8 text-slate-500 font-mono text-xs sm:text-sm font-bold tracking-[0.2em] animate-pulse">
-          SYSTEM STANDBY • AWAITING COMMAND INPUT
-        </div>
-      </div>
 
           {/* FOREGROUND WARNING MODAL */}
           <div className="relative z-10 bg-white/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full mx-4 shadow-[0_0_40px_rgba(0,0,0,0.5)] border border-slate-700 text-left font-sans animate-in zoom-in-95 duration-300">
