@@ -501,7 +501,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     setFormData({ 
       ...caseData, sd_ref: caseData.sdRef || caseData.sd_ref, offence: caseData.offence || 'Other',
       customOffence: '', suspectDetails: caseData.suspectDetails || [], updateText: '',
-      cell_population: caseData.cell_population || 0
+      cell_population: caseData.daily_lock_up || 0 // 🟢 Reads from daily_lock_up
     });
   };
 
@@ -659,11 +659,11 @@ const handleStandalonePopSubmit = async () => {
       time: formData.time,
       offence: 'Other', 
       narrative: `Daily Lock-up / Detention Cell Population Log. Total suspects currently in custody at ${formData.station} is ${formData.cell_population}.`,
-      status: 'CLOSED / CONVICTED', // Set to closed so it doesn't inflate your active cases metric
+      status: 'CLOSED / CONVICTED',
       suspects: 0,
       last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
       suspectDetails: [],
-      cell_population: formData.cell_population || 0
+      daily_lock_up: formData.cell_population || 0 // 🟢 Maps to backend column
     };
 
     try {
@@ -687,7 +687,7 @@ const handleStandalonePopSubmit = async () => {
   };
 
 
-  const handleFormSubmit = async (e) => {
+const handleFormSubmit = async (e) => {
     e.preventDefault();
     const token = localStorage.getItem('kmp_authToken');
     if (!token) return setNotification("Error: Security token missing. Please log out and log back in.");
@@ -710,7 +710,7 @@ const handleStandalonePopSubmit = async () => {
         date: formData.date, time: formData.time, offence: finalOffence, narrative: formData.narrative,
         status: formData.status, suspects: formData.suspectDetails.length, 
         last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails,
-        cell_population: formData.cell_population || 0
+        daily_lock_up: formData.cell_population || 0 // 🟢 Maps to backend column
       };
       
       try {
@@ -746,9 +746,14 @@ const handleStandalonePopSubmit = async () => {
         ...formData, narrative: updatedNarrative, sd_ref: formData.sd_ref, 
         suspects: (formData.suspects || 0) + formData.suspectDetails.length,
         last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails,
-        cell_population: formData.cell_population || 0
+        daily_lock_up: formData.cell_population || 0 // 🟢 Maps to backend column
       };
-      delete updatedRecord.updateText; delete updatedRecord.ref_type; delete updatedRecord.ref_number;
+      
+      // 🟢 Prevent frontend-only fields from hitting the backend
+      delete updatedRecord.cell_population; 
+      delete updatedRecord.updateText; 
+      delete updatedRecord.ref_type; 
+      delete updatedRecord.ref_number;
       
       try {
         const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
