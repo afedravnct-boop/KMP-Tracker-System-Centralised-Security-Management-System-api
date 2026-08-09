@@ -1607,7 +1607,7 @@ def get_admin_communications(
 
     comms = query.order_by(models.Admin_Communication.created_at.desc()).all()
  
-    # 🟢 FULLY NORMALIZED USER FNUM FOR READ MATCHING
+# 🟢 FULLY NORMALIZED USER FNUM FOR READ MATCHING
     clean_user_fnum = (current_user.fnum or "").strip().upper()
     read_records = db.query(models.Communication_Reads.comm_id).filter(
         func.trim(func.upper(models.Communication_Reads.fnum)) == clean_user_fnum
@@ -1618,7 +1618,10 @@ def get_admin_communications(
     
     clean_comms = []
     for c in comms:
-        is_read = c.id in read_comm_ids
+        # 🟢 KILL SWITCH: Auto-acknowledge if the current user is the sender
+        sender_clean = (c.sender_fnum or "").strip().upper()
+        is_read = (c.id in read_comm_ids) or (sender_clean == clean_user_fnum)
+        
         local_time = c.created_at
         if local_time:
             if local_time.tzinfo is None: local_time = pytz.utc.localize(local_time)

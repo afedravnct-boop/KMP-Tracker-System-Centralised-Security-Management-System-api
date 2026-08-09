@@ -616,7 +616,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                     .filter(msg => activeFilter === 'all' || msg.message_type === activeFilter)
                     .map((msg) => {
                       const isExpanded = expandedMsgs[msg.id];
-                      const isUnread = !msg.acknowledged && activeTab === 'inbox';
+                      const isUnread = !msg.acknowledged;
 
                       return (
                         <div key={msg.id} className={`bg-white border ${isUnread ? 'border-blue-400 shadow-md ring-1 ring-blue-400' : 'border-slate-200'} rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden`}>
@@ -677,15 +677,15 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                               </div>
                               
                               <div className="flex items-center space-x-2">
-                                {/* 🟢 GUARANTEED VISIBLE BUTTON: Renders for any inbox item until manually acknowledged */}
-                                {activeTab === 'inbox' && !msg.acknowledged && (
-                                  <button 
-                                    onClick={(e) => handleManualAcknowledge(e, msg)} 
-                                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-4 rounded transition-colors flex items-center shadow-sm cursor-pointer"
-                                  >
-                                    <CheckCircle size={14} className="mr-1.5" /> Acknowledge Receipt
-                                  </button>
-                                )}
+{/* 🟢 GUARANTEED VISIBLE BUTTON: Renders for ANY unacknowledged item */}
+{!msg.acknowledged && (
+  <button 
+    onClick={(e) => handleManualAcknowledge(e, msg)} 
+    className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-4 rounded transition-colors flex items-center shadow-sm cursor-pointer"
+  >
+    <CheckCircle size={14} className="mr-1.5" /> Acknowledge Receipt
+  </button>
+)}
                                 <button 
                                   onClick={(e) => { e.stopPropagation(); fetchReceipts(msg.id); }} 
                                   className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-1.5 px-3 rounded transition-colors flex items-center border border-blue-200 shrink-0 cursor-pointer"
