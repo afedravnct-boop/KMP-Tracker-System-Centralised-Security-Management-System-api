@@ -1604,8 +1604,13 @@ def get_admin_communications(
 
     comms = query.order_by(models.Admin_Communication.created_at.desc()).all()
  
-    read_records = db.query(models.Communication_Reads.comm_id).filter(models.Communication_Reads.fnum == current_user.fnum).all()
+    # 🟢 NORMALIZE USER FNUM FOR ROBUST READ-STATUS MATCHING
+    clean_user_fnum = current_user.fnum.strip().upper()
+    read_records = db.query(models.Communication_Reads.comm_id).filter(
+        func.trim(func.upper(models.Communication_Reads.fnum)) == clean_user_fnum
+    ).all()
     read_comm_ids = {r[0] for r in read_records} 
+    
     eat_tz = pytz.timezone("Africa/Kampala")
     
     clean_comms = []
@@ -1631,9 +1636,11 @@ def get_admin_communications(
 @app.post("/api/v1/communications/{comm_id}/acknowledge")
 def acknowledge_communication(comm_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
+        clean_fnum = current_user.fnum.strip().upper()
+        
         existing_read = db.query(models.Communication_Reads).filter(
             models.Communication_Reads.comm_id == comm_id,
-            models.Communication_Reads.fnum == current_user.fnum
+            func.trim(func.upper(models.Communication_Reads.fnum)) == clean_fnum
         ).first()
 
         if not existing_read:
@@ -1652,11 +1659,13 @@ def acknowledge_communication(comm_id: int, db: Session = Depends(get_db), curre
 
 @app.get("/api/v1/communications/{comm_id}/readers")
 def get_communication_readers(comm_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    position_str = current_user.position or ""
+    position_str = (current_user.position or "").upper()
+    user_role = (current_user.role or "").upper()
+    
     is_cleared = (
-        current_user.role in ["ADMIN", "SUPER_ADMIN", "RPC", "Deputy Commander"] or
-        "Divisional Commander" in position_str or
-        "Deputy" in position_str or
+        user_role in ["ADMIN", "SUPER_ADMIN", "RPC"] or
+        "COMMANDER" in position_str or
+        "DEPUTY" in position_str or
         "RPC" in position_str
     )
     
@@ -1667,7 +1676,7 @@ def get_communication_readers(comm_id: int, db: Session = Depends(get_db), curre
         readers = db.query(
             models.Communication_Reads.read_at, models.Users.name, models.Users.fnum
         ).join(
-            models.Users, models.Communication_Reads.fnum == models.Users.fnum
+            models.Users, func.trim(func.upper(models.Communication_Reads.fnum)) == func.trim(func.upper(models.Users.fnum))
         ).filter(models.Communication_Reads.comm_id == comm_id).order_by(models.Communication_Reads.read_at.desc()).all()
 
         eat_tz = pytz.timezone("Africa/Kampala")
