@@ -263,6 +263,8 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const targetKeywords = ['RPC', 'DEPUTY RPC', 'DPC', 'DEPUTY DPC', 'DATA OFFICER', 'DATA ASSISTANT OFFICER', 'HR OFFICER'];
   const matchesFieldRole = targetKeywords.some(keyword => userPosition.includes(keyword) || userRole.includes(keyword));
 
+const isTargetOfficer = matchesFieldRole && !isPoliceHQ && !isSystemManager;
+
 // 🟢 NORMALIZED WEEKLY COMPLIANCE CHECK
   const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
 
