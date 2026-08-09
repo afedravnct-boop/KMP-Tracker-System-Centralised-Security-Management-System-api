@@ -3022,41 +3022,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
 
 
-  // Custom authenticated fetch helper
-  const authFetch = async (url, options = {}) => {
-    const token = localStorage.getItem('kmp_authToken');
-    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-    return fetch(`${API_URL}${url}`, {
-      ...options,
-      headers: {
-        ...options.headers,
-        'Authorization': `Bearer ${token}`
-      }
-    });
-  };
-
-  return (
-    <div>
-      {/* Route to AdminApprovals Component */}
-      {activeTab === 'approvals' && (
-        <AdminApprovals 
-          currentUser={currentUser} 
-          authFetch={authFetch} 
-        />
-      )}
-
-      {/* Route to AdminProfile Component */}
-      {activeTab === 'profile' && (
-        <AdminProfile 
-          currentUser={currentUser} 
-          setCurrentUser={setCurrentUser} 
-          setCurrentPage={setActiveTab} 
-        />
-      )}
-    </div>
-  );
-}
-
 // 🟢 AdminProfile stays declared in App.jsx
 const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => { 
   const [isEditing, setIsEditing] = useState(false);
