@@ -445,42 +445,51 @@ def change_user_password(data: PasswordChangeReq, db: Session = Depends(get_db),
         log_semantic_audit(db, current_user.fnum, "PASSWORD_UPDATE", "SELF", {}, "User updated personal security key.")
     return {"status": "success", "message": "Security key updated successfully."}
 
-@app.put("/api/v1/admin/users/{target_fnum}/force-password")
+@app.put("/api/v1/admin/users/{target_fnum:path}/force-password")
 def force_user_password(target_fnum: str, data: ForcePasswordReq, db: Session = Depends(get_db), admin: models.Users = Depends(require_admin)):
+    # 🟢 Unquote handles any URL encoding, stripping spaces handles typos
     clean_fnum = unquote(target_fnum).strip().upper()
-    target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum).first()
+    
+    target_user = db.query(models.Users).filter(
+        func.trim(func.upper(models.Users.fnum)) == clean_fnum
+    ).first()
+    
     if not target_user:
-        raise HTTPException(status_code=404, detail="Target officer not found.")
+        raise HTTPException(status_code=404, detail=f"Target officer '{clean_fnum}' not found.")
         
     hashed = security.get_password_hash(data.new_password) if hasattr(security, 'get_password_hash') else data.new_password
     target_user.hashed_password = hashed
     db.commit()
     
     if hasattr(models, 'Audit_Logs'):
-        log_semantic_audit(db, admin.fnum, "ADMIN_FORCE_PASSWORD", clean_fnum, {}, "Super Admin forced a new security key.")
+        log_semantic_audit(db, admin.fnum, "ADMIN_FORCE_PASSWORD", clean_fnum, {}, "High Command Admin forced a new security key.")
+        
     return {"status": "success", "message": "Password forced successfully."}
 
 @app.patch("/api/v1/admin/approve-user/{target_fnum:path}")
 def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     clean_fnum = unquote(target_fnum).strip().upper()
     
+    # 🟢 STRICT HIERARCHY: Only Super Admin & System Admin can approve new accounts
+    admin_role = (current_user.role or "").upper()
+    admin_position = (current_user.position or "").upper()
+    is_high_admin = admin_role in ["SUPER_ADMIN", "SYSTEM_ADMIN"] or "SYSTEM MANAGER" in admin_position
+    
+    if not is_high_admin:
+        raise HTTPException(status_code=403, detail="Clearance Denied: Only Super Admin and System Admin can approve command accounts.")
+    
     target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum, models.Users.is_approved == False).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="Pending user not found.")
 
-    if current_user.role != "SUPER_ADMIN":
-        if target_user.region != current_user.region:
-            raise HTTPException(status_code=403, detail="Cannot approve users outside your region.")
-        if "Commander" in current_user.position and current_user.role != "RPC" and target_user.station != current_user.station:
-            raise HTTPException(status_code=403, detail="Cannot approve users outside your division.")
-
-        active_count = db.query(models.Users).filter(
-            models.Users.is_approved == True,
-            models.Users.station == target_user.station,
-            models.Users.position == target_user.position
-        ).count()
-        if active_count >= 3:
-            raise HTTPException(status_code=400, detail=f"Quota full: Max 3 active {target_user.position}s allowed in {target_user.station}.")
+    # Quota Check (Optional, retained from original logic)
+    active_count = db.query(models.Users).filter(
+        models.Users.is_approved == True,
+        models.Users.station == target_user.station,
+        models.Users.position == target_user.position
+    ).count()
+    if active_count >= 3:
+        raise HTTPException(status_code=400, detail=f"Quota full: Max 3 active {target_user.position}s allowed in {target_user.station}.")
 
     target_user.is_approved = True
     if hasattr(target_user, 'status'): 
@@ -613,6 +622,18 @@ def update_user_access(
 ):
     clean_fnum = unquote(fnum).strip().upper()
     
+    # 🟢 1. STRICT HIERARCHY: Only Super Admin & System Admin can modify access
+    admin_role = (admin.role or "").upper()
+    admin_position = (admin.position or "").upper()
+    is_high_admin = admin_role in ["SUPER_ADMIN", "SYSTEM_ADMIN"] or "SYSTEM MANAGER" in admin_position
+    
+    if not is_high_admin:
+        raise HTTPException(status_code=403, detail="Clearance Denied: Only Super Admin and System Admin can modify access levels.")
+        
+    # 🟢 2. SELF-EDIT LOCK: Admins cannot change their own permissions (unless Super Admin)
+    if clean_fnum == admin.fnum.strip().upper() and admin_role != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Clearance Denied: You cannot modify your own access privileges.")
+    
     target_user = db.query(models.Users).filter(
         func.trim(func.upper(models.Users.fnum)) == clean_fnum
     ).first()
@@ -634,7 +655,7 @@ def update_user_access(
             action="USER_ACCESS_UPDATE",
             target_identifier=clean_fnum,
             changes={"role": (old_role, access_data.role)},
-            remarks=f"Admin updated access matrix and permissions for {clean_fnum}."
+            remarks=f"High Command updated access matrix for {clean_fnum}."
         )
         
     db.commit()
