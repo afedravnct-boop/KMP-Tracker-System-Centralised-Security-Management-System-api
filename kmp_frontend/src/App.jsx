@@ -3022,14 +3022,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
 
 
-// --- ADMIN COMPONENTS: APPROVALS, LOGS & HR REQUESTS ---
-// 🟢 Import AdminApprovals from its standalone file
-import AdminApprovals from './AdminApprovals'; 
-
-export default function App() {
-  const [activeTab, setActiveTab] = useState('home');
-  const [currentUser, setCurrentUser] = useState(null);
-
   // Custom authenticated fetch helper
   const authFetch = async (url, options = {}) => {
     const token = localStorage.getItem('kmp_authToken');
