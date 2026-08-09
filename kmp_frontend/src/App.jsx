@@ -3423,9 +3423,9 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
 };
 
 
-====================================================================
-    // --- LOGIN & AUTHENTICATION GATEWAY ---
-    // ====================================================================
+//====================================================================
+// --- LOGIN & AUTHENTICATION GATEWAY ---
+// ====================================================================
     const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUsers = [] }) => {
       const [mode, setMode] = useState('login');
       const [fnum, setfnum] = useState('');
