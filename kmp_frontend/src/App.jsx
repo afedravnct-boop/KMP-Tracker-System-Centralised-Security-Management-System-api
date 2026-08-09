@@ -267,9 +267,24 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => 
     (r.station || '').trim().toUpperCase() === userStation && new Date(r.date).getTime() >= (Date.now() - (7 * 24 * 60 * 60 * 1000))
   );
-  const hasSubmittedStats = (Array.isArray(stats) ? stats : []).some(s => 
-    (s.station || '').trim().toUpperCase() === userStation && new Date(s.date).getTime() >= (Date.now() - (7 * 24 * 60 * 60 * 1000))
-  );
+const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+
+  const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => {
+    if (!r.date) return false;
+    const matchesStation = (r.station || '').trim().toUpperCase() === userStation;
+    // 🟢 Normalize date string safely
+    const reportTime = new Date(r.date.toString().split('T')[0]).getTime();
+    return matchesStation && reportTime >= oneWeekAgo;
+  });
+
+  const hasSubmittedStats = (Array.isArray(stats) ? stats : []).some(s => {
+    if (!s.date) return false;
+    const matchesStation = (s.station || '').trim().toUpperCase() === userStation;
+    // 🟢 Normalize date string safely
+    const statTime = new Date(s.date.toString().split('T')[0]).getTime();
+    return matchesStation && statTime >= oneWeekAgo;
+  });
+
   const hasSubmittedThisWeek = hasSubmittedReport || hasSubmittedStats;
 
   const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && isTargetOfficer;
@@ -3764,124 +3779,123 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
 
 
 // ====================================================================
-    // --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN COMPONENT ---
+// --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN COMPONENT ---
 // ====================================================================
-    const WorkspaceSecurityCurtain = () => {
-      const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
-      const [isReadingMode, setIsReadingMode] = useState(false);
-      const [isExpanded, setIsExpanded] = useState(false);
-      const idleTimerRef = useRef(null);
+const WorkspaceSecurityCurtain = () => {
+  const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
+  const [isReadingMode, setIsReadingMode] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const idleTimerRef = useRef(null);
 
-      useEffect(() => {
-        const IDLE_TIMEOUT_MS = 60000;
+  useEffect(() => {
+    const IDLE_TIMEOUT_MS = 60000;
 
-        const handleUserActivity = () => {
-          if (isReadingMode) return;
-          setIsWorkspaceIdle(false);
-          clearTimeout(idleTimerRef.current);
-          idleTimerRef.current = setTimeout(() => {
-            if (!isReadingMode) setIsWorkspaceIdle(true);
-          }, IDLE_TIMEOUT_MS);
-        };
-
-        handleUserActivity();
-
-        window.addEventListener('mousemove', handleUserActivity, true);
-        window.addEventListener('keydown', handleUserActivity, true);
-        window.addEventListener('mousedown', handleUserActivity, true);
-        window.addEventListener('scroll', handleUserActivity, true);
-        window.addEventListener('touchstart', handleUserActivity, true);
-
-        return () => {
-          clearTimeout(idleTimerRef.current);
-          window.removeEventListener('mousemove', handleUserActivity, true);
-          window.removeEventListener('keydown', handleUserActivity, true);
-          window.removeEventListener('mousedown', handleUserActivity, true);
-          window.removeEventListener('scroll', handleUserActivity, true);
-          window.removeEventListener('touchstart', handleUserActivity, true);
-        };
-      }, [isReadingMode]);
-
-      return (
-        <>
-          {/* 🟢 COLLAPSIBLE DISCREET IDLE GUARD TOGGLE */}
-          <div className="fixed bottom-6 right-6 z-[99990]">
-            <div
-              onMouseEnter={() => setIsExpanded(true)}
-              onMouseLeave={() => setIsExpanded(false)}
-              onClick={() => {
-                setIsReadingMode(!isReadingMode);
-                setIsWorkspaceIdle(false);
-              }}
-              className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-2xl rounded-full border ${
-                isExpanded ? 'px-4 py-2' : 'p-2'
-              } ${
-                isReadingMode 
-                  ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)]' 
-                  : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
-              }`}
-            >
-              {/* Glowing Indicator Dot / Ping */}
-              <span className={`relative flex h-3 w-3 ${isExpanded ? 'mr-2.5' : ''}`}>
-                <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-400 animate-ping'}`}></span>
-                <span className={`relative inline-flex rounded-full h-3 w-3 ${isReadingMode ? 'bg-slate-950' : 'bg-green-500'}`}></span>
-              </span>
-
-              {/* Expanded Label Text */}
-              {isExpanded && (
-                <span className="font-bold text-xs uppercase tracking-wider whitespace-nowrap">
-                  {isReadingMode ? 'Click to stop curtain' : '🛡️ Standard Idle Guard'}
-                </span>
-              )}
-            </div>
-          </div>
-
-    {/* 🟢 FULL-SCREEN STANDBY CURTAIN WITH SPINNING GLOBE */}
-          <div 
-            className={`security-curtain-overlay transition-opacity duration-700 ease-in-out fixed inset-0 bg-slate-900 flex flex-col items-center justify-center overflow-hidden z-50 ${
-              isWorkspaceIdle && !isReadingMode ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-            }`}
-          >
-            {/* 🟢 National Flag Watermark Stripes (Black, Yellow, Red) */}
-            <div className="absolute inset-0 opacity-20 pointer-events-none flex flex-col justify-between z-0">
-              <div className="h-1/3 w-full bg-black"></div>
-              <div className="h-1/3 w-full bg-[#FCD116]"></div> {/* Official Ugandan Flag Yellow */}
-              <div className="h-1/3 w-full bg-[#D91B23]"></div> {/* Official Ugandan Flag Red */}
-            </div>
-
-            {/* Light Blue Tinted Flag Background */}
-            <div className="idle-backdrop-emblem z-10 pointer-events-none"></div>
-
-{/* 75% Centered Orbital Container */}
-            <div className="idle-center-container relative z-20" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
-              
-{/* Map Globe (Remains static in the center at Z:0) */}
-<div 
-  className="spinning-map-globe absolute inset-0 w-full h-full"
-  style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}
-></div>
-
-              {/* 🟢 3D EQUATORIAL TEXT RING */}
-              <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
-                {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
-                  <span 
-                    key={i} 
-                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-xs sm:text-sm tracking-widest drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]"
-                    style={{
-                      // Spaces the characters evenly around a 360-degree circle and pushes them out 34vmin from the center
-                      transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)`
-                    }}
-                  >
-                    {char === ' ' ? '\u00A0' : char}
-                  </span>
-                ))}
-              </div>
-
-            </div>
-          </div>
-        </>
-      );
+    const handleUserActivity = () => {
+      if (isReadingMode) return;
+      setIsWorkspaceIdle(false);
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(() => {
+        if (!isReadingMode) setIsWorkspaceIdle(true);
+      }, IDLE_TIMEOUT_MS);
     };
+
+    handleUserActivity();
+
+    window.addEventListener('mousemove', handleUserActivity, true);
+    window.addEventListener('keydown', handleUserActivity, true);
+    window.addEventListener('mousedown', handleUserActivity, true);
+    window.addEventListener('scroll', handleUserActivity, true);
+    window.addEventListener('touchstart', handleUserActivity, true);
+
+    return () => {
+      clearTimeout(idleTimerRef.current);
+      window.removeEventListener('mousemove', handleUserActivity, true);
+      window.removeEventListener('keydown', handleUserActivity, true);
+      window.removeEventListener('mousedown', handleUserActivity, true);
+      window.removeEventListener('scroll', handleUserActivity, true);
+      window.removeEventListener('touchstart', handleUserActivity, true);
+    };
+  }, [isReadingMode]);
+
+  return (
+    <>
+      {/* 🟢 COLLAPSIBLE DISCREET IDLE GUARD TOGGLE */}
+      <div className="fixed bottom-6 right-6 z-[99990]">
+        <div
+          onMouseEnter={() => setIsExpanded(true)}
+          onMouseLeave={() => setIsExpanded(false)}
+          onClick={() => {
+            setIsReadingMode(!isReadingMode);
+            setIsWorkspaceIdle(false);
+          }}
+          className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-2xl rounded-full border ${
+            isExpanded ? 'px-4 py-2' : 'p-2'
+          } ${
+            isReadingMode 
+              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)]' 
+              : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
+          }`}
+        >
+          {/* Glowing Indicator Dot / Ping */}
+          <span className={`relative flex h-3 w-3 ${isExpanded ? 'mr-2.5' : ''}`}>
+            <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-400 animate-ping'}`}></span>
+            <span className={`relative inline-flex rounded-full h-3 w-3 ${isReadingMode ? 'bg-slate-950' : 'bg-green-500'}`}></span>
+          </span>
+
+          {/* Expanded Label Text */}
+          {isExpanded && (
+            <span className="font-bold text-xs uppercase tracking-wider whitespace-nowrap">
+              {isReadingMode ? 'Click to stop curtain' : '🛡️ Standard Idle Guard'}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 🟢 FULL-SCREEN STANDBY CURTAIN WITH SPINNING GLOBE & ALTERNATING COLORS */}
+      <div 
+        className={`security-curtain-overlay idle-curtain-bg transition-opacity duration-700 ease-in-out fixed inset-0 flex flex-col items-center justify-center overflow-hidden z-50 ${
+          isWorkspaceIdle && !isReadingMode ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        {/* 🟢 National Flag Watermark Stripes (Black, Yellow, Red) */}
+        <div className="absolute inset-0 opacity-15 pointer-events-none flex flex-col justify-between z-0">
+          <div className="h-1/3 w-full bg-black"></div>
+          <div className="h-1/3 w-full bg-[#FCD116]"></div>
+          <div className="h-1/3 w-full bg-[#D91B23]"></div>
+        </div>
+
+        {/* Light Tinted Flag Background Emblem */}
+        <div className="idle-backdrop-emblem z-10 pointer-events-none"></div>
+
+        {/* 75% Centered Orbital Container */}
+        <div className="idle-center-container relative z-20" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
+          
+          {/* Map Globe (Static center at Z:0) */}
+          <div 
+            className="spinning-map-globe absolute inset-0 w-full h-full"
+            style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}
+          ></div>
+
+          {/* 🟢 3D EQUATORIAL TEXT RING */}
+          <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
+            {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
+              <span 
+                key={i} 
+                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-xs sm:text-sm tracking-widest drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]"
+                style={{
+                  transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)`
+                }}
+              >
+                {char === ' ' ? '\u00A0' : char}
+              </span>
+            ))}
+          </div>
+
+        </div>
+      </div>
+    </>
+  );
+};
 
 
 

@@ -276,3 +276,26 @@
     padding-bottom: 0.75rem;
   }
 }
+
+/* =========================================================
+   6. HIGH-DENSITY COMMAND UI REDUCTION
+   ========================================================= */
+@layer base {
+  /* Tighten default spacing and font scaling for high-density command dashboards */
+  body {
+    font-size: 13px;
+    letter-spacing: -0.01em;
+  }
+}
+
+/* Compact padding overrides for standard cards and containers */
+.compact-ui-card {
+  padding: 0.85rem !important;
+}
+
+.compact-ui-table th, 
+.compact-ui-table td {
+  padding-top: 0.5rem !important;
+  padding-bottom: 0.5rem !important;
+  font-size: 11px !important;
+}
