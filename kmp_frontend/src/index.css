@@ -9,6 +9,9 @@
 @layer base {
   html, body {
     font-family: 'Tahoma', Geneva, Verdana, sans-serif;
+    background-color: #f8fafc;
+    color: #0f172a;
+    overflow-x: hidden;
   }
 }
 
@@ -123,17 +126,15 @@
 
 /* 🟢 ALTERNATING BACKGROUND COLOR ANIMATION FOR IDLE CURTAIN */
 @keyframes curtainColorShift {
-  0%   { background-color: #e0f2fe; } /* Light Blue */
-  20%  { background-color: #d1fae5; } /* Alps Green */
-  40%  { background-color: #fef9c3; } /* Light Yellow */
-  60%  { background-color: #e2e8f0; } /* Slate Gray */
-  80%  { background-color: #dcfce7; } /* Light Green */
-  100% { background-color: #e0f2fe; } /* Loop back to Light Blue */
+  0%   { background-color: #0f172a; } /* Dark Slate */
+  33%  { background-color: #1e293b; } /* Medium Dark Slate */
+  66%  { background-color: #172554; } /* Deep Navy */
+  100% { background-color: #0f172a; } /* Loop back */
 }
 
 /* Apply alternating color transition to idle container elements */
 .idle-curtain-bg {
-  animation: curtainColorShift 25s ease-in-out infinite;
+  animation: curtainColorShift 20s ease-in-out infinite;
   transition: background-color 2s ease;
 }
 
@@ -143,8 +144,7 @@
   background-image: url('/UPF Flag Emblem.png');
   background-size: cover;
   background-position: center;
-  opacity: 0.15;
-  filter: invert(40%) sepia(100%) saturate(300%) hue-rotate(180deg) brightness(1.2);
+  opacity: 0.08;
 }
 
 /* 65vmin Radial Sphere Canvas */
@@ -175,46 +175,23 @@
 /* Central Map Surface */
 .spinning-map-globe {
   position: absolute;
-  inset: 0;           
-  margin: auto;       
-  
-  width: 55%;         
+  inset: 0;             
+  margin: auto;        
+  width: 55%;          
   height: 55%;
   border-radius: 50%;
-  
   transform: translateZ(0); 
-  
   background-size: auto 100%;
   background-repeat: repeat-x;
   animation: spinMapSphere 20s linear infinite;
-  
   box-shadow: inset -20px -20px 40px rgba(0, 0, 0, 0.9), 
               inset 10px 10px 20px rgba(255, 255, 255, 0.4), 
               0 0 30px rgba(56, 189, 248, 0.3);
 }
 
-/* 🟢 ORBITAL SVG TEXT RING WITH AUTOMATIC COLOR CONTRAST */
-.spinning-text-ring {
-  position: absolute;
-  width: 90%;
-  height: 90%;
-  
-  animation: spinEquator 20s linear infinite;
-  pointer-events: none;
-  z-index: 50; /* Ensure it floats above the globe */
-  
-  /* 🟢 THE MAGIC TRICK: Forces the text to dynamically invert its color against the background */
-  mix-blend-mode: difference;
-}
-
-.spinning-text-ring text {
-  /* Must be pure white for 'difference' to create maximum black/white contrast */
-  fill: #ffffff !important; 
-  font-weight: 900 !important;
-  letter-spacing: 0.15em;
-  
-  /* Remove any shadows as they interfere with the blend mode */
-  filter: none !important; 
+@keyframes spin-orbit-y {
+  0% { transform: rotateY(0deg); }
+  100% { transform: rotateY(360deg); }
 }
 
 
@@ -263,17 +240,10 @@
   100% { transform: rotate(360deg) translate(0, 0); }
 }
 
-@keyframes spin-orbit-y {
-  0% { transform: rotateY(0deg); }
-  100% { transform: rotateY(360deg); }
-}
-
 /* Expands padding specifically for touchscreen users */
 @media (pointer: coarse) {
   button, input, select {
     min-height: 44px;
-    padding-top: 0.75rem;
-    padding-bottom: 0.75rem;
   }
 }
 
@@ -281,14 +251,12 @@
    6. HIGH-DENSITY COMMAND UI REDUCTION
    ========================================================= */
 @layer base {
-  /* Tighten default spacing and font scaling for high-density command dashboards */
   body {
     font-size: 13px;
     letter-spacing: -0.01em;
   }
 }
 
-/* Compact padding overrides for standard cards and containers */
 .compact-ui-card {
   padding: 0.85rem !important;
 }
