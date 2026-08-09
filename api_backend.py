@@ -603,26 +603,38 @@ def update_rank(data: dict, db: Session = Depends(get_db), current_user = Depend
     log_semantic_audit(db, current_user.fnum, "RANK_PROMOTION", officer.fnum, {"rank": (old_rank, new_rank)}, "Approved by Regional Personnel")
     return {"message": "Success"}
 
-@app.put("/api/v1/users/{fnum}/access")
-def update_user_access(fnum: str, access_data: UserAccessUpdate, db: Session = Depends(get_db), admin: models.Users = Depends(require_admin)):
-    target_user = db.query(models.Users).filter(models.Users.fnum == fnum).first()
+@app.put("/api/v1/users/{fnum:path}/access")
+def update_user_access(
+    fnum: str, 
+    access_data: UserAccessUpdate, 
+    db: Session = Depends(get_db), 
+    admin: models.Users = Depends(require_admin)
+):
+    # 🟢 Normalize and decode the force number safely
+    clean_fnum = unquote(fnum).strip().upper()
+    
+    target_user = db.query(models.Users).filter(
+        func.trim(func.upper(models.Users.fnum)) == clean_fnum
+    ).first()
+    
     if not target_user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail=f"User '{clean_fnum}' not found")
     
     target_user.role = access_data.role
     target_user.permissions = access_data.permissions
+    
+    if hasattr(models, 'Audit_Logs'):
+        log_semantic_audit(
+            db=db,
+            fnum=admin.fnum,
+            action="USER_ACCESS_UPDATE",
+            target_identifier=clean_fnum,
+            changes={"role": (target_user.role, access_data.role)},
+            remarks=f"Admin updated access matrix and permissions for {clean_fnum}."
+        )
+        
     db.commit()
-    return {"status": "success", "message": "Access matrix updated"}
-
-@app.post("/api/v1/users/heartbeat")
-def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        current_user.last_active_at = datetime.utcnow()
-        db.commit()
-        return {"status": "alive"}
-    except Exception as e:
-        db.rollback()
-        return {"status": "error"}
+    return {"status": "success", "message": f"Access matrix updated successfully for {clean_fnum}"}
 
 @app.get("/api/v1/users/online")
 def get_online_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -2554,17 +2566,15 @@ def create_modification_request(data: dict, db: Session = Depends(get_db), curre
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/api/v1/users/{fnum:path}/revoke")
-def revoke_user_access(
+@app.put("/api/v1/users/{fnum:path}/access")
+def update_user_access(
     fnum: str, 
-    reason: str = "No reason provided", 
+    access_data: UserAccessUpdate, 
     db: Session = Depends(get_db), 
     admin: models.Users = Depends(require_admin)
 ):
-    # 🟢 1. Decode URL encoding (e.g. A%2F2408 -> A/2408) and normalize casing/whitespace
     clean_fnum = unquote(fnum).strip().upper()
     
-    # 🟢 2. Case-insensitive & whitespace-trimmed lookup
     target_user = db.query(models.Users).filter(
         func.trim(func.upper(models.Users.fnum)) == clean_fnum
     ).first()
@@ -2574,29 +2584,24 @@ def revoke_user_access(
             status_code=404, 
             detail=f"Officer '{clean_fnum}' not found in database records."
         )
-
-    # 🟢 3. Update all relevant status flags
-    target_user.is_approved = False
-    if hasattr(target_user, 'status'): 
-        target_user.status = 'REVOKED'
-    if hasattr(target_user, 'is_active'): 
-        target_user.is_active = False
-    if hasattr(target_user, 'comments'): 
-        target_user.comments = reason
-
-    # 🟢 4. Record audit trail
+    
+    old_role = target_user.role
+    target_user.role = access_data.role
+    target_user.permissions = access_data.permissions
+    
     if hasattr(models, 'Audit_Logs'):
         log_semantic_audit(
-            db=db, 
-            fnum=admin.fnum, 
-            action="USER_ACCESS_REVOKED",
-            target_identifier=clean_fnum, 
-            changes={"status": ("ACTIVE", "REVOKED"), "is_approved": (True, False)},
-            remarks=f"Revocation Reason: {reason}"
+            db=db,
+            fnum=admin.fnum,
+            action="USER_ACCESS_UPDATE",
+            target_identifier=clean_fnum,
+            changes={"role": (old_role, access_data.role)},
+            remarks=f"Admin updated access matrix and permissions for {clean_fnum}."
         )
         
     db.commit()
-    return {"status": "success", "message": f"User {clean_fnum} access revoked successfully."}
+    return {"status": "success", "message": f"Access matrix updated successfully for {clean_fnum}"}
+
 @app.patch("/api/v1/requests/{req_id}")
 def update_modification_request_status(
     req_id: int, payload: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)
