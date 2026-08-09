@@ -204,7 +204,10 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
 def require_admin(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    if user_role not in ["ADMIN", "SUPER_ADMIN"]:
+    # 🟢 NEW: Added specific Admin Tiers
+    valid_roles = ["SUPER_ADMIN", "SYSTEM_ADMIN", "REGIONAL_ADMIN", "DIVISION_ADMIN", "STATION_ADMIN", "ADMIN", "RPC"]
+    
+    if user_role not in valid_roles:
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
     return current_user
 
