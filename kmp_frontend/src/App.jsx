@@ -3422,10 +3422,8 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   );
 };
 
-// 🟢 ONLY ONE DEFAULT EXPORT AT THE VERY BOTTOM OF APP.JSX
-export default App;
 
-    // ====================================================================
+====================================================================
     // --- LOGIN & AUTHENTICATION GATEWAY ---
     // ====================================================================
     const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUsers = [] }) => {
