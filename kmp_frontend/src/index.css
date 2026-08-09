@@ -193,25 +193,28 @@
               0 0 30px rgba(56, 189, 248, 0.3);
 }
 
-/* 🟢 ORBITAL SVG TEXT RING WITH HIGH-CONTRAST VISIBILITY */
+/* 🟢 ORBITAL SVG TEXT RING WITH AUTOMATIC COLOR CONTRAST */
 .spinning-text-ring {
   position: absolute;
   width: 90%;
   height: 90%;
   
   animation: spinEquator 20s linear infinite;
-  
   pointer-events: none;
-  /* Deep navy fill with sharp white text glow so it's readable over light/dark backgrounds */
-  color: #0f172a;
-  fill: #0f172a;
-  filter: drop-shadow(0px 0px 3px rgba(255, 255, 255, 0.9)) drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.3));
+  z-index: 50; /* Ensure it floats above the globe */
+  
+  /* 🟢 THE MAGIC TRICK: Forces the text to dynamically invert its color against the background */
+  mix-blend-mode: difference;
 }
 
 .spinning-text-ring text {
-  fill: #0f172a;
-  font-weight: 900;
+  /* Must be pure white for 'difference' to create maximum black/white contrast */
+  fill: #ffffff !important; 
+  font-weight: 900 !important;
   letter-spacing: 0.15em;
+  
+  /* Remove any shadows as they interfere with the blend mode */
+  filter: none !important; 
 }
 
 

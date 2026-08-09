@@ -23,7 +23,7 @@ import upfMapGlobe from './upf_kmp_map.png';
 import WordReportUpload from './WordReportUpload';
 import './index.css';
 import SessionExpiredModal from './SessionExpiredModal';
-import AdminApprovals from './components/AdminApprovals';
+import AdminApprovals from "./AdminApprovals";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
