@@ -3423,8 +3423,8 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
 };
 
 
-//====================================================================
-// --- LOGIN & AUTHENTICATION GATEWAY ---
+// ====================================================================
+// --- PROFILE UPDATE SYSTEM (COMMAND WORKFLOW ENABLED FOR ALL USERS) ---
 // ====================================================================
     const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUsers = [] }) => {
       const [mode, setMode] = useState('login');
@@ -3797,9 +3797,9 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
 
 
 
-    // ====================================================================
+// ====================================================================
     // --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN COMPONENT ---
-    // ====================================================================
+// ====================================================================
     const WorkspaceSecurityCurtain = () => {
       const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
       const [isReadingMode, setIsReadingMode] = useState(false);
