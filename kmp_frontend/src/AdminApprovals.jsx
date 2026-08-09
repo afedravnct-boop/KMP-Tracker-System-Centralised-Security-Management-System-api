@@ -197,7 +197,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     });
   }, [resetRequests, filterRegion, filterStation]);
 
-  // Granular Matrix Toggle Handler
+// Granular Matrix Toggle Handler
   const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     const targetUser = allSystemUsers.find(u => u.fnum === fnum);
     if (!targetUser) return;
@@ -215,10 +215,15 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
       });
-      if (!response.ok) throw new Error("Server rejected permission update.");
+      
+      // 🟢 FIX: Extract the actual backend error instead of a generic message
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP Error ${response.status}`);
+      }
     } catch (err) {
-      alert(`Failed to save permission: ${err.message}`);
-      fetchAllSystemUsers();
+      alert(`Permission Update Failed:\n${err.message}`);
+      fetchAllSystemUsers(); // Revert UI state on failure
     }
   };
 
@@ -235,10 +240,15 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: targetUser.permissions || {} })
       });
-      if (!response.ok) throw new Error("Server rejected role update.");
+      
+      // 🟢 FIX: Extract the actual backend error
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP Error ${response.status}`);
+      }
     } catch (err) {
-      alert(`Failed to update administrative tier: ${err.message}`);
-      fetchAllSystemUsers();
+      alert(`Role Update Failed:\n${err.message}`);
+      fetchAllSystemUsers(); // Revert UI state on failure
     }
   };
 
