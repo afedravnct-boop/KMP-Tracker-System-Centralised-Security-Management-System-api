@@ -610,7 +610,6 @@ def update_user_access(
     db: Session = Depends(get_db), 
     admin: models.Users = Depends(require_admin)
 ):
-    # 🟢 Normalize and decode the force number safely
     clean_fnum = unquote(fnum).strip().upper()
     
     target_user = db.query(models.Users).filter(
@@ -618,8 +617,12 @@ def update_user_access(
     ).first()
     
     if not target_user:
-        raise HTTPException(status_code=404, detail=f"User '{clean_fnum}' not found")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Officer '{clean_fnum}' not found in database records."
+        )
     
+    old_role = target_user.role
     target_user.role = access_data.role
     target_user.permissions = access_data.permissions
     
@@ -629,7 +632,7 @@ def update_user_access(
             fnum=admin.fnum,
             action="USER_ACCESS_UPDATE",
             target_identifier=clean_fnum,
-            changes={"role": (target_user.role, access_data.role)},
+            changes={"role": (old_role, access_data.role)},
             remarks=f"Admin updated access matrix and permissions for {clean_fnum}."
         )
         
@@ -1604,8 +1607,8 @@ def get_admin_communications(
 
     comms = query.order_by(models.Admin_Communication.created_at.desc()).all()
  
-    # 🟢 NORMALIZE USER FNUM FOR ROBUST READ-STATUS MATCHING
-    clean_user_fnum = current_user.fnum.strip().upper()
+    # 🟢 FULLY NORMALIZED USER FNUM FOR READ MATCHING
+    clean_user_fnum = (current_user.fnum or "").strip().upper()
     read_records = db.query(models.Communication_Reads.comm_id).filter(
         func.trim(func.upper(models.Communication_Reads.fnum)) == clean_user_fnum
     ).all()
@@ -1636,7 +1639,7 @@ def get_admin_communications(
 @app.post("/api/v1/communications/{comm_id}/acknowledge")
 def acknowledge_communication(comm_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        clean_fnum = current_user.fnum.strip().upper()
+        clean_fnum = (current_user.fnum or "").strip().upper()
         
         existing_read = db.query(models.Communication_Reads).filter(
             models.Communication_Reads.comm_id == comm_id,
@@ -1647,7 +1650,7 @@ def acknowledge_communication(comm_id: int, db: Session = Depends(get_db), curre
             eat_tz = pytz.timezone("Africa/Kampala")
             uganda_time = datetime.now(eat_tz).replace(tzinfo=None)
             new_read = models.Communication_Reads(
-                comm_id=comm_id, fnum=current_user.fnum, read_at=uganda_time
+                comm_id=comm_id, fnum=clean_fnum, read_at=uganda_time
             )
             db.add(new_read)
             db.commit()

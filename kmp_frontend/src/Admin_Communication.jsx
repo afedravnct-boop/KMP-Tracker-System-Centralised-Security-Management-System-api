@@ -13,7 +13,6 @@ const autoCapitalize = (text) => {
   });
 };
 
-// 🟢 Added onAcknowledgeComm prop to sync with global App.jsx state
 const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm }) => {
   const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
   
@@ -212,14 +211,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     if (activeTab === 'inbox' || activeTab === 'outbox') fetchMessages();
   }, [activeTab, dateFilter, customStartDate, customEndDate]);
 
-  // 🟢 ONLY expands the message. No longer auto-acknowledges.
   const handleOpenMessage = (msg) => {
     setExpandedMsgs(prev => ({ ...prev, [msg.id]: !prev[msg.id] }));
   };
 
-  // 🟢 NEW: Manual Kill Switch to Acknowledge Receipt
+  // 🟢 GUARANTEED VISIBLE MANUAL ACKNOWLEDGEMENT WITH GLOBAL STATE SYNC
   const handleManualAcknowledge = async (e, msg) => {
-    e.stopPropagation(); // Prevent row click from collapsing the message
+    e.stopPropagation(); 
     try {
       const token = localStorage.getItem('kmp_authToken');
       const res = await fetch(`${API_URL}/api/v1/communications/${msg.id}/acknowledge`, { 
@@ -228,16 +226,16 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       });
       
       if (res.ok) {
-        // 1. Update local inbox immediately to remove the blue border
         setInboxMessages(prev => prev.map(m => m.id === msg.id ? { ...m, acknowledged: true } : m));
         
-        // 2. Kill the global notification by calling the App.jsx callback
         if (typeof onAcknowledgeComm === 'function') {
           onAcknowledgeComm(msg.id);
         }
         
         setNotification({ type: 'success', text: '✅ Message acknowledged successfully.' });
         setTimeout(() => setNotification(null), 3000);
+      } else {
+        throw new Error("Server rejected acknowledgment.");
       }
     } catch (err) {
       console.error("Failed to acknowledge receipt:", err);
@@ -679,7 +677,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                               </div>
                               
                               <div className="flex items-center space-x-2">
-                                {isUnread && (
+                                {/* 🟢 GUARANTEED VISIBLE BUTTON: Renders for any inbox item until manually acknowledged */}
+                                {activeTab === 'inbox' && !msg.acknowledged && (
                                   <button 
                                     onClick={(e) => handleManualAcknowledge(e, msg)} 
                                     className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-4 rounded transition-colors flex items-center shadow-sm cursor-pointer"
