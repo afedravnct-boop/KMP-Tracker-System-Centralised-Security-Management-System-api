@@ -263,11 +263,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const targetKeywords = ['RPC', 'DEPUTY RPC', 'DPC', 'DEPUTY DPC', 'DATA OFFICER', 'DATA ASSISTANT OFFICER', 'HR OFFICER'];
   const matchesFieldRole = targetKeywords.some(keyword => userPosition.includes(keyword) || userRole.includes(keyword));
 
-  const isTargetOfficer = matchesFieldRole && !isPoliceHQ && !isSystemManager;
-  const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => 
-    (r.station || '').trim().toUpperCase() === userStation && new Date(r.date).getTime() >= (Date.now() - (7 * 24 * 60 * 60 * 1000))
-  );
-
 // 🟢 NORMALIZED WEEKLY COMPLIANCE CHECK
   const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
 
