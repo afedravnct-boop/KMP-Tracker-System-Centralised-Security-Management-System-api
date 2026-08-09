@@ -52,8 +52,22 @@ const POSITIONS = {
   ]
 };
 
+// 🟢 RENAMED PROP TO propAuthFetch to allow the fallback to work
+const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
+  
+  // 🟢 FALLBACK SAFETY NET (Prevents "t is not a function" crashes)
+  const authFetch = propAuthFetch || (async (url, options = {}) => {
+    const token = localStorage.getItem('kmp_authToken');
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+    return fetch(`${API_URL}${url}`, {
+      ...options,
+      headers: {
+        ...options?.headers,
+        'Authorization': `Bearer ${token}`
+      }
+    });
+  });
 
-const AdminApprovals = ({ currentUser, authFetch }) => {
   const [activeTab, setActiveTab] = useState('approvals');
   
   const [modRequests, setModRequests] = useState([]);
