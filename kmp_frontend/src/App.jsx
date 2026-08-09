@@ -2416,14 +2416,6 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
 
 
 
-
-// Helper function to get rank weight (defaults unlisted or blank ranks to bottom)
-const getRankWeight = (rankStr) => {
-  if (!rankStr) return 99;
-  const cleanRank = rankStr.trim().toUpperCase();
-  return RANK_SENIORITY[cleanRank] !== undefined ? RANK_SENIORITY[cleanRank] : 50;
-};
-
 // 🟢 Official UPF Command Seniority Weighting (Lower index = Higher rank)
 const RANK_SENIORITY = {
   // Officers
