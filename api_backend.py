@@ -459,7 +459,6 @@ def force_user_password(target_fnum: str, data: ForcePasswordReq, db: Session = 
 
 @app.patch("/api/v1/admin/approve-user/{target_fnum:path}")
 def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # 🟢 Safely decode the Force Number so slashes like q/1 don't trigger a 404
     clean_fnum = unquote(target_fnum).strip().upper()
     
     target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum, models.Users.is_approved == False).first()
@@ -472,7 +471,6 @@ def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: 
         if "Commander" in current_user.position and current_user.role != "RPC" and target_user.station != current_user.station:
             raise HTTPException(status_code=403, detail="Cannot approve users outside your division.")
 
-        # Quota Check
         active_count = db.query(models.Users).filter(
             models.Users.is_approved == True,
             models.Users.station == target_user.station,
@@ -638,6 +636,18 @@ def update_user_access(
         
     db.commit()
     return {"status": "success", "message": f"Access matrix updated successfully for {clean_fnum}"}
+
+# 🟢 RESTORED HEARTBEAT ENDPOINT (With trailing slash support)
+@app.post("/api/v1/users/heartbeat")
+@app.post("/api/v1/users/heartbeat/")
+def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        current_user.last_active_at = datetime.utcnow()
+        db.commit()
+        return {"status": "alive"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/users/online")
 def get_online_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -1607,7 +1617,7 @@ def get_admin_communications(
 
     comms = query.order_by(models.Admin_Communication.created_at.desc()).all()
  
-# 🟢 FULLY NORMALIZED USER FNUM FOR READ MATCHING
+    # 🟢 FULLY NORMALIZED USER FNUM FOR READ MATCHING
     clean_user_fnum = (current_user.fnum or "").strip().upper()
     read_records = db.query(models.Communication_Reads.comm_id).filter(
         func.trim(func.upper(models.Communication_Reads.fnum)) == clean_user_fnum
@@ -2649,6 +2659,53 @@ def update_modification_request_status(
 
     db.commit()
     return {"status": "success", "message": f"Request {action_status.lower()} successfully."}
+
+# 🟢 RESTORED HEARTBEAT ENDPOINT (With trailing slash support)
+@app.post("/api/v1/users/heartbeat")
+@app.post("/api/v1/users/heartbeat/")
+def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        current_user.last_active_at = datetime.utcnow()
+        db.commit()
+        return {"status": "alive"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/users/online")
+def get_online_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    threshold = datetime.utcnow() - timedelta(minutes=2)
+    
+    query = db.query(models.Users).filter(
+        models.Users.is_approved == True,
+        models.Users.last_active_at >= threshold
+    )
+    
+    perms = current_user.permissions or {}
+    is_global = (
+        current_user.role == "SUPER_ADMIN" or 
+        perms.get("view_global_roster", False) or
+        current_user.region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
+        current_user.station in ["KMP HEADQUARTERS", "KMP Headquarters", "NAGURU"]
+    )
+    
+    if not is_global:
+        is_regional = (current_user.role == "RPC" or perms.get("view_regional_roster", False) or "Deputy" in (current_user.position or ""))
+        if is_regional:
+            query = query.filter(models.Users.region == current_user.region)
+        else:
+            query = query.filter(models.Users.station == current_user.station)
+            
+    active_users = query.all()
+    
+    return [
+        {
+            "fnum": u.fnum,
+            "name": u.name,
+            "station": u.station,
+            "profile_photo_path": u.profile_photo_path
+        } for u in active_users
+    ]
 
 if __name__ == "__main__":
     uvicorn.run("api_backend:app", host="0.0.0.0", port=8000, reload=True)
