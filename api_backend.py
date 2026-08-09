@@ -2554,30 +2554,49 @@ def create_modification_request(data: dict, db: Session = Depends(get_db), curre
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/api/v1/users/{fnum}/revoke")
+@app.delete("/api/v1/users/{fnum:path}/revoke")
 def revoke_user_access(
-    fnum: str, reason: str = "No reason provided", 
-    db: Session = Depends(get_db), admin: models.Users = Depends(require_admin)
+    fnum: str, 
+    reason: str = "No reason provided", 
+    db: Session = Depends(get_db), 
+    admin: models.Users = Depends(require_admin)
 ):
+    # 🟢 1. Decode URL encoding (e.g. A%2F2408 -> A/2408) and normalize casing/whitespace
     clean_fnum = unquote(fnum).strip().upper()
-    target_user = db.query(models.Users).filter(models.Users.fnum == clean_fnum).first()
+    
+    # 🟢 2. Case-insensitive & whitespace-trimmed lookup
+    target_user = db.query(models.Users).filter(
+        func.trim(func.upper(models.Users.fnum)) == clean_fnum
+    ).first()
+    
     if not target_user:
-        raise HTTPException(status_code=404, detail=f"Officer {clean_fnum} not found.")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Officer '{clean_fnum}' not found in database records."
+        )
 
-    if hasattr(target_user, 'status'): target_user.status = 'REVOKED'
-    if hasattr(target_user, 'is_approved'): target_user.is_approved = False
-    if hasattr(target_user, 'is_active'): target_user.is_active = False
-    if hasattr(target_user, 'comments'): target_user.comments = reason
+    # 🟢 3. Update all relevant status flags
+    target_user.is_approved = False
+    if hasattr(target_user, 'status'): 
+        target_user.status = 'REVOKED'
+    if hasattr(target_user, 'is_active'): 
+        target_user.is_active = False
+    if hasattr(target_user, 'comments'): 
+        target_user.comments = reason
 
+    # 🟢 4. Record audit trail
     if hasattr(models, 'Audit_Logs'):
         log_semantic_audit(
-            db=db, fnum=admin.fnum, action="USER_ACCESS_REVOKED",
-            target_identifier=clean_fnum, changes={"status": ("ACTIVE", "REVOKED")},
+            db=db, 
+            fnum=admin.fnum, 
+            action="USER_ACCESS_REVOKED",
+            target_identifier=clean_fnum, 
+            changes={"status": ("ACTIVE", "REVOKED"), "is_approved": (True, False)},
             remarks=f"Revocation Reason: {reason}"
         )
+        
     db.commit()
-    return {"status": "success", "message": f"User {clean_fnum} access revoked."}
-
+    return {"status": "success", "message": f"User {clean_fnum} access revoked successfully."}
 @app.patch("/api/v1/requests/{req_id}")
 def update_modification_request_status(
     req_id: int, payload: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)
