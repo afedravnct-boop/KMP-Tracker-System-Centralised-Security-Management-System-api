@@ -185,7 +185,12 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     
-    user = db.query(models.Users).filter(models.Users.fnum == fnum).first()
+    # 🟢 FIX: Normalize the token payload just in case it contains lowercase
+    clean_fnum = fnum.strip().upper()
+    user = db.query(models.Users).filter(
+        func.trim(func.upper(models.Users.fnum)) == clean_fnum
+    ).first()
+    
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
@@ -409,18 +414,23 @@ def register_user(
     division: Optional[str] = Form(None), role: str = Form("USER"), 
     profile_photo_path: str = Form(""), db: Session = Depends(get_db)
 ):
+    # 🟢 FIX: Force completely uppercase for alphanumeric File Numbers (e.g., q/1 -> Q/1)
+    clean_fnum = fnum.strip().upper()
+
     if not re.match(r'^\d{10}$', phone):
         raise HTTPException(status_code=400, detail="Contact number must be exactly 10 digits.")
 
-    if db.query(models.Users).filter(models.Users.fnum == fnum).first():
-         raise HTTPException(status_code=400, detail="User with this fnum already exists.")
+    # 🟢 Ensure we don't accidentally create duplicate Q/1 and q/1 accounts
+    if db.query(models.Users).filter(func.trim(func.upper(models.Users.fnum)) == clean_fnum).first():
+         raise HTTPException(status_code=400, detail="User with this Force/File number already exists.")
          
     if role != "SUPER_ADMIN" and not profile_photo_path:
         raise HTTPException(status_code=400, detail="A profile photo is mandatory for non-admin users.")
 
     try:
         new_user = models.Users(
-            fnum=fnum, rank=rank, name=name, sex=sex, ipps=ipps, region=region,
+            fnum=clean_fnum,  # 🟢 Save as strictly uppercase
+            rank=rank, name=name, sex=sex, ipps=ipps, region=region,
             division=division, station=station, position=position, email=email,
             phone=phone, hashed_password=security.get_password_hash(password) if hasattr(security, 'get_password_hash') else password,
             role=role, profile_photo_path=profile_photo_path
@@ -431,19 +441,6 @@ def register_user(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database write failed: {str(e)}")
-
-@app.put("/api/v1/users/change-password")
-def change_user_password(data: PasswordChangeReq, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    if len(data.new_password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
-        
-    hashed = security.get_password_hash(data.new_password) if hasattr(security, 'get_password_hash') else data.new_password
-    current_user.hashed_password = hashed
-    db.commit()
-    
-    if hasattr(models, 'Audit_Logs'):
-        log_semantic_audit(db, current_user.fnum, "PASSWORD_UPDATE", "SELF", {}, "User updated personal security key.")
-    return {"status": "success", "message": "Security key updated successfully."}
 
 @app.put("/api/v1/admin/users/{target_fnum:path}/force-password")
 def force_user_password(target_fnum: str, data: ForcePasswordReq, db: Session = Depends(get_db), admin: models.Users = Depends(require_admin)):
