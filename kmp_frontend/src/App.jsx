@@ -3855,11 +3855,11 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
 {/* 75% Centered Orbital Container */}
             <div className="idle-center-container relative z-20" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
               
-              {/* Map Globe (Remains static in the center at Z:0) */}
-              <div 
-                className="spinning-map-globe absolute inset-0 w-full h-full"
-                style={{ backgroundImage: `url(${upfMapGlobe})`, transform: 'translateZ(0)' }}
-              ></div>
+{/* Map Globe (Remains static in the center at Z:0) */}
+<div 
+  className="spinning-map-globe absolute inset-0 w-full h-full"
+  style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}
+></div>
 
               {/* 🟢 3D EQUATORIAL TEXT RING */}
               <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
