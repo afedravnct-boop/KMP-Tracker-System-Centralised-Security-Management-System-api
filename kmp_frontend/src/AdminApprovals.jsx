@@ -4,6 +4,55 @@ import {
   Users, RefreshCw, KeyRound, UserCheck, FileText 
 } from 'lucide-react';
 
+// 🟢 PASTE YOUR CONSTANTS HERE
+const REGIONAL_HIERARCHY = {
+  "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "POLICE HEADQUARTERS": ["NAGURU", "KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"]
+};
+
+const autoCapitalize = (text) => {
+  if (!text) return text;
+  return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
+    return separator + letter.toUpperCase();
+  });
+};
+
+const formatEATDateTime = (dateStr) => {
+  if (!dateStr) return 'N/A';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+
+  return d.toLocaleString('en-GB', {
+    timeZone: 'Africa/Nairobi', 
+    hour12: false,              
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+};
+
+const POSITIONS = {
+  ADMIN: [
+    "System Manager", "IGP", "DIGP", "Director OPS", "Director CT", "Director CI", 
+    "Director CID", "Director HRM & A", "Director logistics & engineering", 
+    "KMP Commander", "Deputy KMP Commander",
+    "KMP CID Commander", "KMP CI Commander", "KMP Operations Commander", 
+    "KMP Traffic & Road Safety Commander", "KMP 999 eru commander", 
+    "999 ERU Regional Data Officer", "Regional HR Officer", "KMP SFC Coordinator",
+    "Regional Data officer", "Divisional Data Officer", "Station Data Officer", "Regional Data Assistant Officer", "Division Data Assistant Officer", "Station Data Assistant Officer", "Regional Traffic Officer", "Divisional Traffic Officer", "Divisional CID Officer", "Divisional CI Officer", "Regional CFPU Officer", "Divisional CFPU Officer", "Regional Fire Officer", "Divisional Fire Officer", "Regional Logistics Officer", "Divisional Logistics Officer"
+  ],
+  RPC: [
+    "KMP South Commander", "KMP North Commander", "KMP East Commander", "Deputy Commander KMP south", "Deputy Commander KMP North", "Deputy Commander KMP East"
+  ]
+};
+
+
 const AdminApprovals = ({ currentUser, authFetch }) => {
   const [activeTab, setActiveTab] = useState('approvals');
   
