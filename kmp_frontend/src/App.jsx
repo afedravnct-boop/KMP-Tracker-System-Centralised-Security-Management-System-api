@@ -19,7 +19,6 @@ import BulkNominalRollUpload from './BulkNominalRollUpload';
 import { syncOfflineQueue, getOfflineQueueCount } from './utils/offlineSync';
 import AnalyticsDashboard from './AnalyticsDashboard';
 import OfficerDossierModal from './OfficerDossierModal';
-import upfMapGlobe from './upf_kmp_map.png';
 import WordReportUpload from './WordReportUpload';
 import './index.css';
 import SessionExpiredModal from './SessionExpiredModal';
