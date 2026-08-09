@@ -585,7 +585,7 @@ const filteredReports = useMemo(() => {
     });
   }, [reports, currentUser, updateSearch]);
 
-  const metrics = useMemo(() => {
+const metrics = useMemo(() => {
     const stationCellPop = {};
     const todayStr = new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
     let hasLockupUpdateToday = false;
@@ -604,7 +604,7 @@ const filteredReports = useMemo(() => {
        }
     });
     
-    // 🟢 If HQ logged a general fallback total for today, it overrides individual sum ups
+    // If HQ logged a general fallback total for today, it overrides individual sum ups
     const totalCellPop = hqGrandTotalToday !== null 
       ? hqGrandTotalToday 
       : Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
@@ -615,6 +615,15 @@ const filteredReports = useMemo(() => {
           Pending Today
         </span>;
 
+    // 🟢 ISOLATE STRICTLY CASE-LINKED SUSPECTS (Omit general cell population & HQ grand total rows)
+    const totalCaseSuspects = filteredReports.reduce((sum, r) => {
+      if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) {
+        return sum; // Do not count general fallback rows towards case suspects
+      }
+      const suspectsList = r.suspectDetails || r.suspect_details || [];
+      return sum + suspectsList.length;
+    }, 0);
+
     return {
       totalLockup: lockupDisplay,
       newCases: filteredReports.length,
@@ -622,7 +631,7 @@ const filteredReports = useMemo(() => {
       sanctioned: filteredReports.filter(r => r.status === 'FORWARDED TO COURT').length,
       closed: filteredReports.filter(r => r.status === 'CLOSED / CONVICTED').length,
       adr: filteredReports.filter(r => r.status === 'ADR').length,
-      totalSuspects: filteredReports.reduce((sum, r) => sum + (parseInt(r.suspects) || 0), 0)
+      totalSuspects: totalCaseSuspects // 🟢 Bound to the correct case-specific count
     };
   }, [filteredReports]);
 
@@ -1304,9 +1313,10 @@ const filteredReports = useMemo(() => {
                         {report.offence && <div className="font-extrabold text-red-600 uppercase mb-1">{report.offence}</div>}
                         <div className="ql-editor p-0 line-clamp-3 text-slate-600 [&_*]:!text-xs [&_*]:!bg-transparent" dangerouslySetInnerHTML={{ __html: report.narrative }} />
                       </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-red-600 text-center align-top">
-                        {report.suspects || 0}
-                      </td>
+{/* 🟢 CHANGE THIS TABLE ROW CELL */}
+<td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-red-600 text-center align-top">
+  {(report.suspectDetails || report.suspect_details || []).length}
+</td>
                       <td className="px-4 py-4 whitespace-normal break-words align-top">
                         <span className={`px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' : ''} ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800 border border-purple-200' : ''} ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800 border border-green-200' : ''} ${report.status.includes('ADR') ? 'bg-orange-100 text-orange-800 border border-orange-200' : ''}`}>
                           {report.status}
@@ -4164,85 +4174,51 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
         }
       };
 
-{/* 🟢 COMBINED WORKSPACE CURTAIN & IDLE MODAL */}
-      const IdleWarningModal = () => (showIdleWarning || isTimedOut) && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/90 backdrop-blur-md pointer-events-auto">
-          
-          {/* 3D GLOBE IDLE BACKGROUND */}
-          <div className="absolute inset-0 pointer-events-none overflow-hidden flex flex-col items-center justify-center">
-            <div className="idle-backdrop-emblem absolute inset-0 opacity-[0.12] pointer-events-none"></div>
-            
-            {/* 🟢 3D Orbital Setup */}
-            <div className="idle-center-container relative flex items-center justify-center" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
-              
-              {/* Centered Map Globe */}
-              <div 
-                className="spinning-map-globe" 
-                style={{ backgroundImage: `url('/upf_kmp_map.png')` }}
-              ></div>
-            
-{/* Orbiting Text Layer */}
-<div className="absolute inset-0 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
-  {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
-    <span 
-      key={i} 
-      className="absolute top-1/2 left-1/2 font-black text-[10px] sm:text-xs tracking-widest drop-shadow-md"
-      style={{ 
-        transform: `translate(-50%, -50%) rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)`,
-        whiteSpace: 'nowrap',
-        color: '#38bdf8', // 🟢 Forces the light blue color
-        textShadow: '0px 0px 8px rgba(56, 189, 248, 0.6)' // 🟢 Optional: Tints the drop shadow light blue to match
-      }}
-    >
-      {char === ' ' ? '\u00A0' : char}
-    </span>
-  ))}
-</div>
-            
-            </div>
-            
-            {/* Standby Text */}
-            <div className="absolute bottom-8 text-slate-500 font-mono text-xs sm:text-sm font-bold tracking-[0.2em] animate-pulse">
-              SYSTEM STANDBY • AWAITING COMMAND INPUT
-            </div>
+{/* 🟢 CLEANED WORKSPACE IDLE & SESSION EXPIRED MODAL */}
+const IdleWarningModal = () => {
+  if (!showIdleWarning && !isTimedOut) return null;
+
+  return (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-950/85 backdrop-blur-md pointer-events-auto">
+      {/* Background Motion Globe */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden flex flex-col items-center justify-center opacity-30">
+        <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')` }}></div>
+      </div>
+
+      {isTimedOut ? (
+        <SessionExpiredModal onAcknowledge={() => {
+          localStorage.removeItem('kmp_authToken');
+          localStorage.removeItem('kmp_currentUser');
+          window.location.replace('/');
+        }} />
+      ) : (
+        <div className="relative z-[100000] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200">
+          <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
+            <AlertTriangle className="w-8 h-8 text-amber-600" />
           </div>
-
-{/* FOREGROUND WARNING MODAL / EXPIRED MODAL */}
-          {isTimedOut ? (
-            /* 🟢 The new standalone component takes over when time is up */
-            <SessionExpiredModal />
-          ) : (
-            /* 🟡 The original countdown warning stays here */
-            <div className="relative z-10 bg-white/95 backdrop-blur-xl rounded-2xl p-6 max-w-md w-full mx-4 shadow-[0_0_40px_rgba(0,0,0,0.5)] border border-slate-700 text-left font-sans animate-in zoom-in-95 duration-300">
-              <div className="flex items-start space-x-4 mb-6">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 border shadow-inner bg-amber-50 text-amber-600 border-amber-200">
-                  <AlertTriangle className="w-6 h-6" />
-                </div>
-                
-                <div className="space-y-1">
-                  <h4 className="text-base font-extrabold text-slate-900 tracking-tight">
-                    Session Timeout Warning
-                  </h4>
-                  <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                    Your session will expire in {idleCountdown}s due to inactivity. Click below to continue working.
-                  </p>
-                </div>
-              </div>
-
-              {/* 🟢 Clickable Action Buttons */}
-              <div className="relative z-50">
-                <button 
-                  onClick={() => setShowIdleWarning(false)}
-                  className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
-                >
-                  Continue Session
-                </button>
-              </div>
-            </div>
-          )}
-
+          <h4 className="text-xl font-extrabold text-slate-900 mb-2">
+            Session Timeout Warning
+          </h4>
+          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
+            Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Click below to continue working.
+          </p>
+          <button 
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setShowIdleWarning(false);
+              setIdleCountdown(60);
+            }}
+            className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
+          >
+            Continue Session
+          </button>
         </div>
-      );
+      )}
+    </div>
+  );
+};
 
       return (
         <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
