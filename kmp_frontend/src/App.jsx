@@ -23,6 +23,7 @@ import upfMapGlobe from './upf_kmp_map.png';
 import WordReportUpload from './WordReportUpload';
 import './index.css';
 import SessionExpiredModal from './SessionExpiredModal';
+import AdminApprovals from './components/AdminApprovals';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -3022,967 +3023,406 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
 
 // --- ADMIN COMPONENTS: APPROVALS, LOGS & HR REQUESTS ---
-const AdminApprovals = ({ currentUser, authFetch }) => {
-  const [activeTab, setActiveTab] = useState('approvals');
-  
-  const [modRequests, setModRequests] = useState([]);
-  const [loadingRequests, setLoadingRequests] = useState(false);
-  
-  const [audit_logs, setaudit_logs] = useState([]);
-  const [loadingLogs, setLoadingLogs] = useState(false);
-  
-  const [realPendingUsers, setRealPendingUsers] = useState([]);
-  const [loadingPending, setLoadingPending] = useState(false);
+// 🟢 Import AdminApprovals from its standalone file
+import AdminApprovals from './AdminApprovals'; 
 
-  const [resetRequests, setResetRequests] = useState([]);
-  const [loadingResets, setLoadingResets] = useState(false);
+export default function App() {
+  const [activeTab, setActiveTab] = useState('home');
+  const [currentUser, setCurrentUser] = useState(null);
 
-  // Active System Roster & Granular Matrix management
-  const [allSystemUsers, setAllSystemUsers] = useState([]);
-  const [loadingUsers, setLoadingUsers] = useState(false);
-
-  // Global Filter States for Super Admin / RPC capabilities
-  const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role)) ? 'ALL STATIONS' : currentUser?.station || '');
-
-  const isRPC = currentUser && ['RPC', 'Deputy Commander'].includes(currentUser.role);
-  const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN'].includes(currentUser.role);
-
-  // 🟢 LIFTED TO COMPONENT LEVEL: Callable anywhere in component Scope
-  const fetchPendingUsers = async () => {
-    setLoadingPending(true);
-    try {
-      let res = await authFetch("/api/v1/admin/pending-users");
-      if (!res.ok) res = await authFetch("/api/v1/users/pending");
-      if (!res.ok) res = await authFetch("/api/v1/auth/pending");
-      if (!res.ok) res = await authFetch("/api/v1/pending-users");
-
-      if (res.ok) {
-        const data = await res.json();
-        setRealPendingUsers(Array.isArray(data) ? data : []);
+  // Custom authenticated fetch helper
+  const authFetch = async (url, options = {}) => {
+    const token = localStorage.getItem('kmp_authToken');
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+    return fetch(`${API_URL}${url}`, {
+      ...options,
+      headers: {
+        ...options.headers,
+        'Authorization': `Bearer ${token}`
       }
-    } catch (err) { 
-      console.error("Failed to sync pending users:", err); 
-    } finally { 
-      setLoadingPending(false); 
-    }
-  };
-
-  const fetchResets = async () => {
-    setLoadingResets(true);
-    try {
-      let res = await authFetch("/api/v1/admin/reset-requests");
-      if (!res.ok) res = await authFetch("/api/v1/auth/reset-requests");
-
-      if (res.ok) {
-        const data = await res.json();
-        setResetRequests(Array.isArray(data) ? data : []);
-      }
-    } catch (err) { 
-      console.error("Failed to sync password resets:", err); 
-    } finally { 
-      setLoadingResets(false); 
-    }
-  };
-
-  const fetchAllSystemUsers = async () => {
-    setLoadingUsers(true);
-    try {
-      const res = await authFetch("/api/v1/users");
-      if (res.ok) {
-        const data = await res.json();
-        setAllSystemUsers(Array.isArray(data) ? data : []);
-      }
-    } catch (err) { 
-      console.error("Failed to sync system user roster:", err); 
-    } finally { 
-      setLoadingUsers(false); 
-    }
-  };
-
-  useEffect(() => {
-    // 1. Fetch HR Modification Requests
-    setLoadingRequests(true);
-    authFetch("/api/v1/requests")
-      .then(res => res.json())
-      .then(data => { setModRequests(Array.isArray(data) ? data : []); setLoadingRequests(false); })
-      .catch(err => { console.error(err); setLoadingRequests(false); });
-
-    // 2. Fetch Pending Signups
-    fetchPendingUsers();
-
-    // 3. Fetch Password Resets
-    fetchResets();
-
-    // 4. Fetch All Active System Users
-    fetchAllSystemUsers();
-
-    // 5. Fetch Audit Logs if tab is active
-    if (activeTab === 'logs') {
-      setLoadingLogs(true);
-      authFetch("/api/v1/audit-logs")
-        .then(res => res.json())
-        .then(data => { setaudit_logs(Array.isArray(data) ? data : []); setLoadingLogs(false); })
-        .catch(err => { console.error(err); setLoadingLogs(false); });
-    }
-  }, [activeTab]);
-
-  // Filter logic applied to queues based on selected jurisdiction
-  const filteredPending = useMemo(() => {
-    return realPendingUsers.filter(u => {
-      if (filterRegion !== 'ALL REGIONS' && u.region !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && u.station !== filterStation) return false;
-      return true;
     });
-  }, [realPendingUsers, filterRegion, filterStation]);
-
-  const filteredRequests = useMemo(() => {
-    return modRequests.filter(r => {
-      if (filterRegion !== 'ALL REGIONS' && r.current_region !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && r.current_station !== filterStation) return false;
-      return true;
-    });
-  }, [modRequests, filterRegion, filterStation]);
-
-  const filteredResets = useMemo(() => {
-    return resetRequests.filter(r => {
-      if (filterRegion !== 'ALL REGIONS' && r.region !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && r.station !== filterStation) return false;
-      return true;
-    });
-  }, [resetRequests, filterRegion, filterStation]);
-
-  // Granular Matrix Toggle Handler
-  const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
-    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
-    if (!targetUser) return;
-
-    const updatedPermissions = {
-      ...(targetUser.permissions || {}),
-      [permissionKey]: value
-    };
-
-    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, permissions: updatedPermissions } : u));
-
-    try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum)}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
-      });
-      if (!response.ok) throw new Error("Server rejected permission update.");
-    } catch (err) {
-      alert(`Failed to save permission: ${err.message}`);
-    }
-  };
-
-  // Role Tier Update Handler
-  const handleRoleTierChange = async (fnum, newRole) => {
-    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
-    if (!targetUser) return;
-
-    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, role: newRole } : u));
-
-    try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum)}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: newRole, permissions: targetUser.permissions || {} })
-      });
-      if (!response.ok) throw new Error("Server rejected role update.");
-    } catch (err) {
-      alert(`Failed to update administrative tier: ${err.message}`);
-    }
-  };
-
-  // 🟢 FIXED: Approval Handler uses encodeURIComponent and safely refreshes state
-  const handleApproveUser = async (fnum) => {
-    try {
-      const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const safeFnum = encodeURIComponent(fnum.trim());
-
-      const response = await fetch(`${API_URL}/api/v1/admin/approve-user/${safeFnum}`, {
-        method: "PATCH",
-        headers: { 
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        }
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Failed to approve user.");
-
-      alert(`Success: ${data.message}`);
-      fetchPendingUsers();
-      fetchAllSystemUsers();
-    } catch (err) {
-      alert(`Approval Error: ${err.message}`);
-    }
-  };
-
-  const handleReviewRequest = async (reqId, actionStatus) => {
-    if (!reqId) return alert("Error: Request ID is undefined.");
-
-    let payload = { status: actionStatus };
-    if (actionStatus === "REJECTED") {
-      const reason = window.prompt("State the reason for rejecting this HR request:");
-      if (reason === null) return; 
-      payload.reason = reason;
-    }
-
-    try {
-      const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      
-      const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
-        method: "PATCH", 
-        headers: { 
-          "Content-Type": "application/json", 
-          "Authorization": `Bearer ${token}` 
-        }, 
-        body: JSON.stringify(payload)
-      });
-      
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `Server Error: ${response.status}`);
-      }
-      
-      setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId));
-      alert(`Request ${actionStatus.toLowerCase()} successfully!`);
-    } catch (err) {
-      alert(`Error processing request: ${err.message}`);
-    }
-  };
-
-  const handleResetAction = async (reqId, actionStr) => {
-    try {
-      const formData = new URLSearchParams();
-      formData.append('action', actionStr);
-      
-      const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
-        method: "POST", 
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, 
-        body: formData
-      });
-      
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail);
-      
-      setResetRequests(resetRequests.filter(r => r.id !== reqId));
-      
-      if (actionStr === "APPROVE") {
-        alert(`Password successfully reset! Temporary key: ${data.new_password}`);
-      } else {
-        alert("Request rejected.");
-      }
-    } catch (err) { 
-      alert(`Error: ${err.message}`); 
-    }
   };
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
-      <div className="text-center mb-6 flex flex-col items-center">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => e.target.style.display = 'none'} />
-        <h1 className="text-3xl font-black text-slate-900 tracking-tight">Access & Command Approvals</h1>
-        <h3 className="text-xs text-slate-500 mt-1 font-medium">Review pending officer signups, granular clearance tiers, HR transfers, and Audit Logs.</h3>
-      </div>
-
-      {/* Global Filter States for Super Admin / RPC capabilities */}
-      <div className="flex flex-col sm:flex-row justify-center gap-3 mb-4">
-        <select 
-          value={filterRegion} 
-          onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
-          disabled={currentUser?.role !== 'SUPER_ADMIN'} 
-          className="border border-slate-300 rounded-xl px-4 py-2 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
-        >
-          {currentUser?.role === 'SUPER_ADMIN' ? (
-            <><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY || {}).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-          ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
-        </select>
-
-        <select 
-          value={filterStation} 
-          onChange={(e) => setFilterStation(e.target.value)} 
-          disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role))} 
-          className="border border-slate-300 rounded-xl px-4 py-2 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
-        >
-          {['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ? (
-            <><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
-          ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
-        </select>
-      </div>
-
-      {/* Navigation Tabs */}
-      <div className="flex space-x-2 border-b border-slate-200 mb-6 bg-white/50 backdrop-blur rounded-t-xl px-4 pt-4 overflow-x-auto custom-scrollbar">
-        <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>New Account Authorizations ({loadingPending ? '...' : filteredPending.length})</button>
-        <button onClick={() => setActiveTab('matrix')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'matrix' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Active Roster & Clearance Matrix ({allSystemUsers.length})</button>
-        <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'requests' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>HR Modification Requests ({filteredRequests.length})</button>
-        <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Audit Logs</button>
-        <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Password Resets ({filteredResets.length})</button>
-      </div>
-
-      {/* ACTIVE ROSTER & GRANULAR MATRIX TAB */}
-      {activeTab === 'matrix' && (
-        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden max-w-[1500px] mx-auto">
-          <div className="bg-slate-900 text-white p-4 text-xs font-extrabold uppercase tracking-wider flex items-center justify-between">
-            <span className="flex items-center">
-              <Shield className="w-4 h-4 mr-2 text-indigo-400" /> Active Roster & Granular Clearance Matrix
-            </span>
-            <span className="text-[10px] text-slate-400 font-mono">
-              Role Tiers: SUPER_ADMIN | SYSTEM_ADMIN | ADMIN | USER
-            </span>
-          </div>
-          {loadingUsers ? (
-            <div className="p-12 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
-          ) : allSystemUsers.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 text-xs font-medium">No registered system users found.</div>
-          ) : (
-            <div className="overflow-x-auto w-full">
-              <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-50 text-slate-700 uppercase font-extrabold">
-                  <tr>
-                    <th className="p-3 text-left">Officer Details</th>
-                    <th className="p-3 text-center">Administrative Tier</th>
-                    <th className="p-3 text-center">View Ledger</th>
-                    <th className="p-3 text-center">Register New</th>
-                    <th className="p-3 text-center">Update / Edit</th>
-                    <th className="p-3 text-center text-red-600 bg-red-50/50">Master Download</th>
-                    <th className="p-3 text-center text-emerald-700 bg-emerald-50/50">Analytics / Reports</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {allSystemUsers.map(u => {
-                    const p = u.permissions || {};
-                    const isSuperAdmin = u.role === 'SUPER_ADMIN';
-
-                    return (
-                      <tr key={u.fnum} className="hover:bg-slate-50">
-                        <td className="p-3">
-                          <div className="font-extrabold text-slate-900 text-xs flex items-center">
-                            {u.name}
-                            {isSuperAdmin && (
-                              <span className="ml-2 px-2 py-0.5 text-[9px] bg-red-100 text-red-700 font-bold rounded-full border border-red-200">
-                                GOD-MODE
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                            {u.fnum} | {u.rank} • Station: <strong className="text-slate-700">{u.station}</strong>
-                          </div>
-                        </td>
-
-                        <td className="p-3 text-center">
-                          <select 
-                            value={u.role || 'USER'}
-                            onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)}
-                            className={`border rounded-lg px-2.5 py-1 font-bold outline-none cursor-pointer text-[11px] ${
-                              u.role === 'SUPER_ADMIN' ? 'bg-red-50 text-red-700 border-red-300' :
-                              u.role === 'SYSTEM_ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-300' :
-                              u.role === 'ADMIN' ? 'bg-blue-50 text-blue-700 border-blue-300' :
-                              'bg-slate-100 text-slate-700 border-slate-300'
-                            }`}
-                          >
-                            <option value="USER">USER (Standard)</option>
-                            <option value="ADMIN">ADMIN (Station)</option>
-                            <option value="SYSTEM_ADMIN">SYSTEM ADMIN (Tech)</option>
-                            <option value="SUPER_ADMIN">SUPER ADMIN (Global)</option>
-                          </select>
-                        </td>
-
-                        <td className="p-3 text-center">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.can_view !== false)} 
-                            disabled={isSuperAdmin}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_view', e.target.checked)} 
-                            className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
-
-                        <td className="p-3 text-center">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.can_register !== false)} 
-                            disabled={isSuperAdmin}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_register', e.target.checked)} 
-                            className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
-
-                        <td className="p-3 text-center">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.can_update !== false)} 
-                            disabled={isSuperAdmin}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_update', e.target.checked)} 
-                            className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
-
-                        <td className="p-3 text-center bg-red-50/20">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.export_data)} 
-                            disabled={isSuperAdmin}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'export_data', e.target.checked)} 
-                            className="w-4 h-4 text-red-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
-
-                        <td className="p-3 text-center bg-emerald-50/20">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.can_view_analytics !== false)} 
-                            disabled={isSuperAdmin}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_view_analytics', e.target.checked)} 
-                            className="w-4 h-4 text-emerald-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* APPROVALS TAB */}
+    <div>
+      {/* Route to AdminApprovals Component */}
       {activeTab === 'approvals' && (
-        <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
-          {loadingPending ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs">Syncing with Command Database...</div>
-          ) : filteredPending.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 font-medium text-xs">No active unapproved access requests pending in selected queue.</div>
+        <AdminApprovals 
+          currentUser={currentUser} 
+          authFetch={authFetch} 
+        />
+      )}
+
+      {/* Route to AdminProfile Component */}
+      {activeTab === 'profile' && (
+        <AdminProfile 
+          currentUser={currentUser} 
+          setCurrentUser={setCurrentUser} 
+          setCurrentPage={setActiveTab} 
+        />
+      )}
+    </div>
+  );
+}
+
+// 🟢 AdminProfile stays declared in App.jsx
+const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => { 
+  const [isEditing, setIsEditing] = useState(false);
+  const [isRequestMode, setIsRequestMode] = useState(false);
+  const [notification, setNotification] = useState(null);
+  const [viewingImage, setViewingImage] = useState(null);
+
+  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+  
+  const [passwordData, setPasswordData] = useState({ old_password: '', new_password: '' });
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    setNotification("⏳ Updating security key...");
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const response = await fetch(`${API_URL}/api/v1/users/change-password`, {
+        method: "PUT", 
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
+        body: JSON.stringify(passwordData)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Failed to update password.");
+      setNotification(`✅ ${data.message}`);
+      setPasswordData({ old_password: '', new_password: '' });
+    } catch (err) { 
+      setNotification(`❌ Error: ${err.message}`); 
+    }
+  };
+
+  const canAutoApprove = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role);
+  const OFFICER_RANKS = ['AIP', 'IP', 'ASP', 'SP', 'SASP', 'SSP', 'ACP', 'CP', 'SCP', 'AIGP', 'DIGP', 'IGP'];
+
+  const [formData, setFormData] = useState({
+    fnum: currentUser?.fnum || '', name: currentUser?.name || '', rank: currentUser?.rank || '',
+    region: currentUser?.region || '', station: currentUser?.station || '', email: currentUser?.email || '',
+    phone: currentUser?.phone || '', profile_photo_path: currentUser?.profile_photo_path || ''
+  });
+
+  const isOfficerRank = OFFICER_RANKS.includes(formData.rank?.toUpperCase().trim());
+  const wasNCO = !OFFICER_RANKS.includes(currentUser?.rank?.toUpperCase().trim());
+  const canEditFnum = canAutoApprove || (isOfficerRank && wasNCO);
+
+  const handleInputChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setNotification("⏳ Uploading and saving new profile photo...");
+      const uploadData = new FormData();
+      uploadData.append("file", file);
+      uploadData.append("fnum", currentUser.fnum);
+      uploadData.append("category", "user_profile");
+
+      try {
+        const token = localStorage.getItem('kmp_authToken');
+        const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, { method: "POST", body: uploadData });
+        if (!response.ok) throw new Error("Upload failed on server.");
+
+        const data = await response.json();
+        const s3Url = data.full_s3_url || data.cloud_storage_path;
+
+        const securePayload = { ...formData, profile_photo_path: s3Url };
+        const updateRes = await fetch(`${API_URL}/api/v1/users/profile/update`, {
+          method: "PUT", 
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
+          body: JSON.stringify(securePayload)
+        });
+
+        if (!updateRes.ok) throw new Error("Failed to link photo to profile in database.");
+
+        setFormData(prev => ({ ...prev, profile_photo_path: s3Url }));
+        setCurrentUser(prev => ({ ...prev, profile_photo_path: s3Url }));
+        setNotification("✅ Photo uploaded and permanently saved successfully!");
+        setTimeout(() => setNotification(null), 4000);
+      } catch (error) { 
+        setNotification(`❌ Error: ${error.message}`); 
+      }
+    }
+  };
+
+  const handleRequestSubmit = async (e) => {
+    if (e) e.preventDefault();
+    setNotification("⏳ Sending official request to Command...");
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const response = await fetch(`${API_URL}/api/v1/requests`, {
+        method: "POST", 
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({
+          fnum: currentUser.fnum, requested_fnum: formData.fnum !== currentUser.fnum ? formData.fnum : null,
+          requested_name: formData.name !== currentUser.name ? formData.name : null, requested_rank: formData.rank !== currentUser.rank ? formData.rank : null,
+          requested_region: formData.region !== currentUser.region ? formData.region : null, requested_station: formData.station !== currentUser.station ? formData.station : null,
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to send request.");
+      }
+      
+      setNotification("✅ Request successfully logged for Command review.");
+      setIsRequestMode(false);
+      setFormData({ ...formData, fnum: currentUser.fnum, name: currentUser.name, rank: currentUser.rank, region: currentUser.region, station: currentUser.station });
+      setTimeout(() => setNotification(null), 5000);
+    } catch (err) { 
+      setNotification(`❌ Error: ${err.message}`); 
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
+    setNotification("⏳ Verifying profile data with HR Nominal Roll...");
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const response = await fetch(`${API_URL}/api/v1/users/profile/update`, {
+        method: "PUT", 
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
+        body: JSON.stringify(formData)
+      });
+      const data = await response.json();
+
+      if (!response.ok) throw new Error(data.detail || "Failed to update database.");
+      if (data.new_token) localStorage.setItem('kmp_authToken', data.new_token);
+
+      setCurrentUser({ ...currentUser, ...formData });
+      setNotification("✅ Profile verified and successfully updated!");
+      setIsEditing(false); 
+      setIsRequestMode(false);
+      setTimeout(() => setNotification(null), 4000);
+    } catch (err) { 
+      setNotification(`❌ ${err.message}`); 
+    }
+  };
+
+  const handleContactSubmit = async (e) => {
+    if (e) e.preventDefault();
+    setNotification("⏳ Saving contact details...");
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const securePayload = { ...currentUser, email: formData.email, phone: formData.phone, profile_photo_path: formData.profile_photo_path };
+
+      const response = await fetch(`${API_URL}/api/v1/users/profile/update`, {
+        method: "PUT", 
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
+        body: JSON.stringify(securePayload)
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Failed to update database.");
+
+      setCurrentUser({ ...currentUser, email: formData.email, phone: formData.phone, profile_photo_path: formData.profile_photo_path });
+      setNotification("✅ Contact info and photo successfully updated!");
+      setTimeout(() => setNotification(null), 4000);
+    } catch (err) { 
+      setNotification(`❌ ${err.message}`); 
+    }
+  };
+
+  const handleProfileSave = (e) => {
+    e.preventDefault();
+    if (canAutoApprove || formData.fnum !== currentUser.fnum) handleSubmit(e);
+    else handleRequestSubmit(e);
+  };
+
+  return (
+    <div className="p-6 max-w-4xl mx-auto space-y-6 mt-10 relative z-10 animate-in fade-in duration-300">
+      <button onClick={() => setCurrentPage && setCurrentPage('home')} className="flex items-center text-xs font-bold text-slate-500 hover:text-blue-700 transition-colors bg-white hover:bg-blue-50 px-4 py-2 rounded-lg shadow-xs border border-slate-200 w-fit">
+        <Home size={16} className="mr-2" /> Return to Master Dashboard
+      </button>
+
+      <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+        <div className="bg-slate-900 px-6 py-8 border-b border-slate-800 flex justify-between items-center relative">
+          <div className="flex items-center z-10">
+            <div className="relative group">
+              {formData.profile_photo_path ? (
+                <img src={formData.profile_photo_path} alt="" className={`w-24 h-24 rounded-full object-cover shadow-2xl border-4 border-slate-700 bg-white transition-transform ${isEditing ? 'opacity-80' : 'cursor-pointer hover:scale-105'}`} onClick={() => !isEditing && setViewingImage(formData.profile_photo_path)} onError={(e) => { e.target.style.display='none'; }} />
+              ) : (
+                <div className="w-24 h-24 bg-blue-600 rounded-full flex items-center justify-center text-white font-extrabold text-4xl shadow-2xl border-4 border-slate-700">{currentUser?.name?.charAt(0) || 'A'}</div>
+              )}
+              {isEditing && (
+                <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full cursor-pointer shadow-lg border-2 border-slate-800 transition-colors transform hover:scale-110">
+                  <Camera size={16} /> <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                </label>
+              )}
+            </div>
+            <div className="ml-6 text-white">
+              <h2 className="text-2xl font-extrabold tracking-tight">{currentUser?.name}</h2>
+              <p className="text-blue-300 font-medium tracking-wide mt-1 uppercase text-xs">{currentUser?.rank} • {currentUser?.station} • {currentUser?.region}</p>
+            </div>
+          </div>
+          <button onClick={() => { setIsEditing(!isEditing); setIsRequestMode(false); }} className={`z-10 flex items-center px-4 py-2 rounded-lg text-xs font-bold transition-colors shadow-xs ${isEditing ? 'bg-slate-700 text-white border border-slate-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}>
+            {isEditing ? <><X size={16} className="mr-2"/> Cancel Edit</> : <><Edit size={16} className="mr-2"/> Update Profile</>}
+          </button>
+        </div>
+
+        <div className="p-8">
+          {notification && (
+            <div className={`p-4 rounded-lg mb-6 font-medium text-xs flex items-center shadow-xs ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 text-red-700 border border-red-200' : notification.includes('⏳') ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+               {notification}
+            </div>
+          )}
+
+          {isEditing ? (
+            <div className="space-y-6">
+              <div className={`p-6 rounded-xl border transition-colors duration-300 ${canAutoApprove ? 'bg-blue-50 border-blue-200' : isRequestMode ? 'bg-amber-50 border-amber-300' : 'bg-slate-100 border-slate-200'}`}>
+                <div className="flex justify-between items-center mb-4 border-b pb-2 border-slate-200/50">
+                  <div className={`flex items-center text-xs font-extrabold uppercase tracking-wider ${canAutoApprove ? 'text-blue-700' : isRequestMode ? 'text-amber-700' : 'text-slate-500'}`}>
+                    {canAutoApprove ? <Unlock size={14} className="mr-2" /> : isRequestMode ? <Edit size={14} className="mr-2" /> : <Lock size={14} className="mr-2" />} 
+                    Official Deployment Records {canAutoApprove ? "(Admin Override Active)" : isRequestMode ? "(Drafting Request)" : "(Restricted)"}
+                  </div>
+                  {!canAutoApprove && !isRequestMode && (
+                    <button type="button" onClick={() => setIsRequestMode(true)} className="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-xs"><Shield size={12} className="mr-1"/> Request Modification</button>
+                  )}
+                  {!canAutoApprove && isRequestMode && (
+                    <button type="button" onClick={handleProfileSave} className="text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-xs"><Send size={12} className="mr-1"/> Send Official Request</button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Full Name</label>
+                    <input type="text" name="name" value={formData.name} onChange={handleInputChange} disabled={!canAutoApprove && !isRequestMode} className={`w-full p-2.5 rounded-lg text-xs font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-slate-900 focus:ring-2 focus:ring-blue-500' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`} />
+                  </div>
+                  <div className="flex gap-4">
+                    <div className="w-1/2">
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Force / File Number</label>
+                      <input type="text" name="fnum" value={formData.fnum} onChange={(e) => setFormData({...formData, fnum: e.target.value.toUpperCase()})} disabled={!canEditFnum} className={`w-full p-2.5 border rounded-lg text-xs font-bold transition-all ${canEditFnum ? 'bg-amber-50 border-amber-400 text-slate-900 focus:ring-2 focus:ring-amber-500 shadow-inner' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`} />
+                      {canEditFnum && <p className="text-[9px] text-blue-600 mt-1 font-bold animate-pulse">Unlocked for Promotion Verification</p>}
+                    </div>
+                    <div className="w-1/2">
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Rank</label>
+                      <input type="text" name="rank" value={formData.rank} onChange={(e) => setFormData({...formData, rank: e.target.value.toUpperCase()})} disabled={!canAutoApprove && !isRequestMode && !wasNCO} className={`w-full p-2.5 rounded-lg text-xs font-bold border ${(canAutoApprove || isRequestMode || wasNCO) ? 'bg-white border-blue-300 text-slate-900 focus:ring-2 focus:ring-blue-500' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Command Region</label>
+                    <input type="text" name="region" value={formData.region} onChange={handleInputChange} disabled={!canAutoApprove && !isRequestMode} className={`w-full p-2.5 rounded-lg text-xs font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-slate-900 focus:ring-2 focus:ring-blue-500' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Assigned Station</label>
+                    <input type="text" name="station" value={formData.station} onChange={handleInputChange} disabled={!canAutoApprove && !isRequestMode} className={`w-full p-2.5 rounded-lg text-xs font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-slate-900 focus:ring-2 focus:ring-blue-500' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`} />
+                  </div>
+                </div>
+              </div>
+
+              <form onSubmit={handleContactSubmit} className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4">
+                <div className="flex items-center text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
+                  <Edit size={14} className="mr-2" /> Editable Contact Data
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Official Email</label>
+                    <input type="email" name="email" value={formData.email} onChange={handleInputChange} className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs font-medium text-slate-900" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Contact Number</label>
+                    <input type="tel" name="phone" value={formData.phone} onChange={handleInputChange} className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs font-medium text-slate-900" />
+                  </div>
+                </div>
+                <div className="flex justify-end pt-4 mt-2 border-t border-slate-100">
+                  <button type="submit" className="bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-6 rounded-lg shadow-xs transition-colors flex items-center text-xs">💾 Save Profile Changes</button>
+                </div>
+              </form>
+
+              <form onSubmit={handlePasswordChange} className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4">
+                <div className="flex items-center text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
+                  <Lock size={14} className="mr-2 text-red-500" /> Security: Change Password
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Current Password</label>
+                    <input type="password" required value={passwordData.old_password} onChange={(e) => setPasswordData({...passwordData, old_password: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">New Password (Min 6 Chars)</label>
+                    <input type="password" required value={passwordData.new_password} onChange={(e) => setPasswordData({...passwordData, new_password: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs" />
+                  </div>
+                </div>
+                <div className="flex justify-end pt-4 mt-2 border-t border-slate-100">
+                  <button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg shadow-xs transition-colors text-xs">Update Security Key</button>
+                </div>
+              </form>
+
+            </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Officer Details</th>
-                    <th className="px-4 py-3 text-left">Command Post</th>
-                    <th className="px-4 py-3 text-left">Derived Role</th>
-                    <th className="px-4 py-3 text-left">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
-                  {filteredPending.map((user) => (
-                    <tr key={user.fnum} className="hover:bg-blue-50/50">
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-bold text-slate-900">{user.name}</div>
-                        <div className="text-[11px] text-slate-500 font-medium">{user.fnum} | {user.rank}</div>
-                        <div className="text-[11px] text-slate-400">{user.phone}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-bold text-blue-700">{user.station}</div>
-                        <div className="text-[11px] text-slate-500">{user.region}</div>
-                        <div className="text-[10px] bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block border font-bold text-slate-600">{user.position}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-[11px] font-bold rounded-full border ${user.role.includes('ADMIN') ? 'bg-purple-100 text-purple-800 border-purple-200' : user.role === 'RPC' ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>
-                          {user.role}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <button onClick={() => handleApproveUser(user.fnum)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-4 rounded-lg shadow-xs text-xs transition flex items-center cursor-pointer">
-                          <CheckCircle size={14} className="mr-1" /> Approve Access
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+
+            <div className="space-y-6">
+              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b pb-2 flex items-center">
+                <Shield size={14} className="mr-2 text-slate-400" /> Comprehensive Officer Profile
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6 bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner">
+                
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Force/File Number</label>
+                  <div className="text-xs font-extrabold text-slate-900">{currentUser?.fnum}</div>
+                </div>
+                
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">IPPS Number</label>
+                  <div className="text-xs font-bold text-slate-800">{currentUser?.ipps || 'N/A'}</div>
+                </div>
+                
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Sex</label>
+                  <div className="text-xs font-bold text-slate-800">{currentUser?.sex || 'N/A'}</div>
+                </div>
+                
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">System Role</label>
+                  <div className={`text-xs font-extrabold ${canAutoApprove ? 'text-emerald-600' : 'text-blue-600'}`}>{currentUser?.role || 'USER'}</div>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Official Title / Position</label>
+                  <div className="text-xs font-bold text-slate-800">{currentUser?.position || 'N/A'}</div>
+                </div>
+                
+                <div className="col-span-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Command Chain (Region / Station)</label>
+                  <div className="text-xs font-bold text-slate-800">{currentUser?.region || 'N/A'} / {currentUser?.station || 'N/A'}</div>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Official Email</label>
+                  <div className="text-xs font-bold text-slate-800 truncate">{currentUser?.email || 'N/A'}</div>
+                </div>
+                
+                <div className="col-span-2">
+                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Contact Number</label>
+                  <div className="text-xs font-bold text-slate-800">{currentUser?.phone || 'N/A'}</div>
+                </div>
+
+              </div>
             </div>
           )}
         </div>
-      )}
+      </div>
 
-      {/* HR MODIFICATION REQUESTS TAB */}
-      {activeTab === 'requests' && (
-        <div className="bg-white rounded-xl shadow-xs border border-amber-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider">
-            <Shield className="w-4 h-4 mr-2 text-amber-400" /> HR Modification Requests
-          </div>
-          {loadingRequests ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs">Loading pending modifications...</div>
-          ) : filteredRequests.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 font-medium text-xs">No pending profile modification requests in selected queue.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Officer</th>
-                    <th className="px-4 py-3 text-left">Requested Changes</th>
-                    <th className="px-4 py-3 text-left">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
-                  {filteredRequests.map((req) => (
-                    <tr key={req.id || req.sn} className="hover:bg-amber-50/50">
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-extrabold text-blue-700">{req.current_name}</div>
-                        <div className="text-[11px] font-bold text-slate-500">{req.fnum} | {req.current_rank}</div>
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {req.requested_name && req.requested_name !== req.current_name && <div className="text-xs"><span className="font-bold text-slate-400">Name:</span> <span className="text-red-500 line-through mr-1">{req.current_name}</span> ➡️ <span className="text-emerald-600 font-bold">{req.requested_name}</span></div>}
-                        {req.requested_rank && req.requested_rank !== req.current_rank && <div className="text-xs"><span className="font-bold text-slate-400">Rank:</span> <span className="text-red-500 line-through mr-1">{req.current_rank}</span> ➡️ <span className="text-emerald-600 font-bold">{req.requested_rank}</span></div>}
-                        {req.requested_station && req.requested_station !== req.current_station && <div className="text-xs"><span className="font-bold text-slate-400">Station:</span> <span className="text-red-500 line-through mr-1">{req.current_station}</span> ➡️ <span className="text-emerald-600 font-bold">{req.requested_station}</span></div>}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex space-x-2">
-                          <button onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center cursor-pointer shadow-xs"><CheckCircle size={14} className="mr-1" /> Approve</button>
-                          <button onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center cursor-pointer shadow-xs"><X size={14} className="mr-1" /> Reject</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+      {/* FULL SCREEN IMAGE MODAL */}
+      {viewingImage && (
+        <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingImage(null)}>
+          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg">
+            <X size={24}/>
+          </button>
+          <img 
+            src={viewingImage} 
+            alt="Full Profile" 
+            className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" 
+            onClick={(e) => e.stopPropagation()} 
+          />
         </div>
       )}
 
-      {/* AUDIT LOGS TAB */}
-      {activeTab === 'logs' && (
-        <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider">
-            <Shield className="w-4 h-4 mr-2 text-blue-400" /> System Audit Logs (Global)
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-xs">
-              <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold">
-                <tr>
-                  <th className="px-4 py-3 text-left">Timestamp</th>
-                  <th className="px-4 py-3 text-left">User FNUM</th>
-                  <th className="px-4 py-3 text-left">Event</th>
-                  <th className="px-4 py-3 text-left">Target</th>
-                  <th className="px-4 py-3 text-left">Details</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-slate-200">
-                {loadingLogs ? (
-                  <tr><td colSpan="5" className="p-8 text-center text-slate-500 font-bold animate-pulse text-xs">Decrypting server logs...</td></tr>
-                ) : audit_logs.length === 0 ? (
-                  <tr><td colSpan="5" className="p-4 text-center text-slate-500 text-xs">No recent security events logged in main database.</td></tr>
-                ) : (
-                  audit_logs.map((log) => (
-                    <tr key={log.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 whitespace-nowrap text-slate-500 font-mono text-[11px]">
-                        {log.created_at || 'Unknown Time'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap font-extrabold text-blue-700">{log.user_fnum}</td>
-                      <td className="px-4 py-3 whitespace-nowrap"><span className="font-extrabold text-slate-800 uppercase text-[11px]">{log.event_type}</span></td>
-                      <td className="px-4 py-3 text-slate-600 font-medium">{log.target_user || 'N/A'}</td>
-                      <td className="px-4 py-3 text-slate-600">{log.details}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* PASSWORD RESETS TAB */}
-      {activeTab === 'resets' && (        
-        <div className="bg-white rounded-xl shadow-xs border border-red-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider">
-            <Lock className="w-4 h-4 mr-2 text-red-400" /> Authorized Password Recovery
-          </div>
-          {loadingResets ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs">Scanning jurisdiction for requests...</div>
-          ) : filteredResets.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 font-medium text-xs">No pending password reset requests in selected queue.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Date Requested</th>
-                    <th className="px-4 py-3 text-left">Officer Details</th>
-                    <th className="px-4 py-3 text-left">Station / Division</th>
-                    <th className="px-4 py-3 text-left">Command Action</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
-                  {filteredResets.map((req) => (
-                    <tr key={req.id} className="hover:bg-red-50/50">
-                      <td className="px-4 py-3 whitespace-nowrap font-bold text-slate-500 text-[11px]">{req.request_date}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-extrabold text-blue-700">{req.name}</div>
-                        <div className="text-[11px] font-bold text-slate-500">{req.fnum} | {req.rank}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-slate-700">
-                        <div className="font-bold">{req.station}</div>
-                        <div className="text-[11px] text-slate-500">{req.region}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex space-x-2">
-                          <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-xs cursor-pointer"><Unlock size={14} className="mr-1" /> Authorize Reset</button>
-                          <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-xs cursor-pointer"><X size={14} className="mr-1" /> Reject</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-    </div>  
+    </div>
   );
 };
 
-export default AdminApprovals;
-
-    // ====================================================================
-    // --- PROFILE UPDATE SYSTEM (COMMAND WORKFLOW ENABLED FOR ALL USERS) ---
-    // ====================================================================
-    const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => { 
-      const [isEditing, setIsEditing] = useState(false);
-      const [isRequestMode, setIsRequestMode] = useState(false);
-      const [notification, setNotification] = useState(null);
-      const [viewingImage, setViewingImage] = useState(null);
-
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      
-      const [passwordData, setPasswordData] = useState({ old_password: '', new_password: '' });
-      const handlePasswordChange = async (e) => {
-        e.preventDefault();
-        setNotification("⏳ Updating security key...");
-        try {
-          const token = localStorage.getItem('kmp_authToken');
-          const response = await fetch(`${API_URL}/api/v1/users/change-password`, {
-            method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(passwordData)
-          });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.detail || "Failed to update password.");
-          setNotification(`✅ ${data.message}`);
-          setPasswordData({ old_password: '', new_password: '' });
-        } catch (err) { setNotification(`❌ Error: ${err.message}`); }
-      };
-
-      const canAutoApprove = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser.role);
-      const OFFICER_RANKS = ['AIP', 'IP', 'ASP', 'SP', 'SASP', 'SSP', 'ACP', 'CP', 'SCP', 'AIGP', 'DIGP', 'IGP'];
-
-      const [formData, setFormData] = useState({
-        fnum: currentUser.fnum || '', name: currentUser.name || '', rank: currentUser.rank || '',
-        region: currentUser.region || '', station: currentUser.station || '', email: currentUser.email || '',
-        phone: currentUser.phone || '', profile_photo_path: currentUser.profile_photo_path || ''
-      });
-
-      const isOfficerRank = OFFICER_RANKS.includes(formData.rank?.toUpperCase().trim());
-      const wasNCO = !OFFICER_RANKS.includes(currentUser.rank?.toUpperCase().trim());
-      const canEditFnum = canAutoApprove || (isOfficerRank && wasNCO);
-
-      const handleInputChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
-
-      const handlePhotoUpload = async (e) => {
-        const file = e.target.files[0];
-        if (file) {
-          setNotification("⏳ Uploading and saving new profile photo...");
-          const uploadData = new FormData();
-          uploadData.append("file", file);
-          uploadData.append("fnum", currentUser.fnum);
-          uploadData.append("category", "user_profile");
-
-          try {
-            const token = localStorage.getItem('kmp_authToken');
-            const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, { method: "POST", body: uploadData });
-            if (!response.ok) throw new Error("Upload failed on server.");
-
-            const data = await response.json();
-            const s3Url = data.full_s3_url || data.cloud_storage_path;
-
-            const securePayload = { ...formData, profile_photo_path: s3Url };
-            const updateRes = await fetch(`${API_URL}/api/v1/users/profile/update`, {
-              method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(securePayload)
-            });
-
-            if (!updateRes.ok) throw new Error("Failed to link photo to profile in database.");
-
-            setFormData(prev => ({ ...prev, profile_photo_path: s3Url }));
-            setCurrentUser(prev => ({ ...prev, profile_photo_path: s3Url }));
-            setNotification("✅ Photo uploaded and permanently saved successfully!");
-            setTimeout(() => setNotification(null), 4000);
-          } catch (error) { setNotification(`❌ Error: ${error.message}`); }
-        }
-      };
-
-      const handleRequestSubmit = async (e) => {
-        if (e) e.preventDefault();
-        setNotification("⏳ Sending official request to Command...");
-        try {
-          const token = localStorage.getItem('kmp_authToken');
-          const response = await fetch(`${API_URL}/api/v1/requests`, {
-            method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-            body: JSON.stringify({
-              fnum: currentUser.fnum, requested_fnum: formData.fnum !== currentUser.fnum ? formData.fnum : null,
-              requested_name: formData.name !== currentUser.name ? formData.name : null, requested_rank: formData.rank !== currentUser.rank ? formData.rank : null,
-              requested_region: formData.region !== currentUser.region ? formData.region : null, requested_station: formData.station !== currentUser.station ? formData.station : null,
-            })
-          });
-
-          if (!response.ok) {
-             const errData = await response.json().catch(() => ({}));
-             throw new Error(errData.detail || "Failed to send request.");
-          }
-          
-          setNotification("✅ Request successfully logged for Command review.");
-          setIsRequestMode(false);
-          setFormData({ ...formData, fnum: currentUser.fnum, name: currentUser.name, rank: currentUser.rank, region: currentUser.region, station: currentUser.station });
-          setTimeout(() => setNotification(null), 5000);
-        } catch (err) { setNotification(`❌ Error: ${err.message}`); }
-      };
-
-      const handleSubmit = async (e) => {
-        if (e) e.preventDefault();
-        setNotification("⏳ Verifying profile data with HR Nominal Roll...");
-        try {
-          const token = localStorage.getItem('kmp_authToken');
-          const response = await fetch(`${API_URL}/api/v1/users/profile/update`, {
-            method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(formData)
-          });
-          const data = await response.json();
-
-          if (!response.ok) throw new Error(data.detail || "Failed to update database.");
-          if (data.new_token) localStorage.setItem('kmp_authToken', data.new_token);
-
-          setCurrentUser({ ...currentUser, ...formData });
-          setNotification("✅ Profile verified and successfully updated!");
-          setIsEditing(false); setIsRequestMode(false);
-          setTimeout(() => setNotification(null), 4000);
-        } catch (err) { setNotification(`❌ ${err.message}`); }
-      };
-
-      const handleContactSubmit = async (e) => {
-        if (e) e.preventDefault();
-        setNotification("⏳ Saving contact details...");
-        try {
-          const token = localStorage.getItem('kmp_authToken');
-          const securePayload = { ...currentUser, email: formData.email, phone: formData.phone, profile_photo_path: formData.profile_photo_path };
-
-          const response = await fetch(`${API_URL}/api/v1/users/profile/update`, {
-            method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(securePayload)
-          });
-
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.detail || "Failed to update database.");
-
-          setCurrentUser({ ...currentUser, email: formData.email, phone: formData.phone, profile_photo_path: formData.profile_photo_path });
-          setNotification("✅ Contact info and photo successfully updated!");
-          setTimeout(() => setNotification(null), 4000);
-        } catch (err) { setNotification(`❌ ${err.message}`); }
-      };
-
-      const handleProfileSave = (e) => {
-         e.preventDefault();
-         if (canAutoApprove || formData.fnum !== currentUser.fnum) handleSubmit(e);
-         else handleRequestSubmit(e);
-      };
-
-      return (
-        <div className="p-6 max-w-4xl mx-auto space-y-6 mt-10 relative z-10 animate-in fade-in duration-300">
-          <button onClick={() => setCurrentPage && setCurrentPage('home')} className="flex items-center text-sm font-bold text-slate-500 hover:text-blue-700 transition-colors bg-white hover:bg-blue-50 px-4 py-2 rounded-lg shadow-sm border border-slate-200 w-fit">
-            <Home size={16} className="mr-2" /> Return to Master Dashboard
-          </button>
-
-          <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-            <div className="bg-slate-900 px-6 py-8 border-b border-gray-200 flex justify-between items-center relative">
-              <div className="flex items-center z-10">
-                <div className="relative group">
-                  {formData.profile_photo_path ? (
-                    <img src={formData.profile_photo_path} alt="" className={`w-24 h-24 rounded-full object-cover shadow-2xl border-4 border-slate-700 bg-white transition-transform ${isEditing ? 'opacity-80' : 'cursor-pointer hover:scale-105'}`} onClick={() => !isEditing && setViewingImage(formData.profile_photo_path)} onError={(e) => { e.target.style.display='none'; }} />
-                  ) : (
-                    <div className="w-24 h-24 bg-blue-600 rounded-full flex items-center justify-center text-white font-extrabold text-4xl shadow-2xl border-4 border-slate-700">{currentUser.name?.charAt(0) || 'A'}</div>
-                  )}
-                  {isEditing && (
-                    <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full cursor-pointer shadow-lg border-2 border-slate-800 transition-colors transform hover:scale-110">
-                      <Camera size={16} /> <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
-                    </label>
-                  )}
-                </div>
-                <div className="ml-6 text-white">
-                  <h2 className="text-3xl font-extrabold tracking-tight">{currentUser.name}</h2>
-                  <p className="text-blue-300 font-medium tracking-wide mt-1 uppercase text-sm">{currentUser.rank} • {currentUser.station} • {currentUser.region}</p>
-                </div>
-              </div>
-              <button onClick={() => { setIsEditing(!isEditing); setIsRequestMode(false); }} className={`z-10 flex items-center px-4 py-2 rounded-lg font-bold transition-colors shadow-sm ${isEditing ? 'bg-slate-700 text-white border border-slate-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}>
-                {isEditing ? <><X size={16} className="mr-2"/> Cancel Edit</> : <><Edit size={16} className="mr-2"/> Update Profile</>}
-              </button>
-            </div>
-
-            <div className="p-8">
-              {notification && (
-                <div className={`p-4 rounded-lg mb-6 font-medium text-sm flex items-center shadow-sm ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 text-red-700 border border-red-200' : notification.includes('⏳') ? 'bg-yellow-50 text-yellow-800 border border-yellow-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>
-                   {notification}
-                </div>
-              )}
-
-              {isEditing ? (
-                <div className="space-y-6">
-                  <div className={`p-6 rounded-xl border transition-colors duration-300 ${canAutoApprove ? 'bg-blue-50 border-blue-200' : isRequestMode ? 'bg-yellow-50 border-yellow-300' : 'bg-slate-100 border-slate-200'}`}>
-                    <div className="flex justify-between items-center mb-4 border-b pb-2 border-slate-200/50">
-                      <div className={`flex items-center text-xs font-extrabold uppercase tracking-wider ${canAutoApprove ? 'text-blue-700' : isRequestMode ? 'text-yellow-700' : 'text-slate-500'}`}>
-                        {canAutoApprove ? <Unlock size={14} className="mr-2" /> : isRequestMode ? <Edit size={14} className="mr-2" /> : <Lock size={14} className="mr-2" />} 
-                        Official Deployment Records {canAutoApprove ? "(Admin Override Active)" : isRequestMode ? "(Drafting Request)" : "(Restricted)"}
-                      </div>
-                      {!canAutoApprove && !isRequestMode && (
-                        <button type="button" onClick={() => setIsRequestMode(true)} className="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-sm"><Shield size={12} className="mr-1"/> Request Modification</button>
-                      )}
-                      {!canAutoApprove && isRequestMode && (
-                        <button type="button" onClick={handleProfileSave} className="text-xs bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-sm"><Send size={12} className="mr-1"/> Send Official Request</button>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Full Name</label>
-                        <input type="text" name="name" value={formData.name} onChange={handleInputChange} disabled={!canAutoApprove && !isRequestMode} className={`w-full p-2.5 rounded-lg font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-gray-900 focus:ring-2 focus:ring-blue-500' : 'bg-gray-200 border-gray-300 text-gray-600 cursor-not-allowed'}`} />
-                      </div>
-                      <div className="flex gap-4">
-                        <div className="w-1/2">
-                          <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Force / File Number</label>
-                          <input type="text" name="fnum" value={formData.fnum} onChange={(e) => setFormData({...formData, fnum: e.target.value.toUpperCase()})} disabled={!canEditFnum} className={`w-full p-2.5 border rounded-lg font-bold transition-all ${canEditFnum ? 'bg-yellow-50 border-yellow-400 text-gray-900 focus:ring-2 focus:ring-yellow-500 shadow-inner' : 'bg-gray-200 border-gray-300 text-gray-600 cursor-not-allowed'}`} />
-                          {canEditFnum && <p className="text-[9px] text-blue-600 mt-1 font-bold animate-pulse">Unlocked for Promotion Verification</p>}
-                        </div>
-                        <div className="w-1/2">
-                          <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Rank</label>
-                          <input type="text" name="rank" value={formData.rank} onChange={(e) => setFormData({...formData, rank: e.target.value.toUpperCase()})} disabled={!canAutoApprove && !isRequestMode && !wasNCO} className={`w-full p-2.5 rounded-lg font-bold border ${(canAutoApprove || isRequestMode || wasNCO) ? 'bg-white border-blue-300 text-gray-900 focus:ring-2 focus:ring-blue-500' : 'bg-gray-200 border-gray-300 text-gray-600 cursor-not-allowed'}`} />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Command Region</label>
-                        <input type="text" name="region" value={formData.region} onChange={handleInputChange} disabled={!canAutoApprove && !isRequestMode} className={`w-full p-2.5 rounded-lg font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-gray-900 focus:ring-2 focus:ring-blue-500' : 'bg-gray-200 border-gray-300 text-gray-600 cursor-not-allowed'}`} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Assigned Station</label>
-                        <input type="text" name="station" value={formData.station} onChange={handleInputChange} disabled={!canAutoApprove && !isRequestMode} className={`w-full p-2.5 rounded-lg font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-gray-900 focus:ring-2 focus:ring-blue-500' : 'bg-gray-200 border-gray-300 text-gray-600 cursor-not-allowed'}`} />
-                      </div>
-                    </div>
-                  </div>
-
-                  <form onSubmit={handleContactSubmit} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
-                    <div className="flex items-center text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2">
-                      <Edit size={14} className="mr-2" /> Editable Contact Data
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Official Email</label>
-                        <input type="email" name="email" value={formData.email} onChange={handleInputChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-900" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Contact Number</label>
-                        <input type="tel" name="phone" value={formData.phone} onChange={handleInputChange} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-medium text-gray-900" />
-                      </div>
-                    </div>
-                    <div className="flex justify-end pt-4 mt-2 border-t border-gray-100">
-                      <button type="submit" className="bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-6 rounded-lg shadow-md transition-colors flex items-center text-sm">💾 Save Profile Changes</button>
-                    </div>
-                  </form>
-
-                  {/* 🟢 NEW PASSWORD CHANGE FORM */}
-                  <form onSubmit={handlePasswordChange} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
-                    <div className="flex items-center text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2">
-                      <Lock size={14} className="mr-2 text-red-500" /> Security: Change Password
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Current Password</label>
-                        <input type="password" required value={passwordData.old_password} onChange={(e) => setPasswordData({...passwordData, old_password: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">New Password (Min 6 Chars)</label>
-                        <input type="password" required value={passwordData.new_password} onChange={(e) => setPasswordData({...passwordData, new_password: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
-                      </div>
-                    </div>
-                    <div className="flex justify-end pt-4 mt-2 border-t border-gray-100">
-                      <button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg shadow-md transition-colors text-sm">Update Security Key</button>
-                    </div>
-                  </form>
-
-                </div>
-              ) : (
-
-                <div className="space-y-6">
-                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b pb-2 flex items-center">
-                    <Shield size={14} className="mr-2 text-slate-400" /> Comprehensive Officer Profile
-                  </h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6 bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner">
-                    
-                    <div>
-                      <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Force/File Number</label>
-                      <div className="text-sm font-extrabold text-slate-900">{currentUser.fnum}</div>
-                    </div>
-                    
-                    <div>
-                      <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">IPPS Number</label>
-                      <div className="text-sm font-bold text-slate-800">{currentUser.ipps || 'N/A'}</div>
-                    </div>
-                    
-                    <div>
-                      <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Sex</label>
-                      <div className="text-sm font-bold text-slate-800">{currentUser.sex || 'N/A'}</div>
-                    </div>
-                    
-                    <div>
-                      <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">System Role</label>
-                      <div className={`text-sm font-extrabold ${canAutoApprove ? 'text-green-600' : 'text-blue-600'}`}>{currentUser.role || 'USER'}</div>
-                    </div>
-
-                    <div className="col-span-2">
-                      <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Official Title / Position</label>
-                      <div className="text-sm font-bold text-slate-800">{currentUser.position || 'N/A'}</div>
-                    </div>
-                    
-                    <div className="col-span-2">
-                      <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Command Chain (Region / Station)</label>
-                      <div className="text-sm font-bold text-slate-800">{currentUser.region || 'N/A'} / {currentUser.station || 'N/A'}</div>
-                    </div>
-
-                    <div className="col-span-2">
-                      <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Official Email</label>
-                      <div className="text-sm font-bold text-slate-800 truncate">{currentUser.email || 'N/A'}</div>
-                    </div>
-                    
-                    <div className="col-span-2">
-                      <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Contact Number</label>
-                      <div className="text-sm font-bold text-slate-800">{currentUser.phone || 'N/A'}</div>
-                    </div>
-
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 🟢 FULL SCREEN IMAGE MODAL FOR MY PROFILE */}
-          {viewingImage && (
-            <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingImage(null)}>
-              <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg">
-                <X size={24}/>
-              </button>
-              <img 
-                src={viewingImage} 
-                alt="Full Profile" 
-                className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" 
-                onClick={(e) => e.stopPropagation()} 
-              />
-            </div>
-          )}
-
-        </div>
-      );
-    };
-
-    // ====================================================================
+====================================================================
     // --- LOGIN & AUTHENTICATION GATEWAY ---
     // ====================================================================
     const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUsers = [] }) => {
