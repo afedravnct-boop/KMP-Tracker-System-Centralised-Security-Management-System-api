@@ -267,9 +267,24 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => 
     (r.station || '').trim().toUpperCase() === userStation && new Date(r.date).getTime() >= (Date.now() - (7 * 24 * 60 * 60 * 1000))
   );
-  const hasSubmittedStats = (Array.isArray(stats) ? stats : []).some(s => 
-    (s.station || '').trim().toUpperCase() === userStation && new Date(s.date).getTime() >= (Date.now() - (7 * 24 * 60 * 60 * 1000))
-  );
+
+// 🟢 NORMALIZED WEEKLY COMPLIANCE CHECK
+  const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+
+  const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => {
+    if (!r.date) return false;
+    const matchesStation = (r.station || '').trim().toUpperCase() === userStation;
+    const reportTime = new Date(r.date.toString().split('T')[0]).getTime();
+    return matchesStation && reportTime >= oneWeekAgo;
+  });
+
+  const hasSubmittedStats = (Array.isArray(stats) ? stats : []).some(s => {
+    if (!s.date) return false;
+    const matchesStation = (s.station || '').trim().toUpperCase() === userStation;
+    const statTime = new Date(s.date.toString().split('T')[0]).getTime();
+    return matchesStation && statTime >= oneWeekAgo;
+  });
+
   const hasSubmittedThisWeek = hasSubmittedReport || hasSubmittedStats;
 
   const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && isTargetOfficer;
