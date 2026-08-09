@@ -1345,14 +1345,9 @@ const filteredReports = useMemo(() => {
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 bg-white p-6 border border-slate-200 shadow-sm rounded-lg">
                 <div className="border-l-4 border-blue-600 pl-3">
-                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">System Audit SN</div>
-                  <div className="text-sm font-black text-slate-900">
-                    {/* 🟢 Shows Station List SN + Permanent NeonDB ID */}
-                    {isStationSpecific 
-                      ? `SN: ${filteredReports.findIndex(r => (r.id || r.sn) === (selectedCase.id || selectedCase.sn)) + 1} (Audit: ${selectedCase.id || selectedCase.sn || '—'})` 
-                      : (selectedCase.id || selectedCase.sn || '—')}
-                  </div>
-                </div>  
+                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Database SN (ID)</div>
+                  <div className="text-sm font-black text-slate-900">{selectedCase.id || selectedCase.sn}</div>
+                </div>
                 <div className="border-l-4 border-slate-600 pl-3">
                   <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Time & Date Logged</div>
                   <div className="text-sm font-bold text-slate-900">{selectedCase.date} <span className="text-slate-500 font-medium">@ {selectedCase.time}</span></div>
@@ -2458,6 +2453,47 @@ const getRankWeight = (rankStr) => {
 
 
 
+import React, { useState, useMemo } from 'react';
+import { 
+  Users, PlusCircle, Edit, AlertTriangle, CheckCircle, 
+  BarChart3, Upload, PieChart 
+} from 'lucide-react';
+
+// 🟢 Official UPF Command Seniority Weighting (Lower index = Higher rank)
+const RANK_SENIORITY = {
+  // Officers
+  "IGP": 1,
+  "DIGP": 2,
+  "AIGP": 3,
+  "SCP": 4,
+  "CP": 5,
+  "ACP": 6,
+  "SSP": 7,
+  "SP": 8,
+  "ASP": 9,
+  "IP": 10,
+  "AIP": 11,
+  // NCOs & Enlisted Men
+  "HCM": 12,
+  "HC": 13,
+  "S/SGT": 14,
+  "SSGT": 14,
+  "SGT": 15,
+  "CPL": 16,
+  "L/CPL": 17,
+  "LCPL": 17,
+  "PC": 18,
+  "SPC": 19
+};
+
+// Helper function to get rank weight (strips prefixes like D/ for Detectives)
+const getRankWeight = (rankStr) => {
+  if (!rankStr) return 99;
+  let cleanRank = rankStr.trim().toUpperCase();
+  if (cleanRank.startsWith('D/')) cleanRank = cleanRank.substring(2);
+  return RANK_SENIORITY[cleanRank] !== undefined ? RANK_SENIORITY[cleanRank] : 50;
+};
+
 const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Roll_archives, setNominal_Roll_archives, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -2475,8 +2511,8 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     sn: null, fnum: '', rank: '', name: '', sex: 'MALE', position: '',
     dob: '', doe: '', dopost: '', dopro: '', contact: '', educlevel: '',
     ipps: '', tin: '', nin: '', homedist: '', tribe: '', accno: '', bankbranch: '',
-    station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
-    district: '', region: currentUser.region, section: '', dir: '', status: 'ACTIVE'
+    station: currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
+    district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
   });
 
   const filteredRolls = useMemo(() => {
@@ -2490,7 +2526,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       if (selStation !== 'ALL STATIONS' && selStation !== '' && dbStation !== selStation) return false;
       return true;
     }).sort((a, b) => {
-      // 🟢 Sort by rank seniority first, then alphabetically by name if ranks match
       const weightA = getRankWeight(a.rank);
       const weightB = getRankWeight(b.rank);
       if (weightA !== weightB) {
@@ -2515,7 +2550,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       if (dbStation !== selStation) return false;
       return true;
     }).sort((a, b) => {
-      // 🟢 Sort archives by seniority weight too
       const weightA = getRankWeight(a.rank);
       const weightB = getRankWeight(b.rank);
       if (weightA !== weightB) {
@@ -2525,17 +2559,19 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     });
   }, [Nominal_Roll_archives, filterRegion, filterStation, currentUser]);
 
-  // 🟢 Dynamically resolve dataset based on active vs archive view mode for metrics & counters
   const currentRollDataset = useMemo(() => {
     return viewMode === 'archive' ? filteredNominal_Roll_archives : filteredRolls;
   }, [viewMode, filteredRolls, filteredNominal_Roll_archives]);
 
   const availableUpdateRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
+      const fNumVal = n.fnum || n.f_num || '';
       if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && n.region !== currentUser.region) return false;
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
-        return (n.fnum && n.fnum.toLowerCase().includes(query)) || (n.name && n.name.toLowerCase().includes(query)) || (n.ipps && n.ipps.includes(query));
+        return (fNumVal && fNumVal.toLowerCase().includes(query)) || 
+               (n.name && n.name.toLowerCase().includes(query)) || 
+               (n.ipps && String(n.ipps).includes(query));
       }
       return true;
     });
@@ -2548,19 +2584,24 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       currentRollDataset.forEach(n => {
           let key = 'Unknown';
           
-          // 🟢 Strict Sex Evaluation (Prevents "FEMALE" from being counted as "MALE")
+          // Strict Sex Evaluation
           const sexStr = (n.sex || '').trim().toUpperCase();
           const ninStr = (n.nin || '').trim().toUpperCase();
           const isFemale = sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF');
           const isMale = sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM');
           
+          // 🟢 Bulletproof multi-key resolution to eliminate false "UNSPECIFIED" metrics
+          const homeDistrict = n.homedist || n.home_dist || '';
+          const bankBranch = n.bankbranch || n.bank_branch || '';
+          const educLevel = n.educlevel || n.educ_level || '';
+          
           if (metricCategory === 'RANK') key = n.rank ? n.rank.trim().toUpperCase() : 'UNRANKED';
           else if (metricCategory === 'UNIT') key = `${n.station || 'UNKNOWN'} ${n.section ? '- ' + n.section : ''}`.trim();
           else if (metricCategory === 'SEX') key = isFemale ? 'FEMALE' : (isMale ? 'MALE' : 'UNSPECIFIED');
-          else if (metricCategory === 'BANK') key = n.bankbranch ? n.bankbranch.trim().toUpperCase() : 'BANK UNKNOWN';
-          else if (metricCategory === 'DISTRICT') key = n.homedist ? n.homedist.trim().toUpperCase() : 'DISTRICT UNKNOWN';
+          else if (metricCategory === 'BANK') key = bankBranch ? bankBranch.trim().toUpperCase() : 'BANK UNKNOWN';
+          else if (metricCategory === 'DISTRICT') key = homeDistrict ? homeDistrict.trim().toUpperCase() : 'DISTRICT UNKNOWN';
           else if (metricCategory === 'TRIBE') key = n.tribe ? n.tribe.trim().toUpperCase() : 'TRIBE UNKNOWN';
-          else if (metricCategory === 'EDUCATION') key = n.educlevel ? n.educlevel.trim().toUpperCase() : 'NOT SPECIFIED';
+          else if (metricCategory === 'EDUCATION') key = educLevel ? educLevel.trim().toUpperCase() : 'NOT SPECIFIED';
           else if (metricCategory === 'AGE') {
               if (n.dob) {
                   const age = new Date().getFullYear() - new Date(n.dob).getFullYear();
@@ -2574,7 +2615,15 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
           else if (isMale) grouped[key].male += 1;
           else grouped[key].unknown += 1;
       });
-      return Object.values(grouped).sort((a, b) => b.total - a.total);
+
+      const resultsArray = Object.values(grouped);
+
+      // 🟢 Sort by Official Rank Seniority if RANK is selected, otherwise sort by count descending
+      if (metricCategory === 'RANK') {
+          return resultsArray.sort((a, b) => getRankWeight(a.category) - getRankWeight(b.category));
+      } else {
+          return resultsArray.sort((a, b) => b.total - a.total);
+      }
   }, [currentRollDataset, metricCategory, viewMode]);
 
   const metricsData = useMemo(() => {
@@ -2606,9 +2655,8 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     };
   }, [currentRollDataset]);
 
-  const populateUpdateForm = (data) => setFormData({ ...data, fnum: data.fnum || data.f_num });
+  const populateUpdateForm = (data) => setFormData({ ...data, fnum: data.fnum || data.f_num || '' });
 
-  // 🟢 1. Handles typing in the form inputs
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     if (name === 'region') {
@@ -2618,7 +2666,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
   };
 
-  // 🟢 2. Handles switching between "Register New" and "Update Existing" tabs
   const handleOperationToggle = (mode) => {
     setOperation(mode);
     if (mode === 'new') {
@@ -2633,7 +2680,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
   };
 
-  // 🟢 FIXED: Properly formats the URL using API_URL and standard fetch
   const handleArchivePersonnel = async () => {
     if (!formData.fnum) return alert("Missing Force Number. Cannot archive this record.");
     if (!window.confirm(`Are you sure you want to move ${formData.name} to archives?`)) return;
@@ -2687,7 +2733,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
 
     if (operation === 'new') {
-      const exactNextSN = currentRolls.length > 0 ? Math.max(...currentRolls.map(n => n.sn)) + 1 : 1;
+      const exactNextSN = currentRolls.length > 0 ? Math.max(...currentRolls.map(n => n.sn || 0)) + 1 : 1;
       const newEntry = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       
       try {
@@ -2811,8 +2857,8 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                     <input type="text" placeholder="Search by Force No, Name, IPPS..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
                     <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
                       {availableUpdateRolls.length === 0 ? <div className="p-3 text-xs text-gray-500 text-center">No personnel found.</div> : availableUpdateRolls.map(n => (
-                          <div key={n.sn} onClick={() => populateUpdateForm(n)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === n.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
-                            <span className={formData.sn === n.sn ? 'text-blue-200' : 'text-gray-400'}>F/NO: {n.fnum}</span> | <span className={formData.sn === n.sn ? 'text-white' : 'font-bold text-blue-700'}>{n.name}</span> | {n.station}
+                          <div key={n.sn || n.fnum} onClick={() => populateUpdateForm(n)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === n.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
+                            <span className={formData.sn === n.sn ? 'text-blue-200' : 'text-gray-400'}>F/NO: {n.fnum || n.f_num}</span> | <span className={formData.sn === n.sn ? 'text-white' : 'font-bold text-blue-700'}>{n.name}</span> | {n.station}
                           </div>
                         ))}
                     </div>

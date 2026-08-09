@@ -1,73 +1,179 @@
 import React, { useState } from 'react';
-// 1. Import your API_BASE_URL from the api.js file you created earlier
-import { API_BASE_URL } from './api'; 
+import { User, Lock, ShieldAlert } from 'lucide-react';
+// 1. Import your API_BASE_URL from the api.js file
+import { API_BASE_URL } from './api';
 
-export default function Login({ onLoginSuccess }) {
+export default function Login({ onLoginSuccess, setIsSignUp }) {
   const [fileOrForceNumber, setFileOrForceNumber] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const data = await response.json();
-      
-      // ADD THIS LINE
-      console.log("Server response data:", data); 
-      
-      if (response.ok) {
-        // Verify the key name here: is it 'access_token', 'token', or 'data'?
-        console.log("Saving token:", data.access_token); 
-        
-        localStorage.setItem('kmp_authToken', data.access_token);
-        onLoginSuccess(data.user || data);
-      }
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
 
-    // 2. FastAPI OAuth2 requires Form Data, mapping your ID to 'username'
+    // 2. FastAPI OAuth2 requires Form Data, mapping ID to 'username'
     const formData = new URLSearchParams();
-    formData.append('username', fileOrForceNumber); 
+    formData.append('username', fileOrForceNumber.trim().toUpperCase());
     formData.append('password', password);
 
     try {
-      // 3. Add API_BASE_URL so it actually talks to port 8000
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      // 3. Add API_BASE_URL so it talks to backend API
+      const baseUrl = API_BASE_URL || import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/x-www-form-urlencoded' // Changed from JSON
-        }, 
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
         body: formData
       });
 
       const data = await response.json();
-      
-      if (response.ok) {
-        // 4. Save the token exactly where your api.js expects to find it!
-        localStorage.setItem('kmp_authToken', data.access_token);
-        localStorage.setItem('kmp_currentUser_fnum', responseData.fnum);        
+      console.log("Server response data:", data);
 
-        onLoginSuccess(data.user || data); // Pass user data to App.jsx
+      if (response.ok) {
+        console.log("Saving token:", data.access_token);
+
+        // 4. Save the token exactly where your app expects to find it
+        localStorage.setItem('kmp_authToken', data.access_token);
+        
+        const userObj = data.user || data;
+        const fnumVal = userObj.fnum || userObj.username || fileOrForceNumber.trim().toUpperCase();
+        
+        localStorage.setItem('kmp_currentUser_fnum', fnumVal);
+        localStorage.setItem('kmp_currentUser', JSON.stringify(userObj));
+        localStorage.setItem('kmp_loginTime', Date.now().toString());
+
+        if (typeof onLoginSuccess === 'function') {
+          onLoginSuccess(userObj);
+        } else {
+          window.location.reload();
+        }
       } else {
-        setError(data.detail || "Login failed");
+        setError(data.detail || "Authorization failed. Check your Force Number and Security Key.");
       }
     } catch (err) {
       console.error("Login fetch error:", err);
-      setError("Could not connect to the server.");
+      setError("Could not connect to the command server. Check network connectivity.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  const handleForgotPassword = () => {
+    alert("Please submit a Password Reset Request to your Regional or Division Command Data Officer.");
+  };
+
   return (
-    <form onSubmit={handleLogin}>
-      <input 
-        type="text" 
-        value={fileOrForceNumber} 
-        onChange={(e) => setFileOrForceNumber(e.target.value)} 
-        placeholder="File or Force Number" 
-      />
-      <input 
-        type="password" 
-        value={password} 
-        onChange={(e) => setPassword(e.target.value)} 
-        placeholder="Security Key" 
-      />
-      <button type="submit">Login</button>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-    </form>
+    <div className="min-h-screen w-full flex flex-col items-center justify-center bg-slate-950 p-4 font-sans relative overflow-hidden">
+      
+      {/* Background Accent Gradient */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+
+      {/* Main Compact Access Card */}
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-800 relative z-10 animate-in fade-in zoom-in-95 duration-200">
+        
+        {/* Dark High-Command Header */}
+        <div className="bg-slate-900 px-6 py-5 text-center border-b border-slate-800">
+          <img 
+            src="/upf_badge.png" 
+            alt="UPF Emblem" 
+            className="w-12 h-12 mx-auto mb-2 object-contain contrast-200 brightness-90 drop-shadow"
+            onError={(e) => { e.target.style.display = 'none'; }}
+          />
+          <h2 className="text-base font-black text-white tracking-wider uppercase">
+            Uganda Police Force
+          </h2>
+          <h3 className="text-[11px] font-bold text-blue-400 mt-0.5 tracking-wider uppercase">
+            Kampala Metropolitan Police Headquarters
+          </h3>
+          <p className="text-[9px] text-slate-400 mt-1 font-mono tracking-tight uppercase">
+            Centralised Security Data Management System Access Portal
+          </p>
+        </div>
+
+        {/* Form Body */}
+        <form onSubmit={handleLogin} className="p-5 space-y-3.5">
+          
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2 text-red-700 animate-in fade-in">
+              <ShieldAlert className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+              <p className="text-xs font-semibold leading-tight">{error}</p>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-extrabold text-slate-700 mb-1 uppercase tracking-wide">
+              Force Number
+            </label>
+            <div className="relative">
+              <input 
+                type="text" 
+                placeholder="E.G. A/2408 OR 63034"
+                value={fileOrForceNumber} 
+                onChange={(e) => setFileOrForceNumber(e.target.value)}
+                required
+                className="w-full pl-9 pr-3 py-2 text-xs font-medium border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none uppercase transition"
+              />
+              <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-extrabold text-slate-700 mb-1 uppercase tracking-wide">
+              Security Key (Password)
+            </label>
+            <div className="relative">
+              <input 
+                type="password" 
+                placeholder="••••••••"
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="w-full pl-9 pr-3 py-2 text-xs font-medium border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+              />
+              <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            </div>
+          </div>
+
+          <button 
+            type="submit"
+            disabled={isLoading}
+            className="w-full bg-blue-700 hover:bg-blue-800 disabled:bg-blue-400 text-white font-black text-xs py-2.5 rounded-lg uppercase tracking-wider shadow-md hover:shadow-lg transition active:scale-[0.99] cursor-pointer flex items-center justify-center space-x-2 mt-2"
+          >
+            {isLoading ? (
+              <span className="animate-pulse">Verifying Credentials...</span>
+            ) : (
+              <span>Authorize Access</span>
+            )}
+          </button>
+
+          <div className="flex items-center justify-between pt-1 text-[11px] font-bold">
+            <button 
+              type="button" 
+              onClick={handleForgotPassword} 
+              className="text-slate-500 hover:text-slate-800 transition"
+            >
+              Forgot Security Key?
+            </button>
+            <button 
+              type="button" 
+              onClick={() => typeof setIsSignUp === 'function' && setIsSignUp(true)} 
+              className="text-blue-700 hover:text-blue-900 transition"
+            >
+              Sign Up (Request Access)
+            </button>
+          </div>
+        </form>
+
+      </div>
+
+      {/* Modern Compact Disclaimer Footer */}
+      <p className="text-[10px] text-slate-500 font-bold mt-4 text-center tracking-widest uppercase relative z-10">
+        🛡️ Protected by KMP Tracker System - KMPCSDMS160626
+      </p>
+    </div>
   );
 }
