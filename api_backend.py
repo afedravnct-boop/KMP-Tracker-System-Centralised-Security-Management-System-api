@@ -2445,8 +2445,14 @@ def get_document_archive(db: Session = Depends(get_db), current_user: models.Use
 def download_archive_file(doc_id: int, db: Session = Depends(get_db)):
     doc = db.query(models.DocumentArchive).filter(models.DocumentArchive.id == doc_id).first()
     
-    if not doc or not os.path.exists(doc.file_path):
-        raise HTTPException(status_code=404, detail="File not found on server.")
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document record not found in system database.")
+        
+    if not os.path.exists(doc.file_path):
+        raise HTTPException(
+            status_code=404, 
+            detail="File instance missing on server storage (Server instance recently refreshed). Please re-upload document."
+        )
     
     return FileResponse(
         doc.file_path, 

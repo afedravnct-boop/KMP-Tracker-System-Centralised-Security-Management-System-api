@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { UploadCloud, FileText, Download, CheckCircle, AlertTriangle, Loader2, FolderOpen, Clock, FileArchive, Eye, Lock } from 'lucide-react';
+import { 
+  UploadCloud, FileText, Download, CheckCircle, AlertTriangle, 
+  Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, X 
+} from 'lucide-react';
 
 const WordReportUpload = ({ currentUser }) => {
   const [file, setFile] = useState(null);
@@ -12,7 +15,11 @@ const WordReportUpload = ({ currentUser }) => {
   const [documents, setDocuments] = useState([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
 
-  // 🟢 Clearance Logic: Only Admins, RPCs, or specific roles can DOWNLOAD reports
+  // 🟢 Preview Modal State
+  const [previewDoc, setPreviewDoc] = useState(null);
+  const [readingLoading, setReadingLoading] = useState(false);
+
+  // Clearance Logic
   const hasDownloadClearance = ['SUPER_ADMIN', 'ADMIN', 'RPC'].includes(currentUser?.role?.toUpperCase());
 
   useEffect(() => {
@@ -85,26 +92,40 @@ const WordReportUpload = ({ currentUser }) => {
     window.open(`${API_URL}/api/v1/templates/download/${type}`, '_blank');
   };
 
-  // 🟢 SECURE READ FUNCTION: Fetches into a temporary browser Blob to prevent hard drive saves
-  const handleSecureRead = async (docId) => {
+  // 🟢 FIXED: Secure Read Handler
+  const handleSecureRead = async (doc) => {
+    setReadingLoading(doc.id);
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       
-      const response = await fetch(`${API_URL}/api/v1/reports/download/${docId}`, {
+      const response = await fetch(`${API_URL}/api/v1/reports/download/${doc.id}`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
       
-      if (!response.ok) throw new Error("Failed to fetch document for reading.");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || "File not found or unreadable on local server instance.");
+      }
       
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      window.open(url, '_blank');
       
-      // Revoke the URL after a short delay to clear memory and prevent sharing
-      setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+      // Force trigger browser stream load or download fallback
+      const blobUrl = window.URL.createObjectURL(blob);
+      
+      // Open in preview container or prompt file reader
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.setAttribute('download', doc.name);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 10000);
     } catch (err) {
       alert(`Read Error: ${err.message}`);
+    } finally {
+      setReadingLoading(false);
     }
   };
 
@@ -287,19 +308,22 @@ const WordReportUpload = ({ currentUser }) => {
                       {doc.size}
                     </td>
                     
-                    {/* 🟢 ACTION BUTTONS: READ (Everyone) + SECURE DOWNLOAD (Clearance Only) */}
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex justify-end space-x-2">
                         
-                        {/* Always available to all authenticated users */}
                         <button 
-                          onClick={() => handleSecureRead(doc.id)}
-                          className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer"
+                          onClick={() => handleSecureRead(doc)}
+                          disabled={readingLoading === doc.id}
+                          className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
                         >
-                          <Eye className="w-3 h-3 mr-1" /> Read
+                          {readingLoading === doc.id ? (
+                            <Loader2 className="w-3 h-3 mr-1 animate-spin text-blue-700" />
+                          ) : (
+                            <Eye className="w-3 h-3 mr-1" />
+                          )}
+                          Read
                         </button>
 
-                        {/* Restricted by Clearance */}
                         {hasDownloadClearance ? (
                           <button 
                             onClick={() => handleSecureDownload(doc.id)}

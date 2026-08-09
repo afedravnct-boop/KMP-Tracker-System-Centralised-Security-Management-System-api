@@ -2417,47 +2417,12 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
 
 
 
-// 🟢 Official UPF Command Seniority Weighting (Lower index = Higher rank)
-const RANK_SENIORITY = {
-  // Officers
-  "IGP": 1,
-  "DIGP": 2,
-  "AIGP": 3,
-  "SCP": 4,
-  "CP": 5,
-  "ACP": 6,
-  "SSP": 7,
-  "SP": 8,
-  "ASP": 9,
-  "IP": 10,
-  "AIP": 11,
-  // NCOs & Enlisted Men
-  "HCM": 12,
-  "HC": 13,
-  "S/SGT": 14,
-  "SSGT": 14,
-  "SGT": 15,
-  "CPL": 16,
-  "L/CPL": 17,
-  "LCPL": 17,
-  "PC": 18,
-  "SPC": 19
-};
-
 // Helper function to get rank weight (defaults unlisted or blank ranks to bottom)
 const getRankWeight = (rankStr) => {
   if (!rankStr) return 99;
   const cleanRank = rankStr.trim().toUpperCase();
   return RANK_SENIORITY[cleanRank] !== undefined ? RANK_SENIORITY[cleanRank] : 50;
 };
-
-
-
-import React, { useState, useMemo } from 'react';
-import { 
-  Users, PlusCircle, Edit, AlertTriangle, CheckCircle, 
-  BarChart3, Upload, PieChart 
-} from 'lucide-react';
 
 // 🟢 Official UPF Command Seniority Weighting (Lower index = Higher rank)
 const RANK_SENIORITY = {
