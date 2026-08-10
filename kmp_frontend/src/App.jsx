@@ -3968,14 +3968,15 @@ const WorkspaceSecurityCurtain = () => {
             style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}
           ></div>
 
-          {/* 🟢 3D EQUATORIAL TEXT RING */}
+          {/* 🟢 3D EQUATORIAL TEXT RING WITH AUTO-CONTRAST */}
           <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
             {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
               <span 
                 key={i} 
-                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-xs sm:text-sm tracking-widest drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]"
+                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white mix-blend-difference font-black text-xs sm:text-sm tracking-widest"
                 style={{
-                  transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(34vmin)`
+                  /* Increased radius to 38vmin to prevent letters from smashing together */
+                  transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(38vmin)`
                 }}
               >
                 {char === ' ' ? '\u00A0' : char}
@@ -4302,21 +4303,23 @@ const IdleWarningModal = () => {
             Your security token has expired because the system was left unattended. You have been securely logged out.
           </p>
 <button 
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              // 1. Clear storage tokens
-              localStorage.removeItem('kmp_authToken');
-              localStorage.removeItem('kmp_currentUser');
-              localStorage.removeItem('kmp_currentPage');
-              // 2. Force full state drop and reload
-              window.location.href = '/';
-            }}
-            className="w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
-          >
-            Acknowledge & Return to Login
-          </button>       
+  type="button"
+  onPointerDown={(e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // 1. Clear storage tokens
+    localStorage.removeItem('kmp_authToken');
+    localStorage.removeItem('kmp_currentUser');
+    localStorage.removeItem('kmp_currentPage');
+    sessionStorage.clear();
+    // 2. Force instant browser hard redirect
+    window.location.replace('/');
+  }}
+  className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition-none cursor-pointer"
+  style={{ position: 'relative', zIndex: 2147483647, pointerEvents: 'auto' }}
+>
+  Acknowledge & Return to Login
+</button>       
           </div>
       ) : (
         <div className="relative z-[100000] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200">

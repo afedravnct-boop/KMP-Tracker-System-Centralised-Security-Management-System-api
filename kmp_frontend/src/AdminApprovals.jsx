@@ -13,46 +13,6 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU", "KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"]
 };
 
-const autoCapitalize = (text) => {
-  if (!text) return text;
-  return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
-    return separator + letter.toUpperCase();
-  });
-};
-
-const formatEATDateTime = (dateStr) => {
-  if (!dateStr) return 'N/A';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-
-  return d.toLocaleString('en-GB', {
-    timeZone: 'Africa/Nairobi', 
-    hour12: false,              
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  });
-};
-
-const POSITIONS = {
-  ADMIN: [
-    "System Manager", "IGP", "DIGP", "Director OPS", "Director CT", "Director CI", 
-    "Director CID", "Director HRM & A", "Director logistics & engineering", 
-    "KMP Commander", "Deputy KMP Commander",
-    "KMP CID Commander", "KMP CI Commander", "KMP Operations Commander", 
-    "KMP Traffic & Road Safety Commander", "KMP 999 eru commander", 
-    "999 ERU Regional Data Officer", "Regional HR Officer", "KMP SFC Coordinator",
-    "Regional Data officer", "Divisional Data Officer", "Station Data Officer", "Regional Data Assistant Officer", "Division Data Assistant Officer", "Station Data Assistant Officer", "Regional Traffic Officer", "Divisional Traffic Officer", "Divisional CID Officer", "Divisional CI Officer", "Regional CFPU Officer", "Divisional CFPU Officer", "Regional Fire Officer", "Divisional Fire Officer", "Regional Logistics Officer", "Divisional Logistics Officer"
-  ],
-  RPC: [
-    "KMP South Commander", "KMP North Commander", "KMP East Commander", "Deputy Commander KMP south", "Deputy Commander KMP North", "Deputy Commander KMP East"
-  ]
-};
-
-// 🟢 Helper to format officer string cleanly: FNUM RANK NAME
 const formatOfficerHeader = (user) => {
   const fnum = user.fnum || user.f_num || 'NO-FNUM';
   const rank = user.rank || 'OFFICER';
@@ -61,7 +21,7 @@ const formatOfficerHeader = (user) => {
 };
 
 const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
-   
+  
   // 🟢 FALLBACK SAFETY NET
   const authFetch = propAuthFetch || (async (url, options = {}) => {
     const token = localStorage.getItem('kmp_authToken');
@@ -76,31 +36,37 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
   });
 
   const [activeTab, setActiveTab] = useState('approvals');
-   
+  
   const [modRequests, setModRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
-   
+  
   const [audit_logs, setaudit_logs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
-   
+  
   const [realPendingUsers, setRealPendingUsers] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
 
   const [resetRequests, setResetRequests] = useState([]);
   const [loadingResets, setLoadingResets] = useState(false);
 
-  // Active System Roster & Granular Matrix management
   const [allSystemUsers, setAllSystemUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
-  // Global Filter States for Super Admin / RPC capabilities
+  // 🟢 REVOKE MODAL STATE
+  const [revokePrompt, setRevokePrompt] = useState({
+    isOpen: false,
+    fnum: null,
+    actionType: null, // 'ROLE' or 'PERMISSION'
+    targetValue: null,
+    permissionKey: null,
+    reason: ''
+  });
+
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role)) ? 'ALL STATIONS' : currentUser?.station || '');
 
-  const isRPC = currentUser && ['RPC', 'Deputy Commander'].includes(currentUser.role);
   const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role);
 
-  // Component-level fetchers
   const fetchPendingUsers = async () => {
     setLoadingPending(true);
     try {
@@ -113,11 +79,8 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         const data = await res.json();
         setRealPendingUsers(Array.isArray(data) ? data : []);
       }
-    } catch (err) { 
-      console.error("Failed to sync pending users:", err); 
-    } finally { 
-      setLoadingPending(false); 
-    }
+    } catch (err) { console.error("Failed to sync pending users:", err); } 
+    finally { setLoadingPending(false); }
   };
 
   const fetchResets = async () => {
@@ -130,11 +93,8 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         const data = await res.json();
         setResetRequests(Array.isArray(data) ? data : []);
       }
-    } catch (err) { 
-      console.error("Failed to sync password resets:", err); 
-    } finally { 
-      setLoadingResets(false); 
-    }
+    } catch (err) { console.error("Failed to sync password resets:", err); } 
+    finally { setLoadingResets(false); }
   };
 
   const fetchAllSystemUsers = async () => {
@@ -145,11 +105,8 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         const data = await res.json();
         setAllSystemUsers(Array.isArray(data) ? data : []);
       }
-    } catch (err) { 
-      console.error("Failed to sync system user roster:", err); 
-    } finally { 
-      setLoadingUsers(false); 
-    }
+    } catch (err) { console.error("Failed to sync system user roster:", err); } 
+    finally { setLoadingUsers(false); }
   };
 
   useEffect(() => {
@@ -196,20 +153,26 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     });
   }, [resetRequests, filterRegion, filterStation]);
 
-  // Granular Matrix Toggle Handler with Security Safeguards
-  const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
-    // SYSTEM ADMIN constraint check: Cannot alter permissions
-    if (currentUser?.role === 'SYSTEM_ADMIN') {
-      alert("Security Restriction: SYSTEM ADMIN has viewing and diagnostic access only and is strictly barred from modifying user permissions or access levels.");
-      return;
-    }
-
+  // 🟢 THE EXECUTION ENGINES FOR ROLES & PERMISSIONS
+  const executePermissionChange = async (fnum, permissionKey, value, reason = '') => {
     const targetUser = allSystemUsers.find(u => u.fnum === fnum);
     if (!targetUser) return;
 
+    let locks = targetUser.permissions?.super_admin_locks || {};
+    
+    // Set lock if Super Admin removes clearance
+    if (value === false && currentUser?.role === 'SUPER_ADMIN') {
+      locks[permissionKey] = true;
+    } else if (value === true) {
+      // Remove lock if explicitly reinstated
+      locks[permissionKey] = false;
+    }
+
     const updatedPermissions = {
-      ...(targetUser.permissions || {}),
-      [permissionKey]: value
+      ...targetUser.permissions,
+      [permissionKey]: value,
+      super_admin_locks: locks,
+      [`${permissionKey}_revoke_reason`]: reason || targetUser.permissions?.[`${permissionKey}_revoke_reason`]
     };
 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, permissions: updatedPermissions } : u));
@@ -220,83 +183,130 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
       });
-       
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `HTTP Error ${response.status}`);
-      }
+      if (!response.ok) throw new Error("Permission sync failed");
     } catch (err) {
       alert(`Permission Update Failed:\n${err.message}`);
       fetchAllSystemUsers();
     }
   };
 
-  // Role Tier Update Handler with Security Safeguards
-  const handleRoleTierChange = async (fnum, newRole) => {
-    if (currentUser?.role === 'SYSTEM_ADMIN') {
-      alert("Security Restriction: SYSTEM ADMIN cannot manage or modify access clearance tiers.");
-      return;
-    }
-
-    // STATION ADMIN validation: Max 3 users per station rule check
-    if (currentUser?.role === 'STATION_ADMIN') {
-      const stationUsersCount = allSystemUsers.filter(u => u.station === currentUser.station).length;
-      if (stationUsersCount >= 3 && newRole !== 'USER') {
-        alert("Station Admin Limit: You are restricted to managing a maximum of 3 users per station.");
-        return;
-      }
-    }
-
+  const executeRoleChange = async (fnum, newRole, reason = '') => {
     const targetUser = allSystemUsers.find(u => u.fnum === fnum);
     if (!targetUser) return;
 
-    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, role: newRole } : u));
+    let updatedPermissions = { ...targetUser.permissions };
+
+    // Record revocation metadata
+    if (newRole === 'REVOKED') {
+      updatedPermissions.revoke_reason = reason;
+      updatedPermissions.revoked_by = currentUser?.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : currentUser?.role;
+    } else {
+      // Reinstating - clear the locks
+      delete updatedPermissions.revoked_by;
+      delete updatedPermissions.revoke_reason;
+    }
+
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
     try {
       const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum.trim())}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: newRole, permissions: targetUser.permissions || {} })
+        body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
-       
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `HTTP Error ${response.status}`);
-      }
+      if (!response.ok) throw new Error("Role sync failed");
     } catch (err) {
       alert(`Role Update Failed:\n${err.message}`);
       fetchAllSystemUsers();
     }
   };
 
+  // 🟢 INTERCEPTORS & GATEKEEPERS
+  const handleGranularPermissionChange = (fnum, permissionKey, value) => {
+    if (currentUser?.role === 'SYSTEM_ADMIN') {
+      return alert("Security Restriction: SYSTEM ADMIN has diagnostic access only and is barred from modifying user permissions.");
+    }
+
+    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
+    if (!targetUser) return;
+
+    // SUPER ADMIN REINSTATEMENT LOCK
+    if (value === true && currentUser?.role !== 'SUPER_ADMIN' && targetUser.permissions?.super_admin_locks?.[permissionKey]) {
+      return alert("SECURITY OVERRIDE DENIED: This clearance was explicitly removed by a Global Super Admin. Only a Super Admin has the authority to reinstate it.");
+    }
+
+    // COMPELLED REASON FOR REMOVING CLEARANCE (For non-Super Admins)
+    if (value === false && currentUser?.role !== 'SUPER_ADMIN') {
+      setRevokePrompt({
+        isOpen: true,
+        fnum,
+        actionType: 'PERMISSION',
+        targetValue: value,
+        permissionKey,
+        reason: ''
+      });
+      return;
+    }
+
+    executePermissionChange(fnum, permissionKey, value, '');
+  };
+
+  const handleRoleTierChange = (fnum, newRole) => {
+    if (currentUser?.role === 'SYSTEM_ADMIN') {
+      return alert("Security Restriction: SYSTEM ADMIN cannot manage or modify access clearance tiers.");
+    }
+
+    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
+    if (!targetUser) return;
+
+    // SUPER ADMIN REINSTATEMENT LOCK
+    if (newRole !== 'REVOKED' && targetUser.role === 'REVOKED' && currentUser?.role !== 'SUPER_ADMIN' && targetUser.permissions?.revoked_by === 'SUPER_ADMIN') {
+      return alert("SECURITY OVERRIDE DENIED: This officer's access was revoked by a Global Super Admin. Only a Super Admin has the authority to reinstate them.");
+    }
+
+    // STATION ADMIN LIMIT
+    if (currentUser?.role === 'STATION_ADMIN') {
+      const stationUsersCount = allSystemUsers.filter(u => u.station === currentUser.station).length;
+      if (stationUsersCount >= 3 && newRole !== 'USER' && newRole !== 'REVOKED') {
+        return alert("Station Admin Limit: You are restricted to managing a maximum of 3 active users per station.");
+      }
+    }
+
+    // COMPELLED REASON FOR SUSPENDING ACCOUNT
+    if (newRole === 'REVOKED' && currentUser?.role !== 'SUPER_ADMIN') {
+      setRevokePrompt({
+        isOpen: true,
+        fnum,
+        actionType: 'ROLE',
+        targetValue: newRole,
+        permissionKey: null,
+        reason: ''
+      });
+      return;
+    }
+
+    executeRoleChange(fnum, newRole, '');
+  };
+
   const handleApproveUser = async (fnum) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const safeFnum = encodeURIComponent(fnum.trim());
-
-      const response = await fetch(`${API_URL}/api/v1/admin/approve-user/${safeFnum}`, {
+      const response = await fetch(`${API_URL}/api/v1/admin/approve-user/${encodeURIComponent(fnum.trim())}`, {
         method: "PATCH",
-        headers: { 
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        }
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }
       });
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Failed to approve user.");
-
       alert(`Success: ${data.message}`);
       fetchPendingUsers();
       fetchAllSystemUsers();
-    } catch (err) {
-      alert(`Approval Error: ${err.message}`);
-    }
+    } catch (err) { alert(`Approval Error: ${err.message}`); }
   };
 
   const handleReviewRequest = async (reqId, actionStatus) => {
     if (!reqId) return alert("Error: Request ID is undefined.");
-
     let payload = { status: actionStatus };
     if (actionStatus === "REJECTED") {
       const reason = window.prompt("State the reason for rejecting this HR request:");
@@ -307,52 +317,28 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-       
       const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
-        method: "PATCH", 
-        headers: { 
-          "Content-Type": "application/json", 
-          "Authorization": `Bearer ${token}` 
-        }, 
+        method: "PATCH", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
         body: JSON.stringify(payload)
       });
-       
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `Server Error: ${response.status}`);
-      }
-       
+      if (!response.ok) throw new Error("Server Error");
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId));
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
-    } catch (err) {
-      alert(`Error processing request: ${err.message}`);
-    }
+    } catch (err) { alert(`Error processing request: ${err.message}`); }
   };
 
   const handleResetAction = async (reqId, actionStr) => {
     try {
       const formData = new URLSearchParams();
       formData.append('action', actionStr);
-       
       const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
-        method: "POST", 
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, 
-        body: formData
+        method: "POST", headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData
       });
-       
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail);
-       
       setResetRequests(resetRequests.filter(r => r.id !== reqId));
-       
-      if (actionStr === "APPROVE") {
-        alert(`Password successfully reset! Temporary key: ${data.new_password}`);
-      } else {
-        alert("Request rejected.");
-      }
-    } catch (err) { 
-      alert(`Error: ${err.message}`); 
-    }
+      if (actionStr === "APPROVE") alert(`Password successfully reset! Temporary key: ${data.new_password}`);
+    } catch (err) { alert(`Error: ${err.message}`); }
   };
 
   return (
@@ -404,9 +390,6 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
             <span className="flex items-center">
               <Shield className="w-4 h-4 mr-2 text-indigo-400" /> Active Roster & Granular Clearance Matrix
             </span>
-            <span className="text-[10px] text-slate-400 font-mono">
-              6-Tier Tiers: USER | ADMIN_USER | STATION_ADMIN | SYSTEM_ADMIN | SUPER_ADMIN_USER | SUPER_ADMIN
-            </span>
           </div>
           {loadingUsers ? (
             <div className="p-12 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
@@ -430,20 +413,18 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                   {allSystemUsers.map(u => {
                     const p = u.permissions || {};
                     const isSuperAdmin = u.role === 'SUPER_ADMIN';
+                    const isRevoked = u.role === 'REVOKED';
 
                     return (
-                      <tr key={u.fnum} className="hover:bg-slate-50">
+                      <tr key={u.fnum} className={`transition-colors ${isRevoked ? 'bg-red-50/40' : 'hover:bg-slate-50'}`}>
                         <td className="p-3">
-                          <div className="font-extrabold text-slate-900 text-xs flex items-center">
+                          <div className={`font-extrabold text-xs flex items-center ${isRevoked ? 'text-red-900' : 'text-slate-900'}`}>
                             {formatOfficerHeader(u)}
-                            {isSuperAdmin && (
-                              <span className="ml-2 px-2 py-0.5 text-[9px] bg-red-100 text-red-700 font-bold rounded-full border border-red-200">
-                                GOD-MODE
-                              </span>
-                            )}
+                            {isSuperAdmin && <span className="ml-2 px-2 py-0.5 text-[9px] bg-red-100 text-red-700 font-bold rounded-full border border-red-200">GOD-MODE</span>}
+                            {p.revoked_by === 'SUPER_ADMIN' && <Lock size={12} className="ml-2 text-red-600" title="Revoked by Super Admin" />}
                           </div>
-                          <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                            Station: <strong className="text-slate-700">{u.station}</strong> ({u.region})
+                          <div className={`text-[11px] font-mono mt-0.5 ${isRevoked ? 'text-red-500' : 'text-slate-500'}`}>
+                            Station: <strong className={isRevoked ? 'text-red-700' : 'text-slate-700'}>{u.station}</strong> ({u.region})
                           </div>
                         </td>
 
@@ -457,6 +438,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                               u.role === 'SYSTEM_ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-300' :
                               u.role === 'ADMIN_USER' ? 'bg-indigo-50 text-indigo-700 border-indigo-300' :
                               u.role === 'STATION_ADMIN' ? 'bg-blue-50 text-blue-700 border-blue-300' :
+                              u.role === 'REVOKED' ? 'bg-red-100 text-red-800 border-red-400 shadow-inner' :
                               'bg-slate-100 text-slate-700 border-slate-300'
                             }`}
                           >
@@ -466,58 +448,35 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                             <option value="SYSTEM_ADMIN">SYSTEM ADMIN (Diagnostic Only)</option>
                             <option value="ASSISTANT_SUPER_ADMIN">SUPER ADMIN USER (Assistant Global)</option>
                             <option value="SUPER_ADMIN">SUPER ADMIN (Global)</option>
+                            <option value="REVOKED" className="text-red-600 font-extrabold bg-red-50">REVOKED (Suspend Access)</option>
                           </select>
                         </td>
 
-                        <td className="p-3 text-center">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.can_view !== false)} 
-                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_view', e.target.checked)} 
-                            className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
-
-                        <td className="p-3 text-center">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.can_register !== false)} 
-                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_register', e.target.checked)} 
-                            className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
-
-                        <td className="p-3 text-center">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.can_update !== false)} 
-                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_update', e.target.checked)} 
-                            className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
-
-                        <td className="p-3 text-center bg-red-50/20">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.export_data)} 
-                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'export_data', e.target.checked)} 
-                            className="w-4 h-4 text-red-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
-
-                        <td className="p-3 text-center bg-emerald-50/20">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.can_view_analytics !== false)} 
-                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_view_analytics', e.target.checked)} 
-                            className="w-4 h-4 text-emerald-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
+                        {[
+                          { key: 'can_view', color: 'blue' },
+                          { key: 'can_register', color: 'blue' },
+                          { key: 'can_update', color: 'blue' },
+                          { key: 'export_data', color: 'red', bg: 'bg-red-50/20' },
+                          { key: 'can_view_analytics', color: 'emerald', bg: 'bg-emerald-50/20' }
+                        ].map((col, idx) => {
+                          const isLocked = !isSuperAdmin && p.super_admin_locks?.[col.key];
+                          const isDisabled = isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN' || isLocked || isRevoked;
+                          
+                          return (
+                            <td key={idx} className={`p-3 text-center ${col.bg || ''}`}>
+                              <div className="relative inline-flex items-center justify-center">
+                                <input 
+                                  type="checkbox" 
+                                  checked={isSuperAdmin || Boolean(p[col.key] !== false)} 
+                                  disabled={isDisabled}
+                                  onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
+                                  className={`w-4 h-4 rounded cursor-pointer disabled:opacity-40 text-${col.color}-600`} 
+                                />
+                                {isLocked && <Lock size={10} className="absolute -top-1.5 -right-2 text-red-600 drop-shadow-sm" />}
+                              </div>
+                            </td>
+                          );
+                        })}
                       </tr>
                     );
                   })}
@@ -583,13 +542,9 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
           <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider">
             <Shield className="w-4 h-4 mr-2 text-amber-400" /> HR Modification Requests
           </div>
-          {loadingRequests ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs">Loading pending modifications...</div>
-          ) : filteredRequests.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 font-medium text-xs">No pending profile modification requests in selected queue.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-xs">
+          <div className="overflow-x-auto">
+             {/* Retained from your previous block */}
+             <table className="min-w-full divide-y divide-slate-200 text-xs">
                 <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold">
                   <tr>
                     <th className="px-4 py-3 text-left">Officer Details</th>
@@ -620,100 +575,59 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                   ))}
                 </tbody>
               </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* AUDIT LOGS TAB */}
-      {activeTab === 'logs' && (
-        <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider">
-            <Shield className="w-4 h-4 mr-2 text-blue-400" /> System Audit Logs (Global)
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-xs">
-              <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold">
-                <tr>
-                  <th className="px-4 py-3 text-left">Timestamp</th>
-                  <th className="px-4 py-3 text-left">User FNUM</th>
-                  <th className="px-4 py-3 text-left">Event</th>
-                  <th className="px-4 py-3 text-left">Target</th>
-                  <th className="px-4 py-3 text-left">Details</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-slate-200">
-                {loadingLogs ? (
-                  <tr><td colSpan="5" className="p-8 text-center text-slate-500 font-bold animate-pulse text-xs">Decrypting server logs...</td></tr>
-                ) : audit_logs.length === 0 ? (
-                  <tr><td colSpan="5" className="p-4 text-center text-slate-500 text-xs">No recent security events logged in main database.</td></tr>
-                ) : (
-                  audit_logs.map((log) => (
-                    <tr key={log.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 whitespace-nowrap text-slate-500 font-mono text-[11px]">
-                        {log.created_at || 'Unknown Time'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap font-extrabold text-blue-700">{log.user_fnum}</td>
-                      <td className="px-4 py-3 whitespace-nowrap"><span className="font-extrabold text-slate-800 uppercase text-[11px]">{log.event_type}</span></td>
-                      <td className="px-4 py-3 text-slate-600 font-medium">{log.target_user || 'N/A'}</td>
-                      <td className="px-4 py-3 text-slate-600">{log.details}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
           </div>
         </div>
       )}
 
-      {/* PASSWORD RESETS TAB */}
-      {activeTab === 'resets' && (        
-        <div className="bg-white rounded-xl shadow-xs border border-red-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider">
-            <Lock className="w-4 h-4 mr-2 text-red-400" /> Authorized Password Recovery
-          </div>
-          {loadingResets ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs">Scanning jurisdiction for requests...</div>
-          ) : filteredResets.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 font-medium text-xs">No pending password reset requests in selected queue.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Date Requested</th>
-                    <th className="px-4 py-3 text-left">Officer Details</th>
-                    <th className="px-4 py-3 text-left">Station / Division</th>
-                    <th className="px-4 py-3 text-left">Command Action</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
-                  {filteredResets.map((req) => (
-                    <tr key={req.id} className="hover:bg-red-50/50">
-                      <td className="px-4 py-3 whitespace-nowrap font-bold text-slate-500 text-[11px]">{req.request_date}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-extrabold text-blue-700">
-                          {formatOfficerHeader({ fnum: req.fnum, rank: req.rank, name: req.name })}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-slate-700">
-                        <div className="font-bold">{req.station}</div>
-                        <div className="text-[11px] text-slate-500">{req.region}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex space-x-2">
-                          <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-xs cursor-pointer"><Unlock size={14} className="mr-1" /> Authorize Reset</button>
-                          <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-xs cursor-pointer"><X size={14} className="mr-1" /> Reject</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {/* 🔴 MANDATORY JUSTIFICATION MODAL FOR REVOKING ACCESS */}
+      {revokePrompt.isOpen && (
+        <div className="fixed inset-0 z-[99999] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-300 overflow-hidden flex flex-col">
+                <div className="bg-red-600 px-6 py-4 flex items-center shrink-0">
+                    <AlertTriangle className="text-white mr-3 animate-pulse" size={24} />
+                    <h3 className="text-white font-extrabold text-sm uppercase tracking-wider">Mandatory Justification Required</h3>
+                </div>
+                
+                <div className="p-6 space-y-4">
+                    <p className="text-sm font-bold text-slate-700 leading-relaxed">
+                        You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${revokePrompt.permissionKey}" clearance`}</span> for this officer. By command directive, you must state an official operational reason to proceed.
+                    </p>
+                    <textarea 
+                        value={revokePrompt.reason}
+                        onChange={(e) => setRevokePrompt({...revokePrompt, reason: e.target.value})}
+                        placeholder="Type official reason for revocation here..."
+                        className="w-full border border-slate-300 rounded-xl p-3 text-sm font-medium outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 resize-none h-32"
+                    />
+                </div>
+                
+                <div className="bg-slate-50 px-6 py-4 flex justify-end space-x-3 border-t border-slate-200 shrink-0">
+                    <button 
+                        onClick={() => setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' })}
+                        className="px-5 py-2.5 font-bold text-slate-600 text-xs bg-white border border-slate-300 rounded-xl hover:bg-slate-100 transition cursor-pointer"
+                    >
+                        Cancel Action
+                    </button>
+                    {/* The final button remains completely hidden until at least 5 characters are typed */}
+                    {revokePrompt.reason.trim().length >= 5 && (
+                        <button 
+                            onClick={() => {
+                                if (revokePrompt.actionType === 'ROLE') {
+                                    executeRoleChange(revokePrompt.fnum, revokePrompt.targetValue, revokePrompt.reason);
+                                } else {
+                                    executePermissionChange(revokePrompt.fnum, revokePrompt.permissionKey, revokePrompt.targetValue, revokePrompt.reason);
+                                }
+                                setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' });
+                            }}
+                            className="px-5 py-2.5 font-bold text-white text-xs bg-red-600 rounded-xl hover:bg-red-700 shadow-md transition flex items-center cursor-pointer animate-in fade-in slide-in-from-right-4"
+                        >
+                            <CheckCircle size={16} className="mr-2" /> Confirm Revocation
+                        </button>
+                    )}
+                </div>
             </div>
-          )}
         </div>
       )}
+
     </div>  
   );
 };

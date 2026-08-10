@@ -2426,8 +2426,14 @@ async def upload_word_report(
         detected_region = current_user.region or "KMP GENERAL"
         
         if doc_type == "weekly_report":
-            doc.insert_paragraph_before(f"UGANDA POLICE FORCE - {detected_region}")
-            doc.insert_paragraph_before(f"PROCESSED DATE: {datetime.now().strftime('%Y-%m-%d')}")
+            # 🟢 FIXED: Target the first paragraph to insert headers, or add them if document is empty
+            if len(doc.paragraphs) > 0:
+                first_paragraph = doc.paragraphs[0]
+                first_paragraph.insert_paragraph_before(f"UGANDA POLICE FORCE - {detected_region}")
+                first_paragraph.insert_paragraph_before(f"PROCESSED DATE: {datetime.now().strftime('%Y-%m-%d')}")
+            else:
+                doc.add_paragraph(f"UGANDA POLICE FORCE - {detected_region}")
+                doc.add_paragraph(f"PROCESSED DATE: {datetime.now().strftime('%Y-%m-%d')}")
             
             for para in doc.paragraphs:
                 para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY

@@ -31,9 +31,24 @@ const SessionExpiredModal = () => {
         
         <button
           type="button"
-          onClick={handleForceLogout}
-          className="w-full bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold py-4 px-6 rounded-xl transition-all shadow-lg uppercase tracking-wider text-sm cursor-pointer select-auto"
-          style={{ position: 'relative', zIndex: 9999999, pointerEvents: 'auto' }}
+          onPointerDown={(e) => {
+            // 1. Immediately stop all CSS/React event bubbling
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // 2. Obliterate the session
+            localStorage.removeItem('kmp_authToken');
+            sessionStorage.clear();
+            
+            // 3. Force instant redirect (bypassing React entirely)
+            window.location.replace('/'); 
+          }}
+          className="w-full bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold py-4 px-6 rounded-xl transition-none shadow-lg uppercase tracking-wider text-sm cursor-pointer"
+          style={{ 
+            position: 'relative', 
+            zIndex: 2147483647, /* Maximum possible z-index in browsers */
+            pointerEvents: 'auto' 
+          }}
         >
           Acknowledge & Return to Login
         </button>
