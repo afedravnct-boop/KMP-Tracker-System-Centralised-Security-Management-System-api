@@ -3871,7 +3871,7 @@ const handlePhotoUpload = async (e) => {
 
 
 // ====================================================================
-// --- UNIFIED GLOBAL WORKSPACE SECURITY & SESSION TIMEOUT CURTAIN ---
+// --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN & SESSION TIMEOUT COMPONENT ---
 // ====================================================================
 const WorkspaceSecurityCurtain = () => {
   const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
@@ -3886,59 +3886,61 @@ const WorkspaceSecurityCurtain = () => {
   const idleTimerRef = useRef(null);
   const countdownTimerRef = useRef(null);
 
-  // 🟢 ROBUST ACTIVITY MONITORING ENGINE
+  // 🟢 1. STANDARD IDLE GUARD CURTAIN TIMER (1 Minute of inactivity)
   useEffect(() => {
-    const IDLE_TIMEOUT_MS = 60000 * 5; // 5 Minutes of true inactivity before warning
+    const IDLE_TIMEOUT_MS = 60000; // 1 Minute
 
-    const resetIdleTimers = () => {
-      if (showIdleWarning || isTimedOut) return;
-
+    const handleUserActivity = () => {
+      if (isReadingMode || showIdleWarning || isTimedOut) return;
       setIsWorkspaceIdle(false);
-      setShowIdleWarning(false);
-      setIdleCountdown(60);
-      setIsTimedOut(false);
-
-      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-
+      clearTimeout(idleTimerRef.current);
       idleTimerRef.current = setTimeout(() => {
-        if (!isReadingMode) {
-          setShowIdleWarning(true);
-          setIsWorkspaceIdle(true);
-          
-          let secondsLeft = 60;
-          setIdleCountdown(secondsLeft);
-          
-          countdownTimerRef.current = setInterval(() => {
-            secondsLeft -= 1;
-            setIdleCountdown(secondsLeft);
-            
-            if (secondsLeft <= 0) {
-              clearInterval(countdownTimerRef.current);
-              setIsTimedOut(true);
-            }
-          }, 1000);
-        }
+        if (!isReadingMode && !showIdleWarning) setIsWorkspaceIdle(true);
       }, IDLE_TIMEOUT_MS);
     };
 
-    const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart', 'click'];
-    events.forEach(event => {
-      window.addEventListener(event, resetIdleTimers, true);
-    });
+    handleUserActivity();
 
-    resetIdleTimers();
+    const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart', 'click'];
+    events.forEach(event => window.addEventListener(event, handleUserActivity, true));
 
     return () => {
-      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-      events.forEach(event => {
-        window.removeEventListener(event, resetIdleTimers, true);
-      });
+      clearTimeout(idleTimerRef.current);
+      events.forEach(event => window.removeEventListener(event, handleUserActivity, true));
     };
   }, [isReadingMode, showIdleWarning, isTimedOut]);
 
-  // If user is active and no timeout/warning is triggered, show only the discreet toggle
+  // 🟢 2. SESSION TIMEOUT WARNING TIMER (e.g., 4 Minutes of total inactivity before popup)
+  useEffect(() => {
+    const SESSION_TIMEOUT_MS = 60000 * 4; // 4 Minutes before warning popup
+
+    const sessionTimer = setTimeout(() => {
+      if (!isReadingMode && !isTimedOut) {
+        setShowIdleWarning(true);
+        setIsWorkspaceIdle(true); // Bring up curtain background
+        setIdleCountdown(60);
+
+        // Active ticking countdown
+        countdownTimerRef.current = setInterval(() => {
+          setIdleCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(countdownTimerRef.current);
+              setIsTimedOut(true);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      }
+    }, SESSION_TIMEOUT_MS);
+
+    return () => {
+      clearTimeout(sessionTimer);
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    };
+  }, [isReadingMode, isTimedOut]);
+
+  // Discreet Toggle when fully active
   if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
     return (
       <div className="fixed bottom-6 right-6 z-[99990]">
@@ -4009,58 +4011,61 @@ const WorkspaceSecurityCurtain = () => {
         </div>
       </div>
 
-      {/* Foreground Interactive Session Timeout Box */}
-      <div className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto">
-        {isTimedOut ? (
-          <div>
-            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
-              <AlertTriangle className="w-8 h-8 text-red-600" />
+      {/* Foreground Interactive Modal Box (Only shows when warning or timeout hits) */}
+      {showIdleWarning && (
+        <div className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto">
+          {isTimedOut ? (
+            <div>
+              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
+                <AlertTriangle className="w-8 h-8 text-red-600" />
+              </div>
+              <h4 className="text-xl font-extrabold text-slate-900 mb-2">Session Expired Due to Inactivity</h4>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
+                Your security token has expired because the system was left unattended. You have been securely logged out.
+              </p>
+              <button 
+                type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  localStorage.removeItem('kmp_authToken');
+                  localStorage.removeItem('kmp_currentUser');
+                  localStorage.removeItem('kmp_currentPage');
+                  sessionStorage.clear();
+                  window.location.replace('/');
+                }}
+                className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer"
+              >
+                Acknowledge & Return to Login
+              </button>
             </div>
-            <h4 className="text-xl font-extrabold text-slate-900 mb-2">Session Expired Due to Inactivity</h4>
-            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
-              Your security token has expired because the system was left unattended. You have been securely logged out.
-            </p>
-            <button 
-              type="button"
-              onPointerDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                localStorage.removeItem('kmp_authToken');
-                localStorage.removeItem('kmp_currentUser');
-                localStorage.removeItem('kmp_currentPage');
-                sessionStorage.clear();
-                window.location.replace('/');
-              }}
-              className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer"
-            >
-              Acknowledge & Return to Login
-            </button>
-          </div>
-        ) : (
-          <div>
-            <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
-              <AlertTriangle className="w-8 h-8 text-amber-600" />
+          ) : (
+            <div>
+              <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
+                <AlertTriangle className="w-8 h-8 text-amber-600" />
+              </div>
+              <h4 className="text-xl font-extrabold text-slate-900 mb-2">Session Timeout Warning</h4>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
+                Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Click below to continue working.
+              </p>
+              <button 
+                type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsWorkspaceIdle(false);
+                  setShowIdleWarning(false);
+                  setIdleCountdown(60);
+                  if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                }}
+                className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer"
+              >
+                Continue Session
+              </button>
             </div>
-            <h4 className="text-xl font-extrabold text-slate-900 mb-2">Session Timeout Warning</h4>
-            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
-              Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Click below to continue working.
-            </p>
-            <button 
-              type="button"
-              onPointerDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setIsWorkspaceIdle(false);
-                setShowIdleWarning(false);
-                setIdleCountdown(60);
-              }}
-              className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer"
-            >
-              Continue Session
-            </button>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
