@@ -659,7 +659,7 @@ def request_password_reset(fnum: str = Form(), db: Session = Depends(get_db)):
     )
     db.add(new_req)
     db.commit()
-    return {"status": "success", "message": "Password reset requested. Contact your commanding officer."}
+    return {"status": "success", "message": "Password reset requested. Contact your system admin."}
 
 @app.get("/api/v1/admin/reset-requests")
 def get_password_reset_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
