@@ -620,23 +620,33 @@ const filteredReports = useMemo(() => {
   }, [reports, currentUser, updateSearch]);
 
 const metrics = useMemo(() => {
-    // 🟢 Utilize the centralized grand totals utility matching filteredReports
-    const grandTotals = calculateGrandTotals(filteredReports, currentUser, filterRegion, filterStation);
+    const stationCellPop = {};
+    const todayStr = new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
+    let hasLockupUpdateToday = false;
+    let hqGrandTotalToday = null;
     
-    // Check if any lock-up entry exists in the current filtered dataset
-    const hasLockupRecords = filteredReports.some(r => 
-      (r.daily_lock_up !== undefined && r.daily_lock_up !== null && r.daily_lock_up !== '') || 
-      r.is_hq_general_total || 
-      (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')
-    );
+    filteredReports.forEach(r => {
+       if (r.date === todayStr) {
+           if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) {
+               hqGrandTotalToday = parseInt(r.daily_lock_up) || parseInt(r.suspects) || 0;
+               hasLockupUpdateToday = true;
+           } else if (stationCellPop[r.station] === undefined && r.daily_lock_up !== undefined && r.daily_lock_up !== null) {
+               stationCellPop[r.station] = parseInt(r.daily_lock_up) || 0;
+               hasLockupUpdateToday = true;
+           }
+       }
+    });
+    
+    const totalCellPop = hqGrandTotalToday !== null 
+      ? hqGrandTotalToday 
+      : Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
 
-    const lockupDisplay = hasLockupRecords
-      ? grandTotals.displayTotal
+    const lockupDisplay = hasLockupUpdateToday 
+      ? totalCellPop 
       : <span className="text-[14px] leading-none tracking-normal text-red-600 bg-red-50 px-3 py-1.5 rounded-md border border-red-200 shadow-inner animate-pulse whitespace-nowrap">
-          Pending Return
+          Pending Today
         </span>;
 
-    // ISOLATE STRICTLY CASE-LINKED SUSPECTS
     const totalCaseSuspects = filteredReports.reduce((sum, r) => {
       if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) {
         return sum; 
@@ -652,39 +662,7 @@ const metrics = useMemo(() => {
       sanctioned: filteredReports.filter(r => r.status === 'FORWARDED TO COURT').length,
       closed: filteredReports.filter(r => r.status === 'CLOSED / CONVICTED').length,
       adr: filteredReports.filter(r => r.status === 'ADR').length,
-      dataSourceTotals: grandTotals, // Exposes stationSum and hqTotal for your breakdown modal
       totalSuspects: totalCaseSuspects
-    };
-}, [filteredReports, currentUser, filterRegion, filterStation]);
-    
-    // If HQ logged a general fallback total for today, it overrides individual sum ups
-    const totalCellPop = hqGrandTotalToday !== null 
-      ? hqGrandTotalToday 
-      : Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
-
-    const lockupDisplay = hasLockupUpdateToday 
-      ? totalCellPop 
-      : <span className="text-[14px] leading-none tracking-normal text-red-600 bg-red-50 px-3 py-1.5 rounded-md border border-red-200 shadow-inner animate-pulse whitespace-nowrap">
-          Pending Today
-        </span>;
-
-    // 🟢 ISOLATE STRICTLY CASE-LINKED SUSPECTS (Omit general cell population & HQ grand total rows)
-    const totalCaseSuspects = filteredReports.reduce((sum, r) => {
-      if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) {
-        return sum; // Do not count general fallback rows towards case suspects
-      }
-      const suspectsList = r.suspectDetails || r.suspect_details || [];
-      return sum + suspectsList.length;
-    }, 0);
-
-    return {
-      totalLockup: lockupDisplay,
-      newCases: filteredReports.length,
-      active: filteredReports.filter(r => r.status === 'ACTIVE INVESTIGATION').length,
-      sanctioned: filteredReports.filter(r => r.status === 'FORWARDED TO COURT').length,
-      closed: filteredReports.filter(r => r.status === 'CLOSED / CONVICTED').length,
-      adr: filteredReports.filter(r => r.status === 'ADR').length,
-      totalSuspects: totalCaseSuspects // 🟢 Bound to the correct case-specific count
     };
   }, [filteredReports]);
 
