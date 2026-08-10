@@ -3888,12 +3888,12 @@ const WorkspaceSecurityCurtain = () => {
 
   // 🟢 ROBUST ACTIVITY MONITORING ENGINE
   useEffect(() => {
-    const IDLE_TIMEOUT_MS = 60000 * 5; // 5 Minutes of true inactivity before warning (adjust as needed)
+    const IDLE_TIMEOUT_MS = 60000 * 5; // 5 Minutes of true inactivity before warning
 
     const resetIdleTimers = () => {
-      if (isReadingMode || isTimedOut) return;
+      // If warning or timeout is active, don't clear automatically on background mouse jitter unless explicit action is taken
+      if (showIdleWarning || isTimedOut) return;
 
-      // 1. Clear any existing idle/countdown states on user movement
       setIsWorkspaceIdle(false);
       setShowIdleWarning(false);
       setIdleCountdown(60);
@@ -3902,13 +3902,11 @@ const WorkspaceSecurityCurtain = () => {
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
       if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
 
-      // 2. Set the main inactivity threshold
       idleTimerRef.current = setTimeout(() => {
         if (!isReadingMode) {
           setShowIdleWarning(true);
           setIsWorkspaceIdle(true);
           
-          // Start the 60-second countdown once warning pops up
           let secondsLeft = 60;
           setIdleCountdown(secondsLeft);
           
@@ -3918,20 +3916,18 @@ const WorkspaceSecurityCurtain = () => {
             
             if (secondsLeft <= 0) {
               clearInterval(countdownTimerRef.current);
-              setIsTimedOut(true); // Triggers the final session expired screen
+              setIsTimedOut(true);
             }
           }, 1000);
         }
       }, IDLE_TIMEOUT_MS);
     };
 
-    // Attach listeners globally with capture phase (`true`) to catch all user inputs
     const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart', 'click'];
     events.forEach(event => {
       window.addEventListener(event, resetIdleTimers, true);
     });
 
-    // Initialize timer on mount
     resetIdleTimers();
 
     return () => {
@@ -3941,7 +3937,7 @@ const WorkspaceSecurityCurtain = () => {
         window.removeEventListener(event, resetIdleTimers, true);
       });
     };
-  }, [isReadingMode, isTimedOut]);
+  }, [isReadingMode, showIdleWarning, isTimedOut]);
 
   if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
     return (
@@ -3996,6 +3992,8 @@ const WorkspaceSecurityCurtain = () => {
 
         <div className="idle-center-container relative z-20 flex items-center justify-center mx-auto my-auto" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
           <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
+          
+          {/* 🟢 RESTORED 3D SPHERICAL EQUATORIAL TEXT RING */}
           <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
             {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
               <span 

@@ -154,7 +154,7 @@
   opacity: 0.08;
 }
 
-/* 65vmin Radial Sphere Canvas */
+/* 65vmin Radial Sphere Canvas with 3D Perspective */
 .idle-center-container {
   position: relative;
   width: 65vmin;
@@ -165,6 +165,8 @@
   border-radius: 50%;
   box-shadow: 0 0 50px rgba(14, 165, 233, 0.15), inset 0 0 50px rgba(14, 165, 233, 0.15);
   background: radial-gradient(circle, rgba(14, 165, 233, 0.05) 0%, transparent 60%);
+  perspective: 1200px;
+  transform-style: preserve-3d;
 }
 
 /* Flattened spin so text is perfectly upright and readable */
