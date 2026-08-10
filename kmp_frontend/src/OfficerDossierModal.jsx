@@ -4,32 +4,36 @@ import { X } from 'lucide-react';
 const OfficerDossierModal = ({ officer, onClose }) => {
   if (!officer) return null;
 
-  // Split officer attributes cleanly into two vertical columns for executive display
+  // COLUMN 1: Personal Details, Identifiers & Contact
   const leftAttributes = [
+    { label: "System S/N", value: officer.sn || officer.id },
     { label: "Force Number (F/NO)", value: officer.fnum || officer.f_num },
     { label: "IPPS Number", value: officer.ipps },
+    { label: "National ID Number (NIN)", value: officer.nin },
+    { label: "Tax Identification (TIN)", value: officer.tin },
     { label: "Full Name", value: officer.name },
-    { label: "Rank", value: officer.rank },
     { label: "Sex", value: officer.sex },
-    { label: "Official Position / Title", value: officer.position },
-    { label: "Command Region", value: officer.region },
-    { label: "Duty Station", value: officer.station },
-    { label: "Division / Section", value: officer.section || officer.dir },
-    { label: "Home District", value: officer.homedist || officer.home_dist || officer.district },
+    { label: "Date of Birth (D.O.B)", value: officer.dob },
     { label: "Tribe / Nationality", value: officer.tribe },
+    { label: "Home District", value: officer.homedist || officer.home_dist },
+    { label: "Contact Telephone", value: officer.contact || officer.phone },
+    { label: "Educational Level", value: officer.educlevel || officer.educ_level },
   ];
 
+  // COLUMN 2: Service Record, Deployment & Financials
   const rightAttributes = [
-    { label: "Date of Birth (D.O.B)", value: officer.dob },
+    { label: "Rank", value: officer.rank },
+    { label: "Official Position / Title", value: officer.position },
+    { label: "Directorate", value: officer.dir },
+    { label: "Command Region", value: officer.region },
+    { label: "Deployment District", value: officer.district },
+    { label: "Duty Station", value: officer.station },
+    { label: "Division / Section", value: officer.section },
     { label: "Date of Enlistment (D.O.E)", value: officer.doe },
     { label: "Date of Posting (D.O.P)", value: officer.dopost || officer.do_post || officer.dop },
     { label: "Date of Promotion (D.O. PRO)", value: officer.dopro || officer.do_pro },
-    { label: "Contact Telephone", value: officer.contact || officer.phone },
-    { label: "Educational Level", value: officer.educlevel || officer.educ_level },
-    { label: "Bank Account Number", value: officer.accno || officer.acc_no },
     { label: "Bank & Branch", value: officer.bankbranch || officer.bank_branch },
-    { label: "Tax Identification (TIN)", value: officer.tin },
-    { label: "National ID Number (NIN)", value: officer.nin },
+    { label: "Bank Account Number", value: officer.accno || officer.acc_no },
     { label: "Deployment Status", value: officer.status || "ACTIVE" },
   ];
 
@@ -68,10 +72,10 @@ const OfficerDossierModal = ({ officer, onClose }) => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             
-            {/* COLUMN 1: IDENTIFIERS & DEPLOYMENT */}
+            {/* COLUMN 1: IDENTIFIERS & DEMOGRAPHICS */}
             <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-3">
               <h4 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">
-                Primary Identifiers & Deployment
+                Personal Details & Identifiers
               </h4>
               <div className="space-y-2.5">
                 {leftAttributes.map((attr, idx) => (
@@ -83,10 +87,10 @@ const OfficerDossierModal = ({ officer, onClose }) => {
               </div>
             </div>
 
-            {/* COLUMN 2: SERVICE DATES & FINANCIALS */}
+            {/* COLUMN 2: SERVICE, DEPLOYMENT & FINANCIALS */}
             <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-3">
               <h4 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider border-b border-slate-100 pb-2">
-                Service Dates, Demographics & Financials
+                Service Record, Deployment & Financials
               </h4>
               <div className="space-y-2.5">
                 {rightAttributes.map((attr, idx) => (

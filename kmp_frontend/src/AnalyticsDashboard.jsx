@@ -22,6 +22,83 @@ const RANK_HIERARCHY = [
   "CPL", "L/CPL", "PC", "SPC"
 ];
 
+// Highly Specific Education Parser
+const parseEducationLevel = (rawVal) => {
+  if (!rawVal) return "UNEDUCATED / NOT SPECIFIED";
+  const str = String(rawVal).trim().toUpperCase();
+  
+  if (!str || str === 'NONE' || str === 'N/A' || str === 'NIL' || str === 'NO' || str === 'UNEDUCATED') {
+    return "UNEDUCATED";
+  }
+
+  // --- 1. BACHELORS / DEGREES (Qualification + Specific Course) ---
+  if (
+    str.includes("BACHELOR") || str.includes("DEGREE") || str.includes("B.A") || 
+    str.includes("B.SC") || str.includes("BSC") || str.includes("BED") || 
+    str.includes("LLB") || str.includes("BIT") || str.includes("BBA")
+  ) {
+    let course = str
+      .replace(/BACHELOR['’]?S?(\s+OF|\s+IN)?/g, '')
+      .replace(/DEGREE(\s+IN)?/g, '')
+      .replace(/B\.?SC\.?/g, 'SCIENCE')
+      .replace(/B\.?A\.?/g, 'ARTS')
+      .replace(/B\.?COM\.?/g, 'COMMERCE')
+      .replace(/B\.?I\.?T\.?/g, 'INFORMATION TECHNOLOGY')
+      .replace(/B\.?B\.?A\.?/g, 'BUSINESS ADMINISTRATION')
+      .replace(/L\.?L\.?B\.?/g, 'LAW')
+      .replace(/^[-:\s]+|[-:\s]+$/g, '')
+      .trim();
+
+    return course && course !== 'SCIENCE' && course !== 'ARTS'
+      ? `BACHELORS - ${course}`
+      : `BACHELORS (${str})`;
+  }
+
+  // --- 2. DIPLOMAS (Qualification + Specific Course) ---
+  if (str.includes("DIPLOMA") || str.includes("DIP.")) {
+    let course = str
+      .replace(/DIPLOMA(\s+IN)?/g, '')
+      .replace(/DIP\.?/g, '')
+      .replace(/^[-:\s]+|[-:\s]+$/g, '')
+      .trim();
+
+    return course ? `DIPLOMA - ${course}` : `DIPLOMA (${str})`;
+  }
+
+  // --- 3. CERTIFICATES (Qualification + Specific Course) ---
+  if (str.includes("CERTIFICATE") || str.includes("CERT.")) {
+    let course = str
+      .replace(/CERTIFICATE(\s+IN)?/g, '')
+      .replace(/CERT\.?/g, '')
+      .replace(/^[-:\s]+|[-:\s]+$/g, '')
+      .trim();
+
+    return course ? `CERTIFICATE - ${course}` : `CERTIFICATE (${str})`;
+  }
+
+  // --- 4. VOCATIONAL & HIGH SCHOOL STANDARDS ---
+  if (str.includes("UBTEB") || str.includes("VOCATIONAL") || str.includes("TECHNICAL")) return "UBTEB / TECHNICAL";
+  if (str.includes("UACE") || str.includes("A LEVEL") || str.includes("A-LEVEL") || str.includes("S.6") || str.includes("S6") || str.includes("SENIOR 6")) return "UACE (A-LEVEL)";
+  if (str.includes("UCE") || str.includes("O LEVEL") || str.includes("O-LEVEL") || str.includes("S.4") || str.includes("S4") || str.includes("SENIOR 4")) return "UCE (O-LEVEL)";
+  
+  // --- 5. LOWER SECONDARY LEVELS ---
+  if (str.includes("S.3") || str.includes("S3") || str.includes("SENIOR 3")) return "S.3";
+  if (str.includes("S.2") || str.includes("S2") || str.includes("SENIOR 2")) return "S.2";
+  if (str.includes("S.1") || str.includes("S1") || str.includes("SENIOR 1")) return "S.1";
+
+  // --- 6. PRIMARY SCHOOL LEVELS ---
+  if (str.includes("P.7") || str.includes("P7") || str.includes("PLE") || str.includes("PRIMARY 7")) return "P.7 (PLE)";
+  if (str.includes("P.6") || str.includes("P6") || str.includes("PRIMARY 6")) return "P.6";
+  if (str.includes("P.5") || str.includes("P5") || str.includes("PRIMARY 5")) return "P.5";
+  if (str.includes("P.4") || str.includes("P4") || str.includes("PRIMARY 4")) return "P.4";
+  if (str.includes("P.3") || str.includes("P3") || str.includes("PRIMARY 3")) return "P.3";
+  if (str.includes("P.2") || str.includes("P2") || str.includes("PRIMARY 2")) return "P.2";
+  if (str.includes("P.1") || str.includes("P1") || str.includes("PRIMARY 1")) return "P.1";
+
+  // Fallback for custom unmapped qualifications
+  return str;
+};
+
 const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStories = [], operationalStats = [], currentUser }) => {
   const [activeDomain, setActiveDomain] = useState('CRIME');
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
@@ -55,7 +132,10 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       else if (activeDomain === 'PERSONNEL') {
         if (metricCategory === 'RANK') key = (item.rank || 'UNRANKED').toUpperCase().trim();
         else if (metricCategory === 'UNIT' || metricCategory === 'STATION') key = (item.station || 'UNKNOWN').toUpperCase();
-        else if (metricCategory === 'DISTRICT') key = (item.homedist || item.home_dist || 'UNKNOWN').toUpperCase();
+        // 🟢 NEW: Home District and Bank & Branch added to logic here
+        else if (metricCategory === 'DISTRICT') key = (item.homedist || item.home_dist || 'UNSPECIFIED DISTRICT').toUpperCase().trim();
+        else if (metricCategory === 'BANK_BRANCH') key = (item.bankbranch || item.bank_branch || 'UNSPECIFIED BANK / BRANCH').toUpperCase().trim();
+        else if (metricCategory === 'EDUCATION') key = parseEducationLevel(item.educlevel || item.educ_level); 
         else if (metricCategory === 'AGE') {
           const dob = item.dob;
           if (dob) {
@@ -238,11 +318,11 @@ const handleExportExcel = async () => {
       const wsMeta = XLSX.utils.aoa_to_sheet(metaSheetData);
       XLSX.utils.book_append_sheet(wb, wsMeta, "Forensic Audit Stamp");
 
-      // 🟢 2. Crime Registry Sheet (Chronological S/N + NeonDB Audit ID)
+      // 🟢 2. Crime Registry Sheet
       if (Array.isArray(crimeRegistry) && crimeRegistry.length > 0) {
         const crimeData = crimeRegistry.map((r, index) => ({
-          "S/N": index + 1, // 🟢 Chronological 1 to N for sheet legibility
-          "Database Audit ID": r.id || r.sn, // 🟢 NeonDB persistent ID preserved
+          "S/N": index + 1,
+          "Database Audit ID": r.id || r.sn, 
           "Reference": r.sdRef || r.sd_ref,
           "Date": r.date,
           "Region": r.region,
@@ -254,15 +334,18 @@ const handleExportExcel = async () => {
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(crimeData), "Crime Registry");
       }
 
-      // 🟢 3. Nominal Roll Sheet (Chronological S/N + NeonDB Audit ID)
+      // 🟢 3. Nominal Roll Sheet 
       if (Array.isArray(nominalRolls) && nominalRolls.length > 0) {
         const nomData = nominalRolls.map((n, index) => ({
-          "S/N": index + 1, // 🟢 Chronological 1 to N for regional/station export
-          "Database Audit ID": n.id || n.sn, // 🟢 NeonDB persistent ID preserved
+          "S/N": index + 1, 
+          "Database Audit ID": n.id || n.sn, 
           "Force Number": n.fnum || n.f_num,
           "Rank": n.rank,
           "Full Name": n.name,
           "Sex": n.sex,
+          "Education": n.educlevel || n.educ_level || 'NOT SPECIFIED',
+          "Home District": n.homedist || n.home_dist || 'NOT SPECIFIED',
+          "Bank & Branch": n.bankbranch || n.bank_branch || 'NOT SPECIFIED',
           "Position": n.position,
           "Station": n.station,
           "Region": n.region,
@@ -518,7 +601,7 @@ const handleExportExcel = async () => {
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto">
-              {/* Group By Filter */}
+              {/* 🟢 Group By Filter */}
               <div className="flex items-center space-x-3 w-full sm:w-auto">
                 <span className="text-xs font-bold text-slate-500 uppercase whitespace-nowrap">Group By:</span>
                 <select 
@@ -542,8 +625,10 @@ const handleExportExcel = async () => {
                   {activeDomain === 'PERSONNEL' && (
                     <>
                       <option value="RANK">Officer Rank</option>
-                      <option value="UNIT">Station / Unit</option>
+                      <option value="EDUCATION">Education Level & Courses</option>
+                      <option value="BANK_BRANCH">Bank & Branch</option>
                       <option value="DISTRICT">Home District</option>
+                      <option value="UNIT">Station / Unit</option>
                       <option value="AGE">Age</option>
                       <option value="SEX">Sex</option>
                       <option value="DIR">Directorate</option>
@@ -595,7 +680,7 @@ const handleExportExcel = async () => {
             
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center justify-between">
               <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide w-full text-left mb-4 flex items-center">
-                <PieChart size={16} className="mr-2 text-blue-600" /> Proportional Share ({metricCategory})
+                <PieChart size={16} className="mr-2 text-blue-600" /> Proportional Share ({metricCategory.replace('_', ' ')})
               </h3>
               
               <div className="relative w-48 h-48 my-2">
@@ -636,7 +721,7 @@ const handleExportExcel = async () => {
 
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
               <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide flex items-center">
-                <BarChart3 size={16} className="mr-2 text-indigo-600" /> Comparative Bar Graph ({metricCategory})
+                <BarChart3 size={16} className="mr-2 text-indigo-600" /> Comparative Bar Graph ({metricCategory.replace('_', ' ')})
               </h3>
               <div className="space-y-3 max-h-[340px] overflow-y-auto pr-2 custom-scrollbar">
                 {aggregatedData.map((item, idx) => {

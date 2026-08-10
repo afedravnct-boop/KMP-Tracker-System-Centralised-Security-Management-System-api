@@ -26,6 +26,10 @@ import AdminApprovals from "./AdminApprovals";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
+const [activeComponent, setActiveComponent] = useState('DASHBOARD');
+const [targetCommTab, setTargetCommTab] = useState('INBOX');
+const [commDefaultTab, setCommDefaultTab] = useState('INBOX');
+
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -379,7 +383,7 @@ return (
         </h3>   
       </div>
 
-      <div onClick={() => setCurrentPage('Admin_Communication')} className="h-28 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-green-400 group relative overflow-hidden mb-4">
+      <div onClick={onOpenInbox} className="h-28 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-green-400 group relative overflow-hidden mb-4">
         {hasUnread && (
           <><div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping"></div>
             <div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full"></div></>
@@ -4300,20 +4304,23 @@ const IdleWarningModal = () => {
           <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
             Your security token has expired because the system was left unattended. You have been securely logged out.
           </p>
-          <button 
+<button 
             type="button"
             onClick={(e) => {
               e.preventDefault();
+              e.stopPropagation();
+              // 1. Clear storage tokens
               localStorage.removeItem('kmp_authToken');
               localStorage.removeItem('kmp_currentUser');
               localStorage.removeItem('kmp_currentPage');
-              window.location.reload(); 
+              // 2. Force full state drop and reload
+              window.location.href = '/';
             }}
             className="w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
           >
             Acknowledge & Return to Login
-          </button>
-        </div>
+          </button>       
+          </div>
       ) : (
         <div className="relative z-[100000] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200">
           <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
@@ -4950,8 +4957,8 @@ const IdleWarningModal = () => {
       const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
 
       const renderPage = () => {
-        switch (currentPage) {
-          case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+switch (currentPage) {
+          case 'home': return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={onAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
           case 'reports': return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
           case 'statistics': return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
           case 'success': return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
@@ -4966,10 +4973,10 @@ const IdleWarningModal = () => {
           );
           case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />;
           case 'reports_hub': return <WordReportUpload currentUser={currentUser} />; 
-          case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />; <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+          case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />; 
           case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
-          case 'Admin_Communication': return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} onAcknowledgeComm={handleAcknowledgeComm} />;
-          default: return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+          case 'Admin_Communication': return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} onAcknowledgeComm={onAcknowledgeComm} initialTab={commDefaultTab} />;
+          default: return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={onAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
         }
       };
 
