@@ -3093,7 +3093,7 @@ const response = await authFetch(`/api/v1/users/change-password`, {
 
   const handleInputChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
-  const handlePhotoUpload = async (e) => {
+const handlePhotoUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
       setNotification("⏳ Uploading and saving new profile photo...");
@@ -3103,21 +3103,33 @@ const response = await authFetch(`/api/v1/users/change-password`, {
       uploadData.append("category", "user_profile");
 
       try {
-        const token = localStorage.getItem('kmp_authToken');
-        const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, { method: "POST", body: uploadData });
-        if (!response.ok) throw new Error("Upload failed on server.");
+        // 1. Upload photo via authFetch (automatically attaches Bearer token & API_URL)
+        // NOTE: Do not set 'Content-Type' when sending FormData, the browser handles it.
+        const response = await authFetch('/api/v1/users/upload-profile', { 
+          method: "POST", 
+          body: uploadData 
+        });
+        
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || "Upload failed on server.");
+        }
 
         const data = await response.json();
         const s3Url = data.full_s3_url || data.cloud_storage_path;
 
+        // 2. Link the uploaded photo URL to the user's profile in the database
         const securePayload = { ...formData, profile_photo_path: s3Url };
-        const updateRes = await fetch(`${API_URL}/api/v1/users/profile/update`, {
+        const updateRes = await authFetch('/api/v1/users/profile/update', {
           method: "PUT", 
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
+          headers: { "Content-Type": "application/json" }, 
           body: JSON.stringify(securePayload)
         });
 
-        if (!updateRes.ok) throw new Error("Failed to link photo to profile in database.");
+        if (!updateRes.ok) {
+          const errData = await updateRes.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to link photo to profile in database.");
+        }
 
         setFormData(prev => ({ ...prev, profile_photo_path: s3Url }));
         setCurrentUser(prev => ({ ...prev, profile_photo_path: s3Url }));
