@@ -3975,7 +3975,6 @@ const WorkspaceSecurityCurtain = () => {
                 key={i} 
                 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white mix-blend-difference font-black text-xs sm:text-sm tracking-widest"
                 style={{
-                  /* Increased radius to 38vmin to prevent letters from smashing together */
                   transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(38vmin)`
                 }}
               >
