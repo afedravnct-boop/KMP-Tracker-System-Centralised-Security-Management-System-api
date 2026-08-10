@@ -26,7 +26,6 @@ import AdminApprovals from "./AdminApprovals";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
-
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -3870,207 +3869,6 @@ const handlePhotoUpload = async (e) => {
 
 
 
-// ====================================================================
-// --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN & SESSION TIMEOUT COMPONENT ---
-// ====================================================================
-const WorkspaceSecurityCurtain = () => {
-  const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
-  const [isReadingMode, setIsReadingMode] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
-  
-  // Session Timeout States
-  const [showIdleWarning, setShowIdleWarning] = useState(false);
-  const [idleCountdown, setIdleCountdown] = useState(60);
-  const [isTimedOut, setIsTimedOut] = useState(false);
-
-  const idleTimerRef = useRef(null);
-  const countdownTimerRef = useRef(null);
-
-  // 🟢 1. STANDARD IDLE GUARD CURTAIN TIMER (1 Minute of inactivity)
-  useEffect(() => {
-    const IDLE_TIMEOUT_MS = 60000; // 1 Minute
-
-    const handleUserActivity = () => {
-      if (isReadingMode || showIdleWarning || isTimedOut) return;
-      setIsWorkspaceIdle(false);
-      clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = setTimeout(() => {
-        if (!isReadingMode && !showIdleWarning) setIsWorkspaceIdle(true);
-      }, IDLE_TIMEOUT_MS);
-    };
-
-    handleUserActivity();
-
-    const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart', 'click'];
-    events.forEach(event => window.addEventListener(event, handleUserActivity, true));
-
-    return () => {
-      clearTimeout(idleTimerRef.current);
-      events.forEach(event => window.removeEventListener(event, handleUserActivity, true));
-    };
-  }, [isReadingMode, showIdleWarning, isTimedOut]);
-
-  // 🟢 2. SESSION TIMEOUT WARNING TIMER (e.g., 4 Minutes of total inactivity before popup)
-  useEffect(() => {
-    const SESSION_TIMEOUT_MS = 60000 * 4; // 4 Minutes before warning popup
-
-    const sessionTimer = setTimeout(() => {
-      if (!isReadingMode && !isTimedOut) {
-        setShowIdleWarning(true);
-        setIsWorkspaceIdle(true); // Bring up curtain background
-        setIdleCountdown(60);
-
-        // Active ticking countdown
-        countdownTimerRef.current = setInterval(() => {
-          setIdleCountdown((prev) => {
-            if (prev <= 1) {
-              clearInterval(countdownTimerRef.current);
-              setIsTimedOut(true);
-              return 0;
-            }
-            return prev - 1;
-          });
-        }, 1000);
-      }
-    }, SESSION_TIMEOUT_MS);
-
-    return () => {
-      clearTimeout(sessionTimer);
-      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-    };
-  }, [isReadingMode, isTimedOut]);
-
-  // Discreet Toggle when fully active
-  if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
-    return (
-      <div className="fixed bottom-6 right-6 z-[99990]">
-        <div
-          onMouseEnter={() => setIsExpanded(true)}
-          onMouseLeave={() => setIsExpanded(false)}
-          onClick={() => {
-            setIsReadingMode(!isReadingMode);
-            setIsWorkspaceIdle(false);
-          }}
-          className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-2xl rounded-full border ${
-            isExpanded ? 'px-4 py-2' : 'p-2'
-          } ${
-            isReadingMode 
-              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)]' 
-              : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
-          }`}
-        >
-          <span className={`relative flex h-3 w-3 ${isExpanded ? 'mr-2.5' : ''}`}>
-            <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-400 animate-ping'}`}></span>
-            <span className={`relative inline-flex rounded-full h-3 w-3 ${isReadingMode ? 'bg-slate-950' : 'bg-green-500'}`}></span>
-          </span>
-          {isExpanded && (
-            <span className="font-bold text-xs uppercase tracking-wider whitespace-nowrap">
-              {isReadingMode ? 'Click to stop curtain' : '🛡️ Standard Idle Guard'}
-            </span>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div 
-      className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
-      style={{
-        position: 'fixed',
-        top: 0, left: 0, right: 0, bottom: 0,
-        zIndex: 2147483647,
-        pointerEvents: 'auto',
-        isolation: 'isolate'
-      }}
-    >
-      {/* Background Curtain Layer with 3D Globe */}
-      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md transition-opacity duration-700 ease-in-out flex flex-col items-center justify-center">
-        <div className="absolute inset-0 opacity-15 pointer-events-none flex flex-col justify-between z-0">
-          <div className="h-1/3 w-full bg-black"></div>
-          <div className="h-1/3 w-full bg-[#FCD116]"></div>
-          <div className="h-1/3 w-full bg-[#D91B23]"></div>
-        </div>
-        <div className="idle-backdrop-emblem z-10 pointer-events-none"></div>
-
-        <div className="idle-center-container relative z-20 flex items-center justify-center mx-auto my-auto" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
-          <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
-          
-          {/* 3D Spherical Equatorial Text Ring */}
-          <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
-            {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
-              <span 
-                key={i} 
-                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-xs sm:text-sm tracking-widest drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]"
-                style={{ transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(38vmin)` }}
-              >
-                {char === ' ' ? '\u00A0' : char}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Foreground Interactive Modal Box (Only shows when warning or timeout hits) */}
-      {showIdleWarning && (
-        <div className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto">
-          {isTimedOut ? (
-            <div>
-              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
-                <AlertTriangle className="w-8 h-8 text-red-600" />
-              </div>
-              <h4 className="text-xl font-extrabold text-slate-900 mb-2">Session Expired Due to Inactivity</h4>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
-                Your security token has expired because the system was left unattended. You have been securely logged out.
-              </p>
-              <button 
-                type="button"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  localStorage.removeItem('kmp_authToken');
-                  localStorage.removeItem('kmp_currentUser');
-                  localStorage.removeItem('kmp_currentPage');
-                  sessionStorage.clear();
-                  window.location.replace('/');
-                }}
-                className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer"
-              >
-                Acknowledge & Return to Login
-              </button>
-            </div>
-          ) : (
-            <div>
-              <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
-                <AlertTriangle className="w-8 h-8 text-amber-600" />
-              </div>
-              <h4 className="text-xl font-extrabold text-slate-900 mb-2">Session Timeout Warning</h4>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
-                Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Click below to continue working.
-              </p>
-              <button 
-                type="button"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setIsWorkspaceIdle(false);
-                  setShowIdleWarning(false);
-                  setIdleCountdown(60);
-                  if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-                }}
-                className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer"
-              >
-                Continue Session
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-
 
     // ====================================================================
     // --- MAIN LAYOUT COMPONENT ---
@@ -4897,286 +4695,478 @@ const IdleWarningModal = () => {
       );
     };
 
-    const App = () => {
-      const [activeComponent, setActiveComponent] = useState('DASHBOARD');
-      const [targetCommTab, setTargetCommTab] = useState('INBOX');
-      const [commDefaultTab, setCommDefaultTab] = useState('INBOX');
 
-      const [currentUser, setCurrentUser] = usePersistentState('kmp_currentUser', null);
-      const [currentPage, setCurrentPage] = usePersistentState('kmp_currentPage', 'home');
-      const [isInitializing, setIsInitializing] = useState(true);
+// ====================================================================
+// --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN & SESSION TIMEOUT COMPONENT ---
+// ====================================================================
+const WorkspaceSecurityCurtain = () => {
+  const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
+  const [isReadingMode, setIsReadingMode] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  // Session Timeout States
+  const [showIdleWarning, setShowIdleWarning] = useState(false);
+  const [idleCountdown, setIdleCountdown] = useState(60);
+  const [isTimedOut, setIsTimedOut] = useState(false);
 
-      const [reports, setReports] = useState([]);
-      const [stats, setStats] = useState([]);
-      const [stories, setStories] = useState([]);
-      const [establishments, setEstablishments] = useState([]);
-      const [Nominal_Rolls, setNominal_Rolls] = useState([]);
-      const [Nominal_Roll_archives, setNominal_Roll_archives] = useState([]);
-      const [users, setUsers] = useState([]);
-      const [pendingUsers, setPendingUsers] = useState([]);
+  const idleTimerRef = useRef(null);
+  const countdownTimerRef = useRef(null);
 
-      const [hrLedgerData, setHrLedgerData] = useState(null);
-      const [isViewingHR, setIsViewingHR] = useState(false);
-      const [isViewingConsolidated, setIsViewingConsolidated] = useState(false);
-      const [consolidatedData, setConsolidatedData] = useState(null);
-      const [adminCommsData, setAdminCommsData] = useState([]);  
+  // 🟢 1. STANDARD IDLE GUARD CURTAIN TIMER (1 Minute of inactivity)
+  useEffect(() => {
+    const IDLE_TIMEOUT_MS = 60000; // 1 Minute
 
-      // 🟢 BACKGROUND AUTO-SYNC LISTENER
-      useEffect(() => {
-        const handleOnlineStatus = async () => {
-          if (navigator.onLine) {
-            const token = localStorage.getItem('kmp_authToken');
-            if (token) {
-              const remaining = await syncOfflineQueue(token);
-              if (remaining === 0 && getOfflineQueueCount() === 0) {
-                console.log('All offline queue records successfully synced with central database.');
-              }
-            }
-          }
-        };
-
-        window.addEventListener('online', handleOnlineStatus);
-        
-        // Periodically check and sync if online
-        const syncInterval = setInterval(() => {
-          if (navigator.onLine) {
-            handleOnlineStatus();
-          }
-        }, 30000); // Checks every 30 seconds
-
-        return () => {
-          window.removeEventListener('online', handleOnlineStatus);
-          clearInterval(syncInterval);
-        };
-      }, []);
-
-      useEffect(() => {
-        const checkClearance = () => {
-          const token = localStorage.getItem('kmp_authToken');
-          const cachedUser = localStorage.getItem('kmp_currentUser');
-          if (!token || !cachedUser) { setIsInitializing(false); return; }
-          try { setCurrentUser(JSON.parse(cachedUser)); } catch (error) { localStorage.removeItem('kmp_authToken'); localStorage.removeItem('kmp_currentUser'); }
-          setIsInitializing(false);
-        };
-        checkClearance();
-      }, [setCurrentUser]);
-
-      useEffect(() => {
-        if (!currentUser?.fnum) return; 
-        const controller = new AbortController();
-        const fetchAllData = async () => {
-          const token = localStorage.getItem('kmp_authToken');
-          if (!token) return;
-          try {
-            const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-            const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives, resUsers] = await Promise.all([
-              authFetch(`${API_URL}/api/v1/reports`, { signal: controller.signal }), 
-              authFetch(`${API_URL}/api/v1/stats`, { signal: controller.signal }),
-              authFetch(`${API_URL}/api/v1/stories`, { signal: controller.signal }), 
-              authFetch(`${API_URL}/api/v1/nominal-roll`, { signal: controller.signal }),
-              authFetch(`${API_URL}/api/v1/Admin_Communication`, { signal: controller.signal }), 
-              authFetch(`${API_URL}/api/v1/establishments`, { signal: controller.signal }),
-              authFetch(`${API_URL}/api/v1/nominal-roll-archive`, { signal: controller.signal }), 
-              authFetch(`${API_URL}/api/v1/users`, { signal: controller.signal })
-            ]);
-
-              if (!controller.signal.aborted) {
-              // 🟢 Catch 401 Unauthorized instantly before data zeros out
-              if (resReports.status === 401) {
-                 window.dispatchEvent(new Event('auth-expired'));
-                 return;
-              }
-
-              // DIAGNOSTIC TRIPWIRE: Catch silent backend failures immediately
-              if (!resReports.ok) {
-                 const errorText = await resReports.text();
-                 console.error("🚨 COMMAND BACKEND ERROR:", resReports.status, errorText);
-                 alert(`Database Connection Alert: The server returned status ${resReports.status}.`);
-              } else {
-                 setReports(await resReports.json());
-              }
-
-              if (resStats.ok) setStats(await resStats.json());
-              if (resStories.ok) setStories(await resStories.json());
-              if (resNom.ok) setNominal_Rolls(await resNom.json());
-              if (resComms.ok) setAdminCommsData(await resComms.json());
-              if (resEst.ok) setEstablishments(await resEst.json());
-              if (resArchives.ok) setNominal_Roll_archives(await resArchives.json());
-              
-              if (resUsers.ok) {
-                const allUsers = await resUsers.json();
-                setUsers(allUsers);
-                const me = allUsers.find(u => u.fnum === currentUser.fnum);
-                if (me && (JSON.stringify(me.permissions) !== JSON.stringify(currentUser.permissions) || me.role !== currentUser.role)) {
-                    setCurrentUser(prev => ({ ...prev, permissions: me.permissions, role: me.role }));
-                }
-              }
-            }
-          } catch (error) { 
-            if (error.name !== 'AbortError') {
-              console.error("Network/Fetch Error:", error);
-              alert("Network Error: Could not reach the backend server. If you just deployed, it might still be booting up.");
-            }
-          } 
-        };    
-        fetchAllData();
-        return () => controller.abort();
-      }, [currentUser?.fnum]); 
-
-      const handleMasterExport = async (scope, value) => {
-        let url = `/api/v1/reports/export?timeframe=all`; 
-        if (scope && value) url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
-        downloadWithAuth(url, `KMP_Master_Ledger_${value || "General"}_${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]}.zip`);
-      };
-
-      const handleAcknowledgeComm = async (commId) => {
-        try {
-          const token = localStorage.getItem('kmp_authToken');
-          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-          const response = await fetch(`${API_URL}/api/v1/communications/${commId}/acknowledge`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
-          if (response.ok) setAdminCommsData(prevData => prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c));
-        } catch (err) { console.error("Failed to acknowledge receipt", err); }
-      };
-
-      const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
-
-      const renderPage = () => {
-switch (currentPage) {
-          case 'home': 
-            return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
-          
-          case 'reports': 
-            return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
-          
-          case 'statistics': 
-            return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
-          
-          case 'success': 
-            return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
-          
-          case 'establishments': 
-            return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
-          
-          case 'analytics': 
-            return (
-            <AnalyticsDashboard 
-              nominalRolls={Nominal_Rolls} 
-              crimeRegistry={reports} 
-              successStories={stories} 
-              operationalStats={stats} 
-            />
-          );
-          
-          case 'nominal-roll': 
-            return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />;
-          
-          case 'reports_hub': 
-            return <WordReportUpload currentUser={currentUser} />; 
-          
-          case 'approvals': 
-            return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />; 
-          
-          case 'profile': 
-            return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
-          
-          case 'Admin_Communication': 
-            return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} onAcknowledgeComm={handleAcknowledgeComm} initialTab={commDefaultTab} />;
-          
-          default: 
-            return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
-        }
-      };
-
-      const handleViewHRReport = async () => {
-        try {
-          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-          const res = await authFetch(`${API_URL}/api/v1/reports/establishments-json`);
-          if (!res.ok) throw new Error("Security clearance rejected or server error.");
-          const data = await res.json(); setHrLedgerData(data); setIsViewingHR(true);
-        } catch (err) { alert("Cannot load HR ledger data. Ensure your session is active and you have network connectivity."); }
-      };
-
-      const handleViewConsolidated = async () => {
-          setIsViewingHR(false);
-          const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-          const lastWeek = new Date(); lastWeek.setDate(lastWeek.getDate() - 7);
-          const start = lastWeek.toISOString().split('T')[0];
-
-          try {
-              const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-              const response = await authFetch(`${API_URL}/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
-              if (!response.ok) throw new Error("Backend failed to compile ledger.");
-              const data = await response.json(); setConsolidatedData(data); setIsViewingConsolidated(true);
-          } catch (err) { alert("Failed to load Consolidated Ledger. Check Python terminal for errors."); }
-      };
-
-      if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
-
-      if (currentUser && !currentUser.region) {
-        localStorage.removeItem('kmp_currentUser'); localStorage.removeItem('kmp_authToken');
-        return (
-          <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-            <h2 className="text-2xl font-bold text-red-600 mb-2">Ghost Session Detected</h2>
-            <p className="text-slate-600 mb-6">Corrupted local data is blocking the dashboard. Click below to wipe it.</p>
-            <button onClick={() => window.location.reload()} className="px-6 py-3 bg-blue-700 text-white font-bold rounded-lg shadow-md hover:bg-blue-800">Force Clear & Restart App</button>
-          </div>
-        );
-      }
-
-     if (!currentUser) return <LoginScreen 
-        onLogin={(user) => {
-          localStorage.removeItem('kmp_currentPage'); setCurrentPage('home'); setCurrentUser(user);
-          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-          fetch(`${API_URL}/api/v1/system/log-session`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fnum: user.fnum }) }).catch(e => console.error(e));
-        }} 
-        onForgot={() => {}} onSignup={(u) => setPendingUsers([...pendingUsers, u])} pendingUsers={pendingUsers} activeUsers={users} 
-      />;
-
-      const handleGenerateHRReport = () => downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
-
-      const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
-        setUsers(users.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: newPermissions } : u));
-        try {
-          const token = localStorage.getItem('kmp_authToken');
-          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-          await fetch(`${API_URL}/api/v1/users/${fnum}/access`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify({ role: newRole, permissions: newPermissions }) });
-        } catch (err) { console.error("Failed to save permissions to database:", err); }
-      };
-
-      const handleRevokeUser = async (fnum) => {
-        const reason = window.prompt(`Please state the official reason for revoking access for ${fnum}:`);
-        if (reason === null) return; 
-        if (reason.trim() === '') return alert("An official reason is mandatory to revoke a user's access.");
-
-        try {
-          const token = localStorage.getItem('kmp_authToken');
-          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-          await fetch(`${API_URL}/api/v1/users/${encodeURIComponent(fnum)}/revoke?reason=${encodeURIComponent(reason)}`, {
-            method: "DELETE", headers: { "Authorization": `Bearer ${token}` }
-          });
-          setUsers(users.filter(u => u.fnum !== fnum));
-          alert(`Access revoked for ${fnum}. Reason logged in Audit Trail.`);
-        } catch (err) { console.error("Failed to revoke user:", err); }
-      };
-
-      return (
-        <>
-          <DashboardLayout 
-            currentUser={currentUser} currentPage={currentPage} setCurrentPage={handlePageChange} 
-            onLogout={() => { localStorage.removeItem('kmp_authToken'); localStorage.removeItem('kmp_currentUser'); localStorage.removeItem('kmp_currentPage'); window.location.reload(); }}
-            onUpdateUserRole={handleUpdateUserRole} onRevokeUser={handleRevokeUser} users={users} Admin_Communication={adminCommsData}
-            onViewConsolidated={handleViewConsolidated} onViewHRReport={handleViewHRReport} onGenerateHRReport={handleGenerateHRReport}
-          >
-            {isViewingConsolidated && <ConsolidatedLedger data={consolidatedData} reports={reports} stats={stats} stories={stories} onClose={() => setIsViewingConsolidated(false)} />}
-            {isViewingHR && hrLedgerData && <HrEstablishmentsLedger data={hrLedgerData} onClose={() => setIsViewingHR(false)} currentUser={currentUser} onUploadSuccess={() => window.location.reload()} />}
-            <div className={(isViewingConsolidated || isViewingHR) ? 'hidden' : 'block w-full h-full'}>
-              {renderPage()}
-            </div>
-          </DashboardLayout>
-
-          <WorkspaceSecurityCurtain />
-        </>
-      );
+    const handleUserActivity = () => {
+      if (isReadingMode || showIdleWarning || isTimedOut) return;
+      setIsWorkspaceIdle(false);
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(() => {
+        if (!isReadingMode && !showIdleWarning) setIsWorkspaceIdle(true);
+      }, IDLE_TIMEOUT_MS);
     };
 
-    export default App;
+    handleUserActivity();
+
+    const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart', 'click'];
+    events.forEach(event => window.addEventListener(event, handleUserActivity, true));
+
+    return () => {
+      clearTimeout(idleTimerRef.current);
+      events.forEach(event => window.removeEventListener(event, handleUserActivity, true));
+    };
+  }, [isReadingMode, showIdleWarning, isTimedOut]);
+
+  // 🟢 2. SESSION TIMEOUT WARNING TIMER (4 Minutes of total inactivity before popup)
+  useEffect(() => {
+    const SESSION_TIMEOUT_MS = 60000 * 4; 
+
+    const sessionTimer = setTimeout(() => {
+      if (!isReadingMode && !isTimedOut) {
+        setShowIdleWarning(true);
+        setIsWorkspaceIdle(true); 
+        setIdleCountdown(60);
+
+        countdownTimerRef.current = setInterval(() => {
+          setIdleCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(countdownTimerRef.current);
+              setIsTimedOut(true);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      }
+    }, SESSION_TIMEOUT_MS);
+
+    return () => {
+      clearTimeout(sessionTimer);
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    };
+  }, [isReadingMode, isTimedOut]);
+
+  if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
+    return (
+      <div className="fixed bottom-6 right-6 z-[99990]">
+        <div
+          onMouseEnter={() => setIsExpanded(true)}
+          onMouseLeave={() => setIsExpanded(false)}
+          onClick={() => {
+            setIsReadingMode(!isReadingMode);
+            setIsWorkspaceIdle(false);
+          }}
+          className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-2xl rounded-full border ${
+            isExpanded ? 'px-4 py-2' : 'p-2'
+          } ${
+            isReadingMode 
+              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)]' 
+              : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
+          }`}
+        >
+          <span className={`relative flex h-3 w-3 ${isExpanded ? 'mr-2.5' : ''}`}>
+            <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-400 animate-ping'}`}></span>
+            <span className={`relative inline-flex rounded-full h-3 w-3 ${isReadingMode ? 'bg-slate-950' : 'bg-green-500'}`}></span>
+          </span>
+          {isExpanded && (
+            <span className="font-bold text-xs uppercase tracking-wider whitespace-nowrap">
+              {isReadingMode ? 'Click to stop curtain' : '🛡️ Standard Idle Guard'}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div 
+      className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
+      style={{
+        position: 'fixed',
+        top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 2147483647,
+        pointerEvents: 'auto',
+        isolation: 'isolate'
+      }}
+    >
+      {/* Background Curtain Layer with 3D Globe */}
+      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md transition-opacity duration-700 ease-in-out flex flex-col items-center justify-center">
+        <div className="absolute inset-0 opacity-15 pointer-events-none flex flex-col justify-between z-0">
+          <div className="h-1/3 w-full bg-black"></div>
+          <div className="h-1/3 w-full bg-[#FCD116]"></div>
+          <div className="h-1/3 w-full bg-[#D91B23]"></div>
+        </div>
+        <div className="idle-backdrop-emblem z-10 pointer-events-none"></div>
+
+        <div className="idle-center-container relative z-20 flex items-center justify-center mx-auto my-auto" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
+          <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
+          
+          {/* 3D Spherical Equatorial Text Ring */}
+          <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
+            {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
+              <span 
+                key={i} 
+                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-xs sm:text-sm tracking-widest drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]"
+                style={{ transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(38vmin)` }}
+              >
+                {char === ' ' ? '\u00A0' : char}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Foreground Interactive Modal Box */}
+      {showIdleWarning && (
+        <div className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto">
+          {isTimedOut ? (
+            <div>
+              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
+                <AlertTriangle className="w-8 h-8 text-red-600" />
+              </div>
+              <h4 className="text-xl font-extrabold text-slate-900 mb-2">Session Expired Due to Inactivity</h4>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
+                Your security token has expired because the system was left unattended. You have been securely logged out.
+              </p>
+              <button 
+                type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  localStorage.removeItem('kmp_authToken');
+                  localStorage.removeItem('kmp_currentUser');
+                  localStorage.removeItem('kmp_currentPage');
+                  sessionStorage.clear();
+                  window.location.replace('/');
+                }}
+                className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer"
+              >
+                Acknowledge & Return to Login
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
+                <AlertTriangle className="w-8 h-8 text-amber-600" />
+              </div>
+              <h4 className="text-xl font-extrabold text-slate-900 mb-2">Session Timeout Warning</h4>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
+                Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Click below to continue working.
+              </p>
+              <button 
+                type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsWorkspaceIdle(false);
+                  setShowIdleWarning(false);
+                  setIdleCountdown(60);
+                  if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+                }}
+                className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer"
+              >
+                Continue Session
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const App = () => {
+  const [activeComponent, setActiveComponent] = useState('DASHBOARD');
+  const [targetCommTab, setTargetCommTab] = useState('INBOX');
+  const [commDefaultTab, setCommDefaultTab] = useState('INBOX');
+
+  const [currentUser, setCurrentUser] = usePersistentState('kmp_currentUser', null);
+  const [currentPage, setCurrentPage] = usePersistentState('kmp_currentPage', 'home');
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  const [reports, setReports] = useState([]);
+  const [stats, setStats] = useState([]);
+  const [stories, setStories] = useState([]);
+  const [establishments, setEstablishments] = useState([]);
+  const [Nominal_Rolls, setNominal_Rolls] = useState([]);
+  const [Nominal_Roll_archives, setNominal_Roll_archives] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [pendingUsers, setPendingUsers] = useState([]);
+
+  const [hrLedgerData, setHrLedgerData] = useState(null);
+  const [isViewingHR, setIsViewingHR] = useState(false);
+  const [isViewingConsolidated, setIsViewingConsolidated] = useState(false);
+  const [consolidatedData, setConsolidatedData] = useState(null);
+  const [adminCommsData, setAdminCommsData] = useState([]);  
+
+  // Regional/Station filters for Grand Totals computation
+  const [filterRegion, setFilterRegion] = useState('ALL REGIONS');
+  const [filterStation, setFilterStation] = useState('ALL STATIONS');
+
+  // 🟢 COMPUTE GRAND TOTALS MEMOIZED HOOK
+  const grandTotals = useMemo(() => {
+    return calculateGrandTotals(reports, currentUser, filterRegion, filterStation);
+  }, [reports, currentUser, filterRegion, filterStation]);
+
+  // 🟢 BACKGROUND AUTO-SYNC LISTENER
+  useEffect(() => {
+    const handleOnlineStatus = async () => {
+      if (navigator.onLine) {
+        const token = localStorage.getItem('kmp_authToken');
+        if (token) {
+          const remaining = await syncOfflineQueue(token);
+          if (remaining === 0 && getOfflineQueueCount() === 0) {
+            console.log('All offline queue records successfully synced with central database.');
+          }
+        }
+      }
+    };
+
+    window.addEventListener('online', handleOnlineStatus);
+    
+    const syncInterval = setInterval(() => {
+      if (navigator.onLine) {
+        handleOnlineStatus();
+      }
+    }, 30000); 
+
+    return () => {
+      window.removeEventListener('online', handleOnlineStatus);
+      clearInterval(syncInterval);
+    };
+  }, []);
+
+  useEffect(() => {
+    const checkClearance = () => {
+      const token = localStorage.getItem('kmp_authToken');
+      const cachedUser = localStorage.getItem('kmp_currentUser');
+      if (!token || !cachedUser) { setIsInitializing(false); return; }
+      try { setCurrentUser(JSON.parse(cachedUser)); } catch (error) { localStorage.removeItem('kmp_authToken'); localStorage.removeItem('kmp_currentUser'); }
+      setIsInitializing(false);
+    };
+    checkClearance();
+  }, [setCurrentUser]);
+
+  useEffect(() => {
+    if (!currentUser?.fnum) return; 
+    const controller = new AbortController();
+    const fetchAllData = async () => {
+      const token = localStorage.getItem('kmp_authToken');
+      if (!token) return;
+      try {
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+        const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives, resUsers] = await Promise.all([
+          authFetch(`${API_URL}/api/v1/reports`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/stats`, { signal: controller.signal }),
+          authFetch(`${API_URL}/api/v1/stories`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/nominal-roll`, { signal: controller.signal }),
+          authFetch(`${API_URL}/api/v1/Admin_Communication`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/establishments`, { signal: controller.signal }),
+          authFetch(`${API_URL}/api/v1/nominal-roll-archive`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/users`, { signal: controller.signal })
+        ]);
+
+        if (!controller.signal.aborted) {
+          if (resReports.status === 401) {
+             window.dispatchEvent(new Event('auth-expired'));
+             return;
+          }
+
+          if (!resReports.ok) {
+             const errorText = await resReports.text();
+             console.error("🚨 COMMAND BACKEND ERROR:", resReports.status, errorText);
+          } else {
+             setReports(await resReports.json());
+          }
+
+          if (resStats.ok) setStats(await resStats.json());
+          if (resStories.ok) setStories(await resStories.json());
+          if (resNom.ok) setNominal_Rolls(await resNom.json());
+          if (resComms.ok) setAdminCommsData(await resComms.json());
+          if (resEst.ok) setEstablishments(await resEst.json());
+          if (resArchives.ok) setNominal_Roll_archives(await resArchives.json());
+          
+          if (resUsers.ok) {
+            const allUsers = await resUsers.json();
+            setUsers(allUsers);
+            const me = allUsers.find(u => u.fnum === currentUser.fnum);
+            if (me && (JSON.stringify(me.permissions) !== JSON.stringify(currentUser.permissions) || me.role !== currentUser.role)) {
+                setCurrentUser(prev => ({ ...prev, permissions: me.permissions, role: me.role }));
+            }
+          }
+        }
+      } catch (error) { 
+        if (error.name !== 'AbortError') {
+          console.error("Network/Fetch Error:", error);
+        }
+      } 
+    };    
+    fetchAllData();
+    return () => controller.abort();
+  }, [currentUser?.fnum]); 
+
+  const handleMasterExport = async (scope, value) => {
+    let url = `/api/v1/reports/export?timeframe=all`; 
+    if (scope && value) url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
+    downloadWithAuth(url, `KMP_Master_Ledger_${value || "General"}_${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]}.zip`);
+  };
+
+  const handleAcknowledgeComm = async (commId) => {
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const response = await fetch(`${API_URL}/api/v1/communications/${commId}/acknowledge`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+      if (response.ok) setAdminCommsData(prevData => prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c));
+    } catch (err) { console.error("Failed to acknowledge receipt", err); }
+  };
+
+  const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'home': 
+        return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+      case 'reports': 
+        return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
+      case 'statistics': 
+        return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
+      case 'success': 
+        return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
+      case 'establishments': 
+        return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
+      case 'analytics': 
+        return (
+        <AnalyticsDashboard 
+          nominalRolls={Nominal_Rolls} 
+          crimeRegistry={reports} 
+          successStories={stories} 
+          operationalStats={stats} 
+        />
+      );
+      case 'nominal-roll': 
+        return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />;
+      case 'reports_hub': 
+        return <WordReportUpload currentUser={currentUser} />; 
+      case 'approvals': 
+        return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />; 
+      case 'profile': 
+        return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
+      case 'Admin_Communication': 
+        return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} onAcknowledgeComm={handleAcknowledgeComm} initialTab={commDefaultTab} />;
+      default: 
+        return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+    }
+  };
+
+  const handleViewHRReport = async () => {
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const res = await authFetch(`${API_URL}/api/v1/reports/establishments-json`);
+      if (!res.ok) throw new Error("Security clearance rejected or server error.");
+      const data = await res.json(); setHrLedgerData(data); setIsViewingHR(true);
+    } catch (err) { alert("Cannot load HR ledger data. Ensure your session is active and you have network connectivity."); }
+  };
+
+  const handleViewConsolidated = async () => {
+      setIsViewingHR(false);
+      const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+      const lastWeek = new Date(); lastWeek.setDate(lastWeek.getDate() - 7);
+      const start = lastWeek.toISOString().split('T')[0];
+
+      try {
+          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+          const response = await authFetch(`${API_URL}/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
+          if (!response.ok) throw new Error("Backend failed to compile ledger.");
+          const data = await response.json(); setConsolidatedData(data); setIsViewingConsolidated(true);
+      } catch (err) { alert("Failed to load Consolidated Ledger. Check Python terminal for errors."); }
+  };
+
+  if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
+
+  if (currentUser && !currentUser.region) {
+    localStorage.removeItem('kmp_currentUser'); localStorage.removeItem('kmp_authToken');
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+        <h2 className="text-2xl font-bold text-red-600 mb-2">Ghost Session Detected</h2>
+        <p className="text-slate-600 mb-6">Corrupted local data is blocking the dashboard. Click below to wipe it.</p>
+        <button onClick={() => window.location.reload()} className="px-6 py-3 bg-blue-700 text-white font-bold rounded-lg shadow-md hover:bg-blue-800">Force Clear & Restart App</button>
+      </div>
+    );
+  }
+
+ if (!currentUser) return <LoginScreen 
+    onLogin={(user) => {
+      localStorage.removeItem('kmp_currentPage'); setCurrentPage('home'); setCurrentUser(user);
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      fetch(`${API_URL}/api/v1/system/log-session`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fnum: user.fnum }) }).catch(e => console.error(e));
+    }} 
+    onForgot={() => {}} onSignup={(u) => setPendingUsers([...pendingUsers, u])} pendingUsers={pendingUsers} activeUsers={users} 
+  />;
+
+  const handleGenerateHRReport = () => downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
+
+  const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
+    setUsers(users.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: newPermissions } : u));
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      await fetch(`${API_URL}/api/v1/users/${fnum}/access`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify({ role: newRole, permissions: newPermissions }) });
+    } catch (err) { console.error("Failed to save permissions to database:", err); }
+  };
+
+  const handleRevokeUser = async (fnum) => {
+    const reason = window.prompt(`Please state the official reason for revoking access for ${fnum}:`);
+    if (reason === null) return; 
+    if (reason.trim() === '') return alert("An official reason is mandatory to revoke a user's access.");
+
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      await fetch(`${API_URL}/api/v1/users/${encodeURIComponent(fnum)}/revoke?reason=${encodeURIComponent(reason)}`, {
+        method: "DELETE", headers: { "Authorization": `Bearer ${token}` }
+      });
+      setUsers(users.filter(u => u.fnum !== fnum));
+      alert(`Access revoked for ${fnum}. Reason logged in Audit Trail.`);
+    } catch (err) { console.error("Failed to revoke user:", err); }
+  };
+
+  return (
+    <>
+      <DashboardLayout 
+        currentUser={currentUser} currentPage={currentPage} setCurrentPage={handlePageChange} 
+        onLogout={() => { localStorage.removeItem('kmp_authToken'); localStorage.removeItem('kmp_currentUser'); localStorage.removeItem('kmp_currentPage'); window.location.reload(); }}
+        onUpdateUserRole={handleUpdateUserRole} onRevokeUser={handleRevokeUser} users={users} Admin_Communication={adminCommsData}
+        onViewConsolidated={handleViewConsolidated} onViewHRReport={handleViewHRReport} onGenerateHRReport={handleGenerateHRReport}
+      >
+        {isViewingConsolidated && <ConsolidatedLedger data={consolidatedData} reports={reports} stats={stats} stories={stories} onClose={() => setIsViewingConsolidated(false)} />}
+        {isViewingHR && hrLedgerData && <HrEstablishmentsLedger data={hrLedgerData} onClose={() => setIsViewingHR(false)} currentUser={currentUser} onUploadSuccess={() => window.location.reload()} />}
+        <div className={(isViewingConsolidated || isViewingHR) ? 'hidden' : 'block w-full h-full'}>
+          {renderPage()}
+        </div>
+      </DashboardLayout>
+
+      <WorkspaceSecurityCurtain />
+    </>
+  );
+};
+
+export default App;
