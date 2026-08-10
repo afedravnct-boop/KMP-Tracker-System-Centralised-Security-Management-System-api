@@ -376,11 +376,40 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
 
       {/* Navigation Tabs */}
       <div className="flex space-x-2 border-b border-slate-200 mb-6 bg-white/50 backdrop-blur rounded-t-xl px-4 pt-4 overflow-x-auto custom-scrollbar">
-        <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>New Account Authorizations ({loadingPending ? '...' : filteredPending.length})</button>
-        <button onClick={() => setActiveTab('matrix')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'matrix' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Active Roster & Clearance Matrix ({allSystemUsers.length})</button>
-        <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'requests' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>HR Modification Requests ({filteredRequests.length})</button>
-        <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Audit Logs</button>
-        <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Password Resets ({filteredResets.length})</button>
+        <button 
+          onClick={() => setActiveTab('approvals')} 
+          className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+        >
+          New Account Authorizations ({loadingPending ? '...' : filteredPending.length})
+        </button>
+        
+        <button 
+          onClick={() => setActiveTab('matrix')} 
+          className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'matrix' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+        >
+          Active Roster & Clearance Matrix ({allSystemUsers.length})
+        </button>
+        
+        <button 
+          onClick={() => setActiveTab('requests')} 
+          className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'requests' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+        >
+          HR Modification Requests ({filteredRequests.length})
+        </button>
+        
+        <button 
+          onClick={() => setActiveTab('logs')} 
+          className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+        >
+          Audit Logs ({audit_logs.length})
+        </button>
+        
+        <button 
+          onClick={() => setActiveTab('resets')} 
+          className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+        >
+          Password Resets ({filteredResets.length})
+        </button>
       </div>
 
       {/* ACTIVE ROSTER & GRANULAR MATRIX TAB */}
@@ -543,7 +572,6 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
             <Shield className="w-4 h-4 mr-2 text-amber-400" /> HR Modification Requests
           </div>
           <div className="overflow-x-auto">
-             {/* Retained from your previous block */}
              <table className="min-w-full divide-y divide-slate-200 text-xs">
                 <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold">
                   <tr>
@@ -579,6 +607,68 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         </div>
       )}
 
+      {/* 🟢 AUDIT LOGS TAB VIEW */}
+      {activeTab === 'logs' && (
+        <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto p-4">
+          <h3 className="font-extrabold text-slate-900 text-sm mb-4">System Audit Logs</h3>
+          {loadingLogs ? (
+            <p className="text-xs text-slate-400 animate-pulse">Loading logs...</p>
+          ) : audit_logs.length === 0 ? (
+            <p className="text-xs text-slate-500">No audit records found.</p>
+          ) : (
+            <div className="overflow-x-auto max-h-96">
+              <table className="min-w-full divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-50 font-bold text-slate-600">
+                  <tr>
+                    <th className="p-2 text-left">Time</th>
+                    <th className="p-2 text-left">Officer</th>
+                    <th className="p-2 text-left">Action</th>
+                    <th className="p-2 text-left">Remarks</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {audit_logs.map((log, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50">
+                      <td className="p-2">{log.timestamp || log.date || 'Recent'}</td>
+                      <td className="p-2 font-bold">{log.fnum}</td>
+                      <td className="p-2 text-blue-600 font-bold">{log.action}</td>
+                      <td className="p-2">{log.remarks}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 🟢 PASSWORD RESETS TAB VIEW */}
+      {activeTab === 'resets' && (
+        <div className="bg-white rounded-xl shadow-xs border border-red-200 overflow-hidden max-w-6xl mx-auto p-4">
+          <h3 className="font-extrabold text-slate-900 text-sm mb-4">Password Reset Requests</h3>
+          {loadingResets ? (
+            <p className="text-xs text-slate-400 animate-pulse">Syncing resets...</p>
+          ) : filteredResets.length === 0 ? (
+            <p className="text-xs text-slate-500">No pending password reset requests.</p>
+          ) : (
+            <div className="space-y-3">
+              {filteredResets.map((r) => (
+                <div key={r.id} className="flex items-center justify-between p-3 border border-slate-200 rounded-xl bg-slate-50 text-xs">
+                  <div>
+                    <span className="font-bold text-slate-900">Officer FNUM: {r.fnum}</span>
+                    <p className="text-slate-500 text-[11px]">Station: {r.station} | Region: {r.region}</p>
+                  </div>
+                  <div className="space-x-2">
+                    <button onClick={() => handleResetAction(r.id, "APPROVE")} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg font-bold cursor-pointer">Approve Reset</button>
+                    <button onClick={() => handleResetAction(r.id, "REJECT")} className="bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold cursor-pointer">Reject</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 🔴 MANDATORY JUSTIFICATION MODAL FOR REVOKING ACCESS */}
       {revokePrompt.isOpen && (
         <div className="fixed inset-0 z-[99999] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -607,7 +697,6 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                     >
                         Cancel Action
                     </button>
-                    {/* The final button remains completely hidden until at least 5 characters are typed */}
                     {revokePrompt.reason.trim().length >= 5 && (
                         <button 
                             onClick={() => {
