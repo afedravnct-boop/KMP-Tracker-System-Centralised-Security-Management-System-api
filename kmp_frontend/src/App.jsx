@@ -729,12 +729,11 @@ const metrics = useMemo(() => {
     };
 
     try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const response = await fetch(`${API_URL}/api/v1/reports`, {
+      const response = await authFetch(`/api/v1/reports`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(apiPayload)
-      });
+      });  
       
       const resData = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(resData.detail || "Database rejected the entry.");
@@ -776,12 +775,11 @@ const metrics = useMemo(() => {
     };
 
     try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const response = await fetch(`${API_URL}/api/v1/reports`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify(apiPayload)
-      });
+const response = await authFetch(`/api/v1/reports`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(apiPayload)
+        });
 
       const resData = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(resData.detail || "Database rejected HQ total.");
@@ -823,12 +821,11 @@ const metrics = useMemo(() => {
       };
       
       try {
-        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        const response = await fetch(`${API_URL}/api/v1/reports`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-          body: JSON.stringify(apiPayload)
-        });
+      const response = await authFetch(`/api/v1/reports`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(apiPayload)
+      });
         
         const resData = await response.json().catch(() => ({}));
         
@@ -1560,12 +1557,11 @@ const handleStandalonePopSubmit = async () => {
     };
 
     try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const response = await fetch(`${API_URL}/api/v1/reports`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify(apiPayload)
-      });
+        const response = await authFetch(`/api/v1/reports`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(apiPayload)
+        });
       
       const resData = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(resData.detail || "Database rejected the entry.");
@@ -1593,9 +1589,10 @@ const handleStandalonePopSubmit = async () => {
       const newStat = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       
       try {
-        const response = await fetch(`${API_URL}/api/v1/stats`, {
-          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newStat)
+        const response = await authFetch(`/api/v1/stats/${formData.sn}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord)
         });
+
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
             throw new Error(errData.detail || "Neon Database rejected the entry.");
@@ -2186,6 +2183,7 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
         const response = await fetch(`${API_URL}/api/v1/establishments`, {
           method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newEntry)
         });
+
         if (!response.ok) throw new Error("Failed to post record");
         const savedData = await response.json();
         setEstablishments([savedData, ...establishments]); setNotification(`Establishment recorded for ${formData.station}!`);
@@ -2197,9 +2195,10 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
 
       try {
-        const response = await fetch(`${API_URL}/api/v1/establishments/${formData.id}`, {
-          method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(updatedRecord)
+        const response = await authFetch(`/api/v1/establishments/${formData.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord)
         });
+
         if (!response.ok) throw new Error("Failed to update record in database.");
         setEstablishments(establishments.map(e => e.id === formData.id ? updatedRecord : e));
         setNotification(`Establishment ID ${formData.id} successfully updated!`);
@@ -2581,11 +2580,19 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
           else if (metricCategory === 'DISTRICT') key = homeDistrict ? homeDistrict.trim().toUpperCase() : 'DISTRICT UNKNOWN';
           else if (metricCategory === 'TRIBE') key = n.tribe ? n.tribe.trim().toUpperCase() : 'TRIBE UNKNOWN';
           else if (metricCategory === 'EDUCATION') key = educLevel ? educLevel.trim().toUpperCase() : 'NOT SPECIFIED';
+
           else if (metricCategory === 'AGE') {
               if (n.dob) {
-                  const age = new Date().getFullYear() - new Date(n.dob).getFullYear();
-                  key = age < 30 ? '18-29 Years' : age < 40 ? '30-39 Years' : age < 50 ? '40-49 Years' : '50+ Years';
-              } else { key = 'Age Not Recorded'; }
+                  const birthYear = new Date(n.dob).getFullYear();
+                  if (!isNaN(birthYear)) {
+                      const age = new Date().getFullYear() - birthYear;
+                      key = age < 30 ? '18-29 Years' : age < 40 ? '30-39 Years' : age < 50 ? '40-49 Years' : '50+ Years';
+                  } else {
+                      key = 'Age Not Recorded';
+                  }
+              } else { 
+                  key = 'Age Not Recorded'; 
+              }
           }
           
           if (!grouped[key]) grouped[key] = { category: key, total: 0, male: 0, female: 0, unknown: 0 };
@@ -2668,12 +2675,9 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       
-      const response = await fetch(`${API_URL}/api/v1/nominal-roll/${encodeURIComponent(formData.fnum)}/archive`, {
+      const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(formData.fnum)}/archive`, {
         method: "PUT", 
-        headers: { 
-            "Content-Type": "application/json", 
-            "Authorization": `Bearer ${token}` 
-        }, 
+        headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ archive_reason: archiveReason })
       });
 
@@ -2731,9 +2735,11 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       try {
           const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-          const response = await fetch(`${API_URL}/api/v1/nominal-roll/${formData.sn}`, {
-            method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(updatedRecord)
-          });
+      const response = await authFetch(`/api/v1/reports`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(apiPayload)
+      });
           if (!response.ok) throw new Error("Failed to update record.");
           setNominal_Rolls(currentRolls.map(n => n.sn === formData.sn ? updatedRecord : n));
           setNotification(`Officer SN ${formData.sn} successfully updated!`);
@@ -3058,9 +3064,9 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
     setNotification("⏳ Updating security key...");
     try {
       const token = localStorage.getItem('kmp_authToken');
-      const response = await fetch(`${API_URL}/api/v1/users/change-password`, {
+const response = await authFetch(`/api/v1/users/change-password`, {
         method: "PUT", 
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
+        headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify(passwordData)
       });
       const data = await response.json();
@@ -3157,9 +3163,9 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
     setNotification("⏳ Verifying profile data with HR Nominal Roll...");
     try {
       const token = localStorage.getItem('kmp_authToken');
-      const response = await fetch(`${API_URL}/api/v1/users/profile/update`, {
+      const response = await authFetch(`/api/v1/users/profile/update`, {
         method: "PUT", 
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
+        headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify(formData)
       });
       const data = await response.json();
@@ -3184,9 +3190,9 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
       const token = localStorage.getItem('kmp_authToken');
       const securePayload = { ...currentUser, email: formData.email, phone: formData.phone, profile_photo_path: formData.profile_photo_path };
 
-      const response = await fetch(`${API_URL}/api/v1/users/profile/update`, {
+      const response = await authFetch(`/api/v1/users/profile/update`, {
         method: "PUT", 
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
+        headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify(securePayload)
       });
 
@@ -3913,7 +3919,7 @@ const WorkspaceSecurityCurtain = () => {
       users, 
       onRevokeUser, 
       onUpdateUserRole, 
-      Admin_Communication 
+      adminCommsData // 🟢 Renamed to avoid shadowing the component import
     }) => {
       const [sidebarOpen, setSidebarOpen] = useState(false);
       const [showOnline, setShowOnline] = useState(false);
@@ -4853,7 +4859,7 @@ const IdleWarningModal = () => {
           );
           case 'nominal-roll': return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />;
           case 'reports_hub': return <WordReportUpload currentUser={currentUser} />; 
-          case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={users} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
+          case 'approvals': return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />; <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;
           case 'profile': return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
           case 'Admin_Communication': return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} onAcknowledgeComm={handleAcknowledgeComm} />;
           default: return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} />;

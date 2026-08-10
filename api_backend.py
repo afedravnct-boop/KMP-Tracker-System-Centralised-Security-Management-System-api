@@ -5,6 +5,8 @@ import re
 import html
 import uuid
 import asyncio
+import secrets  # 🟢 NEW: For secure random password generation
+import string   # 🟢 NEW: For alphanumeric character mapping
 from datetime import datetime, timedelta
 from typing import Optional, List, Union
 
@@ -40,14 +42,12 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from docx import Document
-
 # Internal Imports
 from app import models, schemas, database
 from app.database import engine, get_db, get_logs_db
 from app.database import LogsSessionLocal as SessionLogsLocal
 from app.core import security
-from auth import router as auth_router, get_current_user
+from auth import router as auth_router
 
 # ==========================================
 # 0. LOAD ENVIRONMENT VARIABLES & CONFIG
@@ -185,7 +185,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     
-    # 🟢 FIX: Normalize the token payload just in case it contains lowercase
+    # 🟢 Normalize the token payload
     clean_fnum = fnum.strip().upper()
     user = db.query(models.Users).filter(
         func.trim(func.upper(models.Users.fnum)) == clean_fnum
@@ -209,7 +209,6 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
 def require_admin(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    # 🟢 NEW: Added specific Admin Tiers
     valid_roles = ["SUPER_ADMIN", "SYSTEM_ADMIN", "REGIONAL_ADMIN", "DIVISION_ADMIN", "STATION_ADMIN", "ADMIN", "RPC"]
     
     if user_role not in valid_roles:
@@ -396,7 +395,8 @@ def build_and_send_weekly_briefing():
 # ==========================================
 @app.post("/api/auth/refresh")
 def refresh_session_token(current_user = Depends(get_current_user)):
-    access_token_expires = timedelta(minutes=30)
+    # 🟢 Synchronized delta with global timeout configuration
+    access_token_expires = timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
     new_access_token = security.create_access_token(
         data={"sub": current_user.fnum}, 
         expires_delta=access_token_expires
@@ -414,7 +414,7 @@ def register_user(
     division: Optional[str] = Form(None), role: str = Form("USER"), 
     profile_photo_path: str = Form(""), db: Session = Depends(get_db)
 ):
-    # 🟢 FIX: Force completely uppercase for alphanumeric File Numbers (e.g., q/1 -> Q/1)
+    # 🟢 Force completely uppercase for alphanumeric File Numbers (e.g., q/1 -> Q/1)
     clean_fnum = fnum.strip().upper()
 
     if not re.match(r'^\d{10}$', phone):
@@ -429,7 +429,7 @@ def register_user(
 
     try:
         new_user = models.Users(
-            fnum=clean_fnum,  # 🟢 Save as strictly uppercase
+            fnum=clean_fnum,
             rank=rank, name=name, sex=sex, ipps=ipps, region=region,
             division=division, station=station, position=position, email=email,
             phone=phone, hashed_password=security.get_password_hash(password) if hasattr(security, 'get_password_hash') else password,
@@ -442,9 +442,34 @@ def register_user(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database write failed: {str(e)}")
 
+# 🟢 CRITICAL FIX: Missing endpoint for users to change their own generated passwords
+@app.put("/api/v1/users/change-password")
+def change_own_password(
+    data: schemas.PasswordChangeReq, 
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
+    # Verify the old password matches before allowing the change
+    if not security.verify_password(data.old_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    
+    # Check length
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters.")
+        
+    # Hash and save the new password
+    current_user.hashed_password = security.get_password_hash(data.new_password)
+    
+    # Log the change
+    if hasattr(models, 'Audit_Logs'):
+        log_semantic_audit(db, current_user.fnum, "PASSWORD_CHANGED", current_user.fnum, {}, "User successfully updated their own security key.")
+        
+    db.commit()
+    return {"status": "success", "message": "Security key successfully updated!"}
+
+
 @app.put("/api/v1/admin/users/{target_fnum:path}/force-password")
 def force_user_password(target_fnum: str, data: ForcePasswordReq, db: Session = Depends(get_db), admin: models.Users = Depends(require_admin)):
-    # 🟢 Unquote handles any URL encoding, stripping spaces handles typos
     clean_fnum = unquote(target_fnum).strip().upper()
     
     target_user = db.query(models.Users).filter(
@@ -467,7 +492,7 @@ def force_user_password(target_fnum: str, data: ForcePasswordReq, db: Session = 
 def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     clean_fnum = unquote(target_fnum).strip().upper()
     
-    # 🟢 STRICT HIERARCHY: Only Super Admin & System Admin can approve new accounts
+    # STRICT HIERARCHY: Only Super Admin & System Admin can approve new accounts
     admin_role = (current_user.role or "").upper()
     admin_position = (current_user.position or "").upper()
     is_high_admin = admin_role in ["SUPER_ADMIN", "SYSTEM_ADMIN"] or "SYSTEM MANAGER" in admin_position
@@ -479,7 +504,6 @@ def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: 
     if not target_user:
         raise HTTPException(status_code=404, detail="Pending user not found.")
 
-    # Quota Check (Optional, retained from original logic)
     active_count = db.query(models.Users).filter(
         models.Users.is_approved == True,
         models.Users.station == target_user.station,
@@ -583,8 +607,11 @@ def update_user_profile(data: dict, db: Session = Depends(get_db), current_user:
     response_data = {"status": "success", "message": "Profile updated successfully."}
     
     if fnum_changing:
-        access_token_expires = timedelta(minutes=300) 
-        new_token = security.create_access_token(data={"sub": new_fnum}, expires_delta=access_token_expires)
+        # 🟢 Synchronized token delta with global settings
+        new_token = security.create_access_token(
+            data={"sub": new_fnum}, 
+            expires_delta=timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
         response_data["new_token"] = new_token
         
         if hasattr(models, 'Audit_Logs'):
@@ -609,101 +636,6 @@ def update_rank(data: dict, db: Session = Depends(get_db), current_user = Depend
     
     log_semantic_audit(db, current_user.fnum, "RANK_PROMOTION", officer.fnum, {"rank": (old_rank, new_rank)}, "Approved by Regional Personnel")
     return {"message": "Success"}
-
-@app.put("/api/v1/users/{fnum:path}/access")
-def update_user_access(
-    fnum: str, 
-    access_data: UserAccessUpdate, 
-    db: Session = Depends(get_db), 
-    admin: models.Users = Depends(require_admin)
-):
-    clean_fnum = unquote(fnum).strip().upper()
-    
-    # 🟢 1. STRICT HIERARCHY: Only Super Admin & System Admin can modify access
-    admin_role = (admin.role or "").upper()
-    admin_position = (admin.position or "").upper()
-    is_high_admin = admin_role in ["SUPER_ADMIN", "SYSTEM_ADMIN"] or "SYSTEM MANAGER" in admin_position
-    
-    if not is_high_admin:
-        raise HTTPException(status_code=403, detail="Clearance Denied: Only Super Admin and System Admin can modify access levels.")
-        
-    # 🟢 2. SELF-EDIT LOCK: Admins cannot change their own permissions (unless Super Admin)
-    if clean_fnum == admin.fnum.strip().upper() and admin_role != "SUPER_ADMIN":
-        raise HTTPException(status_code=403, detail="Clearance Denied: You cannot modify your own access privileges.")
-    
-    target_user = db.query(models.Users).filter(
-        func.trim(func.upper(models.Users.fnum)) == clean_fnum
-    ).first()
-    
-    if not target_user:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"Officer '{clean_fnum}' not found in database records."
-        )
-    
-    old_role = target_user.role
-    target_user.role = access_data.role
-    target_user.permissions = access_data.permissions
-    
-    if hasattr(models, 'Audit_Logs'):
-        log_semantic_audit(
-            db=db,
-            fnum=admin.fnum,
-            action="USER_ACCESS_UPDATE",
-            target_identifier=clean_fnum,
-            changes={"role": (old_role, access_data.role)},
-            remarks=f"High Command updated access matrix for {clean_fnum}."
-        )
-        
-    db.commit()
-    return {"status": "success", "message": f"Access matrix updated successfully for {clean_fnum}"}
-
-# 🟢 RESTORED HEARTBEAT ENDPOINT (With trailing slash support)
-@app.post("/api/v1/users/heartbeat")
-@app.post("/api/v1/users/heartbeat/")
-def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        current_user.last_active_at = datetime.utcnow()
-        db.commit()
-        return {"status": "alive"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/v1/users/online")
-def get_online_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    threshold = datetime.utcnow() - timedelta(minutes=2)
-    
-    query = db.query(models.Users).filter(
-        models.Users.is_approved == True,
-        models.Users.last_active_at >= threshold
-    )
-    
-    perms = current_user.permissions or {}
-    is_global = (
-        current_user.role == "SUPER_ADMIN" or 
-        perms.get("view_global_roster", False) or
-        current_user.region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
-        current_user.station in ["KMP HEADQUARTERS", "KMP Headquarters", "NAGURU"]
-    )
-    
-    if not is_global:
-        is_regional = (current_user.role == "RPC" or perms.get("view_regional_roster", False) or "Deputy" in (current_user.position or ""))
-        if is_regional:
-            query = query.filter(models.Users.region == current_user.region)
-        else:
-            query = query.filter(models.Users.station == current_user.station)
-            
-    active_users = query.all()
-    
-    return [
-        {
-            "fnum": u.fnum,
-            "name": u.name,
-            "station": u.station,
-            "profile_photo_path": u.profile_photo_path
-        } for u in active_users
-    ]
 
 # ==========================================
 # 6. PASSWORD RESET WORKFLOW
@@ -757,8 +689,15 @@ def get_password_reset_requests(db: Session = Depends(get_db), current_user: mod
         })
     return results
 
+# 🟢 CRITICAL FIX: Randomized passwords and automated background email dispatch
 @app.post("/api/v1/admin/execute-reset/{req_id}")
-def execute_password_reset(req_id: int, action: str = Form(), db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
+def execute_password_reset(
+    req_id: int, 
+    background_tasks: BackgroundTasks, 
+    action: str = Form(), 
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(require_admin)
+):
     req = db.query(models.Password_Reset_Requests).filter(models.Password_Reset_Requests.id == req_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Request not found.")
@@ -773,7 +712,12 @@ def execute_password_reset(req_id: int, action: str = Form(), db: Session = Depe
         if not user:
             raise HTTPException(status_code=404, detail="User no longer exists.")
         
-        new_password = "UPF" + req.fnum.replace("/", "")[-4:]
+        # 1. Generate the completely random, secure 6-character alphanumeric suffix
+        alphabet = string.ascii_uppercase + string.digits
+        random_suffix = ''.join(secrets.choice(alphabet) for _ in range(6))
+        new_password = f"UPF-{random_suffix}"
+        
+        # 2. Hash and save it
         if hasattr(security, 'get_password_hash'):
             user.hashed_password = security.get_password_hash(new_password)
         else:
@@ -785,6 +729,24 @@ def execute_password_reset(req_id: int, action: str = Form(), db: Session = Depe
             log_semantic_audit(db, current_user.fnum, "PASSWORD_RESET", req.fnum, {"password": ("Old", "Reset via Admin")}, f"Temporary key issued: {new_password}")
             
         db.commit()
+
+        # 3. Send the temporary password via email
+        if user.email:
+            html_body = f"""
+            <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px; max-width: 600px;">
+                <h2 style="color: #b91c1c;">KMP Security: Password Reset Authorization</h2>
+                <p>Your password reset request has been approved by Command.</p>
+                <p>Your temporary login key is: <strong style="font-size: 18px; color: #1e3a8a; background: #f1f5f9; padding: 4px 8px; border-radius: 4px;">{new_password}</strong></p>
+                <p>Please log in immediately and navigate to your Profile to change this to a personalized, secure key.</p>
+                <hr style="margin-top: 20px; border-top: 1px solid #eee;"/>
+                <p style="font-size: 10px; color: gray;">Automated dispatch from KMP Centralised Security Data Management System.</p>
+            </div>
+            """
+            def send_email_sync():
+                asyncio.run(send_command_briefing([user.email], "KMP Security: Password Reset Approved", html_body))
+            
+            background_tasks.add_task(send_email_sync)
+
         return {"status": "success", "new_password": new_password}
 
 # ==========================================
@@ -846,7 +808,6 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
         
     reports = query.order_by(models.Crime_Reports.sn.desc()).all()
     
-    # 🟢 FULLY INTEGRATED TRIBE AND CONTACT FIELDS
     return [{
         "sn": r.sn, 
         "sdRef": r.sd_ref, 
@@ -890,7 +851,6 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
                     status_code=403, 
                     detail="Clearance Denied: Only KMP Headquarters admins or 999 Data Officers can input independent General Totals."
                 )
-            # Force jurisdiction to HQ/General pool for fallback totals
             data["region"] = "KMP HEADQUARTERS"
             data["station"] = "HEADQUARTERS GENERAL TOTAL"
             data["offence"] = data.get("offence", "HQ GENERAL SUSPECT LOCK-UP TOTAL")
@@ -1088,16 +1048,13 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
 # --- NOMINAL ROLL (ACTIVE + ARCHIVED) ---
 @app.get("/api/v1/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # 🟢 Query Active Records
     active_query = db.query(models.NominalRoll)
-    # 🟢 Query Archived Records
     archive_query = db.query(models.NominalRollArchive)
     
     user_role = (current_user.role or "").upper()
     user_region = (current_user.region or "").strip().upper()
     user_station = (current_user.station or "").strip().upper()
 
-    # Jurisdiction Filtering
     if user_role in ["ADMIN", "SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or user_region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]:
         pass 
     else:
@@ -1432,11 +1389,9 @@ def archive_personnel(
         record_data.pop("id", None) 
         record_data.pop("sn", None) 
         
-        # 🟢 FIX 1: Explicitly map known column mismatches
         if "home_dist" in record_data:
             record_data["homedist"] = record_data.pop("home_dist")
             
-        # (Optional safety check if f_num vs fnum is also mismatched between tables)
         if "f_num" in record_data and not hasattr(models.NominalRollArchive, "f_num"):
             record_data["fnum"] = record_data.pop("f_num")
 
@@ -1445,9 +1400,6 @@ def archive_personnel(
         record_data["archive_date"] = datetime.now().date()
         record_data["last_updated_by"] = current_user.fnum
 
-        # 🟢 FIX 2: Dynamically filter the dictionary to ONLY include valid columns
-        # This guarantees that if a column exists in NominalRoll but NOT in NominalRollArchive, 
-        # it is safely ignored instead of crashing the system.
         valid_archive_columns = [c.key for c in models.NominalRollArchive.__table__.columns]
         safe_record_data = {k: v for k, v in record_data.items() if k in valid_archive_columns}
 
@@ -1638,7 +1590,6 @@ def get_admin_communications(
 
     comms = query.order_by(models.Admin_Communication.created_at.desc()).all()
  
-    # 🟢 FULLY NORMALIZED USER FNUM FOR READ MATCHING
     clean_user_fnum = (current_user.fnum or "").strip().upper()
     read_records = db.query(models.Communication_Reads.comm_id).filter(
         func.trim(func.upper(models.Communication_Reads.fnum)) == clean_user_fnum
@@ -1649,7 +1600,6 @@ def get_admin_communications(
     
     clean_comms = []
     for c in comms:
-        # 🟢 KILL SWITCH: Auto-acknowledge if the current user is the sender
         sender_clean = (c.sender_fnum or "").strip().upper()
         is_read = (c.id in read_comm_ids) or (sender_clean == clean_user_fnum)
         
@@ -1838,7 +1788,6 @@ def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depend
 @app.get("/api/v1/reports/hr-establishments-json")
 def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        # 🟢 Query live nominal roll directly from NeonDB
         hr_query = db.query(models.NominalRoll)
         if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
             hr_query = hr_query.filter(models.NominalRoll.station == current_user.station)
@@ -1869,7 +1818,6 @@ def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.User
                 "rank_breakdown": data["ranks"]
             })
 
-        # 🟢 Query Establishments metrics
         est_query = db.query(models.Establishments)
         if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
             est_query = est_query.filter(models.Establishments.station == current_user.station)
@@ -2389,7 +2337,7 @@ def get_all_requests(db: Session = Depends(get_db), current_user: models.Users =
 @app.post("/api/v1/reports/upload-word-report")
 async def upload_word_report(
     file: UploadFile = File(...),
-    doc_type: str = Form(...),  # 🟢 NEW: Catches the toggle from React
+    doc_type: str = Form(...),  
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
@@ -2401,8 +2349,6 @@ async def upload_word_report(
         file_size_kb = max(1, round(len(contents) / 1024))
         file_size_str = f"{file_size_kb} KB" if file_size_kb < 1024 else f"{round(file_size_kb / 1024, 1)} MB"
 
-        # 🟢 DUPLICATION CHECK
-        # Checks if this exact file name and size has already been uploaded
         is_duplicate = db.query(models.DocumentArchive).filter(
             models.DocumentArchive.file_name == file.filename,
             models.DocumentArchive.file_size == file_size_str
@@ -2411,29 +2357,23 @@ async def upload_word_report(
         if is_duplicate:
             raise HTTPException(status_code=400, detail="DUPLICATE DETECTED: This document has already been uploaded to the archives.")
 
-        # 🟢 AUTO-FORMATTING LOGIC
         doc = Document(io.BytesIO(contents))
         detected_region = current_user.region or "KMP GENERAL"
         
-        # If they uploaded a weekly report, we force standard formatting on it
         if doc_type == "weekly_report":
-            # 1. Add an official header paragraph at the very top
             doc.insert_paragraph_before(f"UGANDA POLICE FORCE - {detected_region}")
             doc.insert_paragraph_before(f"PROCESSED DATE: {datetime.now().strftime('%Y-%m-%d')}")
             
-            # 2. Iterate through all paragraphs to standardize font and alignment
             for para in doc.paragraphs:
                 para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
                 for run in para.runs:
                     run.font.name = 'Arial'
                     run.font.size = Pt(11)
 
-            # Save the formatted document back to bytes
             formatted_io = io.BytesIO()
             doc.save(formatted_io)
             contents = formatted_io.getvalue()
         
-        # Save the physical file to the server
         archive_dir = "reports_archive"
         os.makedirs(archive_dir, exist_ok=True)
         
@@ -2444,7 +2384,6 @@ async def upload_word_report(
         with open(file_path, "wb") as f:
             f.write(contents)
 
-        # Save metadata to Neon Database
         display_type = "Formatted Weekly Report" if doc_type == "weekly_report" else "General Document"
         
         new_archive = models.DocumentArchive(
@@ -2680,53 +2619,6 @@ def update_modification_request_status(
 
     db.commit()
     return {"status": "success", "message": f"Request {action_status.lower()} successfully."}
-
-# 🟢 RESTORED HEARTBEAT ENDPOINT (With trailing slash support)
-@app.post("/api/v1/users/heartbeat")
-@app.post("/api/v1/users/heartbeat/")
-def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        current_user.last_active_at = datetime.utcnow()
-        db.commit()
-        return {"status": "alive"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/v1/users/online")
-def get_online_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    threshold = datetime.utcnow() - timedelta(minutes=2)
-    
-    query = db.query(models.Users).filter(
-        models.Users.is_approved == True,
-        models.Users.last_active_at >= threshold
-    )
-    
-    perms = current_user.permissions or {}
-    is_global = (
-        current_user.role == "SUPER_ADMIN" or 
-        perms.get("view_global_roster", False) or
-        current_user.region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
-        current_user.station in ["KMP HEADQUARTERS", "KMP Headquarters", "NAGURU"]
-    )
-    
-    if not is_global:
-        is_regional = (current_user.role == "RPC" or perms.get("view_regional_roster", False) or "Deputy" in (current_user.position or ""))
-        if is_regional:
-            query = query.filter(models.Users.region == current_user.region)
-        else:
-            query = query.filter(models.Users.station == current_user.station)
-            
-    active_users = query.all()
-    
-    return [
-        {
-            "fnum": u.fnum,
-            "name": u.name,
-            "station": u.station,
-            "profile_photo_path": u.profile_photo_path
-        } for u in active_users
-    ]
 
 if __name__ == "__main__":
     uvicorn.run("api_backend:app", host="0.0.0.0", port=8000, reload=True)
