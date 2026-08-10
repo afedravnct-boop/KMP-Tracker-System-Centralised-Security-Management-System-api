@@ -93,6 +93,16 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
   const [allSystemUsers, setAllSystemUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
+  // 🟢 REVOKE MODAL STATE FOR COMPELLED JUSTIFICATION
+  const [revokePrompt, setRevokePrompt] = useState({
+    isOpen: false,
+    fnum: null,
+    actionType: null, // 'ROLE' or 'PERMISSION'
+    targetValue: null,
+    permissionKey: null,
+    reason: ''
+  });
+
   // Global Filter States for Super Admin / RPC capabilities
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role)) ? 'ALL STATIONS' : currentUser?.station || '');
@@ -196,20 +206,26 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     });
   }, [resetRequests, filterRegion, filterStation]);
 
-  // Granular Matrix Toggle Handler with Security Safeguards
-  const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
-    // SYSTEM ADMIN constraint check: Cannot alter permissions
-    if (currentUser?.role === 'SYSTEM_ADMIN') {
-      alert("Security Restriction: SYSTEM ADMIN has viewing and diagnostic access only and is strictly barred from modifying user permissions or access levels.");
-      return;
-    }
-
+  // 🟢 EXECUTION ENGINES WITH STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT
+  const executePermissionChange = async (fnum, permissionKey, value, reason = '') => {
     const targetUser = allSystemUsers.find(u => u.fnum === fnum);
     if (!targetUser) return;
 
+    let locks = targetUser.permissions?.super_admin_locks || {};
+    
+    // If Super Admin disables clearance, lock it down exclusively to Super Admin
+    if (value === false && currentUser?.role === 'SUPER_ADMIN') {
+      locks[permissionKey] = true;
+    } else if (value === true && currentUser?.role === 'SUPER_ADMIN') {
+      // Only Super Admin can clear the lock when reinstating
+      locks[permissionKey] = false;
+    }
+
     const updatedPermissions = {
       ...(targetUser.permissions || {}),
-      [permissionKey]: value
+      [permissionKey]: value,
+      super_admin_locks: locks,
+      [`${permissionKey}_revoke_reason`]: reason || targetUser.permissions?.[`${permissionKey}_revoke_reason`]
     };
 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, permissions: updatedPermissions } : u));
@@ -231,32 +247,28 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     }
   };
 
-  // Role Tier Update Handler with Security Safeguards
-  const handleRoleTierChange = async (fnum, newRole) => {
-    if (currentUser?.role === 'SYSTEM_ADMIN') {
-      alert("Security Restriction: SYSTEM ADMIN cannot manage or modify access clearance tiers.");
-      return;
-    }
-
-    // STATION ADMIN validation: Max 3 users per station rule check
-    if (currentUser?.role === 'STATION_ADMIN') {
-      const stationUsersCount = allSystemUsers.filter(u => u.station === currentUser.station).length;
-      if (stationUsersCount >= 3 && newRole !== 'USER') {
-        alert("Station Admin Limit: You are restricted to managing a maximum of 3 users per station.");
-        return;
-      }
-    }
-
+  const executeRoleChange = async (fnum, newRole, reason = '') => {
     const targetUser = allSystemUsers.find(u => u.fnum === fnum);
     if (!targetUser) return;
 
-    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, role: newRole } : u));
+    let updatedPermissions = { ...(targetUser.permissions || {}) };
+
+    if (newRole === 'REVOKED') {
+      updatedPermissions.revoke_reason = reason;
+      updatedPermissions.revoked_by = currentUser?.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : currentUser?.role;
+    } else if (currentUser?.role === 'SUPER_ADMIN') {
+      // Only Super Admin can clear account-wide suspension metadata
+      delete updatedPermissions.revoked_by;
+      delete updatedPermissions.revoke_reason;
+    }
+
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
     try {
       const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum.trim())}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: newRole, permissions: targetUser.permissions || {} })
+        body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
        
       if (!response.ok) {
@@ -267,6 +279,79 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
       alert(`Role Update Failed:\n${err.message}`);
       fetchAllSystemUsers();
     }
+  };
+
+  // Granular Matrix Toggle Handler with Strict Super Admin Reinstatement Enforcement
+  const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
+    if (currentUser?.role === 'SYSTEM_ADMIN') {
+      alert("Security Restriction: SYSTEM ADMIN has viewing and diagnostic access only and is strictly barred from modifying user permissions or access levels.");
+      return;
+    }
+
+    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
+    if (!targetUser) return;
+
+    // STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT LOCK
+    if (value === true && currentUser?.role !== 'SUPER_ADMIN' && targetUser.permissions?.super_admin_locks?.[permissionKey]) {
+      alert("SECURITY OVERRIDE DENIED: This clearance was explicitly revoked by a Global Super Admin. Only the Super Admin has the exclusive authority to reinstate it.");
+      return;
+    }
+
+    // COMPELLED REASON FOR REMOVING CLEARANCE (For non-Super Admins)
+    if (value === false && currentUser?.role !== 'SUPER_ADMIN') {
+      setRevokePrompt({
+        isOpen: true,
+        fnum,
+        actionType: 'PERMISSION',
+        targetValue: value,
+        permissionKey,
+        reason: ''
+      });
+      return;
+    }
+
+    executePermissionChange(fnum, permissionKey, value, '');
+  };
+
+  // Role Tier Update Handler with Strict Super Admin Reinstatement Enforcement
+  const handleRoleTierChange = async (fnum, newRole) => {
+    if (currentUser?.role === 'SYSTEM_ADMIN') {
+      alert("Security Restriction: SYSTEM ADMIN cannot manage or modify access clearance tiers.");
+      return;
+    }
+
+    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
+    if (!targetUser) return;
+
+    // STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT LOCK
+    if (newRole !== 'REVOKED' && targetUser.role === 'REVOKED' && currentUser?.role !== 'SUPER_ADMIN' && targetUser.permissions?.revoked_by === 'SUPER_ADMIN') {
+      alert("SECURITY OVERRIDE DENIED: This officer's access was revoked by a Global Super Admin. Only the Super Admin has the exclusive authority to reinstate them.");
+      return;
+    }
+
+    // STATION ADMIN validation: Max 3 users per station rule check
+    if (currentUser?.role === 'STATION_ADMIN') {
+      const stationUsersCount = allSystemUsers.filter(u => u.station === currentUser.station).length;
+      if (stationUsersCount >= 3 && newRole !== 'USER' && newRole !== 'REVOKED') {
+        alert("Station Admin Limit: You are restricted to managing a maximum of 3 users per station.");
+        return;
+      }
+    }
+
+    // COMPELLED REASON FOR SUSPENDING ACCOUNT
+    if (newRole === 'REVOKED' && currentUser?.role !== 'SUPER_ADMIN') {
+      setRevokePrompt({
+        isOpen: true,
+        fnum,
+        actionType: 'ROLE',
+        targetValue: newRole,
+        permissionKey: null,
+        reason: ''
+      });
+      return;
+    }
+
+    executeRoleChange(fnum, newRole, '');
   };
 
   const handleApproveUser = async (fnum) => {
@@ -405,7 +490,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
               <Shield className="w-4 h-4 mr-2 text-indigo-400" /> Active Roster & Granular Clearance Matrix
             </span>
             <span className="text-[10px] text-slate-400 font-mono">
-              6-Tier Tiers: USER | ADMIN_USER | STATION_ADMIN | SYSTEM_ADMIN | SUPER_ADMIN_USER | SUPER_ADMIN
+              6-Tier Tiers: USER | ADMIN_USER | STATION_ADMIN | SYSTEM_ADMIN | SUPER_ADMIN_USER | SUPER_ADMIN | REVOKED
             </span>
           </div>
           {loadingUsers ? (
@@ -430,20 +515,22 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                   {allSystemUsers.map(u => {
                     const p = u.permissions || {};
                     const isSuperAdmin = u.role === 'SUPER_ADMIN';
+                    const isRevoked = u.role === 'REVOKED';
 
                     return (
-                      <tr key={u.fnum} className="hover:bg-slate-50">
+                      <tr key={u.fnum} className={`transition-colors ${isRevoked ? 'bg-red-50/40' : 'hover:bg-slate-50'}`}>
                         <td className="p-3">
-                          <div className="font-extrabold text-slate-900 text-xs flex items-center">
+                          <div className={`font-extrabold text-xs flex items-center ${isRevoked ? 'text-red-900' : 'text-slate-900'}`}>
                             {formatOfficerHeader(u)}
                             {isSuperAdmin && (
                               <span className="ml-2 px-2 py-0.5 text-[9px] bg-red-100 text-red-700 font-bold rounded-full border border-red-200">
                                 GOD-MODE
                               </span>
                             )}
+                            {p.revoked_by === 'SUPER_ADMIN' && <Lock size={12} className="ml-2 text-red-600" title="Revoked by Super Admin" />}
                           </div>
-                          <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                            Station: <strong className="text-slate-700">{u.station}</strong> ({u.region})
+                          <div className={`text-[11px] font-mono mt-0.5 ${isRevoked ? 'text-red-500' : 'text-slate-500'}`}>
+                            Station: <strong className={isRevoked ? 'text-red-700' : 'text-slate-700'}>{u.station}</strong> ({u.region})
                           </div>
                         </td>
 
@@ -457,6 +544,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                               u.role === 'SYSTEM_ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-300' :
                               u.role === 'ADMIN_USER' ? 'bg-indigo-50 text-indigo-700 border-indigo-300' :
                               u.role === 'STATION_ADMIN' ? 'bg-blue-50 text-blue-700 border-blue-300' :
+                              u.role === 'REVOKED' ? 'bg-red-100 text-red-800 border-red-400 shadow-inner' :
                               'bg-slate-100 text-slate-700 border-slate-300'
                             }`}
                           >
@@ -466,58 +554,35 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                             <option value="SYSTEM_ADMIN">SYSTEM ADMIN (Diagnostic Only)</option>
                             <option value="ASSISTANT_SUPER_ADMIN">SUPER ADMIN USER (Assistant Global)</option>
                             <option value="SUPER_ADMIN">SUPER ADMIN (Global)</option>
+                            <option value="REVOKED" className="text-red-600 font-extrabold bg-red-50">REVOKED (Suspend Access)</option>
                           </select>
                         </td>
 
-                        <td className="p-3 text-center">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.can_view !== false)} 
-                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_view', e.target.checked)} 
-                            className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
+                        {[
+                          { key: 'can_view', color: 'blue' },
+                          { key: 'can_register', color: 'blue' },
+                          { key: 'can_update', color: 'blue' },
+                          { key: 'export_data', color: 'red', bg: 'bg-red-50/20' },
+                          { key: 'can_view_analytics', color: 'emerald', bg: 'bg-emerald-50/20' }
+                        ].map((col, idx) => {
+                          const isLocked = !isSuperAdmin && p.super_admin_locks?.[col.key];
+                          const isDisabled = isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN' || isLocked || isRevoked;
 
-                        <td className="p-3 text-center">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.can_register !== false)} 
-                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_register', e.target.checked)} 
-                            className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
-
-                        <td className="p-3 text-center">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.can_update !== false)} 
-                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_update', e.target.checked)} 
-                            className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
-
-                        <td className="p-3 text-center bg-red-50/20">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.export_data)} 
-                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'export_data', e.target.checked)} 
-                            className="w-4 h-4 text-red-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
-
-                        <td className="p-3 text-center bg-emerald-50/20">
-                          <input 
-                            type="checkbox" 
-                            checked={isSuperAdmin || Boolean(p.can_view_analytics !== false)} 
-                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
-                            onChange={e => handleGranularPermissionChange(u.fnum, 'can_view_analytics', e.target.checked)} 
-                            className="w-4 h-4 text-emerald-600 rounded cursor-pointer disabled:opacity-40" 
-                          />
-                        </td>
+                          return (
+                            <td key={idx} className={`p-3 text-center ${col.bg || ''}`}>
+                              <div className="relative inline-flex items-center justify-center">
+                                <input 
+                                  type="checkbox" 
+                                  checked={isSuperAdmin || Boolean(p[col.key] !== false)} 
+                                  disabled={isDisabled}
+                                  onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
+                                  className={`w-4 h-4 rounded cursor-pointer disabled:opacity-40 text-${col.color}-600`} 
+                                />
+                                {isLocked && <Lock size={10} className="absolute -top-1.5 -right-2 text-red-600 drop-shadow-sm" />}
+                              </div>
+                            </td>
+                          );
+                        })}
                       </tr>
                     );
                   })}
@@ -712,6 +777,54 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* 🔴 MANDATORY JUSTIFICATION MODAL FOR REVOKING ACCESS */}
+      {revokePrompt.isOpen && (
+        <div className="fixed inset-0 z-[99999] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-300 overflow-hidden flex flex-col">
+                <div className="bg-red-600 px-6 py-4 flex items-center shrink-0">
+                    <AlertTriangle className="text-white mr-3 animate-pulse" size={24} />
+                    <h3 className="text-white font-extrabold text-sm uppercase tracking-wider">Mandatory Justification Required</h3>
+                </div>
+                
+                <div className="p-6 space-y-4">
+                    <p className="text-sm font-bold text-slate-700 leading-relaxed">
+                        You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${revokePrompt.permissionKey}" clearance`}</span> for this officer. By command directive, you must state an official operational reason to proceed.
+                    </p>
+                    <textarea 
+                        value={revokePrompt.reason}
+                        onChange={(e) => setRevokePrompt({...revokePrompt, reason: e.target.value})}
+                        placeholder="Type official reason for revocation here..."
+                        className="w-full border border-slate-300 rounded-xl p-3 text-sm font-medium outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 resize-none h-32"
+                    />
+                </div>
+                
+                <div className="bg-slate-50 px-6 py-4 flex justify-end space-x-3 border-t border-slate-200 shrink-0">
+                    <button 
+                        onClick={() => setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' })}
+                        className="px-5 py-2.5 font-bold text-slate-600 text-xs bg-white border border-slate-300 rounded-xl hover:bg-slate-100 transition cursor-pointer"
+                    >
+                        Cancel Action
+                    </button>
+                    {revokePrompt.reason.trim().length >= 5 && (
+                        <button 
+                            onClick={() => {
+                                if (revokePrompt.actionType === 'ROLE') {
+                                    executeRoleChange(revokePrompt.fnum, revokePrompt.targetValue, revokePrompt.reason);
+                                } else {
+                                    executePermissionChange(revokePrompt.fnum, revokePrompt.permissionKey, revokePrompt.targetValue, revokePrompt.reason);
+                                }
+                                setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' });
+                            }}
+                            className="px-5 py-2.5 font-bold text-white text-xs bg-red-600 rounded-xl hover:bg-red-700 shadow-md transition flex items-center cursor-pointer animate-in fade-in slide-in-from-right-4"
+                        >
+                            <CheckCircle size={16} className="mr-2" /> Confirm Revocation
+                        </button>
+                    )}
+                </div>
+            </div>
         </div>
       )}
     </div>  
