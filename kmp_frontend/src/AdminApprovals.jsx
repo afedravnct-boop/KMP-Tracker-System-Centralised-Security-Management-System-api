@@ -4,13 +4,13 @@ import {
   Users, RefreshCw, KeyRound, UserCheck, FileText 
 } from 'lucide-react';
 
-// 🟢 PASTE YOUR CONSTANTS HERE
+// 🟢 REGIONAL HIERARCHY CONSTANTS
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "POLICE HEADQUARTERS": ["NAGURU", "KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"]
+  "POLICE HEADQUARTERS": ["NAGURU", "KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"]
 };
 
 const autoCapitalize = (text) => {
@@ -52,10 +52,17 @@ const POSITIONS = {
   ]
 };
 
-// 🟢 RENAMED PROP TO propAuthFetch to allow the fallback to work
+// 🟢 Helper to format officer string cleanly: FNUM RANK NAME
+const formatOfficerHeader = (user) => {
+  const fnum = user.fnum || user.f_num || 'NO-FNUM';
+  const rank = user.rank || 'OFFICER';
+  const name = user.name || 'UNKNOWN';
+  return `${fnum} ${rank} ${name}`;
+};
+
 const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
-  
-  // 🟢 FALLBACK SAFETY NET (Prevents "t is not a function" crashes)
+   
+  // 🟢 FALLBACK SAFETY NET
   const authFetch = propAuthFetch || (async (url, options = {}) => {
     const token = localStorage.getItem('kmp_authToken');
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -69,13 +76,13 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
   });
 
   const [activeTab, setActiveTab] = useState('approvals');
-  
+   
   const [modRequests, setModRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
-  
+   
   const [audit_logs, setaudit_logs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
-  
+   
   const [realPendingUsers, setRealPendingUsers] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
 
@@ -88,12 +95,12 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
 
   // Global Filter States for Super Admin / RPC capabilities
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role)) ? 'ALL STATIONS' : currentUser?.station || '');
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role)) ? 'ALL STATIONS' : currentUser?.station || '');
 
   const isRPC = currentUser && ['RPC', 'Deputy Commander'].includes(currentUser.role);
-  const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN'].includes(currentUser.role);
+  const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role);
 
-  // 🟢 Component-level fetchers
+  // Component-level fetchers
   const fetchPendingUsers = async () => {
     setLoadingPending(true);
     try {
@@ -146,23 +153,16 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
   };
 
   useEffect(() => {
-    // 1. Fetch HR Modification Requests
     setLoadingRequests(true);
     authFetch("/api/v1/requests")
       .then(res => res.json())
       .then(data => { setModRequests(Array.isArray(data) ? data : []); setLoadingRequests(false); })
       .catch(err => { console.error(err); setLoadingRequests(false); });
 
-    // 2. Fetch Pending Signups
     fetchPendingUsers();
-
-    // 3. Fetch Password Resets
     fetchResets();
-
-    // 4. Fetch All Active System Users
     fetchAllSystemUsers();
 
-    // 5. Fetch Audit Logs if tab is active
     if (activeTab === 'logs') {
       setLoadingLogs(true);
       authFetch("/api/v1/audit-logs")
@@ -172,7 +172,6 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     }
   }, [activeTab]);
 
-  // Filter logic applied to queues based on selected jurisdiction
   const filteredPending = useMemo(() => {
     return realPendingUsers.filter(u => {
       if (filterRegion !== 'ALL REGIONS' && u.region !== filterRegion) return false;
@@ -197,8 +196,14 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     });
   }, [resetRequests, filterRegion, filterStation]);
 
-// Granular Matrix Toggle Handler
+  // Granular Matrix Toggle Handler with Security Safeguards
   const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
+    // SYSTEM ADMIN constraint check: Cannot alter permissions
+    if (currentUser?.role === 'SYSTEM_ADMIN') {
+      alert("Security Restriction: SYSTEM ADMIN has viewing and diagnostic access only and is strictly barred from modifying user permissions or access levels.");
+      return;
+    }
+
     const targetUser = allSystemUsers.find(u => u.fnum === fnum);
     if (!targetUser) return;
 
@@ -215,20 +220,33 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
       });
-      
-      // 🟢 FIX: Extract the actual backend error instead of a generic message
+       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.detail || `HTTP Error ${response.status}`);
       }
     } catch (err) {
       alert(`Permission Update Failed:\n${err.message}`);
-      fetchAllSystemUsers(); // Revert UI state on failure
+      fetchAllSystemUsers();
     }
   };
 
-  // Role Tier Update Handler
+  // Role Tier Update Handler with Security Safeguards
   const handleRoleTierChange = async (fnum, newRole) => {
+    if (currentUser?.role === 'SYSTEM_ADMIN') {
+      alert("Security Restriction: SYSTEM ADMIN cannot manage or modify access clearance tiers.");
+      return;
+    }
+
+    // STATION ADMIN validation: Max 3 users per station rule check
+    if (currentUser?.role === 'STATION_ADMIN') {
+      const stationUsersCount = allSystemUsers.filter(u => u.station === currentUser.station).length;
+      if (stationUsersCount >= 3 && newRole !== 'USER') {
+        alert("Station Admin Limit: You are restricted to managing a maximum of 3 users per station.");
+        return;
+      }
+    }
+
     const targetUser = allSystemUsers.find(u => u.fnum === fnum);
     if (!targetUser) return;
 
@@ -240,19 +258,17 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: targetUser.permissions || {} })
       });
-      
-      // 🟢 FIX: Extract the actual backend error
+       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.detail || `HTTP Error ${response.status}`);
       }
     } catch (err) {
       alert(`Role Update Failed:\n${err.message}`);
-      fetchAllSystemUsers(); // Revert UI state on failure
+      fetchAllSystemUsers();
     }
   };
 
-  // Approval Handler
   const handleApproveUser = async (fnum) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
@@ -291,7 +307,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      
+       
       const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
         method: "PATCH", 
         headers: { 
@@ -300,12 +316,12 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         }, 
         body: JSON.stringify(payload)
       });
-      
+       
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || `Server Error: ${response.status}`);
       }
-      
+       
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId));
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
@@ -317,18 +333,18 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     try {
       const formData = new URLSearchParams();
       formData.append('action', actionStr);
-      
+       
       const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
         method: "POST", 
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, 
         body: formData
       });
-      
+       
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail);
-      
+       
       setResetRequests(resetRequests.filter(r => r.id !== reqId));
-      
+       
       if (actionStr === "APPROVE") {
         alert(`Password successfully reset! Temporary key: ${data.new_password}`);
       } else {
@@ -352,10 +368,10 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         <select 
           value={filterRegion} 
           onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
-          disabled={currentUser?.role !== 'SUPER_ADMIN'} 
+          disabled={!['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role)} 
           className="border border-slate-300 rounded-xl px-4 py-2 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
         >
-          {currentUser?.role === 'SUPER_ADMIN' ? (
+          {['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) ? (
             <><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY || {}).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
           ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
         </select>
@@ -363,10 +379,10 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         <select 
           value={filterStation} 
           onChange={(e) => setFilterStation(e.target.value)} 
-          disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role))} 
+          disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role))} 
           className="border border-slate-300 rounded-xl px-4 py-2 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
         >
-          {['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ? (
+          {['SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) ? (
             <><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
           ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
         </select>
@@ -389,7 +405,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
               <Shield className="w-4 h-4 mr-2 text-indigo-400" /> Active Roster & Granular Clearance Matrix
             </span>
             <span className="text-[10px] text-slate-400 font-mono">
-              Role Tiers: SUPER_ADMIN | SYSTEM_ADMIN | ADMIN | USER
+              6-Tier Tiers: USER | ADMIN_USER | STATION_ADMIN | SYSTEM_ADMIN | SUPER_ADMIN_USER | SUPER_ADMIN
             </span>
           </div>
           {loadingUsers ? (
@@ -419,7 +435,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                       <tr key={u.fnum} className="hover:bg-slate-50">
                         <td className="p-3">
                           <div className="font-extrabold text-slate-900 text-xs flex items-center">
-                            {u.name}
+                            {formatOfficerHeader(u)}
                             {isSuperAdmin && (
                               <span className="ml-2 px-2 py-0.5 text-[9px] bg-red-100 text-red-700 font-bold rounded-full border border-red-200">
                                 GOD-MODE
@@ -427,7 +443,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                             )}
                           </div>
                           <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                            {u.fnum} | {u.rank} • Station: <strong className="text-slate-700">{u.station}</strong>
+                            Station: <strong className="text-slate-700">{u.station}</strong> ({u.region})
                           </div>
                         </td>
 
@@ -437,14 +453,18 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                             onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)}
                             className={`border rounded-lg px-2.5 py-1 font-bold outline-none cursor-pointer text-[11px] ${
                               u.role === 'SUPER_ADMIN' ? 'bg-red-50 text-red-700 border-red-300' :
+                              u.role === 'ASSISTANT_SUPER_ADMIN' ? 'bg-rose-50 text-rose-700 border-rose-300' :
                               u.role === 'SYSTEM_ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-300' :
-                              u.role === 'ADMIN' ? 'bg-blue-50 text-blue-700 border-blue-300' :
+                              u.role === 'ADMIN_USER' ? 'bg-indigo-50 text-indigo-700 border-indigo-300' :
+                              u.role === 'STATION_ADMIN' ? 'bg-blue-50 text-blue-700 border-blue-300' :
                               'bg-slate-100 text-slate-700 border-slate-300'
                             }`}
                           >
-                            <option value="USER">USER (Standard)</option>
-                            <option value="ADMIN">ADMIN (Station)</option>
-                            <option value="SYSTEM_ADMIN">SYSTEM ADMIN (Tech)</option>
+                            <option value="USER">USER (Data Entrant)</option>
+                            <option value="ADMIN_USER">ADMIN-USER (Regional/Div/Station)</option>
+                            <option value="STATION_ADMIN">STATION ADMIN (Max 3 Users)</option>
+                            <option value="SYSTEM_ADMIN">SYSTEM ADMIN (Diagnostic Only)</option>
+                            <option value="ASSISTANT_SUPER_ADMIN">SUPER ADMIN USER (Assistant Global)</option>
                             <option value="SUPER_ADMIN">SUPER ADMIN (Global)</option>
                           </select>
                         </td>
@@ -453,7 +473,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                           <input 
                             type="checkbox" 
                             checked={isSuperAdmin || Boolean(p.can_view !== false)} 
-                            disabled={isSuperAdmin}
+                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
                             onChange={e => handleGranularPermissionChange(u.fnum, 'can_view', e.target.checked)} 
                             className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
                           />
@@ -463,7 +483,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                           <input 
                             type="checkbox" 
                             checked={isSuperAdmin || Boolean(p.can_register !== false)} 
-                            disabled={isSuperAdmin}
+                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
                             onChange={e => handleGranularPermissionChange(u.fnum, 'can_register', e.target.checked)} 
                             className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
                           />
@@ -473,7 +493,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                           <input 
                             type="checkbox" 
                             checked={isSuperAdmin || Boolean(p.can_update !== false)} 
-                            disabled={isSuperAdmin}
+                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
                             onChange={e => handleGranularPermissionChange(u.fnum, 'can_update', e.target.checked)} 
                             className="w-4 h-4 text-blue-600 rounded cursor-pointer disabled:opacity-40" 
                           />
@@ -483,7 +503,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                           <input 
                             type="checkbox" 
                             checked={isSuperAdmin || Boolean(p.export_data)} 
-                            disabled={isSuperAdmin}
+                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
                             onChange={e => handleGranularPermissionChange(u.fnum, 'export_data', e.target.checked)} 
                             className="w-4 h-4 text-red-600 rounded cursor-pointer disabled:opacity-40" 
                           />
@@ -493,7 +513,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                           <input 
                             type="checkbox" 
                             checked={isSuperAdmin || Boolean(p.can_view_analytics !== false)} 
-                            disabled={isSuperAdmin}
+                            disabled={isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN'}
                             onChange={e => handleGranularPermissionChange(u.fnum, 'can_view_analytics', e.target.checked)} 
                             className="w-4 h-4 text-emerald-600 rounded cursor-pointer disabled:opacity-40" 
                           />
@@ -522,7 +542,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                   <tr>
                     <th className="px-4 py-3 text-left">Officer Details</th>
                     <th className="px-4 py-3 text-left">Command Post</th>
-                    <th className="px-4 py-3 text-left">Derived Role</th>
+                    <th className="px-4 py-3 text-left">Derived Role Tier</th>
                     <th className="px-4 py-3 text-left">Action</th>
                   </tr>
                 </thead>
@@ -530,8 +550,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                   {filteredPending.map((user) => (
                     <tr key={user.fnum} className="hover:bg-blue-50/50">
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-bold text-slate-900">{user.name}</div>
-                        <div className="text-[11px] text-slate-500 font-medium">{user.fnum} | {user.rank}</div>
+                        <div className="font-bold text-slate-900">{formatOfficerHeader(user)}</div>
                         <div className="text-[11px] text-slate-400">{user.phone}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
@@ -540,7 +559,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                         <div className="text-[10px] bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block border font-bold text-slate-600">{user.position}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-[11px] font-bold rounded-full border ${user.role.includes('ADMIN') ? 'bg-purple-100 text-purple-800 border-purple-200' : user.role === 'RPC' ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>
+                        <span className={`px-2 inline-flex text-[11px] font-bold rounded-full border ${user.role?.includes('ADMIN') ? 'bg-purple-100 text-purple-800 border-purple-200' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>
                           {user.role}
                         </span>
                       </td>
@@ -573,7 +592,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
               <table className="min-w-full divide-y divide-slate-200 text-xs">
                 <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold">
                   <tr>
-                    <th className="px-4 py-3 text-left">Officer</th>
+                    <th className="px-4 py-3 text-left">Officer Details</th>
                     <th className="px-4 py-3 text-left">Requested Changes</th>
                     <th className="px-4 py-3 text-left">Action</th>
                   </tr>
@@ -582,8 +601,9 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                   {filteredRequests.map((req) => (
                     <tr key={req.id || req.sn} className="hover:bg-amber-50/50">
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-extrabold text-blue-700">{req.current_name}</div>
-                        <div className="text-[11px] font-bold text-slate-500">{req.fnum} | {req.current_rank}</div>
+                        <div className="font-extrabold text-blue-700">
+                          {formatOfficerHeader({ fnum: req.fnum, rank: req.current_rank, name: req.current_name })}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-slate-700">
                         {req.requested_name && req.requested_name !== req.current_name && <div className="text-xs"><span className="font-bold text-slate-400">Name:</span> <span className="text-red-500 line-through mr-1">{req.current_name}</span> ➡️ <span className="text-emerald-600 font-bold">{req.requested_name}</span></div>}
@@ -672,8 +692,9 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                     <tr key={req.id} className="hover:bg-red-50/50">
                       <td className="px-4 py-3 whitespace-nowrap font-bold text-slate-500 text-[11px]">{req.request_date}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-extrabold text-blue-700">{req.name}</div>
-                        <div className="text-[11px] font-bold text-slate-500">{req.fnum} | {req.rank}</div>
+                        <div className="font-extrabold text-blue-700">
+                          {formatOfficerHeader({ fnum: req.fnum, rank: req.rank, name: req.name })}
+                        </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-slate-700">
                         <div className="font-bold">{req.station}</div>

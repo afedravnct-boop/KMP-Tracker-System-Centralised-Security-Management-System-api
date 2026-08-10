@@ -26,9 +26,6 @@ import AdminApprovals from "./AdminApprovals";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
-const [activeComponent, setActiveComponent] = useState('DASHBOARD');
-const [targetCommTab, setTargetCommTab] = useState('INBOX');
-const [commDefaultTab, setCommDefaultTab] = useState('INBOX');
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -4818,6 +4815,10 @@ const IdleWarningModal = () => {
     };
 
     const App = () => {
+      const [activeComponent, setActiveComponent] = useState('DASHBOARD');
+      const [targetCommTab, setTargetCommTab] = useState('INBOX');
+      const [commDefaultTab, setCommDefaultTab] = useState('INBOX');
+
       const [currentUser, setCurrentUser] = usePersistentState('kmp_currentUser', null);
       const [currentPage, setCurrentPage] = usePersistentState('kmp_currentPage', 'home');
       const [isInitializing, setIsInitializing] = useState(true);
