@@ -52,6 +52,7 @@ from app.database import engine, get_db, get_logs_db
 from app.database import LogsSessionLocal as SessionLogsLocal
 from app.core import security
 from auth import router as auth_router
+from docx import Document
 
 # ==========================================
 # 0. LOAD ENVIRONMENT VARIABLES & CONFIG
