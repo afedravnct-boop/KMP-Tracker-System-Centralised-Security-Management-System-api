@@ -15,17 +15,17 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     { label: "Command Region", value: officer.region },
     { label: "Duty Station", value: officer.station },
     { label: "Division / Section", value: officer.section || officer.dir },
-    { label: "Home District", value: officer.homedist || officer.district },
+    { label: "Home District", value: officer.homedist || officer.home_dist || officer.district },
     { label: "Tribe / Nationality", value: officer.tribe },
   ];
 
   const rightAttributes = [
     { label: "Date of Birth (D.O.B)", value: officer.dob },
     { label: "Date of Enlistment (D.O.E)", value: officer.doe },
-    { label: "Date on Post (D.O. POST)", value: officer.dopost },
-    { label: "Date of Promotion (D.O. PRO)", value: officer.dopro },
-    { label: "Contact Telephone", value: officer.contact },
-    { label: "Educational Level", value: officer.educlevel },
+    { label: "Date of Posting (D.O.P)", value: officer.dopost || officer.do_post || officer.dop },
+    { label: "Date of Promotion (D.O. PRO)", value: officer.dopro || officer.do_pro },
+    { label: "Contact Telephone", value: officer.contact || officer.phone },
+    { label: "Educational Level", value: officer.educlevel || officer.educ_level },
     { label: "Bank Account Number", value: officer.accno || officer.acc_no },
     { label: "Bank & Branch", value: officer.bankbranch || officer.bank_branch },
     { label: "Tax Identification (TIN)", value: officer.tin },
@@ -77,7 +77,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
                 {leftAttributes.map((attr, idx) => (
                   <div key={idx} className="flex flex-col border-b border-slate-50 pb-1.5">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{attr.label}</span>
-                    <span className="text-xs font-extrabold text-slate-800 uppercase mt-0.5">{attr.value || 'N/A'}</span>
+                    <span className="text-xs font-extrabold text-slate-800 uppercase mt-0.5">{attr.value || '-'}</span>
                   </div>
                 ))}
               </div>
@@ -92,7 +92,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
                 {rightAttributes.map((attr, idx) => (
                   <div key={idx} className="flex flex-col border-b border-slate-50 pb-1.5">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{attr.label}</span>
-                    <span className="text-xs font-extrabold text-slate-800 uppercase mt-0.5">{attr.value || 'N/A'}</span>
+                    <span className="text-xs font-extrabold text-slate-800 uppercase mt-0.5">{attr.value || '-'}</span>
                   </div>
                 ))}
               </div>

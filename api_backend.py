@@ -9,6 +9,8 @@ import secrets  # 🟢 NEW: For secure random password generation
 import string   # 🟢 NEW: For alphanumeric character mapping
 from datetime import datetime, timedelta
 from typing import Optional, List, Union
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 import pytz
 import uvicorn
@@ -27,6 +29,7 @@ from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
@@ -36,6 +39,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import Column, Integer
+from sqlalchemy import text
 
 from urllib.parse import unquote
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -88,6 +92,9 @@ BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 # ==========================================
 try:
     models.Base.metadata.create_all(bind=engine, checkfirst=True)
+    # 🟢 HOTFIX: Force NeonDB to add the tracking column if it doesn't exist
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP"))
 except Exception as e:
     print(f"Startup metadata notice: {e}")
 
@@ -792,6 +799,63 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/users/heartbeat")
+@app.post("/api/v1/users/heartbeat/")
+def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        # Force strict EAT Timezone mapping to prevent UTC server drift
+        eat_tz = pytz.timezone('Africa/Nairobi')
+        current_time = datetime.now(eat_tz).replace(tzinfo=None)
+        
+        current_user.last_active_at = current_time
+        db.commit()
+        return {"status": "alive"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/users/online")
+def get_online_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    # Force strict EAT Timezone mapping
+    eat_tz = pytz.timezone('Africa/Nairobi')
+    now_eat = datetime.now(eat_tz).replace(tzinfo=None)
+    
+    # Anyone who hasn't pinged the server in the last 2 minutes is considered offline
+    threshold = now_eat - timedelta(minutes=2)
+    
+    query = db.query(models.Users).filter(
+        models.Users.is_approved == True,
+        models.Users.last_active_at >= threshold
+    )
+    
+    # Apply standard jurisdiction visibility rules
+    perms = current_user.permissions or {}
+    is_global = (
+        current_user.role == "SUPER_ADMIN" or 
+        perms.get("view_global_roster", False) or
+        current_user.region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
+        current_user.station in ["KMP HEADQUARTERS", "KMP Headquarters", "NAGURU"]
+    )
+    
+    if not is_global:
+        is_regional = (current_user.role == "RPC" or perms.get("view_regional_roster", False) or "Deputy" in (current_user.position or ""))
+        if is_regional:
+            query = query.filter(models.Users.region == current_user.region)
+        else:
+            query = query.filter(models.Users.station == current_user.station)
+            
+    active_users = query.all()
+    
+    return [
+        {
+            "fnum": u.fnum,
+            "name": u.name,
+            "station": u.station,
+            "profile_photo_path": u.profile_photo_path
+        } for u in active_users
+    ]
+
 
 # ==========================================
 # 8. LEDGER MANAGEMENT (GET, POST, PUT)
@@ -2374,15 +2438,21 @@ async def upload_word_report(
             doc.save(formatted_io)
             contents = formatted_io.getvalue()
         
-        archive_dir = "reports_archive"
-        os.makedirs(archive_dir, exist_ok=True)
-        
+        # 🟢 S3 CLOUD UPLOAD (Replacing local ephemeral storage)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_filename = f"{timestamp}_{file.filename}"
-        file_path = os.path.join(archive_dir, safe_filename)
+        safe_filename = f"{timestamp}_{file.filename.replace(' ', '_')}"
+        s3_key = f"reports_archive/{safe_filename}"
         
-        with open(file_path, "wb") as f:
-            f.write(contents)
+        s3_client.put_object(
+            Bucket=BUCKET_NAME,
+            Key=s3_key,
+            Body=contents,
+            ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ServerSideEncryption="AES256"
+        )
+        
+        # Build the secure S3 URL to save in the database
+        full_s3_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
 
         display_type = "Formatted Weekly Report" if doc_type == "weekly_report" else "General Document"
         
@@ -2390,7 +2460,7 @@ async def upload_word_report(
             file_name=file.filename,
             doc_type=display_type,
             file_size=file_size_str,
-            file_path=file_path,
+            file_path=full_s3_url, # 🟢 Save S3 URL instead of local path
             uploaded_by=current_user.fnum,
             upload_date=datetime.now()
         )
@@ -2401,16 +2471,17 @@ async def upload_word_report(
             log_semantic_audit(
                 db=db, fnum=current_user.fnum, action="DOCUMENT_UPLOADED",
                 target_identifier=file.filename, changes={}, 
-                remarks=f"Successfully ingested {display_type} for {detected_region}"
+                remarks=f"Successfully ingested {display_type} to S3 for {detected_region}"
             )
 
         return {
             "status": "success",
-            "message": f"Successfully processed and archived {file.filename}.",
+            "message": f"Successfully processed and securely archived {file.filename}.",
             "formats_processed": [
                 f"Document Type: {display_type}",
                 "Checked against duplication ledger.",
-                "Formatting standards applied." if doc_type == "weekly_report" else "Saved as raw upload."
+                "Formatting standards applied." if doc_type == "weekly_report" else "Saved as raw upload.",
+                "Stored securely in AWS S3 Cloud."
             ]
         }
     except HTTPException:
@@ -2445,6 +2516,11 @@ def download_archive_file(doc_id: int, db: Session = Depends(get_db)):
     if not doc:
         raise HTTPException(status_code=404, detail="Document record not found in system database.")
         
+    # 🟢 If the file path is an S3 URL, redirect the browser to instantly download it
+    if str(doc.file_path).startswith("http"):
+        return RedirectResponse(url=doc.file_path)
+        
+    # Fallback just in case you have old local files from testing
     if not os.path.exists(doc.file_path):
         raise HTTPException(
             status_code=404, 
