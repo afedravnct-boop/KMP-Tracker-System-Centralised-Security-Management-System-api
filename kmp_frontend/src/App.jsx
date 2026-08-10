@@ -3871,7 +3871,7 @@ const handlePhotoUpload = async (e) => {
 
 
 // ====================================================================
-// --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN & SESSION TIMEOUT COMPONENT ---
+// --- UNIFIED GLOBAL WORKSPACE SECURITY & SESSION TIMEOUT CURTAIN ---
 // ====================================================================
 const WorkspaceSecurityCurtain = () => {
   const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
@@ -3891,7 +3891,6 @@ const WorkspaceSecurityCurtain = () => {
     const IDLE_TIMEOUT_MS = 60000 * 5; // 5 Minutes of true inactivity before warning
 
     const resetIdleTimers = () => {
-      // If warning or timeout is active, don't clear automatically on background mouse jitter unless explicit action is taken
       if (showIdleWarning || isTimedOut) return;
 
       setIsWorkspaceIdle(false);
@@ -3939,6 +3938,7 @@ const WorkspaceSecurityCurtain = () => {
     };
   }, [isReadingMode, showIdleWarning, isTimedOut]);
 
+  // If user is active and no timeout/warning is triggered, show only the discreet toggle
   if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
     return (
       <div className="fixed bottom-6 right-6 z-[99990]">
@@ -3973,16 +3973,17 @@ const WorkspaceSecurityCurtain = () => {
 
   return (
     <div 
-      className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden z-[2147483647]"
+      className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
       style={{
         position: 'fixed',
         top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 2147483647,
         pointerEvents: 'auto',
         isolation: 'isolate'
       }}
     >
-      {/* Background Curtain Layer */}
-      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md transition-opacity duration-700 ease-in-out">
+      {/* Background Curtain Layer with 3D Globe */}
+      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md transition-opacity duration-700 ease-in-out flex flex-col items-center justify-center">
         <div className="absolute inset-0 opacity-15 pointer-events-none flex flex-col justify-between z-0">
           <div className="h-1/3 w-full bg-black"></div>
           <div className="h-1/3 w-full bg-[#FCD116]"></div>
@@ -3993,7 +3994,7 @@ const WorkspaceSecurityCurtain = () => {
         <div className="idle-center-container relative z-20 flex items-center justify-center mx-auto my-auto" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
           <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
           
-          {/* 🟢 RESTORED 3D SPHERICAL EQUATORIAL TEXT RING */}
+          {/* 3D Spherical Equatorial Text Ring */}
           <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
             {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
               <span 
@@ -4008,7 +4009,7 @@ const WorkspaceSecurityCurtain = () => {
         </div>
       </div>
 
-      {/* Foreground Interactive Modal Box */}
+      {/* Foreground Interactive Session Timeout Box */}
       <div className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto">
         {isTimedOut ? (
           <div>

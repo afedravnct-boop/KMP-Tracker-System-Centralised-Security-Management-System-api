@@ -291,7 +291,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     }
   };
 
-  // Granular Matrix Toggle Handler with Strict Super Admin Reinstatement Enforcement
+// 🟢 Granular Matrix Toggle Handler with Super Admin Exclusive Reinstatement Unlocking
   const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     if (currentUser?.role === 'SYSTEM_ADMIN') {
       alert("Security Restriction: SYSTEM ADMIN has viewing and diagnostic access only and is strictly barred from modifying user permissions or access levels.");
@@ -301,7 +301,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     const targetUser = allSystemUsers.find(u => u.fnum === fnum);
     if (!targetUser) return;
 
-    // STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT LOCK
+    // STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT LOCK (Blocks non-Super Admins)
     if (value === true && currentUser?.role !== 'SUPER_ADMIN' && targetUser.permissions?.super_admin_locks?.[permissionKey]) {
       alert("SECURITY OVERRIDE DENIED: This clearance was explicitly revoked by a Global Super Admin. Only the Super Admin has the exclusive authority to reinstate it.");
       return;
@@ -320,10 +320,42 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
       return;
     }
 
-    executePermissionChange(fnum, permissionKey, value, '');
+    // Prepare lock overrides if Super Admin is reinstating or revoking
+    let locks = { ...(targetUser.permissions?.super_admin_locks || {}) };
+    if (currentUser?.role === 'SUPER_ADMIN') {
+      if (value === false) {
+        locks[permissionKey] = true; // Lock down
+      } else {
+        locks[permissionKey] = false; // Release the Super Admin lock when reinstated
+      }
+    }
+
+    const updatedPermissions = {
+      ...(targetUser.permissions || {}),
+      [permissionKey]: value,
+      super_admin_locks: locks
+    };
+
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, permissions: updatedPermissions } : u));
+
+    try {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum.trim())}/access`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
+      });
+       
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP Error ${response.status}`);
+      }
+    } catch (err) {
+      alert(`Permission Update Failed:\n${err.message}`);
+      fetchAllSystemUsers();
+    }
   };
 
-  // Role Tier Update Handler with Strict Super Admin Reinstatement Enforcement
+  // Role Tier Update Handler with Super Admin Exclusive Reinstatement Unlocking
   const handleRoleTierChange = async (fnum, newRole) => {
     if (currentUser?.role === 'SYSTEM_ADMIN') {
       alert("Security Restriction: SYSTEM ADMIN cannot manage or modify access clearance tiers.");
@@ -333,7 +365,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     const targetUser = allSystemUsers.find(u => u.fnum === fnum);
     if (!targetUser) return;
 
-    // STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT LOCK
+    // STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT LOCK (Blocks non-Super Admins)
     if (newRole !== 'REVOKED' && targetUser.role === 'REVOKED' && currentUser?.role !== 'SUPER_ADMIN' && targetUser.permissions?.revoked_by === 'SUPER_ADMIN') {
       alert("SECURITY OVERRIDE DENIED: This officer's access was revoked by a Global Super Admin. Only the Super Admin has the exclusive authority to reinstate them.");
       return;
@@ -361,7 +393,29 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
       return;
     }
 
-    executeRoleChange(fnum, newRole, '');
+    let updatedPermissions = { ...(targetUser.permissions || {}) };
+    if (newRole !== 'REVOKED' && currentUser?.role === 'SUPER_ADMIN') {
+      delete updatedPermissions.revoked_by;
+      delete updatedPermissions.revoke_reason;
+    }
+
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
+
+    try {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum.trim())}/access`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
+      });
+       
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP Error ${response.status}`);
+      }
+    } catch (err) {
+      alert(`Role Update Failed:\n${err.message}`);
+      fetchAllSystemUsers();
+    }
   };
 
   const handleApproveUser = async (fnum) => {
@@ -402,7 +456,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      
+       
       const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
         method: "PATCH", 
         headers: { 
@@ -411,12 +465,12 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         }, 
         body: JSON.stringify(payload)
       });
-      
+       
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || `Server Error: ${response.status}`);
       }
-      
+       
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId));
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
@@ -428,18 +482,18 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     try {
       const formData = new URLSearchParams();
       formData.append('action', actionStr);
-      
+       
       const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
         method: "POST", 
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, 
         body: formData
       });
-      
+       
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail);
-      
+       
       setResetRequests(resetRequests.filter(r => r.id !== reqId));
-      
+       
       if (actionStr === "APPROVE") {
         alert(`Password successfully reset! Temporary key: ${data.new_password}`);
       } else {
