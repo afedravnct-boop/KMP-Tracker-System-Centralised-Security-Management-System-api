@@ -291,69 +291,69 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     }
   };
 
-// 🟢 Granular Matrix Toggle Handler with Super Admin Exclusive Reinstatement Unlocking
-  const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
-    if (currentUser?.role === 'SYSTEM_ADMIN') {
-      alert("Security Restriction: SYSTEM ADMIN has viewing and diagnostic access only and is strictly barred from modifying user permissions or access levels.");
-      return;
+// 🟢 Granular Matrix Toggle Handler with Proper Super Admin Lock Release
+const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
+  if (currentUser?.role === 'SYSTEM_ADMIN') {
+    alert("Security Restriction: SYSTEM ADMIN has viewing and diagnostic access only and is strictly barred from modifying user permissions or access levels.");
+    return;
+  }
+
+  const targetUser = allSystemUsers.find(u => u.fnum === fnum);
+  if (!targetUser) return;
+
+  // STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT LOCK (Blocks non-Super Admins)
+  if (value === true && currentUser?.role !== 'SUPER_ADMIN' && targetUser.permissions?.super_admin_locks?.[permissionKey]) {
+    alert("SECURITY OVERRIDE DENIED: This clearance was explicitly revoked by a Global Super Admin. Only the Super Admin has the exclusive authority to reinstate it.");
+    return;
+  }
+
+  // COMPELLED REASON FOR REMOVING CLEARANCE (For non-Super Admins)
+  if (value === false && currentUser?.role !== 'SUPER_ADMIN') {
+    setRevokePrompt({
+      isOpen: true,
+      fnum,
+      actionType: 'PERMISSION',
+      targetValue: value,
+      permissionKey,
+      reason: ''
+    });
+    return;
+  }
+
+  // 🟢 Cleanly manage locks: Set lock to true if disabling, clear/false if enabling
+  let locks = { ...(targetUser.permissions?.super_admin_locks || {}) };
+  if (currentUser?.role === 'SUPER_ADMIN') {
+    if (value === false) {
+      locks[permissionKey] = true; // Lock down
+    } else {
+      locks[permissionKey] = false; // Release lock so it can be toggled freely
     }
+  }
 
-    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
-    if (!targetUser) return;
-
-    // STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT LOCK (Blocks non-Super Admins)
-    if (value === true && currentUser?.role !== 'SUPER_ADMIN' && targetUser.permissions?.super_admin_locks?.[permissionKey]) {
-      alert("SECURITY OVERRIDE DENIED: This clearance was explicitly revoked by a Global Super Admin. Only the Super Admin has the exclusive authority to reinstate it.");
-      return;
-    }
-
-    // COMPELLED REASON FOR REMOVING CLEARANCE (For non-Super Admins)
-    if (value === false && currentUser?.role !== 'SUPER_ADMIN') {
-      setRevokePrompt({
-        isOpen: true,
-        fnum,
-        actionType: 'PERMISSION',
-        targetValue: value,
-        permissionKey,
-        reason: ''
-      });
-      return;
-    }
-
-    // Prepare lock overrides if Super Admin is reinstating or revoking
-    let locks = { ...(targetUser.permissions?.super_admin_locks || {}) };
-    if (currentUser?.role === 'SUPER_ADMIN') {
-      if (value === false) {
-        locks[permissionKey] = true; // Lock down
-      } else {
-        locks[permissionKey] = false; // Release the Super Admin lock when reinstated
-      }
-    }
-
-    const updatedPermissions = {
-      ...(targetUser.permissions || {}),
-      [permissionKey]: value,
-      super_admin_locks: locks
-    };
-
-    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, permissions: updatedPermissions } : u));
-
-    try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum.trim())}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
-      });
-       
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `HTTP Error ${response.status}`);
-      }
-    } catch (err) {
-      alert(`Permission Update Failed:\n${err.message}`);
-      fetchAllSystemUsers();
-    }
+  const updatedPermissions = {
+    ...(targetUser.permissions || {}),
+    [permissionKey]: value,
+    super_admin_locks: locks
   };
+
+  setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, permissions: updatedPermissions } : u));
+
+  try {
+    const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum.trim())}/access`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
+    });
+     
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || `HTTP Error ${response.status}`);
+    }
+  } catch (err) {
+    alert(`Permission Update Failed:\n${err.message}`);
+    fetchAllSystemUsers();
+  }
+};
 
   // Role Tier Update Handler with Super Admin Exclusive Reinstatement Unlocking
   const handleRoleTierChange = async (fnum, newRole) => {
@@ -635,13 +635,13 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
                           return (
                             <td key={idx} className={`p-3 text-center ${col.bg || ''}`}>
                               <div className="relative inline-flex items-center justify-center">
-                                <input 
-                                  type="checkbox" 
-                                  checked={isSuperAdmin || Boolean(p[col.key] !== false)} 
-                                  disabled={isDisabled}
-                                  onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
-                                  className={`w-4 h-4 rounded cursor-pointer disabled:opacity-40 text-${col.color}-600`} 
-                                />
+<input 
+  type="checkbox" 
+  checked={isSuperAdmin || Boolean(p[col.key])} // Ensures false is handled properly when unchecked
+  disabled={isDisabled}
+  onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
+  className={`w-4 h-4 rounded cursor-pointer disabled:opacity-40 text-${col.color}-600`} 
+/>
                                 {isLocked && <Lock size={10} className="absolute -top-1.5 -right-2 text-red-600 drop-shadow-sm" />}
                               </div>
                             </td>
