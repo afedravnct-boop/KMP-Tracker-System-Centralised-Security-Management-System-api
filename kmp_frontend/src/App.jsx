@@ -23,6 +23,29 @@ import WordReportUpload from './WordReportUpload';
 import './index.css';
 import SessionExpiredModal from './SessionExpiredModal';
 import AdminApprovals from "./AdminApprovals";
+// 🟢 Place this utility function right near the top of src/App.jsx (outside of App)
+const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, filterStation) => {
+  const scopedSubmissions = allSubmissions.filter(entry => {
+    if (filterRegion && filterRegion !== 'ALL REGIONS' && entry.region !== filterRegion) return false;
+    if (filterStation && filterStation !== 'ALL STATIONS' && entry.station !== filterStation) return false;
+    return true;
+  });
+
+  const calculatedStationSum = scopedSubmissions.reduce((sum, entry) => {
+    return sum + (Number(entry.total_value || entry.count || entry.amount) || 0);
+  }, 0);
+
+  const hqEntry = scopedSubmissions.find(entry => entry.is_hq_grand_total || entry.station === 'HQ GENERAL');
+  const hqEnteredTotal = hqEntry ? (Number(hqEntry.total_value || hqEntry.count || hqEntry.amount) || 0) : null;
+
+  return {
+    displayTotal: hqEnteredTotal !== null && currentUser?.role !== 'STATION_ADMIN' ? hqEnteredTotal : calculatedStationSum,
+    stationSum: calculatedStationSum,
+    hqTotal: hqEnteredTotal,
+    isReconciled: hqEnteredTotal === null || hqEnteredTotal === calculatedStationSum
+  };
+};
+
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
