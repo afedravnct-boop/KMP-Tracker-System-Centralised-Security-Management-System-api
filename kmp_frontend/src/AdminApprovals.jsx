@@ -206,6 +206,19 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     });
   }, [resetRequests, filterRegion, filterStation]);
 
+  // 🟢 FILTERED AUDIT LOGS BASED ON REGION & STATION
+  const filteredLogs = useMemo(() => {
+    return audit_logs.filter(log => {
+      const logUser = allSystemUsers.find(u => u.fnum === log.user_fnum);
+      const logRegion = log.region || logUser?.region || '';
+      const logStation = log.station || logUser?.station || '';
+
+      if (filterRegion !== 'ALL REGIONS' && logRegion && logRegion !== filterRegion) return false;
+      if (filterStation !== 'ALL STATIONS' && logStation && logStation !== filterStation) return false;
+      return true;
+    });
+  }, [audit_logs, allSystemUsers, filterRegion, filterStation]);
+
   // 🟢 EXECUTION ENGINES WITH STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT
   const executePermissionChange = async (fnum, permissionKey, value, reason = '') => {
     const targetUser = allSystemUsers.find(u => u.fnum === fnum);
@@ -213,11 +226,9 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
 
     let locks = targetUser.permissions?.super_admin_locks || {};
     
-    // If Super Admin disables clearance, lock it down exclusively to Super Admin
     if (value === false && currentUser?.role === 'SUPER_ADMIN') {
       locks[permissionKey] = true;
     } else if (value === true && currentUser?.role === 'SUPER_ADMIN') {
-      // Only Super Admin can clear the lock when reinstating
       locks[permissionKey] = false;
     }
 
@@ -236,7 +247,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
       });
-       
+      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.detail || `HTTP Error ${response.status}`);
@@ -257,7 +268,6 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
       updatedPermissions.revoke_reason = reason;
       updatedPermissions.revoked_by = currentUser?.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : currentUser?.role;
     } else if (currentUser?.role === 'SUPER_ADMIN') {
-      // Only Super Admin can clear account-wide suspension metadata
       delete updatedPermissions.revoked_by;
       delete updatedPermissions.revoke_reason;
     }
@@ -270,7 +280,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
-       
+      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.detail || `HTTP Error ${response.status}`);
@@ -392,7 +402,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-       
+      
       const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
         method: "PATCH", 
         headers: { 
@@ -401,12 +411,12 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         }, 
         body: JSON.stringify(payload)
       });
-       
+      
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || `Server Error: ${response.status}`);
       }
-       
+      
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId));
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
@@ -418,18 +428,18 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     try {
       const formData = new URLSearchParams();
       formData.append('action', actionStr);
-       
+      
       const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
         method: "POST", 
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, 
         body: formData
       });
-       
+      
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail);
-       
+      
       setResetRequests(resetRequests.filter(r => r.id !== reqId));
-       
+      
       if (actionStr === "APPROVE") {
         alert(`Password successfully reset! Temporary key: ${data.new_password}`);
       } else {
@@ -478,7 +488,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>New Account Authorizations ({loadingPending ? '...' : filteredPending.length})</button>
         <button onClick={() => setActiveTab('matrix')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'matrix' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Active Roster & Clearance Matrix ({allSystemUsers.length})</button>
         <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'requests' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>HR Modification Requests ({filteredRequests.length})</button>
-        <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Audit Logs</button>
+        <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Audit Logs ({filteredLogs.length})</button>
         <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Password Resets ({filteredResets.length})</button>
       </div>
 
@@ -690,11 +700,13 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         </div>
       )}
 
-      {/* AUDIT LOGS TAB */}
+      {/* AUDIT LOGS TAB (SORTED/FILTERED BY REGION & STATION) */}
       {activeTab === 'logs' && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider">
-            <Shield className="w-4 h-4 mr-2 text-blue-400" /> System Audit Logs (Global)
+          <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center justify-between text-white font-semibold text-xs uppercase tracking-wider">
+            <span className="flex items-center">
+              <Shield className="w-4 h-4 mr-2 text-blue-400" /> System Audit Logs ({filterRegion} {filterStation !== 'ALL STATIONS' ? `/ ${filterStation}` : ''})
+            </span>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-xs">
@@ -710,10 +722,10 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
               <tbody className="bg-white divide-y divide-slate-200">
                 {loadingLogs ? (
                   <tr><td colSpan="5" className="p-8 text-center text-slate-500 font-bold animate-pulse text-xs">Decrypting server logs...</td></tr>
-                ) : audit_logs.length === 0 ? (
-                  <tr><td colSpan="5" className="p-4 text-center text-slate-500 text-xs">No recent security events logged in main database.</td></tr>
+                ) : filteredLogs.length === 0 ? (
+                  <tr><td colSpan="5" className="p-4 text-center text-slate-500 text-xs">No audit logs found for the selected regional filter and station.</td></tr>
                 ) : (
-                  audit_logs.map((log) => (
+                  filteredLogs.map((log) => (
                     <tr key={log.id} className="hover:bg-slate-50">
                       <td className="px-4 py-3 whitespace-nowrap text-slate-500 font-mono text-[11px]">
                         {log.created_at || 'Unknown Time'}
