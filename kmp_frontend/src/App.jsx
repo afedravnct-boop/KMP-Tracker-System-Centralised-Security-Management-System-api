@@ -620,23 +620,42 @@ const filteredReports = useMemo(() => {
   }, [reports, currentUser, updateSearch]);
 
 const metrics = useMemo(() => {
-    const stationCellPop = {};
-    const todayStr = new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
-    let hasLockupUpdateToday = false;
-    let hqGrandTotalToday = null;
+    // 🟢 Utilize the centralized grand totals utility matching filteredReports
+    const grandTotals = calculateGrandTotals(filteredReports, currentUser, filterRegion, filterStation);
     
-    filteredReports.forEach(r => {
-       if (r.date === todayStr) {
-           // Check if this is an HQ Override / General Total entry
-           if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) {
-               hqGrandTotalToday = parseInt(r.daily_lock_up) || parseInt(r.suspects) || 0;
-               hasLockupUpdateToday = true;
-           } else if (stationCellPop[r.station] === undefined && r.daily_lock_up !== undefined && r.daily_lock_up !== null) {
-               stationCellPop[r.station] = parseInt(r.daily_lock_up) || 0;
-               hasLockupUpdateToday = true;
-           }
-       }
-    });
+    // Check if any lock-up entry exists in the current filtered dataset
+    const hasLockupRecords = filteredReports.some(r => 
+      (r.daily_lock_up !== undefined && r.daily_lock_up !== null && r.daily_lock_up !== '') || 
+      r.is_hq_general_total || 
+      (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')
+    );
+
+    const lockupDisplay = hasLockupRecords
+      ? grandTotals.displayTotal
+      : <span className="text-[14px] leading-none tracking-normal text-red-600 bg-red-50 px-3 py-1.5 rounded-md border border-red-200 shadow-inner animate-pulse whitespace-nowrap">
+          Pending Return
+        </span>;
+
+    // ISOLATE STRICTLY CASE-LINKED SUSPECTS
+    const totalCaseSuspects = filteredReports.reduce((sum, r) => {
+      if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) {
+        return sum; 
+      }
+      const suspectsList = r.suspectDetails || r.suspect_details || [];
+      return sum + suspectsList.length;
+    }, 0);
+
+    return {
+      totalLockup: lockupDisplay,
+      newCases: filteredReports.length,
+      active: filteredReports.filter(r => r.status === 'ACTIVE INVESTIGATION').length,
+      sanctioned: filteredReports.filter(r => r.status === 'FORWARDED TO COURT').length,
+      closed: filteredReports.filter(r => r.status === 'CLOSED / CONVICTED').length,
+      adr: filteredReports.filter(r => r.status === 'ADR').length,
+      dataSourceTotals: grandTotals, // Exposes stationSum and hqTotal for your breakdown modal
+      totalSuspects: totalCaseSuspects
+    };
+}, [filteredReports, currentUser, filterRegion, filterStation]);
     
     // If HQ logged a general fallback total for today, it overrides individual sum ups
     const totalCellPop = hqGrandTotalToday !== null 
@@ -3891,7 +3910,94 @@ const handlePhotoUpload = async (e) => {
     };
 
 
+const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals }) => {
+  if (!isOpen) return null;
 
+  // Group submissions by Region and Station to build the drill-down tree
+  const breakdownTree = {};
+  
+  allSubmissions.forEach(entry => {
+    if (entry.is_hq_grand_total || (entry.station || '').includes('HEADQUARTERS GENERAL TOTAL')) return;
+    
+    const region = (entry.region || 'UNKNOWN REGION').trim().toUpperCase();
+    const station = (entry.station || 'UNKNOWN STATION').trim().toUpperCase();
+    const val = Number(entry.total_value || entry.count || entry.amount || entry.daily_lock_up) || 0;
+
+    if (!breakdownTree[region]) {
+      breakdownTree[region] = { total: 0, stations: {} };
+    }
+    if (!breakdownTree[region].stations[station]) {
+      breakdownTree[region].stations[station] = 0;
+    }
+    
+    breakdownTree[region].stations[station] += val;
+    breakdownTree[region].total += val;
+  });
+
+  return (
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-300 animate-in zoom-in-95 flex flex-col max-h-[85vh]">
+        
+        {/* Header */}
+        <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
+          <div>
+            <h3 className="font-extrabold uppercase text-sm tracking-wider flex items-center">
+              <BarChart3 className="mr-2 text-blue-400" size={18} /> Grand Total Jurisdiction Breakdown
+            </h3>
+            <p className="text-[11px] text-slate-400 mt-0.5">Hierarchical aggregation of regional and station entries.</p>
+          </div>
+          <button onClick={onClose} className="hover:bg-slate-800 p-1.5 rounded transition"><X size={18}/></button>
+        </div>
+
+        {/* Summary Banner */}
+        <div className="bg-blue-50 border-b border-blue-100 p-4 px-6 flex justify-between items-center shrink-0">
+          <div>
+            <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Active Master Lockup</span>
+            <h2 className="text-2xl font-black text-slate-900">{grandTotals.displayTotal.toLocaleString()}</h2>
+          </div>
+          <div className="text-right">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Stations Sum</span>
+            <div className="text-lg font-extrabold text-slate-800">{grandTotals.stationSum.toLocaleString()}</div>
+          </div>
+        </div>
+
+        {/* Breakdown Content Tree */}
+        <div className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar bg-slate-50">
+          {Object.keys(breakdownTree).length === 0 ? (
+            <p className="text-center text-xs text-slate-500 py-8">No station submissions found to aggregate.</p>
+          ) : (
+            Object.entries(breakdownTree).map(([regionName, regionData]) => (
+              <div key={regionName} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+                <div className="bg-slate-100 px-4 py-2.5 border-b border-slate-200 flex justify-between items-center">
+                  <span className="text-xs font-black text-slate-900 tracking-wider uppercase">{regionName}</span>
+                  <span className="text-xs font-extrabold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                    {regionData.total.toLocaleString()} Total
+                  </span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {Object.entries(regionData.stations).map(([stationName, stationVal]) => (
+                    <div key={stationName} className="px-6 py-2.5 flex justify-between items-center text-xs hover:bg-slate-50 transition-colors">
+                      <span className="font-semibold text-slate-700 uppercase">{stationName}</span>
+                      <span className="font-bold text-slate-900">{stationVal.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
+          <button onClick={onClose} className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs uppercase tracking-wider shadow">
+            Close Breakdown
+          </button>
+        </div>
+
+      </div>
+    </div>
+  );
+};
 
     // ====================================================================
     // --- MAIN LAYOUT COMPONENT ---
