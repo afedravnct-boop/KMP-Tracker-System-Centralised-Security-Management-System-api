@@ -4,14 +4,21 @@
 @import "tailwindcss";
 
 /* =========================================================
-   0. GLOBAL SYSTEM FONT OVERRIDE
+   0. GLOBAL SYSTEM FONT & ROOT SCALING
    ========================================================= */
 @layer base {
-  html, body {
+  html {
+    /* 🚨 THIS IS THE FIX: Scaling html shrinks all Tailwind boxes, padding, and text */
+    font-size: 12px !important; 
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+  }
+  body {
     font-family: 'Tahoma', Geneva, Verdana, sans-serif;
     background-color: #f8fafc;
     color: #0f172a;
     overflow-x: hidden;
+    letter-spacing: -0.01em;
   }
 }
 
@@ -175,7 +182,7 @@
 /* Central Map Surface */
 .spinning-map-globe {
   position: absolute;
-  inset: 0;             
+  inset: 0;              
   margin: auto;        
   width: 55%;          
   height: 55%;
@@ -196,7 +203,7 @@
 
 
 /* =========================================================
-   5. SNOW SMOKE METRIC CARDS (OPTIMIZED FOR WHITE BACKGROUNDS)
+   5. SNOW SMOKE METRIC CARDS
    ========================================================= */
 .metric-card-snow-smoke {
   background: linear-gradient(135deg, rgba(241, 245, 249, 0.8) 0%, rgba(226, 232, 240, 0.4) 100%);
@@ -250,13 +257,6 @@
 /* =========================================================
    6. HIGH-DENSITY COMMAND UI REDUCTION
    ========================================================= */
-@layer base {
-  body {
-    font-size: 13px;
-    letter-spacing: -0.01em;
-  }
-}
-
 .compact-ui-card {
   padding: 0.85rem !important;
 }

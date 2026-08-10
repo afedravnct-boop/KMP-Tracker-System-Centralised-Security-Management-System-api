@@ -2472,6 +2472,82 @@ const getRankWeight = (rankStr) => {
   return RANK_SENIORITY[cleanRank] !== undefined ? RANK_SENIORITY[cleanRank] : 50;
 };
 
+
+// 🟢 Helper function to categorize and extract qualifications and specific courses
+const parseEducationLevel = (rawVal) => {
+  if (!rawVal) return "UNEDUCATED / NOT SPECIFIED";
+  const str = rawVal.toString().trim().toUpperCase();
+  
+  if (!str || str === 'NONE' || str === 'N/A' || str === 'NIL' || str === 'NO' || str === 'UNEDUCATED') {
+    return "UNEDUCATED";
+  }
+
+  // --- 1. BACHELORS / DEGREES (Qualification + Specific Course) ---
+  if (
+    str.includes("BACHELOR") || str.includes("DEGREE") || str.includes("B.A") || 
+    str.includes("B.SC") || str.includes("BSC") || str.includes("BED") || 
+    str.includes("LLB") || str.includes("BIT") || str.includes("BBA")
+  ) {
+    let course = str
+      .replace(/BACHELOR['’]?S?(\s+OF|\s+IN)?/g, '')
+      .replace(/DEGREE(\s+IN)?/g, '')
+      .replace(/B\.?SC\.?/g, 'SCIENCE')
+      .replace(/B\.?A\.?/g, 'ARTS')
+      .replace(/B\.?COM\.?/g, 'COMMERCE')
+      .replace(/B\.?I\.?T\.?/g, 'INFORMATION TECHNOLOGY')
+      .replace(/B\.?B\.?A\.?/g, 'BUSINESS ADMINISTRATION')
+      .replace(/L\.?L\.?B\.?/g, 'LAW')
+      .trim();
+
+    return course && course !== 'SCIENCE' && course !== 'ARTS'
+      ? `BACHELORS - ${course}`
+      : `BACHELORS (${str})`;
+  }
+
+  // --- 2. DIPLOMAS (Qualification + Specific Course) ---
+  if (str.includes("DIPLOMA") || str.includes("DIP.")) {
+    let course = str
+      .replace(/DIPLOMA(\s+IN)?/g, '')
+      .replace(/DIP\.?/g, '')
+      .trim();
+
+    return course ? `DIPLOMA - ${course}` : `DIPLOMA (${str})`;
+  }
+
+  // --- 3. CERTIFICATES (Qualification + Specific Course) ---
+  if (str.includes("CERTIFICATE") || str.includes("CERT.")) {
+    let course = str
+      .replace(/CERTIFICATE(\s+IN)?/g, '')
+      .replace(/CERT\.?/g, '')
+      .trim();
+
+    return course ? `CERTIFICATE - ${course}` : `CERTIFICATE (${str})`;
+  }
+
+  // --- 4. VOCATIONAL & HIGH SCHOOL STANDARDS ---
+  if (str.includes("UBTEB") || str.includes("VOCATIONAL") || str.includes("TECHNICAL")) return "UBTEB / TECHNICAL";
+  if (str.includes("UACE") || str.includes("A LEVEL") || str.includes("A-LEVEL") || str.includes("S.6") || str.includes("S6") || str.includes("SENIOR 6")) return "UACE (A-LEVEL)";
+  if (str.includes("UCE") || str.includes("O LEVEL") || str.includes("O-LEVEL") || str.includes("S.4") || str.includes("S4") || str.includes("SENIOR 4")) return "UCE (O-LEVEL)";
+  
+  // --- 5. LOWER SECONDARY LEVELS ---
+  if (str.includes("S.3") || str.includes("S3") || str.includes("SENIOR 3")) return "S.3";
+  if (str.includes("S.2") || str.includes("S2") || str.includes("SENIOR 2")) return "S.2";
+  if (str.includes("S.1") || str.includes("S1") || str.includes("SENIOR 1")) return "S.1";
+
+  // --- 6. PRIMARY SCHOOL LEVELS ---
+  if (str.includes("P.7") || str.includes("P7") || str.includes("PLE") || str.includes("PRIMARY 7")) return "P.7 (PLE)";
+  if (str.includes("P.6") || str.includes("P6") || str.includes("PRIMARY 6")) return "P.6";
+  if (str.includes("P.5") || str.includes("P5") || str.includes("PRIMARY 5")) return "P.5";
+  if (str.includes("P.4") || str.includes("P4") || str.includes("PRIMARY 4")) return "P.4";
+  if (str.includes("P.3") || str.includes("P3") || str.includes("PRIMARY 3")) return "P.3";
+  if (str.includes("P.2") || str.includes("P2") || str.includes("PRIMARY 2")) return "P.2";
+  if (str.includes("P.1") || str.includes("P1") || str.includes("PRIMARY 1")) return "P.1";
+
+  // Return formatted raw string for any custom qualifications
+  return str;
+};
+
+
 const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Roll_archives, setNominal_Roll_archives, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -2579,7 +2655,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
           else if (metricCategory === 'BANK') key = bankBranch ? bankBranch.trim().toUpperCase() : 'BANK UNKNOWN';
           else if (metricCategory === 'DISTRICT') key = homeDistrict ? homeDistrict.trim().toUpperCase() : 'DISTRICT UNKNOWN';
           else if (metricCategory === 'TRIBE') key = n.tribe ? n.tribe.trim().toUpperCase() : 'TRIBE UNKNOWN';
-          else if (metricCategory === 'EDUCATION') key = educLevel ? educLevel.trim().toUpperCase() : 'NOT SPECIFIED';
+          else if (metricCategory === 'EDUCATION') key = parseEducationLevel(educLevel);
 
           else if (metricCategory === 'AGE') {
               if (n.dob) {
@@ -4213,12 +4289,31 @@ const IdleWarningModal = () => {
         <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')` }}></div>
       </div>
 
-      {isTimedOut ? (
-        <SessionExpiredModal onAcknowledge={() => {
-          localStorage.removeItem('kmp_authToken');
-          localStorage.removeItem('kmp_currentUser');
-          window.location.replace('/');
-        }} />
+{isTimedOut ? (
+        <div className="relative z-[100000] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200">
+          <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
+            <AlertTriangle className="w-8 h-8 text-red-600" />
+          </div>
+          <h4 className="text-xl font-extrabold text-slate-900 mb-2">
+            Session Expired Due to Inactivity
+          </h4>
+          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
+            Your security token has expired because the system was left unattended. You have been securely logged out.
+          </p>
+          <button 
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              localStorage.removeItem('kmp_authToken');
+              localStorage.removeItem('kmp_currentUser');
+              localStorage.removeItem('kmp_currentPage');
+              window.location.reload(); 
+            }}
+            className="w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
+          >
+            Acknowledge & Return to Login
+          </button>
+        </div>
       ) : (
         <div className="relative z-[100000] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200">
           <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
