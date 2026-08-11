@@ -2564,6 +2564,59 @@ def download_official_template(template_type: str, current_user: models.Users = 
 
     # 🟢 Templates return a direct FileResponse binary blob, which is perfect!
     return FileResponse(file_path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=filename)
+
+
+@app.post("/api/v1/templates/upload/{template_id}")
+async def upload_command_template(
+    template_id: str, 
+    file: UploadFile = File(...), 
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    # 1. Security Check: Ensure only authorized admins can upload templates
+    if current_user.role not in ['SUPER_ADMIN', 'ADMIN', 'RPC']:
+        raise HTTPException(status_code=403, detail="Command clearance required to modify system templates.")
+
+    # 2. Upload the new template to AWS S3
+    s3_key = f"command_templates/{template_id}_{file.filename}"
+    
+    try:
+        s3_client.upload_fileobj(
+            file.file, 
+            BUCKET_NAME, 
+            s3_key,
+            ExtraArgs={"ContentType": file.content_type}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"S3 Upload Failed: {str(e)}")
+
+    # Construct the URL using your environment variables
+    aws_region = os.getenv("AWS_REGION", "eu-central-1")
+    s3_url = f"https://{BUCKET_NAME}.s3.{aws_region}.amazonaws.com/{s3_key}"
+
+    # 3. Update or Create the record in NeonDB
+    template_record = db.query(models.CommandTemplate).filter(models.CommandTemplate.template_id == template_id).first()
+    
+    if template_record:
+        # Overwrite the existing template tracking link
+        template_record.file_name = file.filename
+        template_record.s3_url = s3_url
+        template_record.updated_by = current_user.fnum
+    else:
+        # Create a new record if it doesn't exist yet
+        template_record = models.CommandTemplate(
+            template_id=template_id,
+            file_name=file.filename,
+            s3_url=s3_url,
+            updated_by=current_user.fnum
+        )
+        db.add(template_record)
+        
+    db.commit()
+    
+    return {"message": f"Template '{template_id}' successfully updated.", "url": s3_url}
+
+
 @app.get("/api/v1/users/recipients-list")
 def get_filtered_recipients(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     query = db.query(models.Users).filter(models.Users.is_approved == True)
