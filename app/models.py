@@ -333,3 +333,21 @@ class DocumentArchive(Base):
     file_path = Column(String, nullable=False) 
     uploaded_by = Column(String)
     upload_date = Column(DateTime, default=datetime.utcnow)
+
+class CommandTemplate(Base):
+    __tablename__ = "command_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # This will match the dropdown IDs from the frontend (e.g., 'weekly_report', 'opord')
+    template_id = Column(String, unique=True, index=True, nullable=False) 
+    
+    file_name = Column(String, nullable=False)
+    
+    # The AWS S3 URL where the blank template is stored
+    s3_url = Column(String, nullable=False)
+    
+    # Track which Admin/Super Admin last updated it
+    updated_by = Column(String, nullable=True) 
+    
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

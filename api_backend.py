@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Union
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+import urllib.parse
 
 import pytz
 import uvicorn
@@ -28,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from fastapi.responses import JSONResponse
 
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from jose import jwt, JWTError
@@ -39,6 +41,8 @@ from sqlalchemy.orm import sessionmaker
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import Column, Integer
 from sqlalchemy import text
+from docx.shared import Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from urllib.parse import unquote
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -1175,6 +1179,10 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
 @app.post("/api/v1/nominal-roll")
 def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
+        # --- 1. Extract special re-integration flags before mapping ---
+        reintegration_reason = data.pop('reintegration_reason', None)
+        previous_fnum = data.pop('previous_fnum', None)
+        
         data.pop('sn', None) 
         if current_user.role not in ["SUPER_ADMIN", "RPC"]:
             data["region"] = current_user.region
@@ -1207,11 +1215,60 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         if 'sex' in clean_data:
             clean_data['sex'] = normalize_sex(clean_data['sex'])
 
+        target_fnum = clean_data.get('fnum')
+
+        # --- 2. Check Active Nominal Roll First ---
+        active_officer = db.query(models.NominalRoll).filter(models.NominalRoll.fnum == target_fnum).first()
+        if active_officer:
+            raise HTTPException(status_code=400, detail="Duplicate Entry: This F/NO or File Number is currently active.")
+
+        # --- 3. Check the Archive for Historical Matches ---
+        search_fnum = previous_fnum if previous_fnum else target_fnum
+        archived_officer = db.query(models.NominalRollArchive).filter(models.NominalRollArchive.fnum == search_fnum).first()
+        
+        if archived_officer:
+            # If found, but no reason was provided from the frontend, pause and ask for authorization
+            if not reintegration_reason:
+                return JSONResponse(
+                    status_code=409, 
+                    content={
+                        "detail": "Officer history found in the archive. Please authorize re-entry and map any F/NO changes.", 
+                        "is_archived_returnee": True,
+                        "old_rank": archived_officer.rank,
+                        "old_fnum": archived_officer.fnum
+                    }
+                )
+            
+            # 🟢 NON-DESTRUCTIVE RE-INTEGRATION
+            # Carry over immutable historical data to the fresh active record
+            clean_data['dob'] = archived_officer.dob
+            clean_data['doe'] = archived_officer.doe
+            clean_data['ipps'] = archived_officer.ipps
+            clean_data['status'] = "ACTIVE"
+            
+            # Combine the new re-integration note with any existing notes submitted in the form
+            existing_new_notes = clean_data.get('notes') or ""
+            clean_data['notes'] = f"Re-integrated on {datetime.utcnow().strftime('%Y-%m-%d')}. Reason: {reintegration_reason}. Prev: {archived_officer.rank} {archived_officer.fnum} | {existing_new_notes}"
+            
+            new_record = models.NominalRoll(**clean_data)
+            new_record.last_updated_by = current_user.fnum
+            db.add(new_record)
+            
+            # 🟢 PRESERVE THE ARCHIVE
+            # Add a cross-reference tracking note to the old archived file
+            arch_notes = archived_officer.notes or ""
+            archived_officer.notes = f"{arch_notes} | [STATUS UPDATE: Re-deployed to active duty on {datetime.utcnow().strftime('%Y-%m-%d')} as {clean_data.get('rank')} under F/NO: {target_fnum}]"
+            
+            db.commit()
+            return {"status": "success", "message": f"Officer re-integrated successfully as {clean_data.get('rank')}", "sn": new_record.id}
+
+        # --- 4. Standard New Officer Creation ---
         new_record = models.NominalRoll(**clean_data)
         new_record.last_updated_by = current_user.fnum
         db.add(new_record)
         db.commit()
         db.refresh(new_record)
+        
         return {"status": "success", "message": "Officer added successfully", "sn": new_record.id}
         
     except IntegrityError:
@@ -2516,28 +2573,83 @@ def get_document_archive(db: Session = Depends(get_db), current_user: models.Use
 
 
 @app.get("/api/v1/reports/download/{doc_id}")
-def download_archive_file(doc_id: int, db: Session = Depends(get_db)):
-    doc = db.query(models.DocumentArchive).filter(models.DocumentArchive.id == doc_id).first()
+def download_archive_file(
+    doc_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user) # 🟢 We need the reader's credentials
+):
+    doc_record = db.query(models.DocumentArchive).filter(models.DocumentArchive.id == doc_id).first()
     
-    if not doc:
+    if not doc_record:
         raise HTTPException(status_code=404, detail="Document record not found in system database.")
         
-    # 🟢 FIX: Return JSON dictionary instead of RedirectResponse to bypass browser CORS stripping
-    if str(doc.file_path).startswith("http"):
-        return {"download_url": doc.file_path}
-        
-    # Fallback just in case you have old local files from testing
-    if not os.path.exists(doc.file_path):
-        raise HTTPException(
-            status_code=404, 
-            detail="File instance missing on server storage (Server instance recently refreshed). Please re-upload document."
+    if not str(doc_record.file_path).startswith("http"):
+        raise HTTPException(status_code=404, detail="Local files cannot be dynamically stamped. Please use S3 uploads.")
+
+    # 1. Extract the S3 Key from the stored URL
+    parsed_url = urllib.parse.urlparse(doc_record.file_path)
+    original_s3_key = parsed_url.path.lstrip('/') 
+
+    try:
+        # 2. Download the raw document from S3 into memory
+        file_stream = io.BytesIO()
+        s3_client.download_fileobj(BUCKET_NAME, original_s3_key, file_stream)
+        file_stream.seek(0)
+
+        # 3. Open the document using python-docx
+        word_doc = Document(file_stream)
+
+        # 4. Generate the Forensic Receipt Stamp
+        timestamp_eat = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        receipt_text = (
+            "========================================================\n"
+            "         KMP COMMAND - SECURE DOCUMENT TRACKING         \n"
+            "--------------------------------------------------------\n"
+            f"ACCESSED BY : {current_user.fnum} - {current_user.rank} {current_user.name}\n"
+            f"CLEARANCE   : {current_user.role} | STATION: {current_user.station}\n"
+            f"TIMESTAMP   : {timestamp_eat}\n"
+            "========================================================\n"
         )
-    
-    return FileResponse(
-        doc.file_path, 
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
-        filename=doc.file_name
-    )
+
+        # 5. Insert the stamp at the very top of the document
+        if len(word_doc.paragraphs) > 0:
+            p = word_doc.paragraphs[0].insert_paragraph_before(receipt_text)
+        else:
+            p = word_doc.add_paragraph(receipt_text)
+            
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # 6. Apply the "Receipt" styling (Courier New, Monospaced, Dark Red/Black)
+        for run in p.runs:
+            run.font.name = 'Courier New' # Classic monospaced receipt font
+            run.font.size = Pt(9)
+            run.font.bold = True
+            run.font.color.rgb = RGBColor(139, 0, 0) # Dark Red for high forensic visibility
+
+        # 7. Save the stamped document back to memory
+        output_stream = io.BytesIO()
+        word_doc.save(output_stream)
+        output_stream.seek(0)
+
+        # 8. Upload the customized, stamped copy to a cache folder in S3
+        # Name it using the user's FNUM so they have their own unique stamped copy
+        stamped_s3_key = f"forensic_cache/{current_user.fnum}_DOC_{doc_id}.docx"
+        
+        s3_client.upload_fileobj(
+            output_stream, 
+            BUCKET_NAME, 
+            stamped_s3_key,
+            ExtraArgs={"ContentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+        )
+
+        # 9. Construct and return the new URL
+        aws_region = os.getenv("AWS_REGION", "eu-central-1")
+        stamped_url = f"https://{BUCKET_NAME}.s3.{aws_region}.amazonaws.com/{stamped_s3_key}"
+
+        return {"download_url": stamped_url}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Forensic Stamping Error: {str(e)}")
 
 @app.get("/api/v1/templates/download/{template_type}")
 def download_official_template(template_type: str, current_user: models.Users = Depends(get_current_user)):
