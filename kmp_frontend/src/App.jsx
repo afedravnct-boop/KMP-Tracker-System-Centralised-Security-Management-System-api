@@ -6,7 +6,7 @@ import {
   Award, Maximize2, Minimize2, Activity, User, Lock, 
   AlertTriangle, RadioReceiver, Eye, X, Building, Image, 
   Camera, Users, Home, Unlock, Send, Archive, PieChart,
-  Bell, MessageSquare, Upload, ArrowLeft, Globe, WifiOff, Wifi, FileText
+  Bell, MessageSquare, Upload, ArrowLeft, ArrowRight, Globe, WifiOff, Wifi, FileText
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReactQuill from 'react-quill-new';
@@ -2759,6 +2759,11 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
         district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
       });
       setUpdateSearch('');
+      // Reset re-integration states
+      setIsArchivedReturnee(false);
+      setArchiveDetails(null);
+      setCustomReason('');
+      setPreviousFnum('');
     }
   };
 
@@ -2798,7 +2803,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     } catch (error) { setNotification("Error: Could not move to archive."); alert(`Error archiving record: ${error.message}`); }
   };
 
-  const handleFormSubmit = async (e) => { 
+const handleFormSubmit = async (e) => { 
     e.preventDefault();
     const currentRolls = Array.isArray(Nominal_Rolls) ? Nominal_Rolls : [];
     const token = localStorage.getItem('kmp_authToken');
@@ -2813,29 +2818,53 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
     if (operation === 'new') {
       const exactNextSN = currentRolls.length > 0 ? Math.max(...currentRolls.map(n => n.sn || 0)) + 1 : 1;
-      const newEntry = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
+      
+      // 🟢 Add re-integration data to payload if the flag is true
+      const newEntryPayload = { 
+        ...formData, 
+        sn: exactNextSN, 
+        last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
+        ...(isArchivedReturnee && { 
+          reintegration_reason: customReason,
+          previous_fnum: previousFnum || formData.fnum 
+        })
+      };
       
       try {
         const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const response = await fetch(`${API_URL}/api/v1/nominal-roll`, {
-          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newEntry)
+          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newEntryPayload)
         });
+        
+        const responseData = await response.json().catch(() => ({}));
+
         if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.detail || "Database rejected the entry.");
+            // 🟢 INTERCEPT THE ARCHIVE FLAG
+            if (response.status === 409 && responseData.is_archived_returnee) {
+                setIsArchivedReturnee(true);
+                setArchiveDetails(responseData);
+                setNotification("⚠️ Officer history found in archive. Please authorize re-entry below.");
+                return; // Stop here so the user can fill in the custom reason!
+            }
+            throw new Error(responseData.detail || "Database rejected the entry.");
         }
-        setNominal_Rolls([newEntry, ...currentRolls]); setNotification(`Officer ${formData.name} recorded successfully!`); handleOperationToggle('new');
+        
+        // Success
+        setNominal_Rolls([newEntryPayload, ...currentRolls]); 
+        setNotification(`Officer ${formData.name} recorded successfully!`); 
+        handleOperationToggle('new'); // This resets everything cleanly
       } catch (err) { setNotification(`Error: ${err.message}`); }
       
     } else if (operation === 'update') {
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       try {
           const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const response = await authFetch(`/api/v1/reports`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(apiPayload)
-      });
+          // Note: using your existing update logic here
+          const response = await authFetch(`/api/v1/reports`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(updatedRecord) 
+          });
           if (!response.ok) throw new Error("Failed to update record.");
           setNominal_Rolls(currentRolls.map(n => n.sn === formData.sn ? updatedRecord : n));
           setNotification(`Officer SN ${formData.sn} successfully updated!`);
@@ -3009,6 +3038,61 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                       <div className="col-span-2"><label className="block text-xs font-bold text-gray-700 mb-1">STATUS</label><select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white font-bold"><option>ACTIVE</option><option>ON LEAVE</option><option>SUSPENDED</option></select></div>
                     </div>
                   </div>
+
+                  {/* --- 🟢 DYNAMIC ARCHIVE RE-INTEGRATION BLOCK --- */}
+                  {operation === 'new' && isArchivedReturnee && archiveDetails && (
+                    <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg mt-4 animate-in fade-in zoom-in-95 shadow-sm">
+                      <div className="flex items-start mb-3">
+                        <AlertTriangle className="text-amber-500 w-5 h-5 mr-2 mt-0.5" />
+                        <div>
+                          <h4 className="text-sm font-bold text-amber-900">Historical Record Match</h4>
+                          <p className="text-xs text-amber-700 mt-0.5">
+                            This officer exists in the system archives as: 
+                            <span className="font-mono bg-amber-100 px-1.5 py-0.5 rounded mx-1 font-bold text-amber-900 border border-amber-200">
+                              {archiveDetails.old_rank} {archiveDetails.old_fnum}
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-4 bg-white p-4 rounded-md border border-amber-100">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">Re-integration Authority / Reason *</label>
+                          <input
+                            type="text"
+                            required
+                            value={customReason}
+                            onChange={(e) => setCustomReason(e.target.value)}
+                            placeholder="e.g., Deployed from HR HQs back to KMP..."
+                            className="w-full text-xs p-2 border border-slate-300 rounded shadow-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center">
+                            Previous Force Number <span className="text-slate-400 font-normal ml-1">(If promoted to Gazetted File No.)</span>
+                          </label>
+                          <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
+                            <input
+                              type="text"
+                              value={previousFnum}
+                              onChange={(e) => setPreviousFnum(e.target.value)}
+                              placeholder="Leave blank if unchanged"
+                              className="flex-1 text-xs p-2 border border-slate-300 rounded shadow-sm focus:ring-2 focus:ring-amber-500 outline-none uppercase"
+                            />
+                            {previousFnum && (
+                              <div className="flex items-center text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-1.5 rounded border border-amber-200">
+                                {previousFnum} <ArrowRight className="w-3 h-3 mx-1"/> {formData.fnum}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-amber-600 font-medium italic">
+                          * The historical archive record will be preserved. A new active record will be generated inheriting their original DOB, DOE, and IPPS profiles.
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center">
                     {operation === 'new' ? '💾 Log Personnel Record' : '💾 Save Updates'}
@@ -5024,6 +5108,12 @@ const App = () => {
   const [isViewingConsolidated, setIsViewingConsolidated] = useState(false);
   const [consolidatedData, setConsolidatedData] = useState(null);
   const [adminCommsData, setAdminCommsData] = useState([]);  
+
+  // 🟢 NEW RE-INTEGRATION STATES
+  const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
+  const [archiveDetails, setArchiveDetails] = useState(null);
+  const [customReason, setCustomReason] = useState('');
+  const [previousFnum, setPreviousFnum] = useState('');
 
   // Regional/Station filters for Grand Totals computation
   const [filterRegion, setFilterRegion] = useState('ALL REGIONS');
