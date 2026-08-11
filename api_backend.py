@@ -23,13 +23,12 @@ from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks, Request
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
@@ -2523,9 +2522,9 @@ def download_archive_file(doc_id: int, db: Session = Depends(get_db)):
     if not doc:
         raise HTTPException(status_code=404, detail="Document record not found in system database.")
         
-    # 🟢 If the file path is an S3 URL, redirect the browser to instantly download it
+    # 🟢 FIX: Return JSON dictionary instead of RedirectResponse to bypass browser CORS stripping
     if str(doc.file_path).startswith("http"):
-        return RedirectResponse(url=doc.file_path)
+        return {"download_url": doc.file_path}
         
     # Fallback just in case you have old local files from testing
     if not os.path.exists(doc.file_path):
@@ -2557,13 +2556,14 @@ def download_official_template(template_type: str, current_user: models.Users = 
     file_path = os.path.join(templates_dir, filename)
     
     if not os.path.exists(file_path):
+        from docx import Document # Ensure this is imported at the top of your file
         doc = Document()
         doc.add_heading(f"UPF KMP - Official {template_type.replace('-', ' ').title()} Template", 0)
         doc.add_paragraph("Official template for Uganda Police Force - Kampala Metropolitan Police.")
         doc.save(file_path)
 
+    # 🟢 Templates return a direct FileResponse binary blob, which is perfect!
     return FileResponse(file_path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=filename)
-
 @app.get("/api/v1/users/recipients-list")
 def get_filtered_recipients(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     query = db.query(models.Users).filter(models.Users.is_approved == True)
