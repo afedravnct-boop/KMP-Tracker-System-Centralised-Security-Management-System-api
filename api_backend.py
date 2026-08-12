@@ -2481,7 +2481,7 @@ async def upload_word_report(
         doc = Document(io.BytesIO(contents))
         detected_region = current_user.region or "KMP GENERAL"
         
-if doc_type == "weekly_report":
+            if doc_type == "weekly_report":
             # 🟢 Removed the redundant black text headers (Region & Processed Date)
             # The red forensic stamp now handles all document tracking.
             
