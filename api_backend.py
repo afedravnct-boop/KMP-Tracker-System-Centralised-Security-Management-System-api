@@ -2565,40 +2565,7 @@ def get_document_archive(db: Session = Depends(get_db), current_user: models.Use
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch archive: {str(e)}")
 
-@app.delete("/api/v1/reports/archive/{doc_id}")
-def delete_archive_file(
-    doc_id: int, 
-    db: Session = Depends(get_db),
-    current_user: models.Users = Depends(get_current_user)
-):
-    # Restrict deletion to Command/Admins
-    if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
-        raise HTTPException(status_code=403, detail="Command clearance required to delete official records.")
-        
-    doc_record = db.query(models.DocumentArchive).filter(models.DocumentArchive.id == doc_id).first()
-    
-    if not doc_record:
-        raise HTTPException(status_code=404, detail="Document not found.")
-        
-    try:
-        # If the file is stored in S3, delete it from the cloud bucket too
-        if str(doc_record.file_path).startswith("http"):
-            parsed_url = urllib.parse.urlparse(doc_record.file_path)
-            s3_key = parsed_url.path.lstrip('/')
-            try:
-                s3_client.delete_object(Bucket=BUCKET_NAME, Key=s3_key)
-            except Exception as s3_err:
-                print(f"Warning: Could not delete S3 object {s3_key}: {s3_err}")
-            
-        # Delete the record from the Neon database
-        db.delete(doc_record)
-        db.commit()
-        
-        return {"message": "Document and associated cloud data successfully deleted."}
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
+
 
 @app.get("/api/v1/reports/download/{doc_id}")
 def download_archive_file(
