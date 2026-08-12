@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   UploadCloud, FileText, Download, CheckCircle, AlertTriangle, 
-  Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, FilePlus, ListFilter, Server
+  Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, FilePlus, ListFilter, Server, Trash2
 } from 'lucide-react';
 
 // 🟢 Available System Templates List
@@ -134,7 +134,36 @@ const WordReportUpload = ({ currentUser }) => {
     }
   };
 
-  // 🟢 MOBILE-OPTIMIZED FILE ACTION
+  // 🟢 NEW: DELETE DOCUMENT HANDLER
+  const handleDeleteDoc = async (docId) => {
+    if (!window.confirm("Are you sure you want to permanently delete this document? This action cannot be undone.")) return;
+    
+    setActionLoading(`delete-${docId}`);
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      
+      const response = await fetch(`${API_URL}/api/v1/reports/archive/${docId}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || "Failed to delete document.");
+      }
+      
+      setFeedback({ type: 'success', message: "Document successfully deleted." });
+      fetchArchiveList(); // Refresh the ledger immediately
+    } catch (err) {
+      alert(`Delete Error: ${err.message}`);
+    } finally {
+      setActionLoading(null);
+      setTimeout(() => setFeedback(null), 4000);
+    }
+  };
+
+  // 🟢 MOBILE-OPTIMIZED FILE ACTION (Read & Download)
   const handleFileAction = async (docId, action, isTemplate = false) => {
     setActionLoading(`${action}-${docId}`);
     try {
@@ -370,14 +399,25 @@ const WordReportUpload = ({ currentUser }) => {
                           </button>
 
                           {hasDownloadClearance ? (
-                            <button 
-                              onClick={() => handleFileAction(doc.id, 'download')}
-                              disabled={actionLoading === `download-${doc.id}`}
-                              className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
-                            >
-                              {actionLoading === `download-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
-                              Download
-                            </button>
+                            <>
+                              <button 
+                                onClick={() => handleFileAction(doc.id, 'download')}
+                                disabled={actionLoading === `download-${doc.id}`}
+                                className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
+                              >
+                                {actionLoading === `download-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
+                                Download
+                              </button>
+                              
+                              <button 
+                                onClick={() => handleDeleteDoc(doc.id)}
+                                disabled={actionLoading === `delete-${doc.id}`}
+                                className="text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
+                              >
+                                {actionLoading === `delete-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Trash2 className="w-3 h-3 mr-1" />}
+                                Delete
+                              </button>
+                            </>
                           ) : (
                             <button disabled className="text-slate-400 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded flex items-center text-xs font-bold cursor-not-allowed opacity-60" title="Command Clearance Required to Download">
                               <Lock className="w-3 h-3 mr-1" /> Restricted

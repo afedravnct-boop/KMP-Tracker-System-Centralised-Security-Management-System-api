@@ -3206,15 +3206,16 @@ const handleFormSubmit = async (e) => {
                         )}
                       </tr>
                     </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).map((n) => (
-                        <tr 
-                          key={n.sn || n.fnum} 
-                          className={`${viewMode === 'archive' ? 'bg-slate-50 opacity-80' : 'hover:bg-blue-50'} transition-colors cursor-pointer`} 
-                          onClick={() => setSelectedOfficer(n)}
-                        >
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-gray-900">{n.sn}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800">{n.fnum || n.f_num}</td>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).map((n, index) => (
+                      <tr 
+                        key={n.sn || n.f_num || n.fnum} 
+                        className={`${viewMode === 'archive' ? 'bg-slate-50 opacity-80' : 'hover:bg-blue-50'} transition-colors cursor-pointer`} 
+                        onClick={() => setSelectedOfficer(n)}
+                      >
+                        {/* 🟢 Forces sequential numbering from 1 downwards */}
+                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-gray-900">{index + 1}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800">{n.f_num || n.fnum}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs font-bold">{n.rank}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs font-medium">{n.name}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs">{n.sex}</td>
@@ -4951,7 +4952,7 @@ const WorkspaceSecurityCurtain = () => {
 
   // 🟢 2. SESSION TIMEOUT WARNING TIMER (4 Minutes of total inactivity before popup)
   useEffect(() => {
-    const SESSION_TIMEOUT_MS = 60000 * 4; 
+    const SESSION_TIMEOUT_MS = 60000 * 29; 
 
     const sessionTimer = setTimeout(() => {
       if (!isReadingMode && !isTimedOut) {

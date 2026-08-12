@@ -4,37 +4,68 @@ import { X } from 'lucide-react';
 const OfficerDossierModal = ({ officer, onClose }) => {
   if (!officer) return null;
 
+  // 🟢 STRICT DATA MAPPING: Catches both database snake_case and frontend squashed-case
+  const safeData = {
+    sn: officer.id || officer.sn,
+    fnum: officer.f_num || officer.fnum,
+    ipps: officer.ipps,
+    nin: officer.nin,
+    tin: officer.tin,
+    name: officer.name,
+    sex: officer.sex,
+    dob: officer.dob,
+    tribe: officer.tribe,
+    homedist: officer.home_dist || officer.homedist,
+    contact: officer.contact || officer.phone,
+    educlevel: officer.educ_level || officer.educlevel,
+    
+    rank: officer.rank,
+    position: officer.position,
+    dir: officer.dir,
+    region: officer.region,
+    district: officer.district,
+    station: officer.station,
+    section: officer.section,
+    doe: officer.doe,
+    dopost: officer.do_post || officer.dopost || officer.dop,
+    dopro: officer.do_pro || officer.dopro,
+    bankbranch: officer.bank_branch || officer.bankbranch,
+    accno: officer.acc_no || officer.accno,
+    status: officer.status || "ACTIVE",
+    last_updated_by: officer.last_updated_by
+  };
+
   // COLUMN 1: Personal Details, Identifiers & Contact
   const leftAttributes = [
-    { label: "System S/N", value: officer.sn || officer.id },
-    { label: "Force Number (F/NO)", value: officer.fnum || officer.f_num },
-    { label: "IPPS Number", value: officer.ipps },
-    { label: "National ID Number (NIN)", value: officer.nin },
-    { label: "Tax Identification (TIN)", value: officer.tin },
-    { label: "Full Name", value: officer.name },
-    { label: "Sex", value: officer.sex },
-    { label: "Date of Birth (D.O.B)", value: officer.dob },
-    { label: "Tribe / Nationality", value: officer.tribe },
-    { label: "Home District", value: officer.homedist || officer.home_dist },
-    { label: "Contact Telephone", value: officer.contact || officer.phone },
-    { label: "Educational Level", value: officer.educlevel || officer.educ_level },
+    { label: "System S/N", value: safeData.sn },
+    { label: "Force Number (F/NO)", value: safeData.fnum },
+    { label: "IPPS Number", value: safeData.ipps },
+    { label: "National ID Number (NIN)", value: safeData.nin },
+    { label: "Tax Identification (TIN)", value: safeData.tin },
+    { label: "Full Name", value: safeData.name },
+    { label: "Sex", value: safeData.sex },
+    { label: "Date of Birth (D.O.B)", value: safeData.dob },
+    { label: "Tribe / Nationality", value: safeData.tribe },
+    { label: "Home District", value: safeData.homedist },
+    { label: "Contact Telephone", value: safeData.contact },
+    { label: "Educational Level", value: safeData.educlevel },
   ];
 
   // COLUMN 2: Service Record, Deployment & Financials
   const rightAttributes = [
-    { label: "Rank", value: officer.rank },
-    { label: "Official Position / Title", value: officer.position },
-    { label: "Directorate", value: officer.dir },
-    { label: "Command Region", value: officer.region },
-    { label: "Deployment District", value: officer.district },
-    { label: "Duty Station", value: officer.station },
-    { label: "Division / Section", value: officer.section },
-    { label: "Date of Enlistment (D.O.E)", value: officer.doe },
-    { label: "Date of Posting (D.O.P)", value: officer.dopost || officer.do_post || officer.dop },
-    { label: "Date of Promotion (D.O. PRO)", value: officer.dopro || officer.do_pro },
-    { label: "Bank & Branch", value: officer.bankbranch || officer.bank_branch },
-    { label: "Bank Account Number", value: officer.accno || officer.acc_no },
-    { label: "Deployment Status", value: officer.status || "ACTIVE" },
+    { label: "Rank", value: safeData.rank },
+    { label: "Official Position / Title", value: safeData.position },
+    { label: "Directorate", value: safeData.dir },
+    { label: "Command Region", value: safeData.region },
+    { label: "Deployment District", value: safeData.district },
+    { label: "Duty Station", value: safeData.station },
+    { label: "Division / Section", value: safeData.section },
+    { label: "Date of Enlistment (D.O.E)", value: safeData.doe },
+    { label: "Date of Posting (D.O.P)", value: safeData.dopost },
+    { label: "Date of Promotion (D.O. PRO)", value: safeData.dopro },
+    { label: "Bank & Branch", value: safeData.bankbranch },
+    { label: "Bank Account Number", value: safeData.accno },
+    { label: "Deployment Status", value: safeData.status },
   ];
 
   return (
@@ -45,11 +76,11 @@ const OfficerDossierModal = ({ officer, onClose }) => {
         <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-extrabold text-white text-base shadow-inner border border-blue-400">
-              {officer.name ? officer.name.charAt(0) : 'O'}
+              {safeData.name ? safeData.name.charAt(0) : 'O'}
             </div>
             <div>
-              <h3 className="font-extrabold text-sm tracking-wide uppercase">{officer.rank} {officer.name}</h3>
-              <p className="text-[11px] text-blue-300 font-mono">F/NO: {officer.fnum || officer.f_num} | IPPS: {officer.ipps || 'N/A'}</p>
+              <h3 className="font-extrabold text-sm tracking-wide uppercase">{safeData.rank} {safeData.name}</h3>
+              <p className="text-[11px] text-blue-300 font-mono">F/NO: {safeData.fnum} | IPPS: {safeData.ipps || 'N/A'}</p>
             </div>
           </div>
           <button 
@@ -66,7 +97,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
           <div className="bg-blue-50/60 border border-blue-200 p-3 rounded-xl flex items-center justify-between text-xs font-bold text-blue-900">
             <span>🛡️ Official Nominal Roll Dossier Record</span>
             <span className="bg-white px-2.5 py-1 rounded-md shadow-sm border border-blue-200">
-              Station: {officer.station} ({officer.region})
+              Station: {safeData.station} ({safeData.region})
             </span>
           </div>
 
@@ -104,10 +135,10 @@ const OfficerDossierModal = ({ officer, onClose }) => {
 
           </div>
 
-          {officer.last_updated_by && (
+          {safeData.last_updated_by && (
             <div className="text-center pt-2">
               <span className="text-[11px] text-slate-400 font-medium italic">
-                Last modified / logged by: {officer.last_updated_by}
+                Last modified / logged by: {safeData.last_updated_by}
               </span>
             </div>
           )}

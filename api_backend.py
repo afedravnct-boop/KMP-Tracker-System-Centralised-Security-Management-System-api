@@ -2481,15 +2481,9 @@ async def upload_word_report(
         doc = Document(io.BytesIO(contents))
         detected_region = current_user.region or "KMP GENERAL"
         
-        if doc_type == "weekly_report":
-            # 🟢 FIXED: Target the first paragraph to insert headers, or add them if document is empty
-            if len(doc.paragraphs) > 0:
-                first_paragraph = doc.paragraphs[0]
-                first_paragraph.insert_paragraph_before(f"UGANDA POLICE FORCE - {detected_region}")
-                first_paragraph.insert_paragraph_before(f"PROCESSED DATE: {datetime.now().strftime('%Y-%m-%d')}")
-            else:
-                doc.add_paragraph(f"UGANDA POLICE FORCE - {detected_region}")
-                doc.add_paragraph(f"PROCESSED DATE: {datetime.now().strftime('%Y-%m-%d')}")
+if doc_type == "weekly_report":
+            # 🟢 Removed the redundant black text headers (Region & Processed Date)
+            # The red forensic stamp now handles all document tracking.
             
             for para in doc.paragraphs:
                 para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
@@ -2571,6 +2565,40 @@ def get_document_archive(db: Session = Depends(get_db), current_user: models.Use
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch archive: {str(e)}")
 
+@app.delete("/api/v1/reports/archive/{doc_id}")
+def delete_archive_file(
+    doc_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    # Restrict deletion to Command/Admins
+    if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
+        raise HTTPException(status_code=403, detail="Command clearance required to delete official records.")
+        
+    doc_record = db.query(models.DocumentArchive).filter(models.DocumentArchive.id == doc_id).first()
+    
+    if not doc_record:
+        raise HTTPException(status_code=404, detail="Document not found.")
+        
+    try:
+        # If the file is stored in S3, delete it from the cloud bucket too
+        if str(doc_record.file_path).startswith("http"):
+            parsed_url = urllib.parse.urlparse(doc_record.file_path)
+            s3_key = parsed_url.path.lstrip('/')
+            try:
+                s3_client.delete_object(Bucket=BUCKET_NAME, Key=s3_key)
+            except Exception as s3_err:
+                print(f"Warning: Could not delete S3 object {s3_key}: {s3_err}")
+            
+        # Delete the record from the Neon database
+        db.delete(doc_record)
+        db.commit()
+        
+        return {"message": "Document and associated cloud data successfully deleted."}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
 
 @app.get("/api/v1/reports/download/{doc_id}")
 def download_archive_file(
@@ -2600,10 +2628,14 @@ def download_archive_file(
         word_doc = Document(file_stream)
 
         # 4. Generate the Forensic Receipt Stamp
-        timestamp_eat = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        # 🟢 CALCULATE EAT (UTC + 3 HOURS)
+        eat_time = datetime.utcnow() + timedelta(hours=3)
+        timestamp_eat = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
+        
         receipt_text = (
             "========================================================\n"
-            "         KMP COMMAND - SECURE DOCUMENT TRACKING         \n"
+            "         KAMPALA METROPOLITAN POLICE HEADQUARTERS         \n"
+            "         SECURE DOCUMENT & TEMPLATES ACCESS         \n"
             "--------------------------------------------------------\n"
             f"ACCESSED BY : {current_user.fnum} - {current_user.rank} {current_user.name}\n"
             f"CLEARANCE   : {current_user.role} | STATION: {current_user.station}\n"
