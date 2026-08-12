@@ -16,7 +16,8 @@ const TEMPLATE_TYPES = {
   others: { id: 'others', name: 'Others / Miscellaneous', desc: 'General purpose command template.', ext: '.DOCX' }
 };
 
-const WordReportUpload = ({ currentUser }) => {
+// 🟢 CRITICAL FIX: Explicitly receive the override props from App.jsx
+const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -75,6 +76,10 @@ const WordReportUpload = ({ currentUser }) => {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("doc_type", docCategory); 
+    
+    // 🟢 CRITICAL FIX: Append the jurisdiction overrides to the payload
+    if (overrideRegion) formData.append("target_region", overrideRegion);
+    if (overrideStation) formData.append("target_station", overrideStation);
 
     setUploading(true);
     try {
