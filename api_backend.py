@@ -2481,7 +2481,7 @@ async def upload_word_report(
         doc = Document(io.BytesIO(contents))
         detected_region = current_user.region or "KMP GENERAL"
         
-            if doc_type == "weekly_report":
+        if doc_type == "weekly_report":
             # 🟢 Removed the redundant black text headers (Region & Processed Date)
             # The red forensic stamp now handles all document tracking.
             
@@ -2586,12 +2586,12 @@ async def upload_word_report(
         ).first()
         
         if is_duplicate:
-            raise HTTPException(status_code=400, detail="DUPLICATE DETECTED: This document has already been uploaded to the archives.")
+            raise HTTPException(status_code=400, detail="DUPLICATE DETECTED: This document has already been uploaded.")
 
         doc = Document(io.BytesIO(contents))
         detected_region = current_user.region or "KMP GENERAL"
         
-        # 🟢 INDENTATION FIXED: This must be indented to sit inside the try block
+        # 🟢 INDENTATION FIXED: It is now safely inside the try block
         if doc_type == "weekly_report":
             for para in doc.paragraphs:
                 para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
@@ -2649,7 +2649,7 @@ async def upload_word_report(
             ]
         }
         
-    # 🟢 EXCEPT BLOCKS RESTORED AND ALIGNED PROPERLY
+    # 🟢 EXCEPT BLOCKS ALIGNED PROPERLY
     except HTTPException:
         raise
     except Exception as e:
