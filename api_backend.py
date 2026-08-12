@@ -2455,97 +2455,6 @@ def get_all_requests(db: Session = Depends(get_db), current_user: models.Users =
             })
     return results
 
-@app.post("/api/v1/reports/upload-word-report")
-async def upload_word_report(
-    file: UploadFile = File(...),
-    doc_type: str = Form(...),  
-    db: Session = Depends(get_db),
-    current_user: models.Users = Depends(get_current_user)
-):
-    if not file.filename.endswith('.docx'):
-        raise HTTPException(status_code=400, detail="Only official .docx Word document formats are accepted.")
-    
-    try:
-        contents = await file.read()
-        file_size_kb = max(1, round(len(contents) / 1024))
-        file_size_str = f"{file_size_kb} KB" if file_size_kb < 1024 else f"{round(file_size_kb / 1024, 1)} MB"
-
-        is_duplicate = db.query(models.DocumentArchive).filter(
-            models.DocumentArchive.file_name == file.filename,
-            models.DocumentArchive.file_size == file_size_str
-        ).first()
-        
-        if is_duplicate:
-            raise HTTPException(status_code=400, detail="DUPLICATE DETECTED: This document has already been uploaded to the archives.")
-
-        doc = Document(io.BytesIO(contents))
-        detected_region = current_user.region or "KMP GENERAL"
-        
-        if doc_type == "weekly_report":
-            # 🟢 Removed the redundant black text headers (Region & Processed Date)
-            # The red forensic stamp now handles all document tracking.
-            
-            for para in doc.paragraphs:
-                para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                for run in para.runs:
-                    run.font.name = 'Arial'
-                    run.font.size = Pt(11)
-
-            formatted_io = io.BytesIO()
-            doc.save(formatted_io)
-            contents = formatted_io.getvalue()
-        
-        # 🟢 S3 CLOUD UPLOAD (Replacing local ephemeral storage)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_filename = f"{timestamp}_{file.filename.replace(' ', '_')}"
-        s3_key = f"reports_archive/{safe_filename}"
-        
-        s3_client.put_object(
-            Bucket=BUCKET_NAME,
-            Key=s3_key,
-            Body=contents,
-            ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            ServerSideEncryption="AES256"
-        )
-        
-        # Build the secure S3 URL to save in the database
-        full_s3_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
-
-        display_type = "Formatted Weekly Report" if doc_type == "weekly_report" else "General Document"
-        
-        new_archive = models.DocumentArchive(
-            file_name=file.filename,
-            doc_type=display_type,
-            file_size=file_size_str,
-            file_path=full_s3_url, # 🟢 Save S3 URL instead of local path
-            uploaded_by=current_user.fnum,
-            upload_date=datetime.now()
-        )
-        db.add(new_archive)
-        db.commit()
-
-        if hasattr(models, 'Audit_Logs'):
-            log_semantic_audit(
-                db=db, fnum=current_user.fnum, action="DOCUMENT_UPLOADED",
-                target_identifier=file.filename, changes={}, 
-                remarks=f"Successfully ingested {display_type} to S3 for {detected_region}"
-            )
-
-        return {
-            "status": "success",
-            "message": f"Successfully processed and securely archived {file.filename}.",
-            "formats_processed": [
-                f"Document Type: {display_type}",
-                "Checked against duplication ledger.",
-                "Formatting standards applied." if doc_type == "weekly_report" else "Saved as raw upload.",
-                "Stored securely in AWS S3 Cloud."
-            ]
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to process document: {str(e)}")
 
 
 @app.get("/api/v1/reports/archive")
@@ -2569,6 +2478,8 @@ def get_document_archive(db: Session = Depends(get_db), current_user: models.Use
 async def upload_word_report(
     file: UploadFile = File(...),
     doc_type: str = Form(...),  
+    target_region: Optional[str] = Form(None),   # 🟢 Added override
+    target_station: Optional[str] = Form(None),  # 🟢 Added override
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
@@ -2589,9 +2500,17 @@ async def upload_word_report(
             raise HTTPException(status_code=400, detail="DUPLICATE DETECTED: This document has already been uploaded.")
 
         doc = Document(io.BytesIO(contents))
-        detected_region = current_user.region or "KMP GENERAL"
         
-        # 🟢 INDENTATION FIXED: It is now safely inside the try block
+        # 🟢 JURISDICTION OVERRIDE RESOLUTION LOGIC
+        effective_region = current_user.region or "KMP GENERAL"
+        effective_station = current_user.station or "KMP HEADQUARTERS"
+        
+        if current_user.role in ["SUPER_ADMIN", "ADMIN"]:
+            if target_region:
+                effective_region = target_region.upper()
+            if target_station:
+                effective_station = target_station.upper()
+
         if doc_type == "weekly_report":
             for para in doc.paragraphs:
                 para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
@@ -2603,8 +2522,7 @@ async def upload_word_report(
             doc.save(formatted_io)
             contents = formatted_io.getvalue()
         
-        # 🟢 S3 CLOUD UPLOAD
-        from datetime import datetime, timedelta
+        # 🟢 S3 CLOUD UPLOAD & TIMEZONE HANDLING
         eat_time = datetime.utcnow() + timedelta(hours=3)
         timestamp = eat_time.strftime("%Y%m%d_%H%M%S")
         
@@ -2627,6 +2545,8 @@ async def upload_word_report(
             doc_type=display_type,
             file_size=file_size_str,
             file_path=full_s3_url, 
+            region=effective_region,     # 🟢 Using the override target
+            station=effective_station,   # 🟢 Using the override target
             uploaded_by=current_user.fnum,
             upload_date=eat_time 
         )
@@ -2637,24 +2557,70 @@ async def upload_word_report(
             log_semantic_audit(
                 db=db, fnum=current_user.fnum, action="DOCUMENT_UPLOADED",
                 target_identifier=file.filename, changes={}, 
-                remarks=f"Successfully ingested {display_type} to S3 for {detected_region}"
+                remarks=f"Successfully ingested {display_type} to S3 for {effective_region} / {effective_station}"
             )
 
         return {
             "status": "success",
-            "message": f"Successfully processed and securely archived {file.filename}.",
+            "message": f"Successfully processed and securely archived {file.filename} under {effective_station}.",
+            "jurisdiction": {"region": effective_region, "station": effective_station},
             "formats_processed": [
                 f"Document Type: {display_type}",
+                f"Assigned Jurisdiction: {effective_station} ({effective_region})",
                 "Stored securely in AWS S3 Cloud."
             ]
         }
         
-    # 🟢 EXCEPT BLOCKS ALIGNED PROPERLY
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to process document: {str(e)}")
+
+
+@app.delete("/api/v1/reports/archive/{doc_id}")
+def delete_archive_file(
+    doc_id: int, 
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    # 🟢 Security: Restrict deletion to Command/Admins
+    if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
+        raise HTTPException(status_code=403, detail="Command clearance required to delete official records.")
+        
+    doc_record = db.query(models.DocumentArchive).filter(models.DocumentArchive.id == doc_id).first()
+    
+    if not doc_record:
+        raise HTTPException(status_code=404, detail="Document not found in the database.")
+        
+    try:
+        # 🟢 Delete the file from the AWS S3 cloud bucket
+        if str(doc_record.file_path).startswith("http"):
+            parsed_url = urllib.parse.urlparse(doc_record.file_path)
+            s3_key = parsed_url.path.lstrip('/')
+            try:
+                s3_client.delete_object(Bucket=BUCKET_NAME, Key=s3_key)
+            except Exception as s3_err:
+                print(f"Warning: Could not delete S3 object {s3_key}: {s3_err}")
+            
+        # 🟢 Delete the record from the Neon database
+        db.delete(doc_record)
+        
+        # 🟢 Audit Log the deletion
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(
+                db=db, fnum=current_user.fnum, action="DOCUMENT_DELETED",
+                target_identifier=doc_record.file_name, changes={}, 
+                remarks="Admin permanently deleted document from secure archives and S3."
+            )
+            
+        db.commit()
+        return {"message": "Document and associated cloud data successfully deleted."}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
+
 
 @app.get("/api/v1/reports/download/{doc_id}")
 def download_archive_file(

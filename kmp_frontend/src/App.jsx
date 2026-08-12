@@ -23,6 +23,7 @@ import WordReportUpload from './WordReportUpload';
 import './index.css';
 import SessionExpiredModal from './SessionExpiredModal';
 import AdminApprovals from "./AdminApprovals";
+
 // 🟢 Place this utility function right near the top of src/App.jsx (outside of App)
 const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, filterStation) => {
   const scopedSubmissions = allSubmissions.filter(entry => {
@@ -4112,6 +4113,7 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
       const [isFullScreen, setIsFullScreen] = useState(false);
       const [isAnimating, setIsAnimating] = useState(true);
       
+
 // 🟢 State for expanding the motion button on hover or click
       const [isMotionExpanded, setIsMotionExpanded] = useState(false);
 
@@ -4301,6 +4303,35 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
                                   currentUser?.permissions?.view_nominal_roll || 
                                   currentUser?.permissions?.upload_hr || 
                                   currentUser?.permissions?.system_admin;
+
+{currentUser?.role?.toUpperCase() === 'SUPER_ADMIN' && (
+  <div className="bg-amber-50 border border-amber-300 p-4 rounded-xl mb-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
+    <div className="flex items-center space-x-2">
+      <span className="text-amber-800 font-extrabold text-xs uppercase tracking-wide">🛡️ Command Jurisdiction Override (Super Admin Mode):</span>
+    </div>
+    
+    <div className="flex items-center space-x-3 w-full md:w-auto">
+      <select 
+        value={overrideRegion} 
+        onChange={(e) => setOverrideRegion(e.target.value)}
+        className="bg-white border border-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500"
+      >
+        <option value="KMP HEADQUARTERS">KMP HEADQUARTERS</option>
+        <option value="KMP NORTH">KMP NORTH</option>
+        <option value="KMP SOUTH">KMP SOUTH</option>
+        <option value="KMP EAST">KMP EAST</option>
+      </select>
+
+      <input 
+        type="text" 
+        value={overrideStation} 
+        onChange={(e) => setOverrideStation(e.target.value.toUpperCase())}
+        placeholder="TARGET STATION (e.g. KATWE)"
+        className="bg-white border border-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 uppercase"
+      />
+    </div>
+  </div>
+)}   
 
       const navItems = [
         { 
@@ -5116,6 +5147,8 @@ const App = () => {
   const [currentUser, setCurrentUser] = usePersistentState('kmp_currentUser', null);
   const [currentPage, setCurrentPage] = usePersistentState('kmp_currentPage', 'home');
   const [isInitializing, setIsInitializing] = useState(true);
+  const [targetRegion, setTargetRegion] = useState('KMP HEADQUARTERS');
+  const [targetStation, setTargetStation] = useState('KMP HEADQUARTERS');
 
   const [reports, setReports] = useState([]);
   const [stats, setStats] = useState([]);
@@ -5314,10 +5347,12 @@ const App = () => {
       } catch (err) { alert("Failed to load Consolidated Ledger. Check Python terminal for errors."); }
   };
 
-  if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
+if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
 
+  // 🟢 1. PROPERLY CLOSED GHOST SESSION CHECK
   if (currentUser && !currentUser.region) {
-    localStorage.removeItem('kmp_currentUser'); localStorage.removeItem('kmp_authToken');
+    localStorage.removeItem('kmp_currentUser'); 
+    localStorage.removeItem('kmp_authToken');
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
         <h2 className="text-2xl font-bold text-red-600 mb-2">Ghost Session Detected</h2>
@@ -5327,7 +5362,8 @@ const App = () => {
     );
   }
 
- if (!currentUser) return <LoginScreen 
+  // 🟢 2. RESTORED LOGIN SCREEN
+  if (!currentUser) return <LoginScreen 
     onLogin={(user) => {
       localStorage.removeItem('kmp_currentPage'); setCurrentPage('home'); setCurrentUser(user);
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -5336,6 +5372,7 @@ const App = () => {
     onForgot={() => {}} onSignup={(u) => setPendingUsers([...pendingUsers, u])} pendingUsers={pendingUsers} activeUsers={users} 
   />;
 
+  // 🟢 3. RESTORED USER MANAGEMENT HANDLERS
   const handleGenerateHRReport = () => downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
 
   const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
@@ -5363,6 +5400,7 @@ const App = () => {
     } catch (err) { console.error("Failed to revoke user:", err); }
   };
 
+  // 🟢 4. MAIN APPLICATION RETURN
   return (
     <>
       <DashboardLayout 
@@ -5371,11 +5409,45 @@ const App = () => {
         onUpdateUserRole={handleUpdateUserRole} onRevokeUser={handleRevokeUser} users={users} Admin_Communication={adminCommsData}
         onViewConsolidated={handleViewConsolidated} onViewHRReport={handleViewHRReport} onGenerateHRReport={handleGenerateHRReport}
       >
+        
+        {/* 🟢 SUPER ADMIN COMMAND OVERRIDE BAR 🟢 */}
+        {currentUser?.role?.toUpperCase() === 'SUPER_ADMIN' && (
+          <div className="bg-amber-50 border border-amber-300 p-4 rounded-xl mb-6 mx-4 mt-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
+            <div className="flex items-center space-x-2">
+              <span className="text-amber-800 font-extrabold text-xs uppercase tracking-wide">🛡️ Command Jurisdiction Override (Super Admin Mode):</span>
+            </div>
+            
+            <div className="flex items-center space-x-3 w-full md:w-auto">
+              <select 
+                value={overrideRegion} 
+                onChange={(e) => setOverrideRegion(e.target.value)}
+                className="bg-white border border-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500"
+              >
+                <option value="KMP HEADQUARTERS">KMP HEADQUARTERS</option>
+                <option value="KMP NORTH">KMP NORTH</option>
+                <option value="KMP SOUTH">KMP SOUTH</option>
+                <option value="KMP EAST">KMP EAST</option>
+              </select>
+
+              <input 
+                type="text" 
+                value={overrideStation} 
+                onChange={(e) => setOverrideStation(e.target.value.toUpperCase())}
+                placeholder="TARGET STATION (e.g. KATWE)"
+                className="bg-white border border-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 uppercase"
+              />
+            </div>
+          </div>
+        )}
+        {/* 🟢 END OF COMMAND OVERRIDE BAR 🟢 */}
+
         {isViewingConsolidated && <ConsolidatedLedger data={consolidatedData} reports={reports} stats={stats} stories={stories} onClose={() => setIsViewingConsolidated(false)} />}
         {isViewingHR && hrLedgerData && <HrEstablishmentsLedger data={hrLedgerData} onClose={() => setIsViewingHR(false)} currentUser={currentUser} onUploadSuccess={() => window.location.reload()} />}
+        
         <div className={(isViewingConsolidated || isViewingHR) ? 'hidden' : 'block w-full h-full'}>
           {renderPage()}
         </div>
+        
       </DashboardLayout>
 
       <WorkspaceSecurityCurtain />

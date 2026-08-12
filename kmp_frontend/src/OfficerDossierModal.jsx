@@ -22,9 +22,10 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     rank: officer.rank,
     position: officer.position,
     dir: officer.dir,
-    region: officer.region,
-    district: officer.district,
-    station: officer.station,
+    // 🟢 Honor overridden target region/station if present, falling back to officer profile data
+    region: officer.region || 'KMP HEADQUARTERS',
+    district: officer.district || '-',
+    station: officer.station || 'HEADQUARTERS',
     section: officer.section,
     doe: officer.doe,
     dopost: officer.do_post || officer.dopost || officer.dop,
@@ -32,7 +33,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     bankbranch: officer.bank_branch || officer.bankbranch,
     accno: officer.acc_no || officer.accno,
     status: officer.status || "ACTIVE",
-    last_updated_by: officer.last_updated_by
+    last_updated_by: officer.last_updated_by || officer.logged_by
   };
 
   // COLUMN 1: Personal Details, Identifiers & Contact
@@ -97,7 +98,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
           <div className="bg-blue-50/60 border border-blue-200 p-3 rounded-xl flex items-center justify-between text-xs font-bold text-blue-900">
             <span>🛡️ Official Nominal Roll Dossier Record</span>
             <span className="bg-white px-2.5 py-1 rounded-md shadow-sm border border-blue-200">
-              Station: {safeData.station} ({safeData.region})
+              Assigned Jurisdiction: {safeData.station} ({safeData.region})
             </span>
           </div>
 
@@ -138,7 +139,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
           {safeData.last_updated_by && (
             <div className="text-center pt-2">
               <span className="text-[11px] text-slate-400 font-medium italic">
-                Last modified / logged by: {safeData.last_updated_by}
+                Logged / Authorized under clearance by: {safeData.last_updated_by}
               </span>
             </div>
           )}
