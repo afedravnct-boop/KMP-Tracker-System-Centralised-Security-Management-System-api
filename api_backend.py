@@ -2565,7 +2565,96 @@ def get_document_archive(db: Session = Depends(get_db), current_user: models.Use
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch archive: {str(e)}")
 
+@app.post("/api/v1/reports/upload-word-report")
+async def upload_word_report(
+    file: UploadFile = File(...),
+    doc_type: str = Form(...),  
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    if not file.filename.endswith('.docx'):
+        raise HTTPException(status_code=400, detail="Only official .docx Word document formats are accepted.")
+    
+    try:
+        contents = await file.read()
+        file_size_kb = max(1, round(len(contents) / 1024))
+        file_size_str = f"{file_size_kb} KB" if file_size_kb < 1024 else f"{round(file_size_kb / 1024, 1)} MB"
 
+        is_duplicate = db.query(models.DocumentArchive).filter(
+            models.DocumentArchive.file_name == file.filename,
+            models.DocumentArchive.file_size == file_size_str
+        ).first()
+        
+        if is_duplicate:
+            raise HTTPException(status_code=400, detail="DUPLICATE DETECTED: This document has already been uploaded to the archives.")
+
+        doc = Document(io.BytesIO(contents))
+        detected_region = current_user.region or "KMP GENERAL"
+        
+        # 🟢 INDENTATION FIXED: This must be indented to sit inside the try block
+        if doc_type == "weekly_report":
+            for para in doc.paragraphs:
+                para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                for run in para.runs:
+                    run.font.name = 'Arial'
+                    run.font.size = Pt(11)
+
+            formatted_io = io.BytesIO()
+            doc.save(formatted_io)
+            contents = formatted_io.getvalue()
+        
+        # 🟢 S3 CLOUD UPLOAD
+        from datetime import datetime, timedelta
+        eat_time = datetime.utcnow() + timedelta(hours=3)
+        timestamp = eat_time.strftime("%Y%m%d_%H%M%S")
+        
+        safe_filename = f"{timestamp}_{file.filename.replace(' ', '_')}"
+        s3_key = f"reports_archive/{safe_filename}"
+        
+        s3_client.put_object(
+            Bucket=BUCKET_NAME,
+            Key=s3_key,
+            Body=contents,
+            ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ServerSideEncryption="AES256"
+        )
+        
+        full_s3_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
+        display_type = "Formatted Weekly Report" if doc_type == "weekly_report" else "General Document"
+        
+        new_archive = models.DocumentArchive(
+            file_name=file.filename,
+            doc_type=display_type,
+            file_size=file_size_str,
+            file_path=full_s3_url, 
+            uploaded_by=current_user.fnum,
+            upload_date=eat_time 
+        )
+        db.add(new_archive)
+        db.commit()
+
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(
+                db=db, fnum=current_user.fnum, action="DOCUMENT_UPLOADED",
+                target_identifier=file.filename, changes={}, 
+                remarks=f"Successfully ingested {display_type} to S3 for {detected_region}"
+            )
+
+        return {
+            "status": "success",
+            "message": f"Successfully processed and securely archived {file.filename}.",
+            "formats_processed": [
+                f"Document Type: {display_type}",
+                "Stored securely in AWS S3 Cloud."
+            ]
+        }
+        
+    # 🟢 EXCEPT BLOCKS RESTORED AND ALIGNED PROPERLY
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to process document: {str(e)}")
 
 @app.get("/api/v1/reports/download/{doc_id}")
 def download_archive_file(
