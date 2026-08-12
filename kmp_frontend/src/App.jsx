@@ -480,7 +480,7 @@ return (
 
 
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
-  // 🟢 COMMAND CLEARANCE HIERARCHY
+  // 🟢 COMMAND CLEARANCE HIERARCHY (Strictly Isolated)
   const isGlobalCommand = 
     currentUser?.role === 'SUPER_ADMIN' || 
     currentUser?.permissions?.view_global_roster || 
@@ -489,12 +489,13 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     (currentUser?.position || '').toUpperCase().includes('KMP COMMANDER') ||
     ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((currentUser?.region || '').toUpperCase());
 
+  // 🟢 Divisional Commanders default to their specific Division (Station)
   const isRegionalCommand = 
     isGlobalCommand || 
-    ['RPC', 'DEPUTY COMMANDER'].includes((currentUser?.role || '').toUpperCase()) || 
-    (currentUser?.position || '').toUpperCase().includes('DIVISIONAL COMMANDER');
+    ['RPC', 'DEPUTY COMMANDER'].includes((currentUser?.role || '').toUpperCase()) ||
+    (currentUser?.position || '').toUpperCase().includes('RPC') ||
+    (currentUser?.position || '').toUpperCase().includes('REGIONAL');
 
-  // 🟢 HQ / 999 Clearance Check for Fallback Grand Totals
   const isHQOr999 = 
     ['SUPER_ADMIN', 'ADMIN'].includes((currentUser?.role || '').toUpperCase()) || 
     (currentUser?.station || '').toUpperCase().includes('HEADQUARTERS') ||
@@ -505,7 +506,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [notification, setNotification] = useState(null);
   const [selectedCase, setSelectedCase] = useState(null);
   
-  // 🟢 State for HQ Fallback Grand Total Modal
   const [showHqGrandModal, setShowHqGrandModal] = useState(false);
   const [hqGrandTotalInput, setHqGrandTotalInput] = useState('');
 
@@ -529,18 +529,23 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     cell_population: 0
   });
 
+  // 🟢 Helper to wipe form clean after successful submission
+  const resetFormToBlank = () => {
+    setFormData({
+      sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
+      region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+      date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+      offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: '',
+      cell_population: 0
+    });
+    setUpdateSearch('');
+  };
+
   const handleOperationToggle = (mode) => {
     setOperation(mode);
     setNotification(null);
     if (mode === 'new') {
-      setFormData({
-        sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
-        region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
-        date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-        offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: '',
-        cell_population: 0
-      });
-      setUpdateSearch(''); 
+      resetFormToBlank();
     }
   };
 
@@ -552,22 +557,19 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     });
   };
 
-const filteredReports = useMemo(() => {
+  const filteredReports = useMemo(() => {
     if (!Array.isArray(reports)) return [];
     
-    // 🟢 1. Extract exact active filters
     const activeRegion = (filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion.trim().toUpperCase() : null;
     const activeStation = (filterStation && filterStation !== 'ALL STATIONS') ? filterStation.trim().toUpperCase() : null;
 
-    return reports.filter(r => {
+    const results = reports.filter(r => {
       const dbRegion = (r.region || '').trim().toUpperCase();
       const dbStation = (r.station || '').trim().toUpperCase();
       
-      // 🟢 2. ULTRA-STRICT Jurisdiction Check
       if (activeRegion && dbRegion !== activeRegion) return false;
       if (activeStation && dbStation !== activeStation) return false;
       
-      // 🟢 3. Search Query
       if (searchQuery) {
         const query = searchQuery.toLowerCase().trim();
         const textMatch = 
@@ -577,35 +579,36 @@ const filteredReports = useMemo(() => {
         if (!textMatch) return false;
       }
       
-      // 🟢 4. Date Filters
       if (dateFilter && dateFilter !== 'ALL TIME') {
         if (dateFilter === 'TODAY') {
           const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
           if (r.date !== todayStr) return false;
         } else if (dateFilter === 'LAST 7 DAYS') {
           const repDate = new Date(r.date);
-          const diffDays = (Date.now() - repDate) / (1000 * 60 * 60 * 24);
-          if (diffDays > 7) return false;
+          if ((Date.now() - repDate) / (1000 * 60 * 60 * 24) > 7) return false;
         } else if (dateFilter === 'LAST 30 DAYS') {
           const repDate = new Date(r.date);
-          const diffDays = (Date.now() - repDate) / (1000 * 60 * 60 * 24);
-          if (diffDays > 30) return false;
+          if ((Date.now() - repDate) / (1000 * 60 * 60 * 24) > 30) return false;
         } else if (dateFilter === 'LAST 90 DAYS') {
           const repDate = new Date(r.date);
-          const diffDays = (Date.now() - repDate) / (1000 * 60 * 60 * 24);
-          if (diffDays > 90) return false;
+          if ((Date.now() - repDate) / (1000 * 60 * 60 * 24) > 90) return false;
         } else if (dateFilter === 'LAST 120 DAYS') {
           const repDate = new Date(r.date);
-          const diffDays = (Date.now() - repDate) / (1000 * 60 * 60 * 24);
-          if (diffDays > 120) return false;
+          if ((Date.now() - repDate) / (1000 * 60 * 60 * 24) > 120) return false;
         }
       }
-      
       return true;
     });
+
+    // 🟢 Fix: Force exact sort putting newest items (highest IDs) at the very top of the ledger
+    return results.sort((a, b) => {
+      const idA = a.id || a.sn || 0;
+      const idB = b.id || b.sn || 0;
+      return idB - idA;
+    });
+
   }, [reports, filterRegion, filterStation, searchQuery, dateFilter]);
 
-  // 🟢 Define this boolean right below filteredReports to use for dynamic numbering
   const isStationSpecific = filterStation && filterStation !== 'ALL STATIONS';
 
   const availableUpdateCases = useMemo(() => {
@@ -619,7 +622,7 @@ const filteredReports = useMemo(() => {
     });
   }, [reports, currentUser, updateSearch]);
 
-const metrics = useMemo(() => {
+  const metrics = useMemo(() => {
     const stationCellPop = {};
     const todayStr = new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
     let hasLockupUpdateToday = false;
@@ -629,7 +632,10 @@ const metrics = useMemo(() => {
        if (r.date === todayStr) {
            if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) {
                hqGrandTotalToday = parseInt(r.daily_lock_up) || parseInt(r.suspects) || 0;
-               hasLockupUpdateToday = true;
+               // HQ Total only counts as a global lockup update
+               if (filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
+                   hasLockupUpdateToday = true;
+               }
            } else if (stationCellPop[r.station] === undefined && r.daily_lock_up !== undefined && r.daily_lock_up !== null) {
                stationCellPop[r.station] = parseInt(r.daily_lock_up) || 0;
                hasLockupUpdateToday = true;
@@ -637,9 +643,11 @@ const metrics = useMemo(() => {
        }
     });
     
-    const totalCellPop = hqGrandTotalToday !== null 
+    // 🟢 Strict Aggregation Fix: Only use HQ Override if viewing ALL KMP
+    const calculatedSum = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
+    const totalCellPop = (filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' && hqGrandTotalToday !== null)
       ? hqGrandTotalToday 
-      : Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
+      : calculatedSum;
 
     const lockupDisplay = hasLockupUpdateToday 
       ? totalCellPop 
@@ -664,7 +672,7 @@ const metrics = useMemo(() => {
       adr: filteredReports.filter(r => r.status === 'ADR').length,
       totalSuspects: totalCaseSuspects
     };
-  }, [filteredReports]);
+  }, [filteredReports, filterRegion, filterStation]);
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
@@ -733,26 +741,22 @@ const metrics = useMemo(() => {
     setNotification("⏳ Logging Daily Cell Population...");
     const popRef = `POP-${formData.station.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
     
+    // Auto-append Hrs here
+    let formattedTime = formData.time || '';
+    if (formattedTime && !/hrs$/i.test(formattedTime.trim())) formattedTime = `${formattedTime.trim()}Hrs`;
+
     const apiPayload = {
-      sd_ref: popRef,
-      region: formData.region,
-      station: formData.station,
-      date: formData.date,
-      time: formData.time,
-      offence: 'Other', 
+      sd_ref: popRef, region: formData.region, station: formData.station,
+      date: formData.date, time: formattedTime, offence: 'Other', 
       narrative: `Daily Lock-up / Detention Cell Population Log. Total suspects currently in custody at ${formData.station} is ${formData.cell_population}.`,
-      status: 'CLOSED / CONVICTED',
-      suspects: 0,
+      status: 'CLOSED / CONVICTED', suspects: 0,
       last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
-      suspectDetails: [],
-      daily_lock_up: formData.cell_population || 0 
+      suspectDetails: [], daily_lock_up: formData.cell_population || 0 
     };
 
     try {
       const response = await authFetch(`/api/v1/reports`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(apiPayload)
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload)
       });  
       
       const resData = await response.json().catch(() => ({}));
@@ -762,12 +766,14 @@ const metrics = useMemo(() => {
       setReports([newReportLocal, ...reports]);
       setNotification(`✅ Daily Cell Population (${formData.cell_population}) logged successfully for ${formData.station}!`);
       setFormData(prev => ({ ...prev, cell_population: 0 })); 
+      
+      // Auto-clear notification
+      setTimeout(() => setNotification(null), 5000);
     } catch (err) {
       setNotification(`❌ Error: ${err.message}`);
     }
   };
 
-  // 🟢 Handler for HQ Fallback Grand Total Submission
   const handleHqGrandTotalSubmit = async (e) => {
     e.preventDefault();
     if (!hqGrandTotalInput && hqGrandTotalInput !== 0) return alert("Please enter a valid Grand Total.");
@@ -779,26 +785,20 @@ const metrics = useMemo(() => {
     const hqRef = `HQ-GRAND-${Date.now().toString().slice(-6)}`;
 
     const apiPayload = {
-      sd_ref: hqRef,
-      region: "KMP HEADQUARTERS",
-      station: "HEADQUARTERS GENERAL TOTAL",
+      sd_ref: hqRef, region: "KMP HEADQUARTERS", station: "HEADQUARTERS GENERAL TOTAL",
       date: getTodayString(),
       time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
       offence: "HQ GENERAL SUSPECT LOCK-UP TOTAL",
       narrative: `Command Fallback Entry: Headquarters fallback general suspect lock-up grand total logged as ${hqGrandTotalInput} due to delayed station returns.`,
-      status: "CLOSED / CONVICTED",
-      suspects: parseInt(hqGrandTotalInput) || 0,
+      status: "CLOSED / CONVICTED", suspects: parseInt(hqGrandTotalInput) || 0,
       last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
-      suspectDetails: [],
-      daily_lock_up: parseInt(hqGrandTotalInput) || 0,
+      suspectDetails: [], daily_lock_up: parseInt(hqGrandTotalInput) || 0,
       is_hq_general_total: true
     };
 
     try {
-const response = await authFetch(`/api/v1/reports`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(apiPayload)
+      const response = await authFetch(`/api/v1/reports`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload)
         });
 
       const resData = await response.json().catch(() => ({}));
@@ -809,6 +809,7 @@ const response = await authFetch(`/api/v1/reports`, {
       setNotification(`✅ Headquarters General Total (${hqGrandTotalInput}) successfully posted as override!`);
       setShowHqGrandModal(false);
       setHqGrandTotalInput('');
+      setTimeout(() => setNotification(null), 5000);
     } catch (err) {
       setNotification(`❌ Error: ${err.message}`);
     }
@@ -819,6 +820,12 @@ const response = await authFetch(`/api/v1/reports`, {
     const token = localStorage.getItem('kmp_authToken');
     if (!token) return setNotification("Error: Security token missing. Please log out and log back in.");
     
+    // 🟢 Fix: Auto-format time string to append 'Hrs'
+    let formattedTime = formData.time || '';
+    if (formattedTime && !/hrs$/i.test(formattedTime.trim())) {
+      formattedTime = `${formattedTime.trim()}Hrs`;
+    }
+
     if (operation === 'new') {
       const final_reference = `${formData.ref_type} ${formData.ref_number.toUpperCase()}`.trim();
       const isDuplicate = reports.some(r => 
@@ -834,29 +841,27 @@ const response = await authFetch(`/api/v1/reports`, {
       
       const apiPayload = {
         sd_ref: final_reference, region: formData.region, station: formData.station,
-        date: formData.date, time: formData.time, offence: finalOffence, narrative: formData.narrative,
+        date: formData.date, time: formattedTime, offence: finalOffence, narrative: formData.narrative,
         status: formData.status, suspects: formData.suspectDetails.length, 
         last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails,
         daily_lock_up: formData.cell_population || 0 
       };
       
       try {
-      const response = await authFetch(`/api/v1/reports`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(apiPayload)
-      });
+        const response = await authFetch(`/api/v1/reports`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload)
+        });
         
         const resData = await response.json().catch(() => ({}));
-        
-        if (!response.ok) {
-            throw new Error(resData.detail || "Neon Database rejected the entry.");
-        }
+        if (!response.ok) throw new Error(resData.detail || "Neon Database rejected the entry.");
         
         const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
         setReports([newReportLocal, ...reports]);
-        setNotification(`Case SN ${newReportLocal.sn} (Ref: ${newReportLocal.sd_ref}) successfully registered!`);
-        handleOperationToggle('new');
+        
+        // 🟢 Fix: Show success, completely blank the form, hide notification after 5 secs
+        setNotification(`✅ Case SN ${newReportLocal.sn} (Ref: ${newReportLocal.sd_ref}) successfully registered!`);
+        resetFormToBlank();
+        setTimeout(() => setNotification(null), 5000);
 
       } catch (err) {
         setNotification(`❌ Error: ${err.message}`);
@@ -869,7 +874,7 @@ const response = await authFetch(`/api/v1/reports`, {
         : formData.narrative;
         
       const updatedRecord = { 
-        ...formData, narrative: updatedNarrative, sd_ref: formData.sd_ref, 
+        ...formData, time: formattedTime, narrative: updatedNarrative, sd_ref: formData.sd_ref, 
         suspects: (formData.suspects || 0) + formData.suspectDetails.length,
         last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails,
         daily_lock_up: formData.cell_population || 0 
@@ -891,8 +896,11 @@ const response = await authFetch(`/api/v1/reports`, {
         if (!response.ok) throw new Error("Failed to update record in database.");
 
         setReports(reports.map(r => r.sn === formData.sn ? updatedRecord : r));
-        setNotification(`Case SN ${formData.sn} successfully updated!`);
+        
+        // 🟢 Fix: Show success, reset back to 'new' mode blank form
+        setNotification(`✅ Case SN ${formData.sn} successfully updated!`);
         handleOperationToggle('new');
+        setTimeout(() => setNotification(null), 5000);
 
       } catch (err) {
         setNotification("❌ Error: Could not update the record in the database.");
@@ -1053,7 +1061,6 @@ const response = await authFetch(`/api/v1/reports`, {
         <h2 className="text-xl text-red-300 mt-1 font-medium">Centralised Crime/Incident Compilation</h2>
       </div>
 
-      {/* 🟢 HQ / 999 Independent Fallback Header Banner */}
       {isHQOr999 && (
         <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md">
           <div>
@@ -1081,10 +1088,26 @@ const response = await authFetch(`/api/v1/reports`, {
             <option value="LAST 120 DAYS">LAST 120 DAYS</option>
           </select>
         </div>
-        <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
+        
+        {/* 🟢 Dynamic Label Fix 1: Metrics Header */}
+        <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">
+          📋 {filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? 'Global Command Metrics' : filterStation === 'ALL STATIONS' ? 'Regional Command Metrics' : `${filterStation} Metrics`} ({dateFilter})
+        </h4>
         
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-          <MetricCard title="Total Lockup" value={metrics.totalLockup} colorClass="text-slate-800" />
+          
+          {/* 🟢 Dynamic Label Fix 2: Metric Card Title */}
+          <MetricCard 
+            title={
+              filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' 
+                ? "KMP Total Lock-up" 
+                : filterStation === 'ALL STATIONS' 
+                  ? `${filterRegion} Lock-up` 
+                  : `${filterStation} Lock-up`
+            } 
+            value={metrics.totalLockup} 
+            colorClass="text-slate-800" 
+          />
           <MetricCard title="Total Cases" value={metrics.newCases} colorClass="text-blue-700" />
           <MetricCard title="Suspects (Case)" value={metrics.totalSuspects} colorClass="text-red-600" />
           <MetricCard title="Active" value={metrics.active} colorClass="text-yellow-600" />
@@ -1306,7 +1329,7 @@ const response = await authFetch(`/api/v1/reports`, {
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider w-[10%]">Status</th>
                   </tr>
                 </thead>
-<tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white divide-y divide-gray-200">
                   {filteredReports.map((report, index) => (
                     <tr 
                       key={report.id || report.sn || index} 
@@ -1319,7 +1342,6 @@ const response = await authFetch(`/api/v1/reports`, {
                         }
                       }}
                     >
-                      {/* 🟢 DYNAMIC SN COLUMN */}
                       <td className="px-4 py-4 whitespace-nowrap text-[13px] font-black text-gray-900 align-top group-hover:text-blue-700 transition-colors">
                         {isStationSpecific ? (index + 1) : (report.id || report.sn || '—')}
                       </td>
@@ -1327,10 +1349,7 @@ const response = await authFetch(`/api/v1/reports`, {
                       <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-blue-700 align-top break-words">
                         {report.sdRef || report.sd_ref}
                       </td>
-      
-      <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-blue-700 align-top break-words">
-        {report.sdRef || report.sd_ref}
-      </td>
+                      
                       <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-500 align-top">
                         {report.date}<br/><span className="text-[10px] text-gray-400">{report.time}</span>
                       </td>
@@ -1341,10 +1360,9 @@ const response = await authFetch(`/api/v1/reports`, {
                         {report.offence && <div className="font-extrabold text-red-600 uppercase mb-1">{report.offence}</div>}
                         <div className="ql-editor p-0 line-clamp-3 text-slate-600 [&_*]:!text-xs [&_*]:!bg-transparent" dangerouslySetInnerHTML={{ __html: report.narrative }} />
                       </td>
-{/* 🟢 CHANGE THIS TABLE ROW CELL */}
-<td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-red-600 text-center align-top">
-  {(report.suspectDetails || report.suspect_details || []).length}
-</td>
+                      <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-red-600 text-center align-top">
+                        {(report.suspectDetails || report.suspect_details || []).length}
+                      </td>
                       <td className="px-4 py-4 whitespace-normal break-words align-top">
                         <span className={`px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' : ''} ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800 border border-purple-200' : ''} ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800 border border-green-200' : ''} ${report.status.includes('ADR') ? 'bg-orange-100 text-orange-800 border border-orange-200' : ''}`}>
                           {report.status}
@@ -2573,6 +2591,12 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   const [notification, setNotification] = useState(null);
   const [selectedOfficer, setSelectedOfficer] = useState(null);
 
+    // 🟢 NEW RE-INTEGRATION STATES
+  const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
+  const [archiveDetails, setArchiveDetails] = useState(null);
+  const [customReason, setCustomReason] = useState('');
+  const [previousFnum, setPreviousFnum] = useState('');
+
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');  
   const [updateSearch, setUpdateSearch] = useState('');
@@ -3094,8 +3118,10 @@ const handleFormSubmit = async (e) => {
                     </div>
                   )}
 
-                  <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center">
-                    {operation === 'new' ? '💾 Log Personnel Record' : '💾 Save Updates'}
+                  <button type="submit" className={`w-full transition-colors text-white py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center ${isArchivedReturnee ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-700 hover:bg-blue-800'}`}>
+                    {operation === 'new' 
+                      ? (isArchivedReturnee ? '⚠️ Execute Safe Re-integration' : '💾 Log Personnel Record') 
+                      : '💾 Save Updates'}
                   </button>
                 </form>
               </div>
@@ -3621,7 +3647,7 @@ const handlePhotoUpload = async (e) => {
       const [lockoutEnd, setLockoutEnd] = useState(null);
       const [timeLeft, setTimeLeft] = useState(0);
 
-      // 🟢 LOGIN SCREEN IDLE CURTAIN STATE
+// 🟢 LOGIN SCREEN IDLE CURTAIN STATE
       const [isLoginIdle, setIsLoginIdle] = useState(false);
       const idleTimerRef = useRef(null);
 
@@ -3639,20 +3665,16 @@ const handlePhotoUpload = async (e) => {
         // Start the clock on load
         resetIdle();
 
-        // Attach global listeners to window with capture phase
-        window.addEventListener('mousemove', resetIdle, true);
-        window.addEventListener('keydown', resetIdle, true);
-        window.addEventListener('click', resetIdle, true);
-        window.addEventListener('scroll', resetIdle, true);
-        window.addEventListener('touchstart', resetIdle, true);
+        // 🟢 Array includes 'keyup' and 'input' to detect typing
+        const events = ['mousemove', 'keydown', 'keyup', 'input', 'click', 'scroll', 'touchstart'];
+        
+        // Attach all listeners automatically
+        events.forEach(event => window.addEventListener(event, resetIdle, true));
 
         return () => {
           clearTimeout(idleTimerRef.current);
-          window.removeEventListener('mousemove', resetIdle, true);
-          window.removeEventListener('keydown', resetIdle, true);
-          window.removeEventListener('click', resetIdle, true);
-          window.removeEventListener('scroll', resetIdle, true);
-          window.removeEventListener('touchstart', resetIdle, true);
+          // Remove all listeners automatically
+          events.forEach(event => window.removeEventListener(event, resetIdle, true));
         };
       }, []); // 🟢 Empty array ensures the timer never resets prematurely!
 
@@ -4212,7 +4234,7 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
           }
         };
 
-        const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart'];
+        const events = ['mousemove', 'keydown', 'keyup', 'input', 'mousedown', 'scroll', 'touchstart', 'click'];
         events.forEach(event => {
           window.addEventListener(event, handleUserActivity, true);
         });
@@ -4918,7 +4940,7 @@ const WorkspaceSecurityCurtain = () => {
 
     handleUserActivity();
 
-    const events = ['mousemove', 'keydown', 'mousedown', 'scroll', 'touchstart', 'click'];
+    const events = ['mousemove', 'keydown', 'keyup', 'input', 'mousedown', 'scroll', 'touchstart', 'click'];
     events.forEach(event => window.addEventListener(event, handleUserActivity, true));
 
     return () => {
@@ -5108,12 +5130,6 @@ const App = () => {
   const [isViewingConsolidated, setIsViewingConsolidated] = useState(false);
   const [consolidatedData, setConsolidatedData] = useState(null);
   const [adminCommsData, setAdminCommsData] = useState([]);  
-
-  // 🟢 NEW RE-INTEGRATION STATES
-  const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
-  const [archiveDetails, setArchiveDetails] = useState(null);
-  const [customReason, setCustomReason] = useState('');
-  const [previousFnum, setPreviousFnum] = useState('');
 
   // Regional/Station filters for Grand Totals computation
   const [filterRegion, setFilterRegion] = useState('ALL REGIONS');
