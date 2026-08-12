@@ -5149,6 +5149,8 @@ const App = () => {
   const [isInitializing, setIsInitializing] = useState(true);
   const [targetRegion, setTargetRegion] = useState('KMP HEADQUARTERS');
   const [targetStation, setTargetStation] = useState('KMP HEADQUARTERS');
+  const [overrideRegion, setOverrideRegion] = useState(currentUser?.region || 'KMP HEADQUARTERS');
+  const [overrideStation, setOverrideStation] = useState(currentUser?.station || 'KMP HEADQUARTERS');
 
   const [reports, setReports] = useState([]);
   const [stats, setStats] = useState([]);
