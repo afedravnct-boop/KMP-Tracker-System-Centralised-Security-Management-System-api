@@ -1377,18 +1377,18 @@ async def bulk_upload_nominal_roll(
         original_cols = list(df.columns)
         df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
         
-        header_map = {
+header_map = {
             "id": "id", "serial": "id", "serialnumber": "id", "sn": "sn",
-            "forcenumber": "fnum", "fnumber": "fnum", "fnum": "fnum", "f_num": "fnum", "force": "fnum", "fno": "fnum",
+            "forcenumber": "f_num", "fnumber": "f_num", "fnum": "f_num", "f_num": "f_num", "force": "f_num", "fno": "f_num",
             "rank": "rank", "name": "name", "fullname": "name", "officername": "name",
             "sex": "sex", "gender": "sex", "position": "position", "role": "position", "title": "position",
             "dob": "dob", "dateofbirth": "dob", "doe": "doe", "dateofenlistment": "doe",
-            "dop": "dopost", "dopost": "dopost", "do_post": "dopost", "dateofpost": "dopost",
-            "dopro": "dopro", "do_pro": "dopro", "dateofpromotion": "dopro",
-            "educlevel": "educlevel", "educ_level": "educlevel", "education": "educlevel", "educationlevel": "educlevel",
-            "homedist": "homedist", "home_dist": "homedist", "homedistrict": "homedist",
-            "accno": "accno", "acc_no": "accno", "accountnumber": "accno", "accountno": "accno", "account": "accno",
-            "bankbranch": "bankbranch", "bank_branch": "bankbranch", "bank": "bankbranch", "branch": "bankbranch",
+            "dop": "do_post", "dopost": "do_post", "do_post": "do_post", "dateofpost": "do_post", "dateofposting": "do_post",
+            "dopro": "do_pro", "do_pro": "do_pro", "dateofpromotion": "do_pro",
+            "educlevel": "educ_level", "educ_level": "educ_level", "education": "educ_level", "educationlevel": "educ_level", "educationallevel": "educ_level",
+            "homedist": "home_dist", "home_dist": "home_dist", "homedistrict": "home_dist",
+            "accno": "acc_no", "acc_no": "acc_no", "accountnumber": "acc_no", "accountno": "acc_no", "account": "acc_no",
+            "bankbranch": "bank_branch", "bank_branch": "bank_branch", "bank": "bank_branch", "branch": "bank_branch",
             "station": "station", "dutystation": "station", "region": "region", "command": "region",
             "section": "section", "department": "section", "directorate": "dir", "dir": "dir",
             "ipps": "ipps", "nin": "nin", "tin": "tin", "contact": "contact", "district": "district", "tribe": "tribe",
