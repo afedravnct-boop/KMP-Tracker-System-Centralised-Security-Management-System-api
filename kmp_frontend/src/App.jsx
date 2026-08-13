@@ -4169,6 +4169,7 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
         return () => window.removeEventListener('auth-expired', handleAuthExpired);
       }, []);
 
+// 🟢 LIVE DATABASE HEARTBEAT & ONLINE ROSTER SYNC
       useEffect(() => {
         const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -4188,8 +4189,18 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
               return;
             }
 
+            // 🟢 COOPERATION: Catch the fresh token from the backend and silently update storage
+            if (hb.ok) {
+              const hbData = await hb.json();
+              if (hbData.new_token) {
+                localStorage.setItem('kmp_authToken', hbData.new_token);
+              }
+            }
+
+            // 🟢 Always grab the freshest token for subsequent requests
+            const freshToken = localStorage.getItem('kmp_authToken');
             const response = await fetch(`${API_URL}/api/v1/users/online`, {
-              headers: { 'Authorization': `Bearer ${currentToken}` }
+              headers: { 'Authorization': `Bearer ${freshToken}` }
             });
             
             if (response.ok) {
@@ -4201,7 +4212,8 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
         };
 
         syncHeartbeat();
-        const heartbeatInterval = setInterval(syncHeartbeat, 60000);
+        // Ping every 4 minutes (240,000ms) to reduce server load but easily keep the 30-min token alive
+        const heartbeatInterval = setInterval(syncHeartbeat, 240000);
         return () => clearInterval(heartbeatInterval);
       }, []);
 

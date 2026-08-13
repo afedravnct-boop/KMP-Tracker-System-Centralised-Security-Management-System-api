@@ -1,31 +1,33 @@
-import React, { useState } from 'react';
-import { FileSpreadsheet, CheckCircle, AlertTriangle, X } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Upload, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 
 const BulkNominalRollUpload = ({ onUploadSuccess }) => {
   const [file, setFile] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState(null);
-  const [isError, setIsError] = useState(false);
+  const [status, setStatus] = useState('idle'); // 'idle', 'success', 'warning', 'error'
+  
+  const fileInputRef = useRef(null);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
-    if (selectedFile && (selectedFile.name.endsWith('.xlsx') || selectedFile.name.endsWith('.xls'))) {
+    if (selectedFile) {
       setFile(selectedFile);
       setMessage(null);
-      setIsError(false);
-    } else {
-      setFile(null);
-      setIsError(true);
-      setMessage("Please select a valid Excel file (.xlsx or .xls)");
+      setStatus('idle');
     }
   };
 
   const handleUpload = async () => {
-    if (!file) return;
-    
-    setIsUploading(true);
-    setMessage("⏳ Processing Excel file. This may take a minute...");
-    setIsError(false);
+    if (!file) {
+      setMessage("Please select a valid Excel or CSV file first.");
+      setStatus('error');
+      return;
+    }
+
+    setUploading(true);
+    setMessage("Processing file and mapping columns to the database. This may take a moment...");
+    setStatus('idle');
 
     const formData = new FormData();
     formData.append("file", file);
@@ -34,76 +36,91 @@ const BulkNominalRollUpload = ({ onUploadSuccess }) => {
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
 
-      // 🟢 NOTICE: No 'Content-Type' header here! The browser handles it.
       const response = await fetch(`${API_URL}/api/v1/nominal-roll/bulk-upload`, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "Authorization": `Bearer ${token}`
+          'Authorization': `Bearer ${token}`
         },
         body: formData
       });
 
+      // 🟢 Intercept expired sessions globally
+      if (response.status === 401) {
+        window.dispatchEvent(new Event('auth-expired'));
+        return;
+      }
+
       const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.detail || "Server failed to process the file.");
+      if (response.ok) {
+        setMessage(data.message || "Upload completed.");
+        setStatus(data.status === 'warning' ? 'warning' : 'success');
+        
+        // Trigger parent refresh if data was actually added/updated
+        if (onUploadSuccess && (data.status === 'success' || data.status === 'warning')) {
+          onUploadSuccess();
+        }
+      } else {
+        setMessage(data.detail || data.message || "An error occurred during upload.");
+        setStatus('error');
       }
-
-      setIsError(false);
-      setMessage(`✅ ${data.message}`);
-      setFile(null);
-      
-      document.getElementById('excel-upload-input').value = "";
-      
-      if (onUploadSuccess) {
-        setTimeout(onUploadSuccess, 2500);
-      }
-
-    } catch (err) {
-      console.error(err);
-      setIsError(true);
-      setMessage(err.message === 'Failed to fetch' 
-        ? "❌ Network error: Backend server is offline or blocking the connection." 
-        : `❌ Error: ${err.message}`);
+    } catch (error) {
+      setMessage(`Network error: ${error.message}`);
+      setStatus('error');
     } finally {
-      setIsUploading(false);
+      setUploading(false);
+      setFile(null);
+      // Reset the file input visually
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
   return (
-    <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg mt-4">
+    <div className="space-y-4 w-full">
+      
+      {/* Upload Controls */}
+      <div className="flex flex-col sm:flex-row items-center gap-3">
+        <input 
+          ref={fileInputRef}
+          type="file" 
+          accept=".xlsx, .xls, .csv" 
+          onChange={handleFileChange}
+          disabled={uploading}
+          className="text-xs w-full file:mr-4 file:py-2.5 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 border border-slate-300 rounded-md p-1 shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+        />
+        
+        <button
+          onClick={handleUpload}
+          disabled={!file || uploading}
+          className={`flex items-center justify-center px-6 py-3 text-xs font-bold text-white rounded-md shadow-sm transition-all whitespace-nowrap w-full sm:w-auto ${
+            !file || uploading 
+              ? 'bg-slate-400 cursor-not-allowed' 
+              : 'bg-blue-700 hover:bg-blue-800 hover:shadow-md'
+          }`}
+        >
+          {uploading ? <Loader2 size={16} className="animate-spin mr-2" /> : <Upload size={16} className="mr-2" />}
+          {uploading ? 'Processing Data...' : 'Upload to Database'}
+        </button>
+      </div>
+
+      {/* 🟢 THE GREEN SPILLOVER FIX (Scrollable, break-words, max-height) */}
       {message && (
-        <div className={`p-3 mb-4 rounded flex items-center text-sm font-bold ${isError ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
-          {isError ? <AlertTriangle size={16} className="mr-2 shrink-0"/> : <CheckCircle size={16} className="mr-2 shrink-0"/>}
-          {message}
+        <div className={`p-4 rounded-xl border text-xs leading-relaxed font-medium shadow-sm max-h-40 overflow-y-auto custom-scrollbar break-words flex items-start ${
+          status === 'error' ? 'bg-red-50 border-red-200 text-red-800' : 
+          status === 'warning' ? 'bg-amber-50 border-amber-200 text-amber-800' :
+          status === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
+          'bg-blue-50 border-blue-200 text-blue-800'
+        }`}>
+          <div className="mt-0.5 mr-2 shrink-0">
+            {status === 'error' ? <AlertTriangle size={16} className="text-red-500" /> : 
+             status === 'warning' ? <AlertTriangle size={16} className="text-amber-500" /> :
+             status === 'success' ? <CheckCircle size={16} className="text-green-500" /> :
+             <Loader2 size={16} className="text-blue-500 animate-spin" />}
+          </div>
+          <div className="flex-1 font-mono tracking-tight">{message}</div>
         </div>
       )}
 
-      <div className="flex items-center space-x-4">
-        <label className={`flex-1 flex flex-col items-center justify-center p-4 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${file ? 'border-green-400 bg-green-50' : 'border-blue-300 bg-white hover:bg-blue-100'}`}>
-          <FileSpreadsheet size={28} className={file ? "text-green-600 mb-2" : "text-blue-500 mb-2"} />
-          <span className="text-xs font-bold text-slate-700 text-center">
-            {file ? file.name : "Click to select Master Excel File (.xlsx)"}
-          </span>
-          <input 
-            id="excel-upload-input"
-            type="file" 
-            accept=".xlsx, .xls" 
-            onChange={handleFileChange} 
-            className="hidden" 
-          />
-        </label>
-
-        {file && (
-          <button 
-            onClick={handleUpload}
-            disabled={isUploading}
-            className="bg-blue-700 hover:bg-blue-800 disabled:bg-slate-400 text-white font-bold py-4 px-6 rounded-lg shadow-md transition-colors h-full flex items-center shrink-0"
-          >
-            {isUploading ? 'Uploading...' : 'Execute Import'}
-          </button>
-        )}
-      </div>
     </div>
   );
 };

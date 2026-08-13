@@ -821,7 +821,14 @@ def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depend
         
         current_user.last_active_at = current_time
         db.commit()
-        return {"status": "alive"}
+        
+        # 🟢 COOPERATION: Generate a fresh token with a renewed lifespan
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        fresh_token = create_access_token(
+            data={"sub": current_user.fnum}, expires_delta=access_token_expires
+        )
+        
+        return {"status": "alive", "new_token": fresh_token}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1396,6 +1403,14 @@ async def bulk_upload_nominal_roll(
         }
         
         df.rename(columns=header_map, inplace=True)
+        
+        # 🟢 THE FIX: Bulletproof Date Formatter
+        # This grabs every date column and securely formats it as standard PostgreSQL YYYY-MM-DD
+        date_columns = ['dob', 'doe', 'do_post', 'do_pro']
+        for col in date_columns:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce', dayfirst=True).dt.strftime('%Y-%m-%d')
+        
         df = df.replace({np.nan: None, pd.NaT: None})
         
         if 'fnum' not in df.columns and 'f_num' not in df.columns:
@@ -1417,10 +1432,6 @@ async def bulk_upload_nominal_roll(
                 
                 if not fnum_val or fnum_val in ['NONE', 'NAN', 'NAT', '']:
                     continue 
-                    
-                for date_col in ['dob', 'doe', 'dopost', 'dopro']:
-                    if date_col in row_dict:
-                        row_dict[date_col] = parse_flexible_date(row_dict.get(date_col))
 
                 f_key = 'f_num' if 'f_num' in valid_keys and 'fnum' not in valid_keys else 'fnum'
                 row_dict[f_key] = fnum_val
