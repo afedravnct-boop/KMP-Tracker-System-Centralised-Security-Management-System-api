@@ -94,6 +94,13 @@ BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 # ==========================================
 # 1. MIDDLEWARE & STARTUP
 # ==========================================
+@app.get("/")
+def health_check():
+    return {
+        "status": "online", 
+        "message": "KMP Centralised Security API is running securely."
+    }
+
 try:
     models.Base.metadata.create_all(bind=engine, checkfirst=True)
     # 🟢 HOTFIX: Force NeonDB to add the tracking column if it doesn't exist

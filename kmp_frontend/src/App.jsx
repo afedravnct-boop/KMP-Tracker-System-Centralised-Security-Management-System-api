@@ -2614,8 +2614,12 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
   });
 
-  const filteredRolls = useMemo(() => {
+const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
+      // 🟢 STRICT EXCLUSION: Prevent archived officers from showing up in Active Roll
+      const statusStr = (n.status || '').trim().toUpperCase();
+      if (statusStr === 'ARCHIVED' || n.is_archived === true) return false;
+
       const dbRegion = (n.region || '').trim().toUpperCase();
       const dbStation = (n.station || '').trim().toUpperCase();
       const selRegion = (filterRegion || '').trim().toUpperCase();
@@ -2792,16 +2796,24 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
   };
 
-  const handleArchivePersonnel = async () => {
-    if (!formData.fnum) return alert("Missing Force Number. Cannot archive this record.");
-    if (!window.confirm(`Are you sure you want to move ${formData.name} to archives?`)) return;
+const handleArchivePersonnel = async () => {
+    // 🟢 CRITICAL FIX: Ensure we grab the force number safely regardless of backend mapping
+    const targetFnum = formData.fnum || formData.f_num; 
+    
+    if (!targetFnum) {
+      return alert("Missing Force Number. Cannot archive this record.");
+    }
+    
+    if (!window.confirm(`Are you sure you want to move ${formData.name} (${targetFnum}) to archives?`)) {
+      return;
+    }
 
     try {
       setNotification("Moving record to archive...");
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       
-      const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(formData.fnum)}/archive`, {
+      const response = await authFetch(`${API_URL}/api/v1/nominal-roll/${encodeURIComponent(targetFnum)}/archive`, {
         method: "PUT", 
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ archive_reason: archiveReason })
@@ -2809,91 +2821,25 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || "Failed to archive");
+        throw new Error(errorData.detail || "Database failed to locate the record.");
       }
 
       const archivedRecord = {
-          sn: formData.sn, fnum: formData.fnum, rank: formData.rank, name: formData.name, sex: formData.sex, position: formData.position,
-          dob: formData.dob, doe: formData.doe, dopost: formData.dopost, dopro: formData.dopro, contact: formData.contact, educlevel: formData.educlevel, 
-          ipps: formData.ipps, tin: formData.tin, nin: formData.nin, homedist: formData.homedist, tribe: formData.tribe, accno: formData.accno,         
+          sn: formData.sn, fnum: targetFnum, rank: formData.rank, name: formData.name, sex: formData.sex, position: formData.position,
+          dob: formData.dob, doe: formData.doe, dopost: formData.dopost, dopro: formData.dopro, contact: formData.contact, educlevel: formData.educlevel,         
+          ipps: formData.ipps, tin: formData.tin, nin: formData.nin, homedist: formData.homedist, tribe: formData.tribe, accno: formData.accno,          
           bankbranch: formData.bankbranch, station: formData.station, district: formData.district, region: formData.region, section: formData.section,
           dir: formData.dir, status: "ARCHIVED", last_updated_by: `${currentUser.name} (${currentUser.fnum})`, archive_reason: archiveReason,
           archive_date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]
       };
       
       setNominal_Roll_archives([archivedRecord, ...(Array.isArray(Nominal_Roll_archives) ? Nominal_Roll_archives : [])]);
-      setNominal_Rolls((Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => (n.fnum || n.f_num) !== formData.fnum));
+      setNominal_Rolls((Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => (n.fnum || n.f_num) !== targetFnum));
       setNotification(`Officer ${formData.name} archived successfully.`);
       handleOperationToggle('new');
-    } catch (error) { setNotification("Error: Could not move to archive."); alert(`Error archiving record: ${error.message}`); }
-  };
-
-const handleFormSubmit = async (e) => { 
-    e.preventDefault();
-    const currentRolls = Array.isArray(Nominal_Rolls) ? Nominal_Rolls : [];
-    const token = localStorage.getItem('kmp_authToken');
-    
-    if (!token) return setNotification("Error: Security token missing. Please log out and log back in.");
-
-    if (formData.nin) {
-        const cleanNin = formData.nin.toUpperCase().trim();
-        if (!/^C[MF][A-Z0-9]{12}$/.test(cleanNin)) return setNotification("⚠️ Error: National ID must start with CM or CF, be exactly 14 characters, and contain only letters and numbers.");
-        formData.nin = cleanNin; 
-    }
-
-    if (operation === 'new') {
-      const exactNextSN = currentRolls.length > 0 ? Math.max(...currentRolls.map(n => n.sn || 0)) + 1 : 1;
-      
-      // 🟢 Add re-integration data to payload if the flag is true
-      const newEntryPayload = { 
-        ...formData, 
-        sn: exactNextSN, 
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
-        ...(isArchivedReturnee && { 
-          reintegration_reason: customReason,
-          previous_fnum: previousFnum || formData.fnum 
-        })
-      };
-      
-      try {
-        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        const response = await fetch(`${API_URL}/api/v1/nominal-roll`, {
-          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newEntryPayload)
-        });
-        
-        const responseData = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            // 🟢 INTERCEPT THE ARCHIVE FLAG
-            if (response.status === 409 && responseData.is_archived_returnee) {
-                setIsArchivedReturnee(true);
-                setArchiveDetails(responseData);
-                setNotification("⚠️ Officer history found in archive. Please authorize re-entry below.");
-                return; // Stop here so the user can fill in the custom reason!
-            }
-            throw new Error(responseData.detail || "Database rejected the entry.");
-        }
-        
-        // Success
-        setNominal_Rolls([newEntryPayload, ...currentRolls]); 
-        setNotification(`Officer ${formData.name} recorded successfully!`); 
-        handleOperationToggle('new'); // This resets everything cleanly
-      } catch (err) { setNotification(`Error: ${err.message}`); }
-      
-    } else if (operation === 'update') {
-      const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
-      try {
-          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-          // Note: using your existing update logic here
-          const response = await authFetch(`/api/v1/reports`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(updatedRecord) 
-          });
-          if (!response.ok) throw new Error("Failed to update record.");
-          setNominal_Rolls(currentRolls.map(n => n.sn === formData.sn ? updatedRecord : n));
-          setNotification(`Officer SN ${formData.sn} successfully updated!`);
-      } catch (err) { setNotification("Error: Could not update the record."); }
+    } catch (error) { 
+      setNotification("Error: Could not move to archive."); 
+      alert(`Error archiving record: ${error.message}`); 
     }
   };
 
@@ -4304,34 +4250,6 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
                                   currentUser?.permissions?.upload_hr || 
                                   currentUser?.permissions?.system_admin;
 
-{currentUser?.role?.toUpperCase() === 'SUPER_ADMIN' && (
-  <div className="bg-amber-50 border border-amber-300 p-4 rounded-xl mb-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
-    <div className="flex items-center space-x-2">
-      <span className="text-amber-800 font-extrabold text-xs uppercase tracking-wide">🛡️ Command Jurisdiction Override (Super Admin Mode):</span>
-    </div>
-    
-    <div className="flex items-center space-x-3 w-full md:w-auto">
-      <select 
-        value={overrideRegion} 
-        onChange={(e) => setOverrideRegion(e.target.value)}
-        className="bg-white border border-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500"
-      >
-        <option value="KMP HEADQUARTERS">KMP HEADQUARTERS</option>
-        <option value="KMP NORTH">KMP NORTH</option>
-        <option value="KMP SOUTH">KMP SOUTH</option>
-        <option value="KMP EAST">KMP EAST</option>
-      </select>
-
-      <input 
-        type="text" 
-        value={overrideStation} 
-        onChange={(e) => setOverrideStation(e.target.value.toUpperCase())}
-        placeholder="TARGET STATION (e.g. KATWE)"
-        className="bg-white border border-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 uppercase"
-      />
-    </div>
-  </div>
-)}   
 
       const navItems = [
         { 
@@ -4954,72 +4872,80 @@ const WorkspaceSecurityCurtain = () => {
   const [idleCountdown, setIdleCountdown] = useState(60);
   const [isTimedOut, setIsTimedOut] = useState(false);
 
-  const idleTimerRef = useRef(null);
-  const countdownTimerRef = useRef(null);
-
-  // 🟢 1. STANDARD IDLE GUARD CURTAIN TIMER (1 Minute of inactivity)
+  // 🟢 COMBINED, ROBUST USER ACTIVITY DETECTOR
   useEffect(() => {
-    const IDLE_TIMEOUT_MS = 60000; // 1 Minute
+    let warningTimer;
+    let logoutTimer;
+    let countdownInterval;
 
-    const handleUserActivity = () => {
-      if (isReadingMode || showIdleWarning || isTimedOut) return;
+    const IDLE_LIMIT_MS = 29 * 60 * 1000; // 29 Minutes
+    const WARNING_WINDOW_MS = 60 * 1000;  // 1 Minute warning popup
+
+    const resetTimers = () => {
+      // If already timed out or in reading mode, don't restart clocks
+      if (isTimedOut || isReadingMode) return;
+      
       setIsWorkspaceIdle(false);
-      clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = setTimeout(() => {
-        if (!isReadingMode && !showIdleWarning) setIsWorkspaceIdle(true);
-      }, IDLE_TIMEOUT_MS);
-    };
+      setShowIdleWarning(false);
+      
+      clearTimeout(warningTimer);
+      clearTimeout(logoutTimer);
+      clearInterval(countdownInterval);
 
-    handleUserActivity();
-
-    const events = ['mousemove', 'keydown', 'keyup', 'input', 'mousedown', 'scroll', 'touchstart', 'click'];
-    events.forEach(event => window.addEventListener(event, handleUserActivity, true));
-
-    return () => {
-      clearTimeout(idleTimerRef.current);
-      events.forEach(event => window.removeEventListener(event, handleUserActivity, true));
-    };
-  }, [isReadingMode, showIdleWarning, isTimedOut]);
-
-  // 🟢 2. SESSION TIMEOUT WARNING TIMER (4 Minutes of total inactivity before popup)
-  useEffect(() => {
-    const SESSION_TIMEOUT_MS = 60000 * 29; 
-
-    const sessionTimer = setTimeout(() => {
-      if (!isReadingMode && !isTimedOut) {
+      // Start the 29-minute inactivity clock
+      warningTimer = setTimeout(() => {
         setShowIdleWarning(true);
-        setIsWorkspaceIdle(true); 
+        setIsWorkspaceIdle(true);
         setIdleCountdown(60);
 
-        countdownTimerRef.current = setInterval(() => {
-          setIdleCountdown((prev) => {
+        countdownInterval = setInterval(() => {
+          setIdleCountdown(prev => {
             if (prev <= 1) {
-              clearInterval(countdownTimerRef.current);
+              clearInterval(countdownInterval);
               setIsTimedOut(true);
               return 0;
             }
             return prev - 1;
           });
         }, 1000);
-      }
-    }, SESSION_TIMEOUT_MS);
+      }, IDLE_LIMIT_MS);
+
+      // Hard cutoff log out after 30 total minutes (29 + 1)
+      logoutTimer = setTimeout(() => {
+        clearInterval(countdownInterval);
+        setIsTimedOut(true);
+      }, IDLE_LIMIT_MS + WARNING_WINDOW_MS);
+    };
+
+    // 🟢 CRITICAL FIX: Listen to every motion, keystroke, and text input globally
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'keyup', 'input', 'scroll', 'touchstart', 'click'];
+    
+    activityEvents.forEach(eventName => {
+      // The 'true' at the end ensures we capture the event during the capture phase, 
+      // preventing stopPropagation inside ReactQuill from hiding the typing from the timer.
+      window.addEventListener(eventName, resetTimers, true);
+    });
+
+    resetTimers(); // Initialize clocks on load
 
     return () => {
-      clearTimeout(sessionTimer);
-      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+      clearTimeout(warningTimer);
+      clearTimeout(logoutTimer);
+      clearInterval(countdownInterval);
+      activityEvents.forEach(eventName => {
+        window.removeEventListener(eventName, resetTimers, true);
+      });
     };
-  }, [isReadingMode, isTimedOut]);
+  }, [isTimedOut, isReadingMode]);
 
+  // If everything is active and normal, just show the Reading Mode guard button
   if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
     return (
       <div className="fixed bottom-6 right-6 z-[99990]">
         <div
           onMouseEnter={() => setIsExpanded(true)}
           onMouseLeave={() => setIsExpanded(false)}
-          onClick={() => {
-            setIsReadingMode(!isReadingMode);
-            setIsWorkspaceIdle(false);
-          }}
+          onClick={() => setIsReadingMode(!isReadingMode)}
           className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-2xl rounded-full border ${
             isExpanded ? 'px-4 py-2' : 'p-2'
           } ${
@@ -5034,7 +4960,7 @@ const WorkspaceSecurityCurtain = () => {
           </span>
           {isExpanded && (
             <span className="font-bold text-xs uppercase tracking-wider whitespace-nowrap">
-              {isReadingMode ? 'Click to stop curtain' : '🛡️ Standard Idle Guard'}
+              {isReadingMode ? 'Click to stop reading mode' : '🛡️ Enable Reading Mode (Stops Timeout)'}
             </span>
           )}
         </div>
@@ -5045,13 +4971,7 @@ const WorkspaceSecurityCurtain = () => {
   return (
     <div 
       className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
-      style={{
-        position: 'fixed',
-        top: 0, left: 0, right: 0, bottom: 0,
-        zIndex: 2147483647,
-        pointerEvents: 'auto',
-        isolation: 'isolate'
-      }}
+      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 2147483647, pointerEvents: 'auto', isolation: 'isolate' }}
     >
       {/* Background Curtain Layer with 3D Globe */}
       <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md transition-opacity duration-700 ease-in-out flex flex-col items-center justify-center">
@@ -5060,23 +4980,8 @@ const WorkspaceSecurityCurtain = () => {
           <div className="h-1/3 w-full bg-[#FCD116]"></div>
           <div className="h-1/3 w-full bg-[#D91B23]"></div>
         </div>
-        <div className="idle-backdrop-emblem z-10 pointer-events-none"></div>
-
         <div className="idle-center-container relative z-20 flex items-center justify-center mx-auto my-auto" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
           <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
-          
-          {/* 3D Spherical Equatorial Text Ring */}
-          <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
-            {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
-              <span 
-                key={i} 
-                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-xs sm:text-sm tracking-widest drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]"
-                style={{ transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(38vmin)` }}
-              >
-                {char === ' ' ? '\u00A0' : char}
-              </span>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -5095,11 +5000,8 @@ const WorkspaceSecurityCurtain = () => {
               <button 
                 type="button"
                 onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  localStorage.removeItem('kmp_authToken');
-                  localStorage.removeItem('kmp_currentUser');
-                  localStorage.removeItem('kmp_currentPage');
+                  e.preventDefault(); e.stopPropagation();
+                  localStorage.removeItem('kmp_authToken'); localStorage.removeItem('kmp_currentUser'); localStorage.removeItem('kmp_currentPage');
                   sessionStorage.clear();
                   window.location.replace('/');
                 }}
@@ -5120,12 +5022,10 @@ const WorkspaceSecurityCurtain = () => {
               <button 
                 type="button"
                 onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
+                  e.preventDefault(); e.stopPropagation();
                   setIsWorkspaceIdle(false);
                   setShowIdleWarning(false);
                   setIdleCountdown(60);
-                  if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
                 }}
                 className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer"
               >
@@ -5413,34 +5313,7 @@ if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }
       >
         
         {/* 🟢 SUPER ADMIN COMMAND OVERRIDE BAR 🟢 */}
-        {currentUser?.role?.toUpperCase() === 'SUPER_ADMIN' && (
-          <div className="bg-amber-50 border border-amber-300 p-4 rounded-xl mb-6 mx-4 mt-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
-            <div className="flex items-center space-x-2">
-              <span className="text-amber-800 font-extrabold text-xs uppercase tracking-wide">🛡️ Command Jurisdiction Override (Super Admin Mode):</span>
-            </div>
-            
-            <div className="flex items-center space-x-3 w-full md:w-auto">
-              <select 
-                value={overrideRegion} 
-                onChange={(e) => setOverrideRegion(e.target.value)}
-                className="bg-white border border-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500"
-              >
-                <option value="KMP HEADQUARTERS">KMP HEADQUARTERS</option>
-                <option value="KMP NORTH">KMP NORTH</option>
-                <option value="KMP SOUTH">KMP SOUTH</option>
-                <option value="KMP EAST">KMP EAST</option>
-              </select>
 
-              <input 
-                type="text" 
-                value={overrideStation} 
-                onChange={(e) => setOverrideStation(e.target.value.toUpperCase())}
-                placeholder="TARGET STATION (e.g. KATWE)"
-                className="bg-white border border-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 uppercase"
-              />
-            </div>
-          </div>
-        )}
         {/* 🟢 END OF COMMAND OVERRIDE BAR 🟢 */}
 
         {isViewingConsolidated && <ConsolidatedLedger data={consolidatedData} reports={reports} stats={stats} stories={stories} onClose={() => setIsViewingConsolidated(false)} />}

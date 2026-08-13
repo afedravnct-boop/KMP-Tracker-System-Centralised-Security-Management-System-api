@@ -168,7 +168,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
     }
   };
 
-  // 🟢 MOBILE-OPTIMIZED FILE ACTION (Read & Download)
+// 🟢 MOBILE-OPTIMIZED FILE ACTION (Read & Download)
   const handleFileAction = async (docId, action, isTemplate = false) => {
     setActionLoading(`${action}-${docId}`);
     try {
@@ -206,17 +206,23 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
           link.click();
           document.body.removeChild(link);
         } else if (action === 'read') {
-          const viewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(fileUrl)}`;
+          // 🟢 MOBILE FIX: Use Google Docs Viewer for reliable cross-platform rendering
+          const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
           
-          // 🟢 Mobile Popup Blocker Bypass
-          const newWindow = window.open(viewerUrl, '_blank');
-          if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') { 
-              window.location.href = viewerUrl; // Force open on mobile if popup is blocked
+          const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+          if (isMobile) {
+            // Force direct page transition on mobile to completely bypass popup blockers
+            window.location.href = viewerUrl;
+          } else {
+            const newWindow = window.open(viewerUrl, '_blank');
+            if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') { 
+              window.location.href = viewerUrl; 
+            }
           }
         }
         
       } else {
-        // Legacy Blob Fallback (If templates haven't been uploaded to S3 yet)
+        // Legacy Blob Fallback
         const blob = await response.blob();
         const blobUrl = window.URL.createObjectURL(blob);
         
@@ -228,10 +234,14 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
           link.click();
           document.body.removeChild(link);
         } else if (action === 'read') {
-          // No more alerts, just try to open it locally
-          const newWindow = window.open(blobUrl, '_blank');
-          if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') { 
+          const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+          if (isMobile) {
+            window.location.href = blobUrl;
+          } else {
+            const newWindow = window.open(blobUrl, '_blank');
+            if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') { 
               window.location.href = blobUrl; 
+            }
           }
         }
         

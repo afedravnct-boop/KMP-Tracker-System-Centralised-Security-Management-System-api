@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 const OfficerDossierModal = ({ officer, onClose }) => {
   if (!officer) return null;
 
-  // 🟢 STRICT DATA MAPPING: Catches both database snake_case and frontend squashed-case
+  // 🟢 STRICT DATA MAPPING: Comprehensive fallbacks for all database variations
   const safeData = {
     sn: officer.id || officer.sn,
     fnum: officer.f_num || officer.fnum,
@@ -15,23 +15,23 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     sex: officer.sex,
     dob: officer.dob,
     tribe: officer.tribe,
-    homedist: officer.home_dist || officer.homedist,
-    contact: officer.contact || officer.phone,
-    educlevel: officer.educ_level || officer.educlevel,
+    homedist: officer.home_dist || officer.homedist || officer.district || officer.home_district,
+    contact: officer.contact || officer.phone || officer.telephone,
+    educlevel: officer.educ_level || officer.educlevel || officer.education || officer.education_level,
     
     rank: officer.rank,
     position: officer.position,
-    dir: officer.dir,
-    // 🟢 Honor overridden target region/station if present, falling back to officer profile data
+    dir: officer.dir || officer.directorate || officer.section_dir,
+    
     region: officer.region || 'KMP HEADQUARTERS',
-    district: officer.district || '-',
-    station: officer.station || 'HEADQUARTERS',
-    section: officer.section,
-    doe: officer.doe,
-    dopost: officer.do_post || officer.dopost || officer.dop,
-    dopro: officer.do_pro || officer.dopro,
-    bankbranch: officer.bank_branch || officer.bankbranch,
-    accno: officer.acc_no || officer.accno,
+    district: officer.district || officer.home_district || '-',
+    station: officer.station || officer.duty_station || 'HEADQUARTERS',
+    section: officer.section || officer.department,
+    doe: officer.doe || officer.date_of_enlistment,
+    dopost: officer.do_post || officer.dopost || officer.dop || officer.date_of_post,
+    dopro: officer.do_pro || officer.dopro || officer.date_of_promotion,
+    bankbranch: officer.bank_branch || officer.bankbranch || officer.bank_name || officer.branch,
+    accno: officer.acc_no || officer.accno || officer.account_no || officer.account_number,
     status: officer.status || "ACTIVE",
     last_updated_by: officer.last_updated_by || officer.logged_by
   };
