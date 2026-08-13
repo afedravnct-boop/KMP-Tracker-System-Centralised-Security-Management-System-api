@@ -2592,7 +2592,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   const [notification, setNotification] = useState(null);
   const [selectedOfficer, setSelectedOfficer] = useState(null);
 
-    // 🟢 NEW RE-INTEGRATION STATES
+  // 🟢 NEW RE-INTEGRATION STATES
   const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
   const [archiveDetails, setArchiveDetails] = useState(null);
   const [customReason, setCustomReason] = useState('');
@@ -2614,7 +2614,149 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
   });
 
-const filteredRolls = useMemo(() => {
+  // 🟢 1. FORM POPULATOR
+  const populateUpdateForm = (data) => setFormData({ ...data, fnum: data.fnum || data.f_num || '' });
+
+  // 🟢 2. INPUT CHANGER
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    if (name === 'region') {
+      setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value]?.[0] || '' });
+    } else {
+      setFormData({ ...formData, [name]: value });
+    }
+  };
+
+  // 🟢 3. TAB TOGGLER (NEW / UPDATE)
+  const handleOperationToggle = (mode) => {
+    setOperation(mode);
+    if (mode === 'new') {
+      setFormData({
+        sn: null, fnum: '', rank: '', name: '', sex: 'MALE', position: '',
+        dob: '', doe: '', dopost: '', dopro: '', contact: '', educlevel: '',
+        ipps: '', tin: '', nin: '', homedist: '', tribe: '', accno: '', bankbranch: '',
+        station: currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
+        district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
+      });
+      setUpdateSearch('');
+      setIsArchivedReturnee(false);
+      setArchiveDetails(null);
+      setCustomReason('');
+      setPreviousFnum('');
+    }
+  };
+
+  // 🟢 4. ARCHIVE HANDLER (Safely handles F/NO differences to prevent "Not Found")
+  const handleArchivePersonnel = async () => {
+    const targetFnum = formData.fnum || formData.f_num; 
+    
+    if (!targetFnum) {
+      return alert("Missing Force Number. Cannot archive this record.");
+    }
+    
+    if (!window.confirm(`Are you sure you want to move ${formData.name} (${targetFnum}) to archives?`)) {
+      return;
+    }
+
+    try {
+      setNotification("Moving record to archive...");
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      
+      const response = await authFetch(`${API_URL}/api/v1/nominal-roll/${encodeURIComponent(targetFnum)}/archive`, {
+        method: "PUT", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ archive_reason: archiveReason })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || "Database failed to locate the record.");
+      }
+
+      const archivedRecord = {
+          sn: formData.sn, fnum: targetFnum, rank: formData.rank, name: formData.name, sex: formData.sex, position: formData.position,
+          dob: formData.dob, doe: formData.doe, dopost: formData.dopost, dopro: formData.dopro, contact: formData.contact, educlevel: formData.educlevel,         
+          ipps: formData.ipps, tin: formData.tin, nin: formData.nin, homedist: formData.homedist, tribe: formData.tribe, accno: formData.accno,          
+          bankbranch: formData.bankbranch, station: formData.station, district: formData.district, region: formData.region, section: formData.section,
+          dir: formData.dir, status: "ARCHIVED", last_updated_by: `${currentUser.name} (${currentUser.fnum})`, archive_reason: archiveReason,
+          archive_date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]
+      };
+      
+      setNominal_Roll_archives([archivedRecord, ...(Array.isArray(Nominal_Roll_archives) ? Nominal_Roll_archives : [])]);
+      setNominal_Rolls((Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => (n.fnum || n.f_num) !== targetFnum));
+      setNotification(`Officer ${formData.name} archived successfully.`);
+      handleOperationToggle('new');
+    } catch (error) { 
+      setNotification("Error: Could not move to archive."); 
+      alert(`Error archiving record: ${error.message}`); 
+    }
+  };
+
+  // 🟢 5. MASTER SUBMIT HANDLER
+  const handleFormSubmit = async (e) => { 
+    e.preventDefault();
+    const currentRolls = Array.isArray(Nominal_Rolls) ? Nominal_Rolls : [];
+    const token = localStorage.getItem('kmp_authToken');
+    
+    if (!token) return setNotification("Error: Security token missing. Please log out and log back in.");
+
+    if (formData.nin) {
+        const cleanNin = formData.nin.toUpperCase().trim();
+        if (!/^C[MF][A-Z0-9]{12}$/.test(cleanNin)) return setNotification("⚠️ Error: National ID must start with CM or CF, be exactly 14 characters.");
+        formData.nin = cleanNin; 
+    }
+
+    if (operation === 'new') {
+      const exactNextSN = currentRolls.length > 0 ? Math.max(...currentRolls.map(n => n.sn || 0)) + 1 : 1;
+      
+      const newEntryPayload = { 
+        ...formData, 
+        sn: exactNextSN, 
+        last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
+        ...(isArchivedReturnee && { reintegration_reason: customReason, previous_fnum: previousFnum || formData.fnum })
+      };
+      
+      try {
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+        const response = await fetch(`${API_URL}/api/v1/nominal-roll`, {
+          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newEntryPayload)
+        });
+        
+        const responseData = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            if (response.status === 409 && responseData.is_archived_returnee) {
+                setIsArchivedReturnee(true);
+                setArchiveDetails(responseData);
+                setNotification("⚠️ Officer history found in archive. Please authorize re-entry below.");
+                return;
+            }
+            throw new Error(responseData.detail || "Database rejected the entry.");
+        }
+        
+        setNominal_Rolls([newEntryPayload, ...currentRolls]); 
+        setNotification(`Officer ${formData.name} recorded successfully!`); 
+        handleOperationToggle('new');
+      } catch (err) { setNotification(`Error: ${err.message}`); }
+      
+    } else if (operation === 'update') {
+      const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
+      try {
+          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+          const response = await authFetch(`${API_URL}/api/v1/nominal-roll/${formData.fnum || formData.f_num || formData.sn}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(updatedRecord) 
+          });
+          if (!response.ok) throw new Error("Failed to update record.");
+          setNominal_Rolls(currentRolls.map(n => (n.sn === formData.sn || n.fnum === formData.fnum || n.f_num === formData.fnum) ? updatedRecord : n));
+          setNotification(`Officer ${formData.name} successfully updated!`);
+      } catch (err) { setNotification("Error: Could not update the record."); }
+    }
+  };
+
+  const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       // 🟢 STRICT EXCLUSION: Prevent archived officers from showing up in Active Roll
       const statusStr = (n.status || '').trim().toUpperCase();
@@ -2693,7 +2835,7 @@ const filteredRolls = useMemo(() => {
           const isFemale = sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF');
           const isMale = sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM');
           
-          // 🟢 Bulletproof multi-key resolution to eliminate false "UNSPECIFIED" metrics
+          // Bulletproof multi-key resolution to eliminate false "UNSPECIFIED" metrics
           const homeDistrict = n.homedist || n.home_dist || '';
           const bankBranch = n.bankbranch || n.bank_branch || '';
           const educLevel = n.educlevel || n.educ_level || '';
@@ -2729,7 +2871,7 @@ const filteredRolls = useMemo(() => {
 
       const resultsArray = Object.values(grouped);
 
-      // 🟢 Sort by Official Rank Seniority if RANK is selected, otherwise sort by count descending
+      // Sort by Official Rank Seniority if RANK is selected, otherwise sort by count descending
       if (metricCategory === 'RANK') {
           return resultsArray.sort((a, b) => getRankWeight(a.category) - getRankWeight(b.category));
       } else {
@@ -2765,116 +2907,6 @@ const filteredRolls = useMemo(() => {
       stations: Object.keys(uniqueStations).length
     };
   }, [currentRollDataset]);
-
-const handleArchivePersonnel = async () => {
-    // 🟢 CRITICAL FIX: Ensure we grab the force number safely regardless of backend mapping
-    const targetFnum = formData.fnum || formData.f_num; 
-    
-    if (!targetFnum) {
-      return alert("Missing Force Number. Cannot archive this record.");
-    }
-    
-    if (!window.confirm(`Are you sure you want to move ${formData.name} (${targetFnum}) to archives?`)) {
-      return;
-    }
-
-    try {
-      setNotification("Moving record to archive...");
-      const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      
-      const response = await authFetch(`${API_URL}/api/v1/nominal-roll/${encodeURIComponent(targetFnum)}/archive`, {
-        method: "PUT", 
-        headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify({ archive_reason: archiveReason })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || "Database failed to locate the record.");
-      }
-
-      const archivedRecord = {
-          sn: formData.sn, fnum: targetFnum, rank: formData.rank, name: formData.name, sex: formData.sex, position: formData.position,
-          dob: formData.dob, doe: formData.doe, dopost: formData.dopost, dopro: formData.dopro, contact: formData.contact, educlevel: formData.educlevel,         
-          ipps: formData.ipps, tin: formData.tin, nin: formData.nin, homedist: formData.homedist, tribe: formData.tribe, accno: formData.accno,          
-          bankbranch: formData.bankbranch, station: formData.station, district: formData.district, region: formData.region, section: formData.section,
-          dir: formData.dir, status: "ARCHIVED", last_updated_by: `${currentUser.name} (${currentUser.fnum})`, archive_reason: archiveReason,
-          archive_date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]
-      };
-      
-      setNominal_Roll_archives([archivedRecord, ...(Array.isArray(Nominal_Roll_archives) ? Nominal_Roll_archives : [])]);
-      setNominal_Rolls((Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => (n.fnum || n.f_num) !== targetFnum));
-      setNotification(`Officer ${formData.name} archived successfully.`);
-      handleOperationToggle('new');
-    } catch (error) { 
-      setNotification("Error: Could not move to archive."); 
-      alert(`Error archiving record: ${error.message}`); 
-    }
-  };
-
-  // 🟢 INJECTED MISSING FUNCTION: handleFormSubmit
-  const handleFormSubmit = async (e) => { 
-    e.preventDefault();
-    const currentRolls = Array.isArray(Nominal_Rolls) ? Nominal_Rolls : [];
-    const token = localStorage.getItem('kmp_authToken');
-    
-    if (!token) return setNotification("Error: Security token missing. Please log out and log back in.");
-
-    if (formData.nin) {
-        const cleanNin = formData.nin.toUpperCase().trim();
-        if (!/^C[MF][A-Z0-9]{12}$/.test(cleanNin)) return setNotification("⚠️ Error: National ID must start with CM or CF, be exactly 14 characters.");
-        formData.nin = cleanNin; 
-    }
-
-    if (operation === 'new') {
-      const exactNextSN = currentRolls.length > 0 ? Math.max(...currentRolls.map(n => n.sn || 0)) + 1 : 1;
-      
-      const newEntryPayload = { 
-        ...formData, 
-        sn: exactNextSN, 
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
-        ...(isArchivedReturnee && { reintegration_reason: customReason, previous_fnum: previousFnum || formData.fnum })
-      };
-      
-      try {
-        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        const response = await fetch(`${API_URL}/api/v1/nominal-roll`, {
-          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newEntryPayload)
-        });
-        
-        const responseData = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            if (response.status === 409 && responseData.is_archived_returnee) {
-                setIsArchivedReturnee(true);
-                setArchiveDetails(responseData);
-                setNotification("⚠️ Officer history found in archive. Please authorize re-entry below.");
-                return;
-            }
-            throw new Error(responseData.detail || "Database rejected the entry.");
-        }
-        
-        setNominal_Rolls([newEntryPayload, ...currentRolls]); 
-        setNotification(`Officer ${formData.name} recorded successfully!`); 
-        handleOperationToggle('new');
-      } catch (err) { setNotification(`Error: ${err.message}`); }
-      
-    } else if (operation === 'update') {
-      const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
-      try {
-          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-          const response = await authFetch(`${API_URL}/api/v1/nominal-roll/${formData.fnum || formData.f_num || formData.sn}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(updatedRecord) 
-          });
-          if (!response.ok) throw new Error("Failed to update record.");
-          setNominal_Rolls(currentRolls.map(n => (n.sn === formData.sn || n.fnum === formData.fnum) ? updatedRecord : n));
-          setNotification(`Officer ${formData.name} successfully updated!`);
-      } catch (err) { setNotification("Error: Could not update the record."); }
-    }
-  };
 
   const canUploadHR = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role) || 
                       (currentUser?.position || '').toUpperCase().includes('HR') ||
