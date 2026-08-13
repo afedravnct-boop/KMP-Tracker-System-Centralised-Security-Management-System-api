@@ -4,10 +4,11 @@ import { X } from 'lucide-react';
 const OfficerDossierModal = ({ officer, onClose }) => {
   if (!officer) return null;
 
-  // 🟢 STRICT DATA MAPPING: Comprehensive fallbacks for all database variations
+  // 🟢 1:1 NEON DB COLUMN MAPPING
+  // Safely extracts data using the exact column names from your database.
   const safeData = {
-    sn: officer.id || officer.sn,
-    fnum: officer.f_num || officer.fnum,
+    sn: officer.sn || officer.id,
+    f_num: officer.f_num || officer.fnum,
     ipps: officer.ipps,
     nin: officer.nin,
     tin: officer.tin,
@@ -15,31 +16,31 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     sex: officer.sex,
     dob: officer.dob,
     tribe: officer.tribe,
-    homedist: officer.home_dist || officer.homedist || officer.district || officer.home_district,
-    contact: officer.contact || officer.phone || officer.telephone,
-    educlevel: officer.educ_level || officer.educlevel || officer.education || officer.education_level,
+    home_dist: officer.home_dist || officer.homedist || '-',
+    contact: officer.contact || officer.phone || '-',
+    educ_level: officer.educ_level || officer.educlevel || '-',
     
     rank: officer.rank,
     position: officer.position,
-    dir: officer.dir || officer.directorate || officer.section_dir,
+    dir: officer.dir || '-',
     
     region: officer.region || 'KMP HEADQUARTERS',
-    district: officer.district || officer.home_district || '-',
-    station: officer.station || officer.duty_station || 'HEADQUARTERS',
-    section: officer.section || officer.department,
-    doe: officer.doe || officer.date_of_enlistment,
-    dopost: officer.do_post || officer.dopost || officer.dop || officer.date_of_post,
-    dopro: officer.do_pro || officer.dopro || officer.date_of_promotion,
-    bankbranch: officer.bank_branch || officer.bankbranch || officer.bank_name || officer.branch,
-    accno: officer.acc_no || officer.accno || officer.account_no || officer.account_number,
+    district: officer.district || '-',
+    station: officer.station || 'HEADQUARTERS',
+    section: officer.section || '-',
+    doe: officer.doe || '-',
+    do_post: officer.do_post || officer.dopost || '-',
+    do_pro: officer.do_pro || officer.dopro || '-',
+    bank_branch: officer.bank_branch || officer.bankbranch || '-',
+    acc_no: officer.acc_no || officer.accno || '-',
     status: officer.status || "ACTIVE",
-    last_updated_by: officer.last_updated_by || officer.logged_by
+    last_updated_by: officer.last_updated_by || "-"
   };
 
   // COLUMN 1: Personal Details, Identifiers & Contact
   const leftAttributes = [
     { label: "System S/N", value: safeData.sn },
-    { label: "Force Number (F/NO)", value: safeData.fnum },
+    { label: "Force Number (F/NO)", value: safeData.f_num },
     { label: "IPPS Number", value: safeData.ipps },
     { label: "National ID Number (NIN)", value: safeData.nin },
     { label: "Tax Identification (TIN)", value: safeData.tin },
@@ -61,9 +62,9 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     { label: "Deployment District", value: safeData.district },
     { label: "Duty Station", value: safeData.station },
     { label: "Division / Section", value: safeData.section },
-    { label: "Date of Enlistment (DOE)", value: safeData.doe },
-    { label: "Date of Posting (DO_POST)", value: safeData.do_post },
-    { label: "Date of Promotion (DO_PRO)", value: safeData.do_pro },
+    { label: "Date of Enlistment (D.O.E)", value: safeData.doe },
+    { label: "Date of Posting (D.O.P)", value: safeData.do_post },
+    { label: "Date of Promotion (D.O. PRO)", value: safeData.do_pro },
     { label: "Bank & Branch", value: safeData.bank_branch },
     { label: "Bank Account Number", value: safeData.acc_no },
     { label: "Deployment Status", value: safeData.status },
@@ -81,7 +82,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
             </div>
             <div>
               <h3 className="font-extrabold text-sm tracking-wide uppercase">{safeData.rank} {safeData.name}</h3>
-              <p className="text-[11px] text-blue-300 font-mono">F/NO: {safeData.fnum} | IPPS: {safeData.ipps || 'N/A'}</p>
+              <p className="text-[11px] text-blue-300 font-mono">F/NO: {safeData.f_num} | IPPS: {safeData.ipps || 'N/A'}</p>
             </div>
           </div>
           <button 
@@ -136,7 +137,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
 
           </div>
 
-          {safeData.last_updated_by && (
+          {safeData.last_updated_by && safeData.last_updated_by !== '-' && (
             <div className="text-center pt-2">
               <span className="text-[11px] text-slate-400 font-medium italic">
                 Logged / Authorized under clearance by: {safeData.last_updated_by}
