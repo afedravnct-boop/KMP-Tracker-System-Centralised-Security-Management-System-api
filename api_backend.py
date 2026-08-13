@@ -1377,25 +1377,22 @@ async def bulk_upload_nominal_roll(
         original_cols = list(df.columns)
         df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
         
-# 🟢 EXACT MATCH MAP FOR YOUR EXCEL FILE
         header_map = {
-            "fnum": "f_num", "f_num": "f_num", "forcenumber": "f_num",
-            "rank": "rank", "name": "name", "sex": "sex", "position": "position",
-            "dob": "dob", "doe": "doe",
-            
-            # 🟢 Explicitly maps 'dop' from your Excel sheet to 'do_post'
-            "dop": "do_post", "dopost": "do_post", "do_post": "do_post", "dateofposting": "do_post",
-            
-            "dopro": "do_pro", "do_pro": "do_pro", "dateofpromotion": "do_pro",
-            "contact": "contact",
-            "educlevel": "educ_level", "educ_level": "educ_level",
-            "ipps": "ipps", "tin": "tin", "nin": "nin",
-            "homedist": "home_dist", "home_dist": "home_dist",
-            "tribe": "tribe",
-            "accno": "acc_no", "acc_no": "acc_no",
-            "bankbranch": "bank_branch", "bank_branch": "bank_branch",
-            "station": "station", "district": "district", "region": "region",
-            "section": "section", "dir": "dir", "status": "status"
+            "id": "id", "serial": "id", "serialnumber": "id", "sn": "sn",
+            "forcenumber": "fnum", "fnumber": "fnum", "fnum": "fnum", "f_num": "fnum", "force": "fnum", "fno": "fnum",
+            "rank": "rank", "name": "name", "fullname": "name", "officername": "name",
+            "sex": "sex", "gender": "sex", "position": "position", "role": "position", "title": "position",
+            "dob": "dob", "dateofbirth": "dob", "doe": "doe", "dateofenlistment": "doe",
+            "dop": "dopost", "dopost": "dopost", "do_post": "dopost", "dateofpost": "dopost",
+            "dopro": "dopro", "do_pro": "dopro", "dateofpromotion": "dopro",
+            "educlevel": "educlevel", "educ_level": "educlevel", "education": "educlevel", "educationlevel": "educlevel",
+            "homedist": "homedist", "home_dist": "homedist", "homedistrict": "homedist",
+            "accno": "accno", "acc_no": "accno", "accountnumber": "accno", "accountno": "accno", "account": "accno",
+            "bankbranch": "bankbranch", "bank_branch": "bankbranch", "bank": "bankbranch", "branch": "bankbranch",
+            "station": "station", "dutystation": "station", "region": "region", "command": "region",
+            "section": "section", "department": "section", "directorate": "dir", "dir": "dir",
+            "ipps": "ipps", "nin": "nin", "tin": "tin", "contact": "contact", "district": "district", "tribe": "tribe",
+            "status": "status"
         }
         
         df.rename(columns=header_map, inplace=True)
