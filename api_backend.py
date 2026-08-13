@@ -441,12 +441,61 @@ def auto_infer_geography(station_name, current_region, current_district):
 
     return inferred_region, inferred_district
 
+def verify_command_clearance(current_user, target_user, action_type="DOWNLOAD_MASTER"):
+    """
+    Validates that the requesting user holds the proper command rank and jurisdiction 
+    to clear or authorize the target user/action.
+    """
+    curr_role = (current_user.role or "").upper()
+    curr_pos = (current_user.position or "").upper()
+    curr_station = (current_user.station or "").upper()
+    curr_region = (current_user.region or "").upper()
+
+    target_role = (target_user.role or "").upper()
+    target_station = (target_user.station or "").upper()
+    target_region = (target_user.region or "").upper()
+
+    # 🟢 RULE 0: Prevent Self-Clearing
+    if current_user.fnum == target_user.fnum and action_type == "GRANT_PRIVILEGE":
+        raise HTTPException(status_code=403, detail="Clearance Denied: Users cannot clear or grant privileges to themselves.")
+
+    # 🟢 SUPER ADMIN: Clears KMP Commander, Directors, and Police HQ
+    if curr_role == "SUPER_ADMIN" or "IGP" in curr_pos or "DIGP" in curr_pos:
+        return True
+
+    # 🟢 KMP COMMANDER / HEADQUARTERS: Clears Regional Police Commanders (RPCs) & HQ Staff
+    is_kmp_hq = "KMP COMMANDER" in curr_pos or curr_station in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
+    if is_kmp_hq:
+        if target_region == curr_region or target_role in ["RPC", "DEPUTY COMMANDER", "ADMIN"]:
+            return True
+
+    # 🟢 RPC (REGIONAL POLICE COMMANDER): Clears Deputy Commanders and Division Commanders within their Region
+    is_rpc = curr_role == "RPC" or "RPC" in curr_pos
+    if is_rpc:
+        if target_region == curr_region:
+            return True
+        raise HTTPException(status_code=403, detail=f"Clearance Denied: RPC {curr_region} can only authorize personnel within their assigned region.")
+
+    # 🟢 DIVISIONAL COMMANDERS: Clears Station Data Officers and Assistants within their Division/Station
+    is_div_commander = "DIV" in curr_pos or "COMMANDER" in curr_pos or curr_role == "ADMIN"
+    if is_div_commander:
+        if target_station == curr_station or target_region == curr_region:
+            return True
+        raise HTTPException(status_code=403, detail="Clearance Denied: Station/Division commanders can only clear personnel within their local station.")
+
+    # 🟢 DEFAULT RESTRICTION FOR SUBORDINATES (e.g., Kawempe Station Officers)
+    if action_type == "DOWNLOAD_MASTER":
+        if curr_role in ["SUPER_ADMIN", "ADMIN"] or is_kmp_hq or is_rpc:
+            return True
+        raise HTTPException(status_code=403, detail="Clearance Denied: Station personnel (e.g., Kawempe) must be cleared by regional or command authority to access master reports.")
+
+    raise HTTPException(status_code=403, detail="Clearance Denied: Insufficient command rank for this authorization level.")
+
 # ==========================================
 # 5. USER AUTHENTICATION & PROFILES
 # ==========================================
 @app.post("/api/auth/refresh")
 def refresh_session_token(current_user = Depends(get_current_user)):
-    # 🟢 Synchronized delta with global timeout configuration
     access_token_expires = timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
     new_access_token = security.create_access_token(
         data={"sub": current_user.fnum}, 
@@ -465,13 +514,11 @@ def register_user(
     division: Optional[str] = Form(None), role: str = Form("USER"), 
     profile_photo_path: str = Form(""), db: Session = Depends(get_db)
 ):
-    # 🟢 Force completely uppercase for alphanumeric File Numbers (e.g., q/1 -> Q/1)
     clean_fnum = fnum.strip().upper()
 
     if not re.match(r'^\d{10}$', phone):
         raise HTTPException(status_code=400, detail="Contact number must be exactly 10 digits.")
 
-    # 🟢 Ensure we don't accidentally create duplicate Q/1 and q/1 accounts
     if db.query(models.Users).filter(func.trim(func.upper(models.Users.fnum)) == clean_fnum).first():
          raise HTTPException(status_code=400, detail="User with this Force/File number already exists.")
          
@@ -493,25 +540,20 @@ def register_user(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database write failed: {str(e)}")
 
-# 🟢 CRITICAL FIX: Missing endpoint for users to change their own generated passwords
 @app.put("/api/v1/users/change-password")
 def change_own_password(
     data: schemas.PasswordChangeReq, 
     db: Session = Depends(get_db), 
     current_user: models.Users = Depends(get_current_user)
 ):
-    # Verify the old password matches before allowing the change
     if not security.verify_password(data.old_password, current_user.hashed_password):
         raise HTTPException(status_code=400, detail="Current password is incorrect.")
     
-    # Check length
     if len(data.new_password) < 6:
         raise HTTPException(status_code=400, detail="New password must be at least 6 characters.")
         
-    # Hash and save the new password
     current_user.hashed_password = security.get_password_hash(data.new_password)
     
-    # Log the change
     if hasattr(models, 'Audit_Logs'):
         log_semantic_audit(db, current_user.fnum, "PASSWORD_CHANGED", current_user.fnum, {}, "User successfully updated their own security key.")
         
@@ -543,7 +585,6 @@ def force_user_password(target_fnum: str, data: ForcePasswordReq, db: Session = 
 def approve_user(target_fnum: str, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     clean_fnum = unquote(target_fnum).strip().upper()
     
-    # STRICT HIERARCHY: Only Super Admin & System Admin can approve new accounts
     admin_role = (current_user.role or "").upper()
     admin_position = (current_user.position or "").upper()
     is_high_admin = admin_role in ["SUPER_ADMIN", "SYSTEM_ADMIN"] or "SYSTEM MANAGER" in admin_position
@@ -658,7 +699,6 @@ def update_user_profile(data: dict, db: Session = Depends(get_db), current_user:
     response_data = {"status": "success", "message": "Profile updated successfully."}
     
     if fnum_changing:
-        # 🟢 Synchronized token delta with global settings
         new_token = security.create_access_token(
             data={"sub": new_fnum}, 
             expires_delta=timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -740,7 +780,6 @@ def get_password_reset_requests(db: Session = Depends(get_db), current_user: mod
         })
     return results
 
-# 🟢 CRITICAL FIX: Randomized passwords and automated background email dispatch
 @app.post("/api/v1/admin/execute-reset/{req_id}")
 def execute_password_reset(
     req_id: int, 
@@ -763,12 +802,10 @@ def execute_password_reset(
         if not user:
             raise HTTPException(status_code=404, detail="User no longer exists.")
         
-        # 1. Generate the completely random, secure 6-character alphanumeric suffix
         alphabet = string.ascii_uppercase + string.digits
         random_suffix = ''.join(secrets.choice(alphabet) for _ in range(6))
         new_password = f"UPF-{random_suffix}"
         
-        # 2. Hash and save it
         if hasattr(security, 'get_password_hash'):
             user.hashed_password = security.get_password_hash(new_password)
         else:
@@ -781,7 +818,6 @@ def execute_password_reset(
             
         db.commit()
 
-        # 3. Send the temporary password via email
         if user.email:
             html_body = f"""
             <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px; max-width: 600px;">
@@ -848,16 +884,14 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
 @app.post("/api/v1/users/heartbeat/")
 def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        # Force strict EAT Timezone mapping to prevent UTC server drift
         eat_tz = pytz.timezone('Africa/Nairobi')
         current_time = datetime.now(eat_tz).replace(tzinfo=None)
         
         current_user.last_active_at = current_time
         db.commit()
         
-        # 🟢 COOPERATION: Generate a fresh token with a renewed lifespan
-        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        fresh_token = create_access_token(
+        access_token_expires = timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
+        fresh_token = security.create_access_token(
             data={"sub": current_user.fnum}, expires_delta=access_token_expires
         )
         
@@ -868,11 +902,9 @@ def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depend
 
 @app.get("/api/v1/users/online")
 def get_online_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # Force strict EAT Timezone mapping
     eat_tz = pytz.timezone('Africa/Nairobi')
     now_eat = datetime.now(eat_tz).replace(tzinfo=None)
     
-    # Anyone who hasn't pinged the server in the last 2 minutes is considered offline
     threshold = now_eat - timedelta(minutes=2)
     
     query = db.query(models.Users).filter(
@@ -880,7 +912,6 @@ def get_online_users(db: Session = Depends(get_db), current_user: models.Users =
         models.Users.last_active_at >= threshold
     )
     
-    # Apply standard jurisdiction visibility rules
     perms = current_user.permissions or {}
     is_global = (
         current_user.role == "SUPER_ADMIN" or 
@@ -906,7 +937,6 @@ def get_online_users(db: Session = Depends(get_db), current_user: models.Users =
             "profile_photo_path": u.profile_photo_path
         } for u in active_users
     ]
-
 
 # ==========================================
 # 8. LEDGER MANAGEMENT (GET, POST, PUT)
@@ -1181,7 +1211,6 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     
     clean_results = []
     
-    # Process Active Records
     for r in active_records:
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
@@ -1201,7 +1230,6 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         r_dict['status'] = r_dict.get('status') or 'ACTIVE'
         clean_results.append(r_dict)
 
-    # Process Archived Records
     for r in archive_records:
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
@@ -1226,7 +1254,6 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
 @app.post("/api/v1/nominal-roll")
 def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        # --- 1. Extract special re-integration flags before mapping ---
         reintegration_reason = data.pop('reintegration_reason', None)
         previous_fnum = data.pop('previous_fnum', None)
         
@@ -1264,17 +1291,14 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
 
         target_fnum = clean_data.get('fnum')
 
-        # --- 2. Check Active Nominal Roll First ---
         active_officer = db.query(models.NominalRoll).filter(models.NominalRoll.fnum == target_fnum).first()
         if active_officer:
             raise HTTPException(status_code=400, detail="Duplicate Entry: This F/NO or File Number is currently active.")
 
-        # --- 3. Check the Archive for Historical Matches ---
         search_fnum = previous_fnum if previous_fnum else target_fnum
         archived_officer = db.query(models.NominalRollArchive).filter(models.NominalRollArchive.fnum == search_fnum).first()
         
         if archived_officer:
-            # If found, but no reason was provided from the frontend, pause and ask for authorization
             if not reintegration_reason:
                 return JSONResponse(
                     status_code=409, 
@@ -1286,14 +1310,11 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
                     }
                 )
             
-            # 🟢 NON-DESTRUCTIVE RE-INTEGRATION
-            # Carry over immutable historical data to the fresh active record
             clean_data['dob'] = archived_officer.dob
             clean_data['doe'] = archived_officer.doe
             clean_data['ipps'] = archived_officer.ipps
             clean_data['status'] = "ACTIVE"
             
-            # Combine the new re-integration note with any existing notes submitted in the form
             existing_new_notes = clean_data.get('notes') or ""
             clean_data['notes'] = f"Re-integrated on {datetime.utcnow().strftime('%Y-%m-%d')}. Reason: {reintegration_reason}. Prev: {archived_officer.rank} {archived_officer.fnum} | {existing_new_notes}"
             
@@ -1301,15 +1322,12 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             new_record.last_updated_by = current_user.fnum
             db.add(new_record)
             
-            # 🟢 PRESERVE THE ARCHIVE
-            # Add a cross-reference tracking note to the old archived file
             arch_notes = archived_officer.notes or ""
             archived_officer.notes = f"{arch_notes} | [STATUS UPDATE: Re-deployed to active duty on {datetime.utcnow().strftime('%Y-%m-%d')} as {clean_data.get('rank')} under F/NO: {target_fnum}]"
             
             db.commit()
             return {"status": "success", "message": f"Officer re-integrated successfully as {clean_data.get('rank')}", "sn": new_record.id}
 
-        # --- 4. Standard New Officer Creation ---
         new_record = models.NominalRoll(**clean_data)
         new_record.last_updated_by = current_user.fnum
         db.add(new_record)
@@ -1353,23 +1371,6 @@ STATION_GEO_MAP = {
     "NAGGALAMA": {"region": "KMP EAST", "district": "MUKONO"},
     "SEETA": {"region": "KMP EAST", "district": "MUKONO"},
 }
-
-def auto_infer_geography(station_val, current_region, current_district):
-    stn_clean = str(station_val or "").strip().upper()
-    inferred_region = current_region
-    inferred_district = current_district
-    
-    if stn_clean in STATION_GEO_MAP:
-        geo_data = STATION_GEO_MAP[stn_clean]
-        reg_val = geo_data.get("region")
-        dist_val = geo_data.get("district")
-        
-        if reg_val and (not current_region or str(current_region).strip() in ["", "None", "NAT", "N/A"]):
-            inferred_region = reg_val
-        if dist_val and (not current_district or str(current_district).strip() in ["", "None", "NAT", "N/A"]):
-            inferred_district = dist_val
-            
-    return inferred_region, inferred_district
 
 def parse_flexible_date(val):
     if val is None or pd.isna(val):
@@ -1437,7 +1438,6 @@ async def bulk_upload_nominal_roll(
         
         df.rename(columns=header_map, inplace=True)
         
-        # 🟢 THE FIX: Bulletproof Date Formatter
         date_columns = ['dob', 'doe', 'do_post', 'do_pro']
         for col in date_columns:
             if col in df.columns:
@@ -1484,7 +1484,6 @@ async def bulk_upload_nominal_roll(
                 
                 row_dict['sex'] = inferred_sex
 
-                # 🟢 AUTO-INFER REGION AND DISTRICT FROM STATION
                 raw_station = row_dict.get('station', '')
                 current_reg = row_dict.get('region', '')
                 current_dist = row_dict.get('district', '')
@@ -1511,7 +1510,6 @@ async def bulk_upload_nominal_roll(
                     existing_record.sex = inferred_sex
                     existing_record.last_updated_by = f"{current_user.name} ({current_user.fnum})"
                     
-                    # Ensure SN matches ID on updates too
                     existing_record.sn = existing_record.id 
                     
                     records_updated += 1
@@ -1520,7 +1518,6 @@ async def bulk_upload_nominal_roll(
                     new_record.last_updated_by = f"{current_user.name} ({current_user.fnum})"
                     db.add(new_record)
                     
-                    # Flush to generate the 'id', then instantly copy it to 'sn'
                     db.flush() 
                     new_record.sn = new_record.id 
                     
@@ -1565,13 +1562,11 @@ def archive_personnel(
         if not active_record:
             raise HTTPException(status_code=404, detail="Officer not found in active roll.")
 
-        # Copy the data from the Active table
         record_data = active_record.__dict__.copy()
         record_data.pop("_sa_instance_state", None) 
         record_data.pop("id", None) 
         record_data.pop("sn", None) 
         
-        # 🟢 CRITICAL FIX: Translate ALL Active columns (snake_case) to Archive columns (flat)
         archive_translation_map = {
             "f_num": "fnum",
             "do_post": "dopost",
@@ -1586,17 +1581,14 @@ def archive_personnel(
             if active_key in record_data and not hasattr(models.NominalRollArchive, active_key):
                 record_data[archive_key] = record_data.pop(active_key)
 
-        # Append the archiving metadata
         record_data["status"] = "ARCHIVED"
         record_data["archive_reason"] = request_data.archive_reason
         record_data["archive_date"] = datetime.now().date()
         record_data["last_updated_by"] = current_user.fnum
 
-        # Ensure we only insert columns that actually exist in the Archive table
         valid_archive_columns = [c.key for c in models.NominalRollArchive.__table__.columns]
         safe_record_data = {k: v for k, v in record_data.items() if k in valid_archive_columns}
 
-        # Save to Archive, Delete from Active
         archived_record = models.NominalRollArchive(**safe_record_data)
         db.add(archived_record)
         db.delete(active_record)
@@ -2115,6 +2107,9 @@ def export_master_database_unified(
     authorized_user: models.Users = Depends(require_export_privilege)
 ):
     try:
+        # Enforce that station-level subordinates cannot pull master databases without clearance
+        verify_command_clearance(authorized_user, authorized_user, action_type="DOWNLOAD_MASTER")
+
         excel_buffer = io.BytesIO()
         zip_buffer = io.BytesIO()
 
@@ -2529,8 +2524,6 @@ def get_all_requests(db: Session = Depends(get_db), current_user: models.Users =
             })
     return results
 
-
-
 @app.get("/api/v1/reports/archive")
 def get_document_archive(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
@@ -2575,7 +2568,6 @@ async def upload_word_report(
 
         doc = Document(io.BytesIO(contents))
         
-        # 🟢 JURISDICTION OVERRIDE RESOLUTION LOGIC
         effective_region = current_user.region or "KMP GENERAL"
         effective_station = current_user.station or "KMP HEADQUARTERS"
         
@@ -2596,7 +2588,6 @@ async def upload_word_report(
             doc.save(formatted_io)
             contents = formatted_io.getvalue()
         
-        # 🟢 S3 CLOUD UPLOAD & TIMEZONE HANDLING
         eat_time = datetime.utcnow() + timedelta(hours=3)
         timestamp = eat_time.strftime("%Y%m%d_%H%M%S")
         
@@ -2619,7 +2610,7 @@ async def upload_word_report(
             doc_type=display_type,
             file_size=file_size_str,
             file_path=full_s3_url, 
-            region=effective_region,     # 🟢 Using the override target
+            region=effective_region,   # 🟢 Using the override target
             station=effective_station,   # 🟢 Using the override target
             uploaded_by=current_user.fnum,
             upload_date=eat_time 
@@ -2658,7 +2649,6 @@ def delete_archive_file(
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    # 🟢 Security: Restrict deletion to Command/Admins
     if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
         raise HTTPException(status_code=403, detail="Command clearance required to delete official records.")
         
@@ -2668,7 +2658,6 @@ def delete_archive_file(
         raise HTTPException(status_code=404, detail="Document not found in the database.")
         
     try:
-        # 🟢 Delete the file from the AWS S3 cloud bucket
         if str(doc_record.file_path).startswith("http"):
             parsed_url = urllib.parse.urlparse(doc_record.file_path)
             s3_key = parsed_url.path.lstrip('/')
@@ -2677,10 +2666,8 @@ def delete_archive_file(
             except Exception as s3_err:
                 print(f"Warning: Could not delete S3 object {s3_key}: {s3_err}")
             
-        # 🟢 Delete the record from the Neon database
         db.delete(doc_record)
         
-        # 🟢 Audit Log the deletion
         if hasattr(models, 'Audit_Logs'):
             log_semantic_audit(
                 db=db, fnum=current_user.fnum, action="DOCUMENT_DELETED",
@@ -2700,7 +2687,7 @@ def delete_archive_file(
 def download_archive_file(
     doc_id: int, 
     db: Session = Depends(get_db),
-    current_user: models.Users = Depends(get_current_user) # 🟢 We need the reader's credentials
+    current_user: models.Users = Depends(get_current_user)
 ):
     doc_record = db.query(models.DocumentArchive).filter(models.DocumentArchive.id == doc_id).first()
     
@@ -2710,20 +2697,16 @@ def download_archive_file(
     if not str(doc_record.file_path).startswith("http"):
         raise HTTPException(status_code=404, detail="Local files cannot be dynamically stamped. Please use S3 uploads.")
 
-    # 1. Extract the S3 Key from the stored URL
     parsed_url = urllib.parse.urlparse(doc_record.file_path)
     original_s3_key = parsed_url.path.lstrip('/') 
 
     try:
-        # 2. Download the raw document from S3 into memory
         file_stream = io.BytesIO()
         s3_client.download_fileobj(BUCKET_NAME, original_s3_key, file_stream)
         file_stream.seek(0)
 
-        # 3. Open the document using python-docx
         word_doc = Document(file_stream)
 
-# 4. Generate the Forensic Receipt Stamp with Processed Date
         eat_time = datetime.utcnow() + timedelta(hours=3)
         timestamp_eat = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
         processed_date_str = eat_time.strftime("%Y-%m-%d")
@@ -2737,32 +2720,26 @@ def download_archive_file(
             f"CLEARANCE      : {current_user.role} | STATION: {current_user.station}\n"
             f"PROCESSED DATE : {processed_date_str}\n"
             f"TIMESTAMP      : {timestamp_eat}\n"
-            "========================================================\n"
-            "KAMPALA METROPOLITAN POLICE HEADQUARTERS\n"
+            "========================================================"
         )
 
-        # 5. Insert the stamp at the very top of the document
-        if len(word_doc.paragraphs) > 0:
-            p = word_doc.paragraphs[0].insert_paragraph_before(receipt_text)
-        else:
-            p = word_doc.add_paragraph(receipt_text)
-            
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        section = word_doc.sections[0]
+        footer = section.footer
+        footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
         
-        # 6. Apply the "Receipt" styling (Courier New, Monospaced, Dark Red/Black)
-        for run in p.runs:
-            run.font.name = 'Courier New' # Classic monospaced receipt font
-            run.font.size = Pt(9)
-            run.font.bold = True
-            run.font.color.rgb = RGBColor(139, 0, 0) # Dark Red for high forensic visibility
+        footer_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        
+        run = footer_p.add_run(receipt_text)
+        
+        run.font.name = 'Courier New' 
+        run.font.size = Pt(7.5) 
+        run.font.bold = True
+        run.font.color.rgb = RGBColor(139, 0, 0) 
 
-        # 7. Save the stamped document back to memory
         output_stream = io.BytesIO()
         word_doc.save(output_stream)
         output_stream.seek(0)
 
-        # 8. Upload the customized, stamped copy to a cache folder in S3
-        # Name it using the user's FNUM so they have their own unique stamped copy
         stamped_s3_key = f"forensic_cache/{current_user.fnum}_DOC_{doc_id}.docx"
         
         s3_client.upload_fileobj(
@@ -2772,7 +2749,6 @@ def download_archive_file(
             ExtraArgs={"ContentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
         )
 
-        # 9. Construct and return the new URL
         aws_region = os.getenv("AWS_REGION", "eu-central-1")
         stamped_url = f"https://{BUCKET_NAME}.s3.{aws_region}.amazonaws.com/{stamped_s3_key}"
 
@@ -2798,13 +2774,11 @@ def download_official_template(template_type: str, current_user: models.Users = 
     file_path = os.path.join(templates_dir, filename)
     
     if not os.path.exists(file_path):
-        from docx import Document # Ensure this is imported at the top of your file
         doc = Document()
         doc.add_heading(f"UPF KMP - Official {template_type.replace('-', ' ').title()} Template", 0)
         doc.add_paragraph("Official template for Uganda Police Force - Kampala Metropolitan Police.")
         doc.save(file_path)
 
-    # 🟢 Templates return a direct FileResponse binary blob, which is perfect!
     return FileResponse(file_path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=filename)
 
 
@@ -2815,11 +2789,9 @@ async def upload_command_template(
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    # 1. Security Check: Ensure only authorized admins can upload templates
     if current_user.role not in ['SUPER_ADMIN', 'ADMIN', 'RPC']:
         raise HTTPException(status_code=403, detail="Command clearance required to modify system templates.")
 
-    # 2. Upload the new template to AWS S3
     s3_key = f"command_templates/{template_id}_{file.filename}"
     
     try:
@@ -2832,20 +2804,16 @@ async def upload_command_template(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"S3 Upload Failed: {str(e)}")
 
-    # Construct the URL using your environment variables
     aws_region = os.getenv("AWS_REGION", "eu-central-1")
     s3_url = f"https://{BUCKET_NAME}.s3.{aws_region}.amazonaws.com/{s3_key}"
 
-    # 3. Update or Create the record in NeonDB
     template_record = db.query(models.CommandTemplate).filter(models.CommandTemplate.template_id == template_id).first()
     
     if template_record:
-        # Overwrite the existing template tracking link
         template_record.file_name = file.filename
         template_record.s3_url = s3_url
         template_record.updated_by = current_user.fnum
     else:
-        # Create a new record if it doesn't exist yet
         template_record = models.CommandTemplate(
             template_id=template_id,
             file_name=file.filename,
@@ -2948,6 +2916,9 @@ def update_user_access(
             detail=f"Officer '{clean_fnum}' not found in database records."
         )
     
+    # 🟢 Verify strict Chain-of-Command clearance before granting or modifying privileges
+    verify_command_clearance(admin, target_user, action_type="GRANT_PRIVILEGE")
+
     old_role = target_user.role
     target_user.role = access_data.role
     target_user.permissions = access_data.permissions

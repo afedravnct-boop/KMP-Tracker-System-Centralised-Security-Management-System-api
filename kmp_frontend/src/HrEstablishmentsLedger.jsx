@@ -7,11 +7,9 @@ const HrEstablishmentsLedger = ({ data, onClose }) => {
   // =================================================================
   // AGGREGATION LOGIC: Process raw HR data into Officers & NCOs Matrices
   // =================================================================
-  const manpowerAggregates = useMemo(() => {
-    // 🟢 FIXED: Check all potential data properties to correctly catch nominal roll records
+const manpowerAggregates = useMemo(() => {
     const hrRecords = data?.hr || data?.nominal_rolls || data?.nominalRolls || [];
     
-    // Blank template for statistical buckets
     const getBlankStats = () => ({
       total: 0,
       ages: { '18-35': 0, '36-45': 0, '46-50': 0, '51-55': 0, '56-60': 0, 'Unknown': 0 },
@@ -28,12 +26,13 @@ const HrEstablishmentsLedger = ({ data, onClose }) => {
 
     if (hrRecords.length === 0) return { regions: [], grandTotals };
 
-    // Classification Helpers
-    const isOfficer = (rankStr) => {
+    // 🟢 OFFICIAL UPF HIERARCHY CLASSIFICATION
+    const isOfficerRank = (rankStr) => {
       if (!rankStr) return false;
-      const clean = rankStr.toUpperCase().trim().replace('D/', '');
-      const officers = ['IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'ASP', 'IP', 'AIP'];
-      return officers.includes(clean);
+      const clean = rankStr.toUpperCase().trim().replace(/^D\//, '');
+      // Officers: AIP, IP, ASP, SASP, SP, SSP, ACP, CP, SCP, AIGP, DIGP, IGP
+      const officersList = ['AIP', 'IP', 'ASP', 'SASP', 'SP', 'SSP', 'ACP', 'CP', 'SCP', 'AIGP', 'DIGP', 'IGP'];
+      return officersList.includes(clean) || clean.includes('INSPECTOR') || clean.includes('COMMISSIONER');
     };
 
     const getAgeBracket = (dobStr) => {
@@ -59,7 +58,6 @@ const HrEstablishmentsLedger = ({ data, onClose }) => {
       return 'Others';
     };
 
-    // Process all personnel records
     hrRecords.forEach(person => {
       const region = person.region ? person.region.toUpperCase() : 'UNASSIGNED';
       
@@ -73,32 +71,31 @@ const HrEstablishmentsLedger = ({ data, onClose }) => {
       }
 
       const grp = grouped[region];
-      const isOff = isOfficer(person.rank);
+      const isOff = isOfficerRank(person.rank);
       
-      // Select the correct bucket for the region
+      // Target appropriate bucket (Officers vs NCOs) for both Region and Grand Totals
       const target = isOff ? grp.officers : grp.ncos;
-      // Select the correct bucket for the KMP Grand Totals
       const globalTarget = isOff ? grandTotals.officers : grandTotals.ncos;
 
-      // 1. Increment Totals
+      // 1. Rank Totals
       target.total += 1;
       grp.total += 1;
       globalTarget.total += 1;
       grandTotals.total += 1;
 
-      // 2. Compile Ages
+      // 2. Age Demographics Breakdown
       const ageBracket = getAgeBracket(person.dob);
       target.ages[ageBracket] += 1;
       globalTarget.ages[ageBracket] += 1;
 
-      // 3. Compile Sex
+      // 3. Sex Ratio Breakdown
       const sex = person.sex ? person.sex.toUpperCase().charAt(0) : '?';
       if (sex === 'M' || sex === 'F') {
         target.sex[sex] += 1;
         globalTarget.sex[sex] += 1;
       }
 
-      // 4. Compile Education
+      // 4. Education Base Breakdown
       const eduBucket = getEduBucket(person.educlevel || person.educ_level);
       target.edu[eduBucket] += 1;
       globalTarget.edu[eduBucket] += 1;
