@@ -1352,7 +1352,7 @@ def parse_flexible_date(val):
 
 @app.post("/api/v1/nominal-roll/bulk-upload")
 async def bulk_upload_nominal_roll(
-    file: UploadFile = File(),
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
@@ -1377,7 +1377,7 @@ async def bulk_upload_nominal_roll(
         original_cols = list(df.columns)
         df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
         
-header_map = {
+        header_map = {
             "id": "id", "serial": "id", "serialnumber": "id", "sn": "sn",
             "forcenumber": "f_num", "fnumber": "f_num", "fnum": "f_num", "f_num": "f_num", "force": "f_num", "fno": "f_num",
             "rank": "rank", "name": "name", "fullname": "name", "officername": "name",
