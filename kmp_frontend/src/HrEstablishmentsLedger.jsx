@@ -8,7 +8,8 @@ const HrEstablishmentsLedger = ({ data, onClose }) => {
   // AGGREGATION LOGIC: Process raw HR data into Officers & NCOs Matrices
   // =================================================================
   const manpowerAggregates = useMemo(() => {
-    const hrRecords = data?.hr || [];
+    // 🟢 FIXED: Check all potential data properties to correctly catch nominal roll records
+    const hrRecords = data?.hr || data?.nominal_rolls || data?.nominalRolls || [];
     
     // Blank template for statistical buckets
     const getBlankStats = () => ({
@@ -98,7 +99,7 @@ const HrEstablishmentsLedger = ({ data, onClose }) => {
       }
 
       // 4. Compile Education
-      const eduBucket = getEduBucket(person.educ_level);
+      const eduBucket = getEduBucket(person.educlevel || person.educ_level);
       target.edu[eduBucket] += 1;
       globalTarget.edu[eduBucket] += 1;
     });
@@ -106,7 +107,7 @@ const HrEstablishmentsLedger = ({ data, onClose }) => {
     const formattedRegions = Object.values(grouped).sort((a, b) => a.region.localeCompare(b.region));
 
     return { regions: formattedRegions, grandTotals };
-  }, [data?.hr]);
+  }, [data]);
 
   // UI Render Helpers for inner cells
   const renderAges = (ages) => (
@@ -153,7 +154,7 @@ const HrEstablishmentsLedger = ({ data, onClose }) => {
       <div className="flex flex-col space-y-10">
         
         {/* ========================================= */}
-        {/* TABLE 1: HR NOMINAL ROLL SUMMARY          */}
+        {/* TABLE 1: HR NOMINAL ROLL SUMMARY         */}
         {/* ========================================= */}
         <div>
           <h3 className="text-lg font-bold text-blue-900 mb-3 bg-blue-50 border border-blue-100 p-3 rounded-t-lg flex items-center">

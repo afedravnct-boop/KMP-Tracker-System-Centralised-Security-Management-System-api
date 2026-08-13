@@ -621,47 +621,50 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     });
   }, [reports, currentUser, updateSearch]);
 
-  const metrics = useMemo(() => {
+const metrics = useMemo(() => {
     const stationCellPop = {};
     const todayStr = new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
     let hasLockupUpdateToday = false;
     let hqGrandTotalToday = null;
     
+    // Calculate individual station sums for hierarchical aggregation
     filteredReports.forEach(r => {
        if (r.date === todayStr) {
            if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) {
                hqGrandTotalToday = parseInt(r.daily_lock_up) || parseInt(r.suspects) || 0;
-               if (filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
-                   hasLockupUpdateToday = true;
-               }
-           } else if (stationCellPop[r.station] === undefined && r.daily_lock_up !== undefined && r.daily_lock_up !== null) {
+           } else if (r.station && r.daily_lock_up !== undefined && r.daily_lock_up !== null) {
+               // Keep the latest log for each station today
                stationCellPop[r.station] = parseInt(r.daily_lock_up) || 0;
                hasLockupUpdateToday = true;
            }
        }
     });
     
-    const calculatedSum = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
-    const totalCellPop = (filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' && hqGrandTotalToday !== null)
-      ? hqGrandTotalToday 
-      : calculatedSum;
+    // Sum of all station returns
+    const calculatedGlobalSum = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
+    
+    // Absolute KMP General Total (Fallback override takes priority if logged)
+    const kmpGeneralTotal = hqGrandTotalToday !== null ? hqGrandTotalToday : calculatedGlobalSum;
 
-    const lockupDisplay = hasLockupUpdateToday 
-      ? totalCellPop 
-      : <span className="text-[14px] leading-none tracking-normal text-red-600 bg-red-50 px-3 py-1.5 rounded-md border border-red-200 shadow-inner animate-pulse whitespace-nowrap">
-          Pending Today
-        </span>;
+    // Local Jurisdiction Total (filtered by what the user/commander selected)
+    let localJurisdictionTotal = 0;
+    if (filterStation && filterStation !== 'ALL STATIONS') {
+      localJurisdictionTotal = stationCellPop[filterStation] || 0;
+    } else if (filterRegion && filterRegion !== 'ALL REGIONS') {
+      const regionStations = REGIONAL_HIERARCHY[filterRegion] || [];
+      localJurisdictionTotal = regionStations.reduce((sum, stat) => sum + (stationCellPop[stat] || 0), 0);
+    } else {
+      localJurisdictionTotal = kmpGeneralTotal;
+    }
 
     const totalCaseSuspects = filteredReports.reduce((sum, r) => {
-      if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) {
-        return sum; 
-      }
-      const suspectsList = r.suspectDetails || r.suspect_details || [];
-      return sum + suspectsList.length;
+      if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) return sum;
+      return sum + (r.suspectDetails || r.suspect_details || []).length;
     }, 0);
 
     return {
-      totalLockup: lockupDisplay,
+      localLockup: hasLockupUpdateToday || hqGrandTotalToday !== null ? localJurisdictionTotal : <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending Today</span>,
+      kmpGeneralLockup: hqGrandTotalToday !== null || calculatedGlobalSum > 0 ? kmpGeneralTotal : <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending Today</span>,
       newCases: filteredReports.length,
       active: filteredReports.filter(r => r.status === 'ACTIVE INVESTIGATION').length,
       sanctioned: filteredReports.filter(r => r.status === 'FORWARDED TO COURT').length,
@@ -2989,7 +2992,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+<div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <>
           <div className="lg:col-span-5 space-y-5">
             {canUploadHR && (
@@ -3003,30 +3006,31 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                 
                 <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-mono text-slate-700 flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">sn</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">fnum</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">f_num</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">rank</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">name</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">sex</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">position</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dob</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">doe</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dopost</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dopro</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">do_post</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">do_pro</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">contact</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">educlevel</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">educ_level</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">ipps</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">tin</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">nin</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">homedist</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">home_dist</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">tribe</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">accno</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">bankbranch</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">acc_no</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">bank_branch</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">station</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">district</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">region</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">section</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dir</span>
                   <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">status</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">last_updated_by</span>
                 </div>
                 <BulkNominalRollUpload onUploadSuccess={() => window.location.reload()} />
               </div>
@@ -4628,30 +4632,37 @@ const IdleWarningModal = () => {
               : (sidebarOpen ? 'w-64 md:w-72' : 'w-16')
           }`}>
             
-            <div className={`p-4 flex items-center border-b border-slate-500 transition-all ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
-              {sidebarOpen && (
-                <div className="flex items-center min-w-max">
-                  <div 
-                    className="rounded-full bg-cover bg-repeat-x shrink-0 mr-2 border border-slate-700/50"
-                    style={{ 
-                      width: '20px', 
-                      height: '20px', 
-                      backgroundImage: "url('/UPF Flag Emblem.png')",
-                      animation: "spinFauxGlobe 12s linear infinite",
-                      boxShadow: "inset -3px -3px 5px rgba(0, 0, 0, 0.8), inset 1px 1px 2px rgba(255, 255, 255, 0.5), 0 0 3px rgba(255, 255, 255, 0.2)"
-                    }}
-                  ></div>
-                  <span className="font-bold text-[13px] tracking-wider text-white">KMP TRACKER SYSTEM</span>
-                </div>
-              )}
-              <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 hover:bg-slate-500 rounded text-slate-150 transition-colors shrink-0">
-                {sidebarOpen ? (
-                  <X size={20} className="text-yellow-400 animate-in spin-in-90 duration-200" />
-                ) : (
-                  <Menu size={20} className="text-yellow-400 animate-in spin-in-[-90deg] duration-200" />
-                )}
-              </button>
-            </div>
+{/* 🟢 MOBILE-FRIENDLY SIDEBAR HEADER & CLOSE BUTTON */}
+<div className={`p-4 flex items-center border-b border-slate-700 bg-slate-900 sticky top-0 z-50 transition-all ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
+  {sidebarOpen && (
+    <div className="flex items-center min-w-max">
+      <div 
+        className="rounded-full bg-cover bg-repeat-x shrink-0 mr-2 border border-slate-700/50"
+        style={{ 
+          width: '20px', 
+          height: '20px', 
+          backgroundImage: "url('/UPF Flag Emblem.png')",
+          animation: "spinFauxGlobe 12s linear infinite",
+          boxShadow: "inset -3px -3px 5px rgba(0, 0, 0, 0.8), inset 1px 1px 2px rgba(255, 255, 255, 0.5), 0 0 3px rgba(255, 255, 255, 0.2)"
+        }}
+      ></div>
+      <span className="font-bold text-[13px] tracking-wider text-white">KMP TRACKER SYSTEM</span>
+    </div>
+  )}
+  
+  {/* 🟢 Enlarged tap target and guaranteed visibility for mobile screens */}
+  <button 
+    onClick={() => setSidebarOpen(!sidebarOpen)} 
+    className="p-2.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded-lg text-slate-100 transition-colors shrink-0 shadow-md border border-slate-600 cursor-pointer flex items-center justify-center"
+    aria-label="Toggle Sidebar"
+  >
+    {sidebarOpen ? (
+      <X size={22} className="text-yellow-400 animate-in spin-in-90 duration-200" />
+    ) : (
+      <Menu size={22} className="text-yellow-400 animate-in spin-in-[-90deg] duration-200" />
+    )}
+  </button>
+</div>
             
             <div className="flex-1 overflow-y-auto py-2 custom-scrollbar overflow-x-hidden">
               {sidebarOpen && <div className="px-6 mb-2 text-xs font-bold text-orange-500 uppercase tracking-wider min-w-max">📋 Select Domain Category</div>}

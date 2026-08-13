@@ -22,6 +22,30 @@ const RANK_HIERARCHY = [
   "CPL", "L/CPL", "PC", "SPC"
 ];
 
+// 🟢 Word-Order Agnostic Offence Normalizer
+const normalizeOffenceCategory = (rawOffence) => {
+  if (!rawOffence) return "UNSPECIFIED OFFENCE";
+  
+  let clean = String(rawOffence).trim().toUpperCase();
+
+  // 1. Resolve known structural synonyms explicitly
+  if (clean.includes("FATAL") && (clean.includes("TRAFFIC") || clean.includes("ACCIDENT"))) {
+    return "TRAFFIC ACCIDENT (FATAL)";
+  }
+  if (clean.includes("MINOR") && (clean.includes("TRAFFIC") || clean.includes("ACCIDENT"))) {
+    return "TRAFFIC ACCIDENT (MINOR)";
+  }
+  if (clean.includes("DEFILEMENT") || clean.includes("RAPE")) {
+    return "DEFILEMENT / RAPE";
+  }
+
+  // 2. Fallback: Alphabetize keywords to make order irrelevant (e.g., "ROBBERY AGGRAVATED" -> "AGGRAVATED ROBBERY")
+  const words = clean.replace(/[^A-Z0-9\s]/g, '').split(/\s+/).filter(Boolean);
+  words.sort();
+  
+  return words.join(' ') || clean;
+};
+
 // Highly Specific Education Parser
 const parseEducationLevel = (rawVal) => {
   if (!rawVal) return "UNEDUCATED / NOT SPECIFIED";
@@ -122,7 +146,10 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       let key = 'UNCLASSIFIED';
       
       if (activeDomain === 'CRIME') {
-        if (metricCategory === 'CATEGORY') key = (item.crime_category || item.offence || 'GENERAL CRIME').toUpperCase();
+        if (metricCategory === 'CATEGORY') {
+          const rawOffence = item.crime_category || item.offence || 'GENERAL CRIME';
+          key = normalizeOffenceCategory(rawOffence);
+        }
         else if (metricCategory === 'CASES') key = (item.status || 'PENDING').toUpperCase();
         else if (metricCategory === 'ARRESTS') key = String(item.suspects || item.arrested || '0').toUpperCase();
         else if (metricCategory === 'CONVICTIONS') key = String(item.convicted || '0').toUpperCase();
@@ -132,7 +159,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       else if (activeDomain === 'PERSONNEL') {
         if (metricCategory === 'RANK') key = (item.rank || 'UNRANKED').toUpperCase().trim();
         else if (metricCategory === 'UNIT' || metricCategory === 'STATION') key = (item.station || 'UNKNOWN').toUpperCase();
-        // 🟢 NEW: Home District and Bank & Branch added to logic here
         else if (metricCategory === 'DISTRICT') key = (item.homedist || item.home_dist || 'UNSPECIFIED DISTRICT').toUpperCase().trim();
         else if (metricCategory === 'BANK_BRANCH') key = (item.bankbranch || item.bank_branch || 'UNSPECIFIED BANK / BRANCH').toUpperCase().trim();
         else if (metricCategory === 'EDUCATION') key = parseEducationLevel(item.educlevel || item.educ_level); 
@@ -296,7 +322,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     };
   }, [crimeRegistry, selectedRegion, selectedStation]);
 
-const handleExportExcel = async () => {
+  const handleExportExcel = async () => {
     try {
       const wb = XLSX.utils.book_new();
 
@@ -318,7 +344,7 @@ const handleExportExcel = async () => {
       const wsMeta = XLSX.utils.aoa_to_sheet(metaSheetData);
       XLSX.utils.book_append_sheet(wb, wsMeta, "Forensic Audit Stamp");
 
-      // 🟢 2. Crime Registry Sheet
+      // 2. Crime Registry Sheet
       if (Array.isArray(crimeRegistry) && crimeRegistry.length > 0) {
         const crimeData = crimeRegistry.map((r, index) => ({
           "S/N": index + 1,
@@ -334,7 +360,7 @@ const handleExportExcel = async () => {
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(crimeData), "Crime Registry");
       }
 
-      // 🟢 3. Nominal Roll Sheet 
+      // 3. Nominal Roll Sheet 
       if (Array.isArray(nominalRolls) && nominalRolls.length > 0) {
         const nomData = nominalRolls.map((n, index) => ({
           "S/N": index + 1, 
@@ -354,7 +380,7 @@ const handleExportExcel = async () => {
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(nomData), "Nominal Roll");
       }
 
-      // 🟢 4. Operations Stats Sheet
+      // 4. Operations Stats Sheet
       if (Array.isArray(operationalStats) && operationalStats.length > 0) {
         const opsData = operationalStats.map((o, index) => ({
           "S/N": index + 1,
@@ -364,7 +390,7 @@ const handleExportExcel = async () => {
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(opsData), "Operations Stats");
       }
 
-      // 🟢 5. Success Stories Sheet
+      // 5. Success Stories Sheet
       if (Array.isArray(successStories) && successStories.length > 0) {
         const successData = successStories.map((s, index) => ({
           "S/N": index + 1,
@@ -601,7 +627,7 @@ const handleExportExcel = async () => {
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto">
-              {/* 🟢 Group By Filter */}
+              {/* Group By Filter */}
               <div className="flex items-center space-x-3 w-full sm:w-auto">
                 <span className="text-xs font-bold text-slate-500 uppercase whitespace-nowrap">Group By:</span>
                 <select 
@@ -674,6 +700,7 @@ const handleExportExcel = async () => {
             <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100 whitespace-nowrap">
               Total Analyzed Entries: {totalRecords}
             </span>
+
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

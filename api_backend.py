@@ -1438,7 +1438,6 @@ async def bulk_upload_nominal_roll(
         df.rename(columns=header_map, inplace=True)
         
         # 🟢 THE FIX: Bulletproof Date Formatter
-        # This grabs every date column and securely formats it as standard PostgreSQL YYYY-MM-DD
         date_columns = ['dob', 'doe', 'do_post', 'do_pro']
         for col in date_columns:
             if col in df.columns:
@@ -1485,6 +1484,7 @@ async def bulk_upload_nominal_roll(
                 
                 row_dict['sex'] = inferred_sex
 
+                # 🟢 AUTO-INFER REGION AND DISTRICT FROM STATION
                 raw_station = row_dict.get('station', '')
                 current_reg = row_dict.get('region', '')
                 current_dist = row_dict.get('district', '')
@@ -1511,7 +1511,7 @@ async def bulk_upload_nominal_roll(
                     existing_record.sex = inferred_sex
                     existing_record.last_updated_by = f"{current_user.name} ({current_user.fnum})"
                     
-                    # 🟢 Ensure SN matches ID on updates too, just in case!
+                    # Ensure SN matches ID on updates too
                     existing_record.sn = existing_record.id 
                     
                     records_updated += 1
@@ -1520,7 +1520,7 @@ async def bulk_upload_nominal_roll(
                     new_record.last_updated_by = f"{current_user.name} ({current_user.fnum})"
                     db.add(new_record)
                     
-                    # 🟢 THE FIX: Flush to generate the 'id', then instantly copy it to 'sn'
+                    # Flush to generate the 'id', then instantly copy it to 'sn'
                     db.flush() 
                     new_record.sn = new_record.id 
                     
@@ -2723,18 +2723,20 @@ def download_archive_file(
         # 3. Open the document using python-docx
         word_doc = Document(file_stream)
 
-        # 4. Generate the Forensic Receipt Stamp (Single line version)
+# 4. Generate the Forensic Receipt Stamp with Processed Date
         eat_time = datetime.utcnow() + timedelta(hours=3)
         timestamp_eat = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
+        processed_date_str = eat_time.strftime("%Y-%m-%d")
         
         receipt_text = (
             "========================================================\n"
             "         KAMPALA METROPOLITAN POLICE HEADQUARTERS         \n"
             "         SECURE DOCUMENT & TEMPLATES ACCESS         \n"
             "--------------------------------------------------------\n"
-            f"ACCESSED BY : {current_user.fnum} - {current_user.rank} {current_user.name}\n"
-            f"CLEARANCE   : {current_user.role} | STATION: {current_user.station}\n"
-            f"TIMESTAMP   : {timestamp_eat}\n"
+            f"ACCESSED BY    : {current_user.fnum} - {current_user.rank} {current_user.name}\n"
+            f"CLEARANCE      : {current_user.role} | STATION: {current_user.station}\n"
+            f"PROCESSED DATE : {processed_date_str}\n"
+            f"TIMESTAMP      : {timestamp_eat}\n"
             "========================================================\n"
             "KAMPALA METROPOLITAN POLICE HEADQUARTERS\n"
         )
