@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 const OfficerDossierModal = ({ officer, onClose }) => {
   if (!officer) return null;
 
-  // 🟢 BULLETPROOF MAPPING: Catches all DB variations, schema aliases, and custom Excel keys
+  // 🟢 BULLETPROOF MAPPING: Covers all 26 Active Columns + 2 Archive Columns
   const safeData = {
     sn: officer.sn || officer.id,
     fnum: officer.fnum || officer.f_num,
@@ -15,39 +15,34 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     sex: officer.sex,
     dob: officer.dob,
     tribe: officer.tribe,
-    // Catches home_dist, homedist, homeDist, district
     homedist: officer.home_dist || officer.homedist || officer.homeDist || officer.district || '-',
     contact: officer.contact || officer.phone || officer.telephone || '-',
-    // Catches educ_level, educlevel, educLevel, education
     educlevel: officer.educ_level || officer.educlevel || officer.educLevel || officer.education || '-',
     
     rank: officer.rank,
     position: officer.position,
     dir: officer.dir || officer.directorate || '-',
+    section: officer.section || officer.department || '-',
     
     region: officer.region || 'KMP HEADQUARTERS',
     district: officer.district || officer.home_dist || '-',
     station: officer.station || officer.duty_station || 'HEADQUARTERS',
-    section: officer.section || officer.department || '-',
     doe: officer.doe || officer.date_of_enlistment || '-',
     
-    // 🟢 Catches Excel 'dop', DB 'do_post', schema 'doPost', and legacy 'dopost'
     dopost: officer.dop || officer.do_post || officer.doPost || officer.dopost || '-',
-    
-    // 🟢 Catches DB 'do_pro', schema 'doPro', and legacy 'dopro'
     dopro: officer.do_pro || officer.doPro || officer.dopro || '-',
-    
-    // 🟢 Catches DB 'bank_branch', schema 'bankBranch', and legacy 'bankbranch'
     bankbranch: officer.bank_branch || officer.bankBranch || officer.bankbranch || officer.bank_name || '-',
-    
-    // 🟢 Catches DB 'acc_no', schema 'accNo', and legacy 'accno'
     accno: officer.acc_no || officer.accNo || officer.accno || officer.account_no || '-',
     
     status: officer.status || "ACTIVE",
-    last_updated_by: officer.last_updated_by || officer.logged_by || "-"
+    last_updated_by: officer.last_updated_by || officer.logged_by || "-",
+    
+    // 🟢 Archive Specific Columns
+    archive_reason: officer.archive_reason || '-',
+    archive_date: officer.archive_date || '-'
   };
 
-  // COLUMN 1: Personal Details, Identifiers & Contact
+  // COLUMN 1: Personal Details, Identifiers & Contact (12 Items)
   const leftAttributes = [
     { label: "System S/N", value: safeData.sn },
     { label: "Force Number (F/NO)", value: safeData.fnum },
@@ -63,15 +58,15 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     { label: "Educational Level", value: safeData.educlevel },
   ];
 
-  // COLUMN 2: Service Record, Deployment & Financials
+  // COLUMN 2: Service Record, Deployment & Financials (13 Base Items)
   const rightAttributes = [
     { label: "Rank", value: safeData.rank },
     { label: "Official Position / Title", value: safeData.position },
     { label: "Directorate", value: safeData.dir },
+    { label: "Division / Section", value: safeData.section },
     { label: "Command Region", value: safeData.region },
     { label: "Deployment District", value: safeData.district },
     { label: "Duty Station", value: safeData.station },
-    { label: "Division / Section", value: safeData.section },
     { label: "Date of Enlistment (D.O.E)", value: safeData.doe },
     { label: "Date of Posting (D.O.P)", value: safeData.dopost },
     { label: "Date of Promotion (D.O. PRO)", value: safeData.dopro },
@@ -79,6 +74,14 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     { label: "Bank Account Number", value: safeData.accno },
     { label: "Deployment Status", value: safeData.status },
   ];
+
+  // 🟢 Dynamically append Archive fields only if viewing an archived record
+  if (safeData.status === 'ARCHIVED' || officer.archive_reason) {
+    rightAttributes.push(
+      { label: "Archive Reason", value: safeData.archive_reason },
+      { label: "Date Archived", value: safeData.archive_date }
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[250] bg-slate-950/70 backdrop-blur-sm flex justify-center items-center p-4 animate-in fade-in duration-200 font-sans">
@@ -88,7 +91,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
         <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-extrabold text-white text-base shadow-inner border border-blue-400">
-              {safeData.name !== '-' ? safeData.name.charAt(0) : 'O'}
+              {safeData.name && safeData.name !== '-' ? safeData.name.charAt(0) : 'O'}
             </div>
             <div>
               <h3 className="font-extrabold text-sm tracking-wide uppercase">{safeData.rank} {safeData.name}</h3>
@@ -147,6 +150,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
 
           </div>
 
+          {/* LAST UPDATED BY (26th Column extracted here at the bottom) */}
           {safeData.last_updated_by && safeData.last_updated_by !== '-' && (
             <div className="text-center pt-2">
               <span className="text-[11px] text-slate-400 font-medium italic">
