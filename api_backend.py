@@ -1377,22 +1377,25 @@ async def bulk_upload_nominal_roll(
         original_cols = list(df.columns)
         df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(r'[^a-z0-9]', '', regex=True)
         
+# 🟢 EXACT MATCH MAP FOR YOUR EXCEL FILE
         header_map = {
-            "id": "id", "serial": "id", "serialnumber": "id", "sn": "sn",
-            "forcenumber": "fnum", "fnumber": "fnum", "fnum": "fnum", "f_num": "fnum", "force": "fnum", "fno": "fnum",
-            "rank": "rank", "name": "name", "fullname": "name", "officername": "name",
-            "sex": "sex", "gender": "sex", "position": "position", "role": "position", "title": "position",
-            "dob": "dob", "dateofbirth": "dob", "doe": "doe", "dateofenlistment": "doe",
-            "dop": "dopost", "dopost": "dopost", "do_post": "dopost", "dateofpost": "dopost",
-            "dopro": "dopro", "do_pro": "dopro", "dateofpromotion": "dopro",
-            "educlevel": "educlevel", "educ_level": "educlevel", "education": "educlevel", "educationlevel": "educlevel",
-            "homedist": "homedist", "home_dist": "homedist", "homedistrict": "homedist",
-            "accno": "accno", "acc_no": "accno", "accountnumber": "accno", "accountno": "accno", "account": "accno",
-            "bankbranch": "bankbranch", "bank_branch": "bankbranch", "bank": "bankbranch", "branch": "bankbranch",
-            "station": "station", "dutystation": "station", "region": "region", "command": "region",
-            "section": "section", "department": "section", "directorate": "dir", "dir": "dir",
-            "ipps": "ipps", "nin": "nin", "tin": "tin", "contact": "contact", "district": "district", "tribe": "tribe",
-            "status": "status"
+            "fnum": "f_num", "f_num": "f_num", "forcenumber": "f_num",
+            "rank": "rank", "name": "name", "sex": "sex", "position": "position",
+            "dob": "dob", "doe": "doe",
+            
+            # 🟢 Explicitly maps 'dop' from your Excel sheet to 'do_post'
+            "dop": "do_post", "dopost": "do_post", "do_post": "do_post", "dateofposting": "do_post",
+            
+            "dopro": "do_pro", "do_pro": "do_pro", "dateofpromotion": "do_pro",
+            "contact": "contact",
+            "educlevel": "educ_level", "educ_level": "educ_level",
+            "ipps": "ipps", "tin": "tin", "nin": "nin",
+            "homedist": "home_dist", "home_dist": "home_dist",
+            "tribe": "tribe",
+            "accno": "acc_no", "acc_no": "acc_no",
+            "bankbranch": "bank_branch", "bank_branch": "bank_branch",
+            "station": "station", "district": "district", "region": "region",
+            "section": "section", "dir": "dir", "status": "status"
         }
         
         df.rename(columns=header_map, inplace=True)
@@ -1512,29 +1515,43 @@ def archive_personnel(
         if not active_record:
             raise HTTPException(status_code=404, detail="Officer not found in active roll.")
 
+        # Copy the data from the Active table
         record_data = active_record.__dict__.copy()
         record_data.pop("_sa_instance_state", None) 
         record_data.pop("id", None) 
         record_data.pop("sn", None) 
         
-        if "home_dist" in record_data:
-            record_data["homedist"] = record_data.pop("home_dist")
-            
-        if "f_num" in record_data and not hasattr(models.NominalRollArchive, "f_num"):
-            record_data["fnum"] = record_data.pop("f_num")
+        # 🟢 CRITICAL FIX: Translate ALL Active columns (snake_case) to Archive columns (flat)
+        archive_translation_map = {
+            "f_num": "fnum",
+            "do_post": "dopost",
+            "do_pro": "dopro",
+            "educ_level": "educlevel",
+            "home_dist": "homedist",
+            "acc_no": "accno",
+            "bank_branch": "bankbranch"
+        }
 
+        for active_key, archive_key in archive_translation_map.items():
+            if active_key in record_data and not hasattr(models.NominalRollArchive, active_key):
+                record_data[archive_key] = record_data.pop(active_key)
+
+        # Append the archiving metadata
         record_data["status"] = "ARCHIVED"
         record_data["archive_reason"] = request_data.archive_reason
         record_data["archive_date"] = datetime.now().date()
         record_data["last_updated_by"] = current_user.fnum
 
+        # Ensure we only insert columns that actually exist in the Archive table
         valid_archive_columns = [c.key for c in models.NominalRollArchive.__table__.columns]
         safe_record_data = {k: v for k, v in record_data.items() if k in valid_archive_columns}
 
+        # Save to Archive, Delete from Active
         archived_record = models.NominalRollArchive(**safe_record_data)
         db.add(archived_record)
         db.delete(active_record)
         db.commit()
+        
         return {"status": "success", "message": "Officer successfully moved to archives."}
         
     except HTTPException:
