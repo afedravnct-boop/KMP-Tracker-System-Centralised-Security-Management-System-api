@@ -107,7 +107,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
         </div>
 
         {/* MODAL BODY (TWO VERTICAL COLUMNS) */}
-        <div className="p-6 overflow-y-auto bg-slate-50 flex-1 custom-scrollbar space-y-6">
+        <div className="p-6 overflow-y-auto bg-slate-50 flex-1 custom-scrollbar space-y-4">
           
           <div className="bg-blue-50/60 border border-blue-200 p-3 rounded-xl flex items-center justify-between text-xs font-bold text-blue-900">
             <span>🛡️ Official Nominal Roll Dossier Record</span>
@@ -116,7 +116,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             
             {/* COLUMN 1: IDENTIFIERS & DEMOGRAPHICS */}
             <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-3">
@@ -162,7 +162,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
         </div>
 
         {/* MODAL FOOTER */}
-        <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
+        <div className="bg-white p-2 border-t border-slate-200 flex justify-end shrink-0">
           <button 
             type="button" 
             onClick={onClose} 

@@ -530,7 +530,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     cell_population: 0
   });
 
-  // 🟢 Helper to wipe form clean after successful submission
   const resetFormToBlank = () => {
     setFormData({
       sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
@@ -601,7 +600,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       return true;
     });
 
-    // 🟢 Fix: Force exact sort putting newest items (highest IDs) at the very top of the ledger
     return results.sort((a, b) => {
       const idA = a.id || a.sn || 0;
       const idB = b.id || b.sn || 0;
@@ -633,7 +631,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
        if (r.date === todayStr) {
            if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) {
                hqGrandTotalToday = parseInt(r.daily_lock_up) || parseInt(r.suspects) || 0;
-               // HQ Total only counts as a global lockup update
                if (filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
                    hasLockupUpdateToday = true;
                }
@@ -644,7 +641,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
        }
     });
     
-    // 🟢 Strict Aggregation Fix: Only use HQ Override if viewing ALL KMP
     const calculatedSum = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
     const totalCellPop = (filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' && hqGrandTotalToday !== null)
       ? hqGrandTotalToday 
@@ -742,7 +738,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     setNotification("⏳ Logging Daily Cell Population...");
     const popRef = `POP-${formData.station.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
     
-    // Auto-append Hrs here
     let formattedTime = formData.time || '';
     if (formattedTime && !/hrs$/i.test(formattedTime.trim())) formattedTime = `${formattedTime.trim()}Hrs`;
 
@@ -768,7 +763,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       setNotification(`✅ Daily Cell Population (${formData.cell_population}) logged successfully for ${formData.station}!`);
       setFormData(prev => ({ ...prev, cell_population: 0 })); 
       
-      // Auto-clear notification
       setTimeout(() => setNotification(null), 5000);
     } catch (err) {
       setNotification(`❌ Error: ${err.message}`);
@@ -821,7 +815,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     const token = localStorage.getItem('kmp_authToken');
     if (!token) return setNotification("Error: Security token missing. Please log out and log back in.");
     
-    // 🟢 Fix: Auto-format time string to append 'Hrs'
     let formattedTime = formData.time || '';
     if (formattedTime && !/hrs$/i.test(formattedTime.trim())) {
       formattedTime = `${formattedTime.trim()}Hrs`;
@@ -859,7 +852,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
         setReports([newReportLocal, ...reports]);
         
-        // 🟢 Fix: Show success, completely blank the form, hide notification after 5 secs
         setNotification(`✅ Case SN ${newReportLocal.sn} (Ref: ${newReportLocal.sd_ref}) successfully registered!`);
         resetFormToBlank();
         setTimeout(() => setNotification(null), 5000);
@@ -898,7 +890,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
         setReports(reports.map(r => r.sn === formData.sn ? updatedRecord : r));
         
-        // 🟢 Fix: Show success, reset back to 'new' mode blank form
         setNotification(`✅ Case SN ${formData.sn} successfully updated!`);
         handleOperationToggle('new');
         setTimeout(() => setNotification(null), 5000);
@@ -912,7 +903,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
       
-      {/* 🟢 HQ / 999 Fallback Grand Total Modal */}
       {showHqGrandModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-amber-300 animate-in zoom-in-95">
@@ -1090,14 +1080,11 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           </select>
         </div>
         
-        {/* 🟢 Dynamic Label Fix 1: Metrics Header */}
         <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">
           📋 {filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? 'Global Command Metrics' : filterStation === 'ALL STATIONS' ? 'Regional Command Metrics' : `${filterStation} Metrics`} ({dateFilter})
         </h4>
         
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-          
-          {/* 🟢 Dynamic Label Fix 2: Metric Card Title */}
           <MetricCard 
             title={
               filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' 
@@ -1291,9 +1278,10 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
-            </div>
+             <div className="relative flex-1"> 
+               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+               <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
+             </div>
             <select 
               value={filterRegion} 
               onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
@@ -1424,12 +1412,18 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               <div className="bg-white p-8 border border-slate-200 shadow-sm rounded-lg">
                 <div className="mb-6">
                   <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 mb-3">Primary Offence Matrix</div>
-                  <div className="text-lg font-black text-red-600 uppercase">{selectedCase.offence || 'UNSPECIFIED OFFENCE'}</div>
+                  
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="text-lg font-black text-red-600 uppercase">{selectedCase.offence || 'UNSPECIFIED OFFENCE'}</div>
+                    <div className="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-md border border-slate-200 shadow-sm">
+                      REF: {selectedCase.sdRef || selectedCase.sd_ref}
+                    </div>
+                  </div>
                 </div>
                 
                 <div>
                   <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 mb-3">Official Incident Narrative</div>
-                  <div className="text-sm text-slate-800 leading-loose ql-editor whitespace-normal break-words p-0 min-h-[150px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
+                  <div className="text-sm text-slate-800 leading-normal ql-editor whitespace-normal break-words p-0 min-h-[150px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
                 </div>
               </div>
 
@@ -2598,6 +2592,12 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   const [customReason, setCustomReason] = useState('');
   const [previousFnum, setPreviousFnum] = useState('');
 
+  // 🟢 BULK ARCHIVE STATES
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [selectedOfficers, setSelectedOfficers] = useState([]);
+  const [bulkArchiveReason, setBulkArchiveReason] = useState('TRANSFERRED');
+  const [isBulkArchiving, setIsBulkArchiving] = useState(false);
+
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');  
   const [updateSearch, setUpdateSearch] = useState('');
@@ -2614,10 +2614,8 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
   });
 
-  // 🟢 1. FORM POPULATOR
   const populateUpdateForm = (data) => setFormData({ ...data, fnum: data.fnum || data.f_num || '' });
 
-  // 🟢 2. INPUT CHANGER
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     if (name === 'region') {
@@ -2627,7 +2625,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
   };
 
-  // 🟢 3. TAB TOGGLER (NEW / UPDATE)
   const handleOperationToggle = (mode) => {
     setOperation(mode);
     if (mode === 'new') {
@@ -2646,7 +2643,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
   };
 
-  // 🟢 4. ARCHIVE HANDLER (Safely handles F/NO differences to prevent "Not Found")
+  // 🟢 SINGLE ARCHIVE HANDLER
   const handleArchivePersonnel = async () => {
     const targetFnum = formData.fnum || formData.f_num; 
     
@@ -2675,10 +2672,10 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       }
 
       const archivedRecord = {
-          sn: formData.sn, fnum: targetFnum, rank: formData.rank, name: formData.name, sex: formData.sex, position: formData.position,
-          dob: formData.dob, doe: formData.doe, dopost: formData.dopost, dopro: formData.dopro, contact: formData.contact, educlevel: formData.educlevel,         
-          ipps: formData.ipps, tin: formData.tin, nin: formData.nin, homedist: formData.homedist, tribe: formData.tribe, accno: formData.accno,          
-          bankbranch: formData.bankbranch, station: formData.station, district: formData.district, region: formData.region, section: formData.section,
+          sn: formData.sn, f_num: targetFnum, rank: formData.rank, name: formData.name, sex: formData.sex, position: formData.position,
+          dob: formData.dob, doe: formData.doe, do_post: formData.dopost, do_pro: formData.dopro, contact: formData.contact, educ_level: formData.educlevel,         
+          ipps: formData.ipps, tin: formData.tin, nin: formData.nin, home_dist: formData.homedist, tribe: formData.tribe, acc_no: formData.accno,         
+          bank_branch: formData.bankbranch, station: formData.station, district: formData.district, region: formData.region, section: formData.section,
           dir: formData.dir, status: "ARCHIVED", last_updated_by: `${currentUser.name} (${currentUser.fnum})`, archive_reason: archiveReason,
           archive_date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]
       };
@@ -2693,7 +2690,62 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
   };
 
-  // 🟢 5. MASTER SUBMIT HANDLER
+  // 🟢 BULK ARCHIVE HANDLER
+  const handleBulkArchive = async () => {
+    if (selectedOfficers.length === 0) return;
+    if (!window.confirm(`Are you absolutely sure you want to archive ${selectedOfficers.length} officers with the reason: ${bulkArchiveReason}?`)) return;
+
+    setIsBulkArchiving(true);
+    setNotification(`Archiving ${selectedOfficers.length} officers. Please wait...`);
+    
+    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+    let successCount = 0;
+    let failCount = 0;
+    const newArchives = [];
+    const archivedFnums = new Set();
+
+    // Process all concurrently
+    await Promise.all(selectedOfficers.map(async (targetFnum) => {
+      try {
+        const response = await authFetch(`${API_URL}/api/v1/nominal-roll/${encodeURIComponent(targetFnum)}/archive`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ archive_reason: bulkArchiveReason })
+        });
+        
+        if (response.ok) {
+          successCount++;
+          archivedFnums.add(targetFnum);
+          const officer = Nominal_Rolls.find(n => (n.f_num || n.fnum) === targetFnum);
+          if (officer) {
+            newArchives.push({
+              ...officer,
+              status: "ARCHIVED",
+              archive_reason: bulkArchiveReason,
+              archive_date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
+              last_updated_by: `${currentUser.name} (${currentUser.fnum})`
+            });
+          }
+        } else {
+          failCount++;
+        }
+      } catch (err) {
+        failCount++;
+      }
+    }));
+
+    if (newArchives.length > 0) {
+      setNominal_Roll_archives(prev => [...newArchives, ...(Array.isArray(prev) ? prev : [])]);
+      setNominal_Rolls(prev => (Array.isArray(prev) ? prev : []).filter(n => !archivedFnums.has(n.f_num || n.fnum)));
+    }
+
+    setNotification(`Bulk Archive Complete: ✅ ${successCount} succeeded, ❌ ${failCount} failed.`);
+    setSelectedOfficers([]);
+    setBulkSelectMode(false);
+    setIsBulkArchiving(false);
+    setTimeout(() => setNotification(null), 5000);
+  };
+
   const handleFormSubmit = async (e) => { 
     e.preventDefault();
     const currentRolls = Array.isArray(Nominal_Rolls) ? Nominal_Rolls : [];
@@ -2758,7 +2810,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
   const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
-      // 🟢 STRICT EXCLUSION: Prevent archived officers from showing up in Active Roll
       const statusStr = (n.status || '').trim().toUpperCase();
       if (statusStr === 'ARCHIVED' || n.is_archived === true) return false;
 
@@ -2828,14 +2879,11 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       
       currentRollDataset.forEach(n => {
           let key = 'Unknown';
-          
-          // Strict Sex Evaluation
           const sexStr = (n.sex || '').trim().toUpperCase();
           const ninStr = (n.nin || '').trim().toUpperCase();
           const isFemale = sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF');
           const isMale = sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM');
           
-          // Bulletproof multi-key resolution to eliminate false "UNSPECIFIED" metrics
           const homeDistrict = n.homedist || n.home_dist || '';
           const bankBranch = n.bankbranch || n.bank_branch || '';
           const educLevel = n.educlevel || n.educ_level || '';
@@ -2871,7 +2919,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
       const resultsArray = Object.values(grouped);
 
-      // Sort by Official Rank Seniority if RANK is selected, otherwise sort by count descending
       if (metricCategory === 'RANK') {
           return resultsArray.sort((a, b) => getRankWeight(a.category) - getRankWeight(b.category));
       } else {
@@ -2925,9 +2972,9 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
         <div className="flex flex-col md:flex-row justify-between items-center mb-4 border-b pb-2">
           <h3 className="font-bold text-slate-800 flex items-center"><BarChart3 className="w-5 h-5 mr-2 text-blue-600"/> Personnel Metrics Dashboard ({viewMode === 'archive' ? 'Archived Records' : viewMode === 'metrics' ? 'Analytics View' : 'Active Roll'})</h3>
           <div className="flex space-x-2 mt-2 md:mt-0">
-             <button onClick={() => setViewMode('active')} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Active Roll</button>
-             <button onClick={() => setViewMode('archive')} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'archive' ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Archived</button>
-             <button onClick={() => setViewMode('metrics')} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'metrics' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Analytics</button>
+             <button onClick={() => { setViewMode('active'); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Active Roll</button>
+             <button onClick={() => { setViewMode('archive'); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'archive' ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Archived</button>
+             <button onClick={() => { setViewMode('metrics'); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'metrics' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Analytics</button>
           </div>
         </div>
 
@@ -2995,7 +3042,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                   <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
                 </div>
 
-                {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 min-w-[20px]" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 min-w-[20px]" />}<span className="text-sm font-medium">{notification}</span></div>}
+                {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 min-w-[20px]" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 min-w-[20px]" />}<span className="text-sm font-medium">{notification}</span></div>}
 
                 {operation === 'update' && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
@@ -3075,7 +3122,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                     </div>
                   </div>
 
-                  {/* --- 🟢 DYNAMIC ARCHIVE RE-INTEGRATION BLOCK --- */}
                   {operation === 'new' && isArchivedReturnee && archiveDetails && (
                     <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg mt-4 animate-in fade-in zoom-in-95 shadow-sm">
                       <div className="flex items-start mb-3">
@@ -3141,6 +3187,43 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
           </div>
 
           <div className="lg:col-span-7 space-y-4">
+            
+            {/* 🟢 BULK ARCHIVE CONTROL BAR */}
+            {viewMode === 'active' && canUploadHR && (
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-3">
+                <button
+                    onClick={() => { setBulkSelectMode(!bulkSelectMode); setSelectedOfficers([]); }}
+                    className={`text-xs font-bold px-4 py-2 rounded-lg transition-colors border shadow-sm ${bulkSelectMode ? 'bg-slate-800 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'}`}
+                >
+                    {bulkSelectMode ? 'Cancel Bulk Select' : '☑️ Enable Bulk Archive'}
+                </button>
+                
+                {bulkSelectMode && selectedOfficers.length > 0 && (
+                    <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-left-4 bg-white p-1.5 rounded-lg shadow-sm border border-red-200">
+                        <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded">{selectedOfficers.length} Selected</span>
+                        <select
+                            value={bulkArchiveReason}
+                            onChange={(e) => setBulkArchiveReason(e.target.value)}
+                            className="text-xs border border-slate-300 rounded p-1.5 outline-none font-bold text-slate-700"
+                        >
+                            <option value="TRANSFERRED">Transferred</option>
+                            <option value="DEATH">Death</option>
+                            <option value="DISMISSAL">Dismissal</option>
+                            <option value="DESERTION">Desertion</option>
+                            <option value="RETIREMENT">Retirement</option>
+                        </select>
+                        <button
+                            onClick={handleBulkArchive}
+                            disabled={isBulkArchiving}
+                            className="text-xs font-bold bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded transition-colors shadow-sm disabled:opacity-50"
+                        >
+                            {isBulkArchiving ? 'Archiving...' : 'Execute Bulk Archive'}
+                        </button>
+                    </div>
+                )}
+              </div>
+            )}
+
             <div className="flex flex-col sm:flex-row gap-3">
               <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
                 {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
@@ -3195,11 +3278,25 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                   </table>
               </div>
             ) : (
-<ExpandableTableCard title={viewMode === 'active' ? "Active Nominal Roll (Full Screen Mode)" : "Archived Personnel Ledger"} onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+              <ExpandableTableCard title={viewMode === 'active' ? "Active Nominal Roll (Full Screen Mode)" : "Archived Personnel Ledger"} onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
                 <div className="overflow-x-auto w-full">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0 z-10">
                       <tr>
+                        {/* 🟢 BULK SELECT CHECKBOX HEADER */}
+                        {bulkSelectMode && viewMode === 'active' && (
+                          <th className="px-3 py-3 text-center text-xs font-bold text-gray-500 uppercase whitespace-nowrap">
+                             <input 
+                                type="checkbox" 
+                                checked={selectedOfficers.length === filteredRolls.length && filteredRolls.length > 0}
+                                onChange={(e) => {
+                                   if (e.target.checked) setSelectedOfficers(filteredRolls.map(n => n.f_num || n.fnum));
+                                   else setSelectedOfficers([]);
+                                }}
+                                className="w-4 h-4 cursor-pointer accent-red-600"
+                             />
+                          </th>
+                        )}
                         <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">S/No</th>
                         <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">F/NO</th>
                         <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Rank</th>
@@ -3238,9 +3335,35 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                       {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).map((n, index) => (
                         <tr 
                           key={n.sn || n.id || n.f_num || n.fnum} 
-                          className={`${viewMode === 'archive' ? 'bg-slate-50 opacity-80' : 'hover:bg-blue-50'} transition-colors cursor-pointer`} 
-                          onClick={() => setSelectedOfficer(n)}
+                          className={`${viewMode === 'archive' ? 'bg-slate-50 opacity-80' : bulkSelectMode && selectedOfficers.includes(n.f_num || n.fnum) ? 'bg-red-50' : 'hover:bg-blue-50'} transition-colors cursor-pointer`} 
+                          onClick={() => {
+                             if (bulkSelectMode && viewMode === 'active') {
+                                const target = n.f_num || n.fnum;
+                                if (selectedOfficers.includes(target)) {
+                                   setSelectedOfficers(prev => prev.filter(id => id !== target));
+                                } else {
+                                   setSelectedOfficers(prev => [...prev, target]);
+                                }
+                             } else {
+                                setSelectedOfficer(n);
+                             }
+                          }}
                         >
+                          {/* 🟢 BULK SELECT CHECKBOX ROW */}
+                          {bulkSelectMode && viewMode === 'active' && (
+                             <td className="px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                                <input 
+                                   type="checkbox" 
+                                   checked={selectedOfficers.includes(n.f_num || n.fnum)}
+                                   onChange={(e) => {
+                                      const target = n.f_num || n.fnum;
+                                      if (e.target.checked) setSelectedOfficers(prev => [...prev, target]);
+                                      else setSelectedOfficers(prev => prev.filter(id => id !== target));
+                                   }}
+                                   className="w-4 h-4 cursor-pointer accent-red-600"
+                                />
+                             </td>
+                          )}
                           <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-gray-900">{index + 1}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800">{n.f_num || n.fnum}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs font-bold">{n.rank}</td>
@@ -3276,27 +3399,26 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                         </tr>
                       ))}
                       {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).length === 0 && (
-                        <tr><td colSpan={viewMode === 'archive' ? "28" : "26"} className="text-center py-6 text-gray-500 font-medium">No personnel records found in this view.</td></tr>
+                        <tr><td colSpan={viewMode === 'archive' ? "28" : (bulkSelectMode ? "27" : "26")} className="text-center py-6 text-gray-500 font-medium">No personnel records found in this view.</td></tr>
                       )}
                     </tbody>
                   </table>
                 </div>
               </ExpandableTableCard>
-                )}
-              </div>
-            </>
+            )}
           </div>
+        </>
+      </div>
 
-          {selectedOfficer && (
-            <OfficerDossierModal 
-              officer={selectedOfficer} 
-              onClose={() => setSelectedOfficer(null)} 
-            />
-          )}
-
-        </div>
-      );
-    };
+      {selectedOfficer && (
+        <OfficerDossierModal 
+          officer={selectedOfficer} 
+          onClose={() => setSelectedOfficer(null)} 
+        />
+      )}
+    </div>
+  );
+};
 
 const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -5427,27 +5549,49 @@ if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }
     } catch (err) { console.error("Failed to revoke user:", err); }
   };
 
-  // 🟢 4. MAIN APPLICATION RETURN
+// 🟢 4. MAIN APPLICATION RETURN
   return (
     <>
       <DashboardLayout 
-        currentUser={currentUser} currentPage={currentPage} setCurrentPage={handlePageChange} 
-        onLogout={() => { localStorage.removeItem('kmp_authToken'); localStorage.removeItem('kmp_currentUser'); localStorage.removeItem('kmp_currentPage'); window.location.reload(); }}
-        onUpdateUserRole={handleUpdateUserRole} onRevokeUser={handleRevokeUser} users={users} Admin_Communication={adminCommsData}
-        onViewConsolidated={handleViewConsolidated} onViewHRReport={handleViewHRReport} onGenerateHRReport={handleGenerateHRReport}
+        currentUser={currentUser} 
+        currentPage={currentPage} 
+        setCurrentPage={handlePageChange} 
+        onLogout={() => { 
+          localStorage.removeItem('kmp_authToken'); 
+          localStorage.removeItem('kmp_currentUser'); 
+          localStorage.removeItem('kmp_currentPage'); 
+          window.location.reload(); 
+        }}
+        onUpdateUserRole={handleUpdateUserRole} 
+        onRevokeUser={handleRevokeUser} 
+        users={users} 
+        Admin_Communication={adminCommsData}
+        onViewConsolidated={handleViewConsolidated} 
+        onViewHRReport={handleViewHRReport} 
+        onGenerateHRReport={handleGenerateHRReport}
       >
+        {isViewingConsolidated && (
+          <ConsolidatedLedger 
+            data={consolidatedData} 
+            reports={reports} 
+            stats={stats} 
+            stories={stories} 
+            onClose={() => setIsViewingConsolidated(false)} 
+          />
+        )}
         
-        {/* 🟢 SUPER ADMIN COMMAND OVERRIDE BAR 🟢 */}
-
-        {/* 🟢 END OF COMMAND OVERRIDE BAR 🟢 */}
-
-        {isViewingConsolidated && <ConsolidatedLedger data={consolidatedData} reports={reports} stats={stats} stories={stories} onClose={() => setIsViewingConsolidated(false)} />}
-        {isViewingHR && hrLedgerData && <HrEstablishmentsLedger data={hrLedgerData} onClose={() => setIsViewingHR(false)} currentUser={currentUser} onUploadSuccess={() => window.location.reload()} />}
+        {isViewingHR && hrLedgerData && (
+          <HrEstablishmentsLedger 
+            data={hrLedgerData} 
+            onClose={() => setIsViewingHR(false)} 
+            currentUser={currentUser} 
+            onUploadSuccess={() => window.location.reload()} 
+          />
+        )}
         
         <div className={(isViewingConsolidated || isViewingHR) ? 'hidden' : 'block w-full h-full'}>
           {renderPage()}
         </div>
-        
       </DashboardLayout>
 
       <WorkspaceSecurityCurtain />

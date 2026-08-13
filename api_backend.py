@@ -1477,11 +1477,20 @@ async def bulk_upload_nominal_roll(
                     
                     existing_record.sex = inferred_sex
                     existing_record.last_updated_by = f"{current_user.name} ({current_user.fnum})"
+                    
+                    # 🟢 Ensure SN matches ID on updates too, just in case!
+                    existing_record.sn = existing_record.id 
+                    
                     records_updated += 1
                 else:
                     new_record = models.NominalRoll(**clean_row)
                     new_record.last_updated_by = f"{current_user.name} ({current_user.fnum})"
                     db.add(new_record)
+                    
+                    # 🟢 THE FIX: Flush to generate the 'id', then instantly copy it to 'sn'
+                    db.flush() 
+                    new_record.sn = new_record.id 
+                    
                     records_added += 1
 
                 db.commit() 
@@ -2681,8 +2690,7 @@ def download_archive_file(
         # 3. Open the document using python-docx
         word_doc = Document(file_stream)
 
-        # 4. Generate the Forensic Receipt Stamp
-        # 🟢 CALCULATE EAT (UTC + 3 HOURS)
+        # 4. Generate the Forensic Receipt Stamp (Single line version)
         eat_time = datetime.utcnow() + timedelta(hours=3)
         timestamp_eat = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
         
@@ -2695,6 +2703,7 @@ def download_archive_file(
             f"CLEARANCE   : {current_user.role} | STATION: {current_user.station}\n"
             f"TIMESTAMP   : {timestamp_eat}\n"
             "========================================================\n"
+            "KAMPALA METROPOLITAN POLICE HEADQUARTERS\n"
         )
 
         # 5. Insert the stamp at the very top of the document

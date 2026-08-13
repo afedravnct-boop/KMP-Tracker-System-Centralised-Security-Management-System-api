@@ -629,6 +629,16 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                           { key: 'export_data', color: 'red', bg: 'bg-red-50/20' },
                           { key: 'can_view_analytics', color: 'emerald', bg: 'bg-emerald-50/20' }
                         ].map((col, idx) => {
+                          const allowedRoles = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'RPC', 'DEPUTY COMMANDER', 'KMP COMMANDER'];
+
+const userRoleClean = (currentUser?.role || '').toUpperCase();
+const userPosClean = (currentUser?.position || '').toUpperCase();
+
+const isAuthorizedCommander = 
+  allowedRoles.includes(userRoleClean) || 
+  allowedRoles.some(role => userPosClean.includes(role));
+
+const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
                           const isLocked = !isSuperAdmin && p.super_admin_locks?.[col.key];
                           const isDisabled = isSuperAdmin || currentUser?.role === 'SYSTEM_ADMIN' || isLocked || isRevoked;
 
