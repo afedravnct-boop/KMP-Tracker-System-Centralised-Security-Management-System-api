@@ -3282,6 +3282,13 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                   </table>
                 </div>
               </ExpandableTableCard>
+            )}
+          </div>
+         </>
+        </div>
+       </div>
+     );
+   };
 
 
 
@@ -4945,33 +4952,31 @@ const IdleWarningModal = () => {
 // --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN & SESSION TIMEOUT COMPONENT ---
 // ====================================================================
 const WorkspaceSecurityCurtain = () => {
-  const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
-  const [isReadingMode, setIsReadingMode] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isWorkspaceIdle, setIsWorkspaceIdle] = React.useState(false);
+  const [isReadingMode, setIsReadingMode] = React.useState(false);
+  const [isExpanded, setIsExpanded] = React.useState(false);
   
   // Session Timeout States
-  const [showIdleWarning, setShowIdleWarning] = useState(false);
-  const [idleCountdown, setIdleCountdown] = useState(60);
-  const [isTimedOut, setIsTimedOut] = useState(false);
+  const [showIdleWarning, setShowIdleWarning] = React.useState(false);
+  const [idleCountdown, setIdleCountdown] = React.useState(60);
+  const [isTimedOut, setIsTimedOut] = React.useState(false);
 
-  const idleTimerRef = useRef(null);
-  const sessionTimerRef = useRef(null);
-  const countdownTimerRef = useRef(null);
+  const idleTimerRef = React.useRef(null);
+  const sessionTimerRef = React.useRef(null);
+  const countdownTimerRef = React.useRef(null);
 
-  // 🟢 1. ROBUST USER ACTIVITY DETECTOR (Resets on typing, mouse movement, clicks, scrolling)
-  useEffect(() => {
-    const IDLE_TIMEOUT_MS = 60000;          // 1 Minute of standard inactivity for the visual curtain
-    const SESSION_TIMEOUT_MS = 29 * 60 * 1000; // 29 Minutes before session expiry warning popup
+  // 🟢 1. ROBUST USER ACTIVITY DETECTOR
+  React.useEffect(() => {
+    const IDLE_TIMEOUT_MS = 60000;          
+    const SESSION_TIMEOUT_MS = 29 * 60 * 1000; 
 
     const handleUserActivity = () => {
       if (isTimedOut) return;
       
-      // Clear visual idle curtain if user moves or types
       if (!showIdleWarning) {
         setIsWorkspaceIdle(false);
       }
 
-      // Reset standard 1-minute idle curtain timer
       clearTimeout(idleTimerRef.current);
       idleTimerRef.current = setTimeout(() => {
         if (!isReadingMode && !showIdleWarning && !isTimedOut) {
@@ -4979,7 +4984,6 @@ const WorkspaceSecurityCurtain = () => {
         }
       }, IDLE_TIMEOUT_MS);
 
-      // Reset the 29-minute session timeout clock whenever the user actively types or clicks
       if (!showIdleWarning) {
         clearTimeout(sessionTimerRef.current);
         sessionTimerRef.current = setTimeout(() => {
@@ -5004,11 +5008,8 @@ const WorkspaceSecurityCurtain = () => {
       }
     };
 
-    // Initialize timers on load
     handleUserActivity();
 
-    // 🟢 CRITICAL: Listen to 'input' and 'keyup' explicitly during capture phase (true) 
-    // so typing inside rich-text fields or form inputs always registers your activity.
     const events = ['mousemove', 'mousedown', 'keydown', 'keyup', 'input', 'scroll', 'touchstart', 'click'];
     events.forEach(event => window.addEventListener(event, handleUserActivity, true));
 
@@ -5020,7 +5021,6 @@ const WorkspaceSecurityCurtain = () => {
     };
   }, [isReadingMode, showIdleWarning, isTimedOut]);
 
-  // If active and working normally, display the small toggle pill at the bottom right
   if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
     return (
       <div className="fixed bottom-6 right-6 z-[99990]">
@@ -5064,7 +5064,6 @@ const WorkspaceSecurityCurtain = () => {
         isolation: 'isolate'
       }}
     >
-      {/* Background Curtain Layer with 3D Globe */}
       <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md transition-opacity duration-700 ease-in-out flex flex-col items-center justify-center">
         <div className="absolute inset-0 opacity-15 pointer-events-none flex flex-col justify-between z-0">
           <div className="h-1/3 w-full bg-black"></div>
@@ -5076,7 +5075,6 @@ const WorkspaceSecurityCurtain = () => {
         <div className="idle-center-container relative z-20 flex items-center justify-center mx-auto my-auto" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
           <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
           
-          {/* 3D Spherical Equatorial Text Ring */}
           <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
             {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
               <span 
@@ -5091,13 +5089,12 @@ const WorkspaceSecurityCurtain = () => {
         </div>
       </div>
 
-      {/* Foreground Interactive Modal Box */}
       {showIdleWarning && (
         <div className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto">
           {isTimedOut ? (
             <div>
               <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
-                <AlertTriangle className="w-8 h-8 text-red-600" />
+                <span className="text-2xl">⚠️</span>
               </div>
               <h4 className="text-xl font-extrabold text-slate-900 mb-2">Session Expired Due to Inactivity</h4>
               <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
@@ -5122,7 +5119,7 @@ const WorkspaceSecurityCurtain = () => {
           ) : (
             <div>
               <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
-                <AlertTriangle className="w-8 h-8 text-amber-600" />
+                <span className="text-2xl">⚠️</span>
               </div>
               <h4 className="text-xl font-extrabold text-slate-900 mb-2">Session Timeout Warning</h4>
               <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
