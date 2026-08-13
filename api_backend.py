@@ -408,6 +408,39 @@ def build_and_send_weekly_briefing():
     except Exception as e:
         print(f"Compliance scheduler failed to send email: {e}")
 
+def auto_infer_geography(station_name, current_region, current_district):
+    """
+    Automatically infers Region and District (Division in KMP) based on the Station.
+    """
+    if not station_name:
+        return current_region, current_district
+    
+    stat_upper = str(station_name).strip().upper()
+    inferred_region = current_region
+    inferred_district = current_district
+
+    # Map your KMP Regional Hierarchy
+    regional_hierarchy = {
+        "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+        "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+        "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+        "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
+        "POLICE HEADQUARTERS": ["NAGURU"]
+    }
+
+    # 1. Infer Region if missing or generic
+    if not inferred_region or inferred_region in ["", "NONE", "NAN", "ALL REGIONS"]:
+        for reg, stations in regional_hierarchy.items():
+            if stat_upper in stations:
+                inferred_region = reg
+                break
+
+    # 2. In KMP, use the Station / Division mapping for District if empty
+    if not inferred_district or inferred_district in ["", "NONE", "NAN"]:
+        inferred_district = stat_upper
+
+    return inferred_region, inferred_district
+
 # ==========================================
 # 5. USER AUTHENTICATION & PROFILES
 # ==========================================
