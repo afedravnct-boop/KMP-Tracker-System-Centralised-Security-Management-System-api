@@ -4938,61 +4938,72 @@ const WorkspaceSecurityCurtain = () => {
   const [isTimedOut, setIsTimedOut] = useState(false);
 
   const idleTimerRef = useRef(null);
+  const sessionTimerRef = useRef(null);
   const countdownTimerRef = useRef(null);
 
-  // 🟢 1. STANDARD IDLE GUARD CURTAIN TIMER (1 Minute of inactivity)
+  // 🟢 1. ROBUST USER ACTIVITY DETECTOR (Resets on typing, mouse movement, clicks, scrolling)
   useEffect(() => {
-    const IDLE_TIMEOUT_MS = 60000; // 1 Minute
+    const IDLE_TIMEOUT_MS = 60000;          // 1 Minute of standard inactivity for the visual curtain
+    const SESSION_TIMEOUT_MS = 29 * 60 * 1000; // 29 Minutes before session expiry warning popup
 
     const handleUserActivity = () => {
-      if (isReadingMode || showIdleWarning || isTimedOut) return;
-      setIsWorkspaceIdle(false);
+      if (isTimedOut) return;
+      
+      // Clear visual idle curtain if user moves or types
+      if (!showIdleWarning) {
+        setIsWorkspaceIdle(false);
+      }
+
+      // Reset standard 1-minute idle curtain timer
       clearTimeout(idleTimerRef.current);
       idleTimerRef.current = setTimeout(() => {
-        if (!isReadingMode && !showIdleWarning) setIsWorkspaceIdle(true);
+        if (!isReadingMode && !showIdleWarning && !isTimedOut) {
+          setIsWorkspaceIdle(true);
+        }
       }, IDLE_TIMEOUT_MS);
+
+      // Reset the 29-minute session timeout clock whenever the user actively types or clicks
+      if (!showIdleWarning) {
+        clearTimeout(sessionTimerRef.current);
+        sessionTimerRef.current = setTimeout(() => {
+          if (!isReadingMode && !isTimedOut) {
+            setShowIdleWarning(true);
+            setIsWorkspaceIdle(true);
+            setIdleCountdown(60);
+
+            if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+            countdownTimerRef.current = setInterval(() => {
+              setIdleCountdown((prev) => {
+                if (prev <= 1) {
+                  clearInterval(countdownTimerRef.current);
+                  setIsTimedOut(true);
+                  return 0;
+                }
+                return prev - 1;
+              });
+            }, 1000);
+          }
+        }, SESSION_TIMEOUT_MS);
+      }
     };
 
+    // Initialize timers on load
     handleUserActivity();
 
-    const events = ['mousemove', 'keydown', 'keyup', 'input', 'mousedown', 'scroll', 'touchstart', 'click'];
+    // 🟢 CRITICAL: Listen to 'input' and 'keyup' explicitly during capture phase (true) 
+    // so typing inside rich-text fields or form inputs always registers your activity.
+    const events = ['mousemove', 'mousedown', 'keydown', 'keyup', 'input', 'scroll', 'touchstart', 'click'];
     events.forEach(event => window.addEventListener(event, handleUserActivity, true));
 
     return () => {
       clearTimeout(idleTimerRef.current);
+      clearTimeout(sessionTimerRef.current);
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
       events.forEach(event => window.removeEventListener(event, handleUserActivity, true));
     };
   }, [isReadingMode, showIdleWarning, isTimedOut]);
 
-  // 🟢 2. SESSION TIMEOUT WARNING TIMER (4 Minutes of total inactivity before popup)
-  useEffect(() => {
-    const SESSION_TIMEOUT_MS = 60000 * 29; 
-
-    const sessionTimer = setTimeout(() => {
-      if (!isReadingMode && !isTimedOut) {
-        setShowIdleWarning(true);
-        setIsWorkspaceIdle(true); 
-        setIdleCountdown(60);
-
-        countdownTimerRef.current = setInterval(() => {
-          setIdleCountdown((prev) => {
-            if (prev <= 1) {
-              clearInterval(countdownTimerRef.current);
-              setIsTimedOut(true);
-              return 0;
-            }
-            return prev - 1;
-          });
-        }, 1000);
-      }
-    }, SESSION_TIMEOUT_MS);
-
-    return () => {
-      clearTimeout(sessionTimer);
-      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-    };
-  }, [isReadingMode, isTimedOut]);
-
+  // If active and working normally, display the small toggle pill at the bottom right
   if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
     return (
       <div className="fixed bottom-6 right-6 z-[99990]">

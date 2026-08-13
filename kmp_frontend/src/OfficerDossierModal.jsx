@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 const OfficerDossierModal = ({ officer, onClose }) => {
   if (!officer) return null;
 
-  // 🟢 BULLETPROOF MAPPING: Catches Pydantic schema (camelCase), DB (snake_case), and flat text
+  // 🟢 BULLETPROOF MAPPING: Catches all DB variations, schema aliases, and custom Excel keys
   const safeData = {
     sn: officer.sn || officer.id,
     fnum: officer.fnum || officer.f_num,
@@ -15,32 +15,36 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     sex: officer.sex,
     dob: officer.dob,
     tribe: officer.tribe,
-    // Catches Pydantic's homeDist, DB's home_dist, and raw homedist
-    homedist: officer.homeDist || officer.home_dist || officer.homedist || '-',
-    contact: officer.contact || officer.phone || '-',
-    // Catches Pydantic's educLevel, DB's educ_level, and raw educlevel
-    educlevel: officer.educLevel || officer.educ_level || officer.educlevel || '-',
+    // Catches home_dist, homedist, homeDist, district
+    homedist: officer.home_dist || officer.homedist || officer.homeDist || officer.district || '-',
+    contact: officer.contact || officer.phone || officer.telephone || '-',
+    // Catches educ_level, educlevel, educLevel, education
+    educlevel: officer.educ_level || officer.educlevel || officer.educLevel || officer.education || '-',
     
     rank: officer.rank,
     position: officer.position,
-    dir: officer.dir || '-',
+    dir: officer.dir || officer.directorate || '-',
     
     region: officer.region || 'KMP HEADQUARTERS',
-    district: officer.district || '-',
-    station: officer.station || 'HEADQUARTERS',
-    section: officer.section || '-',
-    doe: officer.doe || '-',
-    // Catches Pydantic's doPost, DB's do_post, and raw dopost
-    dopost: officer.doPost || officer.do_post || officer.dopost || '-',
-    // Catches Pydantic's doPro, DB's do_pro, and raw dopro
-    dopro: officer.doPro || officer.do_pro || officer.dopro || '-',
-    // Catches Pydantic's bankBranch, DB's bank_branch, and raw bankbranch
-    bankbranch: officer.bankBranch || officer.bank_branch || officer.bankbranch || '-',
-    // Catches Pydantic's accNo, DB's acc_no, and raw accno
-    accno: officer.accNo || officer.acc_no || officer.accno || '-',
+    district: officer.district || officer.home_dist || '-',
+    station: officer.station || officer.duty_station || 'HEADQUARTERS',
+    section: officer.section || officer.department || '-',
+    doe: officer.doe || officer.date_of_enlistment || '-',
+    
+    // 🟢 Catches Excel 'dop', DB 'do_post', schema 'doPost', and legacy 'dopost'
+    dopost: officer.dop || officer.do_post || officer.doPost || officer.dopost || '-',
+    
+    // 🟢 Catches DB 'do_pro', schema 'doPro', and legacy 'dopro'
+    dopro: officer.do_pro || officer.doPro || officer.dopro || '-',
+    
+    // 🟢 Catches DB 'bank_branch', schema 'bankBranch', and legacy 'bankbranch'
+    bankbranch: officer.bank_branch || officer.bankBranch || officer.bankbranch || officer.bank_name || '-',
+    
+    // 🟢 Catches DB 'acc_no', schema 'accNo', and legacy 'accno'
+    accno: officer.acc_no || officer.accNo || officer.accno || officer.account_no || '-',
     
     status: officer.status || "ACTIVE",
-    last_updated_by: officer.last_updated_by || "-"
+    last_updated_by: officer.last_updated_by || officer.logged_by || "-"
   };
 
   // COLUMN 1: Personal Details, Identifiers & Contact
@@ -84,11 +88,11 @@ const OfficerDossierModal = ({ officer, onClose }) => {
         <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-extrabold text-white text-base shadow-inner border border-blue-400">
-              {safeData.name ? safeData.name.charAt(0) : 'O'}
+              {safeData.name !== '-' ? safeData.name.charAt(0) : 'O'}
             </div>
             <div>
               <h3 className="font-extrabold text-sm tracking-wide uppercase">{safeData.rank} {safeData.name}</h3>
-              <p className="text-[11px] text-blue-300 font-mono">F/NO: {safeData.fnum} | IPPS: {safeData.ipps || 'N/A'}</p>
+              <p className="text-[11px] text-blue-300 font-mono">F/NO: {safeData.fnum} | IPPS: {safeData.ipps !== '-' ? safeData.ipps : 'N/A'}</p>
             </div>
           </div>
           <button 
