@@ -3282,18 +3282,23 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                   </table>
                 </div>
               </ExpandableTableCard>
-            )}
+                )}
+              </div>
+            </>
           </div>
-         </>
+
+          {selectedOfficer && (
+            <OfficerDossierModal 
+              officer={selectedOfficer} 
+              onClose={() => setSelectedOfficer(null)} 
+            />
+          )}
+
         </div>
-       </div>
-     );
-   };
+      );
+    };
 
-
-
-// 🟢 AdminProfile stays declared in App.jsx
-const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => { 
+const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isRequestMode, setIsRequestMode] = useState(false);
   const [notification, setNotification] = useState(null);
