@@ -4,11 +4,10 @@ import { X } from 'lucide-react';
 const OfficerDossierModal = ({ officer, onClose }) => {
   if (!officer) return null;
 
-  // 🟢 1:1 NEON DB COLUMN MAPPING
-  // Safely extracts data using the exact column names from your database.
+  // 🟢 BULLETPROOF MAPPING: Catches Pydantic schema (camelCase), DB (snake_case), and flat text
   const safeData = {
     sn: officer.sn || officer.id,
-    f_num: officer.f_num || officer.fnum,
+    fnum: officer.fnum || officer.f_num,
     ipps: officer.ipps,
     nin: officer.nin,
     tin: officer.tin,
@@ -16,9 +15,11 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     sex: officer.sex,
     dob: officer.dob,
     tribe: officer.tribe,
-    home_dist: officer.home_dist || officer.homedist || '-',
+    // Catches Pydantic's homeDist, DB's home_dist, and raw homedist
+    homedist: officer.homeDist || officer.home_dist || officer.homedist || '-',
     contact: officer.contact || officer.phone || '-',
-    educ_level: officer.educ_level || officer.educlevel || '-',
+    // Catches Pydantic's educLevel, DB's educ_level, and raw educlevel
+    educlevel: officer.educLevel || officer.educ_level || officer.educlevel || '-',
     
     rank: officer.rank,
     position: officer.position,
@@ -29,10 +30,15 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     station: officer.station || 'HEADQUARTERS',
     section: officer.section || '-',
     doe: officer.doe || '-',
-    do_post: officer.do_post || officer.dopost || '-',
-    do_pro: officer.do_pro || officer.dopro || '-',
-    bank_branch: officer.bank_branch || officer.bankbranch || '-',
-    acc_no: officer.acc_no || officer.accno || '-',
+    // Catches Pydantic's doPost, DB's do_post, and raw dopost
+    dopost: officer.doPost || officer.do_post || officer.dopost || '-',
+    // Catches Pydantic's doPro, DB's do_pro, and raw dopro
+    dopro: officer.doPro || officer.do_pro || officer.dopro || '-',
+    // Catches Pydantic's bankBranch, DB's bank_branch, and raw bankbranch
+    bankbranch: officer.bankBranch || officer.bank_branch || officer.bankbranch || '-',
+    // Catches Pydantic's accNo, DB's acc_no, and raw accno
+    accno: officer.accNo || officer.acc_no || officer.accno || '-',
+    
     status: officer.status || "ACTIVE",
     last_updated_by: officer.last_updated_by || "-"
   };
@@ -40,7 +46,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
   // COLUMN 1: Personal Details, Identifiers & Contact
   const leftAttributes = [
     { label: "System S/N", value: safeData.sn },
-    { label: "Force Number (F/NO)", value: safeData.f_num },
+    { label: "Force Number (F/NO)", value: safeData.fnum },
     { label: "IPPS Number", value: safeData.ipps },
     { label: "National ID Number (NIN)", value: safeData.nin },
     { label: "Tax Identification (TIN)", value: safeData.tin },
@@ -48,9 +54,9 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     { label: "Sex", value: safeData.sex },
     { label: "Date of Birth (D.O.B)", value: safeData.dob },
     { label: "Tribe / Nationality", value: safeData.tribe },
-    { label: "Home District", value: safeData.home_dist },
+    { label: "Home District", value: safeData.homedist },
     { label: "Contact Telephone", value: safeData.contact },
-    { label: "Educational Level", value: safeData.educ_level },
+    { label: "Educational Level", value: safeData.educlevel },
   ];
 
   // COLUMN 2: Service Record, Deployment & Financials
@@ -63,10 +69,10 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     { label: "Duty Station", value: safeData.station },
     { label: "Division / Section", value: safeData.section },
     { label: "Date of Enlistment (D.O.E)", value: safeData.doe },
-    { label: "Date of Posting (D.O.P)", value: safeData.do_post },
-    { label: "Date of Promotion (D.O. PRO)", value: safeData.do_pro },
-    { label: "Bank & Branch", value: safeData.bank_branch },
-    { label: "Bank Account Number", value: safeData.acc_no },
+    { label: "Date of Posting (D.O.P)", value: safeData.dopost },
+    { label: "Date of Promotion (D.O. PRO)", value: safeData.dopro },
+    { label: "Bank & Branch", value: safeData.bankbranch },
+    { label: "Bank Account Number", value: safeData.accno },
     { label: "Deployment Status", value: safeData.status },
   ];
 
@@ -82,7 +88,7 @@ const OfficerDossierModal = ({ officer, onClose }) => {
             </div>
             <div>
               <h3 className="font-extrabold text-sm tracking-wide uppercase">{safeData.rank} {safeData.name}</h3>
-              <p className="text-[11px] text-blue-300 font-mono">F/NO: {safeData.f_num} | IPPS: {safeData.ipps || 'N/A'}</p>
+              <p className="text-[11px] text-blue-300 font-mono">F/NO: {safeData.fnum} | IPPS: {safeData.ipps || 'N/A'}</p>
             </div>
           </div>
           <button 
