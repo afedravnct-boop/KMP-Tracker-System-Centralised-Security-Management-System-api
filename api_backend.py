@@ -1496,7 +1496,7 @@ async def bulk_upload_nominal_roll(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Bulk upload failed: {str(e)}")
 
-@app.put("/api/v1/nominal-roll/{fnum}/archive")
+@app.put("/api/v1/nominal-roll/{fnum:path}/archive")
 def archive_personnel(
     fnum: str, 
     request_data: schemas.ArchiveRequest, 
