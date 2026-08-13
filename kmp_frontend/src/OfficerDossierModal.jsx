@@ -47,9 +47,9 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     { label: "Sex", value: safeData.sex },
     { label: "Date of Birth (D.O.B)", value: safeData.dob },
     { label: "Tribe / Nationality", value: safeData.tribe },
-    { label: "Home District", value: safeData.homedist },
+    { label: "Home District", value: safeData.home_dist },
     { label: "Contact Telephone", value: safeData.contact },
-    { label: "Educational Level", value: safeData.educlevel },
+    { label: "Educational Level", value: safeData.educ_level },
   ];
 
   // COLUMN 2: Service Record, Deployment & Financials
@@ -61,11 +61,11 @@ const OfficerDossierModal = ({ officer, onClose }) => {
     { label: "Deployment District", value: safeData.district },
     { label: "Duty Station", value: safeData.station },
     { label: "Division / Section", value: safeData.section },
-    { label: "Date of Enlistment (D.O.E)", value: safeData.doe },
-    { label: "Date of Posting (D.O.P)", value: safeData.dopost },
-    { label: "Date of Promotion (D.O. PRO)", value: safeData.dopro },
-    { label: "Bank & Branch", value: safeData.bankbranch },
-    { label: "Bank Account Number", value: safeData.accno },
+    { label: "Date of Enlistment (DOE)", value: safeData.doe },
+    { label: "Date of Posting (DO_POST)", value: safeData.do_post },
+    { label: "Date of Promotion (DO_PRO)", value: safeData.do_pro },
+    { label: "Bank & Branch", value: safeData.bank_branch },
+    { label: "Bank Account Number", value: safeData.acc_no },
     { label: "Deployment Status", value: safeData.status },
   ];
 
