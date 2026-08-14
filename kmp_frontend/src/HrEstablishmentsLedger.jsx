@@ -5,7 +5,11 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
   
   // 🟢 1. ROBUST PARSING LOGIC FOR NOMINAL ROLL AGGREGATES
   const nominalAggregates = useMemo(() => {
-    const rawRoll = data?.nominal_roll || [];
+    // Safely grab the nominal roll array and filter out Archived personnel
+    const rawRoll = (data?.nominal_roll || []).filter(p => {
+        const statusStr = String(p.status || '').trim().toUpperCase();
+        return statusStr !== 'ARCHIVED' && p.is_archived !== true;
+    });
     
     const regions = [
       { key: 'GENERAL / HQ', match: ['HEADQUARTERS', 'HQ'] },
@@ -14,15 +18,15 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
       { key: 'KMP SOUTH', match: ['KMP SOUTH', 'SOUTH'] }
     ];
 
-    // Safely classify Officers vs NCOs
+    // Safely classify Officers vs NCOs based on standard UPF structure
     const isOfficer = (rankStr) => {
       if (!rankStr) return false;
-      let cleanRank = rankStr.trim().toUpperCase();
-      if (cleanRank.startsWith('D/')) cleanRank = cleanRank.substring(2); // Remove Detective prefix
+      let cleanRank = String(rankStr).trim().toUpperCase();
+      if (cleanRank.startsWith('D/')) cleanRank = cleanRank.substring(2);
       return ['AIP', 'IP', 'ASP', 'SP', 'SSP', 'ACP', 'CP', 'SCP', 'AIGP', 'DIGP', 'IGP'].includes(cleanRank);
     };
 
-    // Deep-parse the demographics safely
+    // Deep-parse the demographics safely, preventing null crashes
     const calculateStats = (personnelList) => {
       const stats = {
         total: personnelList.length,
@@ -32,33 +36,53 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
       };
 
       personnelList.forEach(p => {
-        // 1. Sex Parsing - Checks explicit sex or infers from NIN
-        const sexStr = (p.sex || p.gender || '').toUpperCase();
-        const ninStr = (p.nin || '').toUpperCase();
-        if (sexStr.startsWith('M') || ninStr.startsWith('CM')) stats.sex.M++;
-        else if (sexStr.startsWith('F') || ninStr.startsWith('CF')) stats.sex.F++;
+        // 1. Sex Parsing - Checks explicit sex or infers from NIN (CM/CF)
+        const sexStr = String(p.sex || p.gender || '').trim().toUpperCase();
+        const ninStr = String(p.nin || '').trim().toUpperCase();
+        
+        if (sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM')) {
+            stats.sex.M++;
+        } else if (sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF')) {
+            stats.sex.F++;
+        } else {
+            // Default to Male if completely blank in the DB
+            stats.sex.M++; 
+        }
 
-        // 2. Age Parsing - Calculates strictly from DOB
-        const dob = p.dob || p.date_of_birth || p.dateofbirth;
-        if (dob) {
-          const birthYear = new Date(dob).getFullYear();
-          if (!isNaN(birthYear) && birthYear > 1900) {
-            const age = new Date().getFullYear() - birthYear;
-            if (age >= 18 && age < 30) stats.age.twenties++;
-            else if (age >= 30 && age < 40) stats.age.thirties++;
-            else if (age >= 40 && age < 50) stats.age.forties++;
-            else if (age >= 50 && age < 100) stats.age.fifties++;
-            else stats.age.unknown++;
-          } else { stats.age.unknown++; }
-        } else { stats.age.unknown++; }
+        // 2. Age Parsing - Calculates strictly from DOB string
+        const dobStr = p.dob || p.date_of_birth || p.dateofbirth;
+        let ageCalculated = false;
+        
+        if (dobStr) {
+          const birthYear = new Date(dobStr).getFullYear();
+          const currentYear = new Date().getFullYear();
+          if (!isNaN(birthYear) && birthYear > 1900 && birthYear <= currentYear) {
+            const age = currentYear - birthYear;
+            if (age >= 18 && age <= 29) { stats.age.twenties++; ageCalculated = true; }
+            else if (age >= 30 && age <= 39) { stats.age.thirties++; ageCalculated = true; }
+            else if (age >= 40 && age <= 49) { stats.age.forties++; ageCalculated = true; }
+            else if (age >= 50) { stats.age.fifties++; ageCalculated = true; }
+          }
+        }
+        
+        if (!ageCalculated) {
+            stats.age.unknown++;
+        }
 
-        // 3. Education Parsing - Fallback Keyword Tracking
-        const eduStr = (p.educ_level || p.educlevel || p.education || '').toUpperCase();
-        if (eduStr.includes('DEGREE') || eduStr.includes('BACHELOR') || eduStr.includes('B.A') || eduStr.includes('B.SC') || eduStr.includes('BSC')) stats.edu.degree++;
-        else if (eduStr.includes('DIP') || eduStr.includes('ND')) stats.edu.diploma++;
-        else if (eduStr.includes('CERT')) stats.edu.cert++;
-        else if (eduStr.includes('UACE') || edu.includes('UCE') || eduStr.includes('LEVEL') || eduStr.includes('S.4') || eduStr.includes('S.6') || eduStr.includes('O-LEVEL') || eduStr.includes('A-LEVEL')) stats.edu.highschool++;
-        else stats.edu.others++;
+        // 3. Education Parsing - Keyword tracking on educ_level column
+        const eduStr = String(p.educ_level || p.educlevel || p.education || '').trim().toUpperCase();
+        
+        if (eduStr.includes('DEGREE') || eduStr.includes('BACHELOR') || eduStr.includes('B.A') || eduStr.includes('B.SC') || eduStr.includes('BSC') || eduStr.includes('MASTER') || eduStr.includes('PHD')) {
+            stats.edu.degree++;
+        } else if (eduStr.includes('DIP') || eduStr.includes('ND') || eduStr.includes('DIPLOMA')) {
+            stats.edu.diploma++;
+        } else if (eduStr.includes('CERT')) {
+            stats.edu.cert++;
+        } else if (eduStr.includes('UACE') || eduStr.includes('UCE') || eduStr.includes('LEVEL') || eduStr.includes('S.4') || eduStr.includes('S.6') || eduStr.includes('S4') || eduStr.includes('S6')) {
+            stats.edu.highschool++;
+        } else {
+            stats.edu.others++;
+        }
       });
 
       return stats;
@@ -66,7 +90,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
 
     return regions.map(reg => {
       const regionPersonnel = rawRoll.filter(p => {
-        const pReg = (p.region || '').toUpperCase();
+        const pReg = String(p.region || '').trim().toUpperCase();
         return reg.match.some(m => pReg.includes(m));
       });
 
@@ -122,8 +146,8 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
       <div className="flex justify-between"><span>Degree:</span> <strong className="text-slate-900">{stats.degree}</strong></div>
       <div className="flex justify-between"><span>Diploma:</span> <strong className="text-slate-900">{stats.diploma}</strong></div>
       <div className="flex justify-between"><span>Certificate:</span> <strong className="text-slate-900">{stats.cert}</strong></div>
-      <div className="flex justify-between border-t border-slate-200 pt-0.5 mt-0.5"><span>High School:</span> <strong className="text-slate-900">{stats.highschool}</strong></div>
-      <div className="flex justify-between"><span>Others/Unk:</span> <strong className="text-slate-900">{stats.others}</strong></div>
+      <div className="flex justify-between border-t border-slate-200 pt-0.5 mt-0.5"><span>High Sch:</span> <strong className="text-slate-900">{stats.highschool}</strong></div>
+      <div className="flex justify-between"><span>Others:</span> <strong className="text-slate-900">{stats.others}</strong></div>
     </div>
   );
 
