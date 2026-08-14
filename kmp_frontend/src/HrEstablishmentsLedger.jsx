@@ -18,12 +18,14 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
       { key: 'KMP SOUTH', match: ['KMP SOUTH', 'SOUTH'] }
     ];
 
-    // Safely classify Officers vs NCOs based on standard UPF structure
+    // 🟢 FIX 1: Flawless Officer vs NCO Classification (IGP down to AIP)
     const isOfficer = (rankStr) => {
       if (!rankStr) return false;
-      let cleanRank = String(rankStr).trim().toUpperCase();
-      if (cleanRank.startsWith('D/')) cleanRank = cleanRank.substring(2);
-      return ['AIP', 'IP', 'ASP', 'SP', 'SSP', 'ACP', 'CP', 'SCP', 'AIGP', 'DIGP', 'IGP'].includes(cleanRank);
+      // Strip periods and split by spaces/slashes to catch things like "D/AIP" or "A.I.P"
+      let cleanRank = String(rankStr).toUpperCase().replace(/\./g, '');
+      const words = cleanRank.split(/[\s/]+/); 
+      const officerKeywords = ['IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'ASP', 'IP', 'AIP', 'INSPECTOR', 'SUPERINTENDENT', 'COMMISSIONER'];
+      return words.some(word => officerKeywords.includes(word));
     };
 
     // Deep-parse the demographics safely, preventing null crashes
@@ -36,7 +38,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
       };
 
       personnelList.forEach(p => {
-        // 1. Sex Parsing - Checks explicit sex or infers from NIN (CM/CF)
+        // 🟢 FIX 2: Sex Parsing - Checks explicit sex or infers from NIN (CM/CF)
         const sexStr = String(p.sex || p.gender || '').trim().toUpperCase();
         const ninStr = String(p.nin || '').trim().toUpperCase();
         
@@ -45,16 +47,28 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
         } else if (sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF')) {
             stats.sex.F++;
         } else {
-            // Default to Male if completely blank in the DB
+            // Default to Male if completely blank to preserve headcount
             stats.sex.M++; 
         }
 
-        // 2. Age Parsing - Calculates strictly from DOB string
+        // 🟢 FIX 3: Age Parsing - Robust Date string extraction
         const dobStr = p.dob || p.date_of_birth || p.dateofbirth;
         let ageCalculated = false;
         
         if (dobStr) {
-          const birthYear = new Date(dobStr).getFullYear();
+          let birthYear;
+          const strVal = String(dobStr);
+          // Handle various DB date structures (YYYY-MM-DD or DD/MM/YYYY)
+          if (strVal.includes('-')) {
+             const parts = strVal.split('-');
+             birthYear = parts[0].length === 4 ? parseInt(parts[0]) : parseInt(parts[2]);
+          } else if (strVal.includes('/')) {
+             const parts = strVal.split('/');
+             birthYear = parts[2].length === 4 ? parseInt(parts[2]) : parseInt(parts[0]);
+          } else {
+             birthYear = new Date(strVal).getFullYear();
+          }
+
           const currentYear = new Date().getFullYear();
           if (!isNaN(birthYear) && birthYear > 1900 && birthYear <= currentYear) {
             const age = currentYear - birthYear;
@@ -69,16 +83,16 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
             stats.age.unknown++;
         }
 
-        // 3. Education Parsing - Keyword tracking on educ_level column
+        // 🟢 FIX 4: Education Parsing - Broad Keyword tracking
         const eduStr = String(p.educ_level || p.educlevel || p.education || '').trim().toUpperCase();
         
-        if (eduStr.includes('DEGREE') || eduStr.includes('BACHELOR') || eduStr.includes('B.A') || eduStr.includes('B.SC') || eduStr.includes('BSC') || eduStr.includes('MASTER') || eduStr.includes('PHD')) {
+        if (eduStr.includes('DEGREE') || eduStr.includes('BACHELOR') || eduStr.match(/\bB\.?A\b/) || eduStr.match(/\bB\.?SC\b/) || eduStr.includes('MASTER') || eduStr.includes('PHD')) {
             stats.edu.degree++;
         } else if (eduStr.includes('DIP') || eduStr.includes('ND') || eduStr.includes('DIPLOMA')) {
             stats.edu.diploma++;
         } else if (eduStr.includes('CERT')) {
             stats.edu.cert++;
-        } else if (eduStr.includes('UACE') || eduStr.includes('UCE') || eduStr.includes('LEVEL') || eduStr.includes('S.4') || eduStr.includes('S.6') || eduStr.includes('S4') || eduStr.includes('S6')) {
+        } else if (eduStr.includes('UACE') || eduStr.includes('UCE') || eduStr.includes('LEVEL') || eduStr.includes('S.4') || eduStr.includes('S.6') || eduStr.match(/\bS4\b/) || eduStr.match(/\bS6\b/)) {
             stats.edu.highschool++;
         } else {
             stats.edu.others++;
