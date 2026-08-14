@@ -23,13 +23,16 @@ const autoCapitalize = (text) => {
   return text.toUpperCase();
 };
 
-// Metric Card Component
-const MetricCard = ({ title, value, colorClass }) => (
-  <div className={`bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between ${title.includes('KMP Total') ? 'bg-slate-50 border-blue-200' : ''}`}>
-    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{title}</span>
-    <div className={`text-2xl font-black mt-2 ${colorClass}`}>{value}</div>
-  </div>
-);
+// 🟢 FIX: Visually separated the KMP Master Card from standard local metrics
+const MetricCard = ({ title, value, colorClass }) => {
+  const isKMPMaster = title === 'KMP Master Lock-up';
+  return (
+    <div className={`bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between transition-all ${isKMPMaster ? 'bg-amber-50/80 border-amber-300 ring-1 ring-amber-300 shadow-md scale-[1.02]' : ''}`}>
+      <span className={`text-[11px] font-bold uppercase tracking-wider ${isKMPMaster ? 'text-amber-800' : 'text-slate-400'}`}>{title}</span>
+      <div className={`text-2xl font-black mt-2 ${colorClass}`}>{value}</div>
+    </div>
+  );
+};
 
 // Expandable Table Card Component
 const ExpandableTableCard = ({ title, children, onToggle }) => {
@@ -262,7 +265,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       const regionStations = REGIONAL_HIERARCHY[filterRegion] || [];
       localJurisdictionTotal = regionStations.reduce((sum, stat) => sum + (stationCellPop[stat] || 0), 0);
     } else {
-      localJurisdictionTotal = kmpGeneralTotal;
+      localJurisdictionTotal = calculatedGlobalSum;
     }
 
     const totalCaseSuspects = filteredReports.reduce((sum, r) => {
@@ -271,7 +274,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     }, 0);
 
     return {
-      localLockup: (hasLockupUpdateToday || hqGrandTotalToday !== null || localJurisdictionTotal > 0)
+      localLockup: (hasLockupUpdateToday || localJurisdictionTotal > 0)
         ? localJurisdictionTotal 
         : <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending Today</span>,
         
@@ -776,11 +779,12 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           📋 {filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? 'Global Command Metrics' : filterStation === 'ALL STATIONS' ? 'Regional Command Metrics' : `${filterStation} Metrics`} ({dateFilter})
         </h4>
         
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 xl:grid-cols-8 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+          {/* 🟢 Card 1: Local Jurisdiction Lock-Up */}
           <MetricCard 
             title={
               filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' 
-                ? "KMP Total Lock-up" 
+                ? "Computed Sum (All)" 
                 : filterStation === 'ALL STATIONS' 
                   ? `${filterRegion} Lock-up` 
                   : `${filterStation} Lock-up`
@@ -789,14 +793,12 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
             colorClass="text-slate-800" 
           />
           
-          {/* 🟢 Render KMP Total right next to local lockup, ONLY if viewing a specific jurisdiction */}
-          {(filterRegion !== 'ALL REGIONS' || filterStation !== 'ALL STATIONS') && (
-            <MetricCard 
-              title="KMP Total Lock-up" 
-              value={metrics.kmpGeneralLockup} 
-              colorClass="text-amber-600" 
-            />
-          )}
+          {/* 🟢 Card 2: KMP Master Lock-Up (Permanently Visible) */}
+          <MetricCard 
+            title="KMP Master Lock-up" 
+            value={metrics.kmpGeneralLockup} 
+            colorClass="text-amber-600" 
+          />
 
           <MetricCard title="Total Cases" value={metrics.newCases} colorClass="text-blue-700" />
           <MetricCard title="Suspects (Case)" value={metrics.totalSuspects} colorClass="text-red-600" />
@@ -950,12 +952,13 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                   </div>
                 </div>
 
+                {/* 🟢 NEW CLARIFIED UI FOR LOCAL STATION LOCKUP */}
                 <div className="col-span-2 bg-slate-200 p-4 rounded-lg border border-slate-300 shadow-inner mt-4">
                   <label className="block text-sm font-extrabold text-slate-800 mb-1">
-                    General Daily Lock-up / Detention Cell Population
+                    Local Station Daily Lock-up / Cell Population
                   </label>
                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 leading-relaxed">
-                    * Note: Enter the TOTAL number of suspects currently held in your station's cell. You can log this independently without an SD Ref.
+                    * Note: Enter the TOTAL number of suspects currently held in your local station's cell. This updates your station lock-up independently from the KMP Master Total.
                   </p>
                   <div className="flex gap-3">
                     <input 
