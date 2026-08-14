@@ -1,582 +1,195 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Building, X, Download, Shield } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
-import { Building, PlusCircle, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
+const HrEstablishmentsLedger = ({ data, onClose, currentUser = {} }) => {
+  const [activeTab, setActiveTab] = useState('establishments'); // 'establishments' | 'nominal'
 
+  // Normalize data safely
+  const establishmentsList = Array.isArray(data) ? data : (data?.establishments || data?.items || []);
+  const nominalList = Array.isArray(data?.nominal_roll) ? data.nominal_roll : [];
 
+  const handleExportExcel = () => {
+    const wb = XLSX.utils.book_new();
 
-const LogEstablishment = ({ currentUser, REGIONAL_HIERARCHY, onEstablishmentAdded }) => {
-
-  const [formData, setFormData] = useState({
-
-    region: currentUser.region || 'KMP NORTH',
-
-    division: '',
-
-    station: currentUser.station || '',
-
-    personnel_in_station: 0,
-
-    sub_station: '',
-
-    personnel_in_sub_station: 0,
-
-    post: '',
-
-    personnel_in_post: 0,
-
-    booths: 0,
-
-    location: '',
-
-    personnel_in_booth: 0,
-
-    status: 'OPERATIONAL',
-
-    comment: ''
-
-  });
-
-
-
-  const [loading, setLoading] = useState(false);
-
-  const [feedback, setFeedback] = useState(null);
-
-
-
-  const handleInputChange = (e) => {
-
-    const { name, value, type } = e.target;
-
-    if (name === 'region') {
-
-      setFormData({ 
-
-        ...formData, 
-
-        region: value, 
-
-        division: REGIONAL_HIERARCHY[value]?.[0] || '',
-
-        station: REGIONAL_HIERARCHY[value]?.[0] || '' 
-
-      });
-
-    } else {
-
-      setFormData({ 
-
-        ...formData, 
-
-        [name]: type === 'number' ? parseInt(value) || 0 : value 
-
-      });
-
+    // 1. Establishments Sheet
+    if (establishmentsList.length > 0) {
+      const estSheetData = establishmentsList.map((e, index) => ({
+        "S/N": index + 1,
+        "Region": e.region,
+        "Division": e.division,
+        "Station": e.station,
+        "Personnel (Station)": e.personnel_in_station || 0,
+        "Sub-Station": e.sub_station || '-',
+        "Personnel (Sub-Station)": e.personnel_in_sub_station || 0,
+        "Post": e.post || '-',
+        "Personnel (Post)": e.personnel_in_post || 0,
+        "Booths": e.booths || 0,
+        "Location": e.location || '-',
+        "Status": e.status || 'OPERATIONAL',
+        "Comment": e.comment || '-'
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(estSheetData), "Establishments");
     }
 
-  };
-
-
-
-  const handleSubmit = async (e) => {
-
-    e.preventDefault();
-
-    setLoading(true);
-
-    setFeedback(null);
-
-
-
-    try {
-
-      const token = localStorage.getItem('kmp_authToken');
-
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-
-
-
-      const response = await fetch(`${API_URL}/api/v1/establishments`, {
-
-        method: "POST",
-
-        headers: { 
-
-          "Content-Type": "application/json",
-
-          "Authorization": `Bearer ${token}` 
-
-        },
-
-        body: JSON.stringify({
-
-          ...formData,
-
-          installed_by: `${currentUser.name} (${currentUser.fnum})`,
-
-          last_updated_by: `${currentUser.name} (${currentUser.fnum})`
-
-        })
-
-      });
-
-
-
-      const data = await response.json();
-
-      if (!response.ok) throw new Error(data.detail || "Failed to log establishment.");
-
-
-
-      setFeedback({ type: 'success', message: "Establishment logged successfully!" });
-
-      if (onEstablishmentAdded) onEstablishmentAdded();
-
-      
-
-      // Reset form fields
-
-      setFormData({
-
-        region: currentUser.region || 'KMP NORTH',
-
-        division: '',
-
-        station: currentUser.station || '',
-
-        personnel_in_station: 0,
-
-        sub_station: '',
-
-        personnel_in_sub_station: 0,
-
-        post: '',
-
-        personnel_in_post: 0,
-
-        booths: 0,
-
-        location: '',
-
-        personnel_in_booth: 0,
-
-        status: 'OPERATIONAL',
-
-        comment: ''
-
-      });
-
-    } catch (err) {
-
-      setFeedback({ type: 'error', message: err.message });
-
-    } finally {
-
-      setLoading(false);
-
-      setTimeout(() => setFeedback(null), 5000);
-
+    // 2. Specific Nominal Roll Columns Sheet
+    if (nominalList.length > 0) {
+      const nomSheetData = nominalList.map((n, index) => ({
+        "S/N": index + 1,
+        "Force Number": n.fnum || n.f_num,
+        "Rank": n.rank,
+        "Full Name": n.name,
+        "Station": n.station,
+        "Region": n.region,
+        "Position": n.position,
+        "Status": n.status || 'ACTIVE'
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(nomSheetData), "Nominal Roll Summary");
     }
 
+    XLSX.writeFile(wb, `HR_Establishments_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
-
-
-
-  const isGlobalCommand = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role?.toUpperCase());
-
-
 
   return (
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4 sm:p-8 animate-in fade-in">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-7xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[90vh]">
+        
+        {/* Header */}
+        <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
+          <div className="flex items-center space-x-3">
+            <Building className="text-emerald-400" size={24} />
+            <div>
+              <h3 className="font-extrabold uppercase text-sm tracking-wider">HR & Establishments Master Ledger</h3>
+              <p className="text-xs text-slate-400">Viewing integrated database records for infrastructure and personnel placement.</p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-3">
+            <button 
+              onClick={handleExportExcel}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-bold text-xs shadow transition flex items-center space-x-2"
+            >
+              <Download size={16} />
+              <span>Export HR Excel</span>
+            </button>
+            <button onClick={onClose} className="hover:bg-slate-800 p-2 rounded-lg transition text-slate-300 hover:text-white">
+              <X size={20} />
+            </button>
+          </div>
+        </div>
 
-    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 max-w-4xl mx-auto my-6 font-sans">
+        {/* Navigation Tabs */}
+        <div className="bg-slate-100 px-6 py-3 border-b border-slate-200 flex space-x-3 shrink-0">
+          <button
+            onClick={() => setActiveTab('establishments')}
+            className={`px-4 py-2 rounded-lg text-xs font-extrabold transition shadow-xs ${activeTab === 'establishments' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-200'}`}
+          >
+            🏢 Establishments Registry ({establishmentsList.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('nominal')}
+            className={`px-4 py-2 rounded-lg text-xs font-extrabold transition shadow-xs ${activeTab === 'nominal' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-200'}`}
+          >
+            🛡️ Personnel Deployment Summary ({nominalList.length})
+          </button>
+        </div>
 
-      <div className="border-b border-slate-100 pb-4 mb-6 flex items-center justify-between">
+        {/* Content Body */}
+        <div className="p-6 overflow-y-auto flex-1 custom-scrollbar bg-slate-50">
+          {activeTab === 'establishments' ? (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <table className="min-w-full divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Region</th>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Division</th>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Station</th>
+                    <th className="px-4 py-3 text-center font-bold text-slate-600 uppercase">Pers (Stn)</th>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Sub-Station</th>
+                    <th className="px-4 py-3 text-center font-bold text-slate-600 uppercase">Pers (Sub-Stn)</th>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Police Post</th>
+                    <th className="px-4 py-3 text-center font-bold text-slate-600 uppercase">Pers (Post)</th>
+                    <th className="px-4 py-3 text-center font-bold text-slate-600 uppercase">Booths</th>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Location</th>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {establishmentsList.map((e, idx) => (
+                    <tr key={e.id || idx} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 uppercase">{e.region}</td>
+                      <td className="px-4 py-3 uppercase">{e.division || '-'}</td>
+                      <td className="px-4 py-3 uppercase font-bold text-blue-700">{e.station}</td>
+                      <td className="px-4 py-3 text-center font-black text-emerald-700">{e.personnel_in_station || 0}</td>
+                      <td className="px-4 py-3 uppercase">{e.sub_station || '-'}</td>
+                      <td className="px-4 py-3 text-center font-black text-emerald-700">{e.personnel_in_sub_station || 0}</td>
+                      <td className="px-4 py-3 uppercase">{e.post || '-'}</td>
+                      <td className="px-4 py-3 text-center font-black text-emerald-700">{e.personnel_in_post || 0}</td>
+                      <td className="px-4 py-3 text-center font-bold">{e.booths || 0}</td>
+                      <td className="px-4 py-3 uppercase">{e.location || '-'}</td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                          {e.status || 'OPERATIONAL'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {establishmentsList.length === 0 && (
+                    <tr><td colSpan="11" className="text-center py-8 text-slate-400 font-bold">No establishment records found.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <table className="min-w-full divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">S/N</th>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Force Number</th>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Rank</th>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Full Name</th>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Station</th>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Region</th>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Position</th>
+                    <th className="px-4 py-3 text-left font-bold text-slate-600 uppercase">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {nominalList.map((n, idx) => (
+                    <tr key={n.fnum || n.f_num || idx} className="hover:bg-slate-50">
+                      <td className="px-4 py-3">{idx + 1}</td>
+                      <td className="px-4 py-3 font-bold text-blue-700">{n.fnum || n.f_num}</td>
+                      <td className="px-4 py-3 font-bold">{n.rank}</td>
+                      <td className="px-4 py-3 uppercase font-extrabold">{n.name}</td>
+                      <td className="px-4 py-3 uppercase">{n.station}</td>
+                      <td className="px-4 py-3 uppercase">{n.region}</td>
+                      <td className="px-4 py-3 uppercase">{n.position}</td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-800">
+                          {n.status || 'ACTIVE'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {nominalList.length === 0 && (
+                    <tr><td colSpan="8" className="text-center py-8 text-slate-400 font-bold">No personnel records found in this view.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
-        <div>
-
-          <h3 className="font-extrabold text-base text-slate-900 uppercase flex items-center">
-
-            <Building className="w-5 h-5 mr-2 text-emerald-600" /> Log Police Establishment
-
-          </h3>
-
-          <p className="text-xs text-slate-500 mt-0.5">Register structural deployment units, stations, posts, and personnel allocation.</p>
-
+        {/* Footer */}
+        <div className="bg-slate-100 p-4 border-t border-slate-200 flex justify-end shrink-0">
+          <button onClick={onClose} className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs uppercase tracking-wider shadow">
+            Close HR Ledger
+          </button>
         </div>
 
       </div>
-
-
-
-      {feedback && (
-
-        <div className={`p-3 rounded-xl text-xs font-bold flex items-center mb-6 ${feedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
-
-          {feedback.type === 'success' ? <CheckCircle className="w-4 h-4 mr-2 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 mr-2 text-red-600 shrink-0" />}
-
-          {feedback.message}
-
-        </div>
-
-      )}
-
-
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-
-        {/* 🟢 SIDE-BY-SIDE GRID LAYOUT */}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-          
-
-          {/* Region */}
-
-          <div>
-
-            <label className="block text-xs font-bold text-slate-700 mb-1">Region *</label>
-
-            <select 
-
-              name="region" 
-
-              value={formData.region} 
-
-              onChange={handleInputChange} 
-
-              disabled={!isGlobalCommand}
-
-              required 
-
-              className="w-full text-sm border-slate-300 rounded-lg shadow-sm bg-slate-50 border p-2.5 outline-none focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-500 font-bold"
-
-            >
-
-              {isGlobalCommand ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
-
-            </select>
-
-          </div>
-
-
-
-          {/* Station */}
-
-          <div>
-
-            <label className="block text-xs font-bold text-slate-700 mb-1">Station *</label>
-
-            <input 
-
-              type="text" 
-
-              name="station" 
-
-              value={formData.station} 
-
-              onChange={handleInputChange} 
-
-              required 
-
-              placeholder="e.g. KAWEMPE" 
-
-              className="w-full text-sm border-slate-300 rounded-lg shadow-sm border p-2.5 outline-none focus:border-blue-500 uppercase font-bold text-slate-800" 
-
-            />
-
-          </div>
-
-
-
-          {/* Division */}
-
-          <div>
-
-            <label className="block text-xs font-bold text-slate-700 mb-1">Division</label>
-
-            <input 
-
-              type="text" 
-
-              name="division" 
-
-              value={formData.division} 
-
-              onChange={handleInputChange} 
-
-              placeholder="e.g. KAMPALA" 
-
-              className="w-full text-sm border-slate-300 rounded-lg shadow-sm border p-2.5 outline-none focus:border-blue-500 uppercase" 
-
-            />
-
-          </div>
-
-
-
-          {/* Personnel in Station */}
-
-          <div>
-
-            <label className="block text-xs font-bold text-slate-700 mb-1">Personnel Strength (Station)</label>
-
-            <input 
-
-              type="number" 
-
-              name="personnel_in_station" 
-
-              value={formData.personnel_in_station} 
-
-              onChange={handleInputChange} 
-
-              min="0" 
-
-              className="w-full text-sm border-slate-300 rounded-lg shadow-sm border p-2.5 outline-none focus:border-blue-500 font-bold text-blue-700" 
-
-            />
-
-          </div>
-
-
-
-          {/* Sub-Station */}
-
-          <div>
-
-            <label className="block text-xs font-bold text-slate-700 mb-1">Sub-Station</label>
-
-            <input 
-
-              type="text" 
-
-              name="sub_station" 
-
-              value={formData.sub_station} 
-
-              onChange={handleInputChange} 
-
-              placeholder="Sub-station name if any..." 
-
-              className="w-full text-sm border-slate-300 rounded-lg shadow-sm border p-2.5 outline-none focus:border-blue-500 uppercase" 
-
-            />
-
-          </div>
-
-
-
-          {/* Personnel in Sub-Station */}
-
-          <div>
-
-            <label className="block text-xs font-bold text-slate-700 mb-1">Personnel Strength (Sub-Station)</label>
-
-            <input 
-
-              type="number" 
-
-              name="personnel_in_sub_station" 
-
-              value={formData.personnel_in_sub_station} 
-
-              onChange={handleInputChange} 
-
-              min="0" 
-
-              className="w-full text-sm border-slate-300 rounded-lg shadow-sm border p-2.5 outline-none focus:border-blue-500 font-bold text-blue-700" 
-
-            />
-
-          </div>
-
-
-
-          {/* Post */}
-
-          <div>
-
-            <label className="block text-xs font-bold text-slate-700 mb-1">Police Post</label>
-
-            <input 
-
-              type="text" 
-
-              name="post" 
-
-              value={formData.post} 
-
-              onChange={handleInputChange} 
-
-              placeholder="Post name..." 
-
-              className="w-full text-sm border-slate-300 rounded-lg shadow-sm border p-2.5 outline-none focus:border-blue-500 uppercase" 
-
-            />
-
-          </div>
-
-
-
-          {/* Personnel in Post */}
-
-          <div>
-
-            <label className="block text-xs font-bold text-slate-700 mb-1">Personnel Strength (Post)</label>
-
-            <input 
-
-              type="number" 
-
-              name="personnel_in_post" 
-
-              value={formData.personnel_in_post} 
-
-              onChange={handleInputChange} 
-
-              min="0" 
-
-              className="w-full text-sm border-slate-300 rounded-lg shadow-sm border p-2.5 outline-none focus:border-blue-500 font-bold text-blue-700" 
-
-            />
-
-          </div>
-
-
-
-          {/* Booths / Location */}
-
-          <div>
-
-            <label className="block text-xs font-bold text-slate-700 mb-1">Booths Count</label>
-
-            <input 
-
-              type="number" 
-
-              name="booths" 
-
-              value={formData.booths} 
-
-              onChange={handleInputChange} 
-
-              min="0" 
-
-              className="w-full text-sm border-slate-300 rounded-lg shadow-sm border p-2.5 outline-none focus:border-blue-500" 
-
-            />
-
-          </div>
-
-
-
-          <div>
-
-            <label className="block text-xs font-bold text-slate-700 mb-1">Location / Zone</label>
-
-            <input 
-
-              type="text" 
-
-              name="location" 
-
-              value={formData.location} 
-
-              onChange={handleInputChange} 
-
-              placeholder="e.g. Zone 2 Bwaise" 
-
-              className="w-full text-sm border-slate-300 rounded-lg shadow-sm border p-2.5 outline-none focus:border-blue-500 uppercase" 
-
-            />
-
-          </div>
-
-
-
-          {/* Status */}
-
-          <div className="md:col-span-2">
-
-            <label className="block text-xs font-bold text-slate-700 mb-1">Operational Status</label>
-
-            <select 
-
-              name="status" 
-
-              value={formData.status} 
-
-              onChange={handleInputChange} 
-
-              className="w-full text-sm border-slate-300 rounded-lg shadow-sm bg-white border p-2.5 outline-none focus:border-blue-500 font-bold"
-
-            >
-
-              <option value="OPERATIONAL">OPERATIONAL</option>
-
-              <option value="UNDER CONSTRUCTION">UNDER CONSTRUCTION</option>
-
-              <option value="SUSPENDED">SUSPENDED</option>
-
-            </select>
-
-          </div>
-
-
-
-          {/* Comment / Remarks (Full Width) */}
-
-          <div className="md:col-span-2">
-
-            <label className="block text-xs font-bold text-slate-700 mb-1">Remarks / Comments</label>
-
-            <textarea 
-
-              name="comment" 
-
-              value={formData.comment} 
-
-              onChange={handleInputChange} 
-
-              rows="2"
-
-              placeholder="Additional logistical or structural notes..." 
-
-              className="w-full text-sm border-slate-300 rounded-lg shadow-sm border p-2.5 outline-none focus:border-blue-500 uppercase"
-
-            />
-
-          </div>
-
-
-
-        </div>
-
-
-
-        <button 
-
-          type="submit" 
-
-          disabled={loading}
-
-          className="w-full mt-4 py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 cursor-pointer"
-
-        >
-
-          {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Logging Establishment...</> : <><PlusCircle className="w-4 h-4 mr-2" /> Log Establishment Record</>}
-
-        </button>
-
-      </form>
-
     </div>
-
   );
-
 };
 
-
-
-export default LogEstablishment; 
-
+export default HrEstablishmentsLedger;
