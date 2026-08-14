@@ -24,6 +24,8 @@ import './index.css';
 import SessionExpiredModal from './SessionExpiredModal';
 import AdminApprovals from "./AdminApprovals";
 
+import CrimeIncidentRegistry from './CrimeIncidentRegistry';
+
 // 🟢 Place this utility function right near the top of src/App.jsx (outside of App)
 const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, filterStation) => {
   const scopedSubmissions = allSubmissions.filter(entry => {
