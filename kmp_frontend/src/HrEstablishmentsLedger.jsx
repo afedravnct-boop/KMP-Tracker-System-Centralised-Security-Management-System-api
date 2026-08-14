@@ -3,7 +3,16 @@ import { Building, PlusCircle, CheckCircle, AlertTriangle, Loader2, Edit, Search
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
-// Expandable Table Card Component (Ensure this is available in your file)
+// 🟢 FIX: Defined REGIONAL_HIERARCHY directly in the file so it is never undefined
+const REGIONAL_HIERARCHY = {
+  "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU"]
+};
+
+// Expandable Table Card Component
 const ExpandableTableCard = ({ title, children, onToggle }) => {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -32,7 +41,8 @@ const autoCapitalize = (text) => {
   return text.toUpperCase();
 };
 
-const Establishments = ({ currentUser, establishments, setEstablishments, setSidebarOpen, REGIONAL_HIERARCHY }) => {
+// 🟢 FIX: Added strict fallback defaults (currentUser = {}, establishments = [])
+const Establishments = ({ currentUser = {}, establishments = [], setEstablishments, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -42,12 +52,11 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
   const [updateSearch, setUpdateSearch] = useState('');
 
   const [formData, setFormData] = useState({
-    id: null, region: currentUser.region, division: currentUser.division || '', station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+    id: null, region: currentUser.region || 'KMP NORTH', division: currentUser.division || '', station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
     personnel_in_station: 0, sub_station: '', personnel_in_sub_station: 0, post: '', personnel_in_post: 0,
     booths: 0, location: '', personnel_in_booth: 0, installed_by: '', status: 'OPERATIONAL', comment: ''
   });
 
-  // 🟢 1. The data for the MASTER LEDGER TABLE (Driven by Region/Station dropdowns)
   const filteredEstablishments = useMemo(() => {
     return (Array.isArray(establishments) ? establishments : []).filter(e => {
       if (filterRegion !== 'ALL REGIONS' && e.region !== filterRegion) return false;
@@ -56,7 +65,6 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
     });
   }, [establishments, filterRegion, filterStation]);
 
-  // 🟢 2. The data for the "Update Search" dropdown in the form (Driven by the text input)
   const availableUpdateEstablishments = useMemo(() => {
     return (Array.isArray(establishments) ? establishments : []).filter(e => {
       if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && e.region !== currentUser.region) return false;
@@ -208,18 +216,18 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2 sm:col-span-1">
                     <label className="block text-[11px] font-bold text-slate-700 mb-1">Region *</label>
-                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role))} required className="w-full text-xs border-slate-300 rounded shadow-sm bg-slate-50 border p-2 outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-500 font-bold">
-                      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
+                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role))} required className="w-full text-xs border-slate-300 rounded shadow-sm bg-slate-50 border p-2 outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-500 font-bold">
+                      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser?.region}>{currentUser?.region}</option>}
                     </select>
                   </div>
                   
                   <div className="col-span-2 sm:col-span-1">
                     <label className="block text-[11px] font-bold text-slate-700 mb-1">Division (HQ) *</label>
-                    <select name="division" value={formData.division} onChange={handleInputChange} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role))} required className="w-full text-xs border-slate-300 rounded shadow-sm bg-slate-50 border p-2 outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-500 font-bold">
-                      {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (
+                    <select name="division" value={formData.division} onChange={handleInputChange} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role))} required className="w-full text-xs border-slate-300 rounded shadow-sm bg-slate-50 border p-2 outline-none focus:border-emerald-500 disabled:bg-slate-100 disabled:text-slate-500 font-bold">
+                      {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ? (
                         formData.region && REGIONAL_HIERARCHY[formData.region] ? REGIONAL_HIERARCHY[formData.region].map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value="">Select Region First</option>
                       ) : (
-                        <option value={currentUser.station || currentUser.division}>{currentUser.station || currentUser.division}</option>
+                        <option value={currentUser?.station || currentUser?.division}>{currentUser?.station || currentUser?.division}</option>
                       )}
                     </select>
                   </div>
@@ -314,7 +322,6 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
         {/* ========================================== */}
         <div className="lg:col-span-8 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-            {/* Using updateSearch for local table filtering just like the backend logic */}
             <div className="relative flex-1"> 
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
               <input type="text" placeholder="Filter table by station, post, or location..." value={updateSearch} onChange={(e) => setUpdateSearch(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-emerald-500" />
@@ -352,7 +359,6 @@ const Establishments = ({ currentUser, establishments, setEstablishments, setSid
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-100">
-                  {/* 🟢 Using filteredEstablishments here ensures the table stays populated and responds to the dropdown filters perfectly */}
                   {filteredEstablishments.map((est) => (
                     <tr key={est.id} className="even:bg-slate-50 hover:bg-emerald-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(est); }}>
                       <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-slate-900">{est.division || 'N/A'}</td>
