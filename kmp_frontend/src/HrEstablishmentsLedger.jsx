@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Building, PlusCircle, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 
-const LogEstablishment = ({ currentUser, REGIONAL_HIERARCHY, onEstablishmentAdded }) => {
+// 🟢 FIX: Added default empty objects (= {}) to props to prevent undefined crashes
+const LogEstablishment = ({ currentUser = {}, REGIONAL_HIERARCHY = {}, onEstablishmentAdded }) => {
   const [formData, setFormData] = useState({
     region: currentUser.region || 'KMP NORTH',
     division: '',

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart, Clock } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const REGIONAL_HIERARCHY = {
@@ -21,6 +21,13 @@ const RANK_HIERARCHY = [
   "SASP", "ASP", "IP", "AIP", "HCM", "HC", "S/SGT", "SGT", 
   "CPL", "L/CPL", "PC", "SPC"
 ];
+
+// 🟢 Helper to identify purely administrative lock-up logs
+const isLockupLog = (item) => {
+  return item.is_hq_general_total || 
+         (item.station || '').includes('HEADQUARTERS GENERAL TOTAL') || 
+         (item.daily_lock_up !== undefined && item.daily_lock_up !== null && Number(item.daily_lock_up) > 0);
+};
 
 // 🟢 Word-Order Agnostic Offence Normalizer
 const normalizeOffenceCategory = (rawOffence) => {
@@ -55,7 +62,6 @@ const parseEducationLevel = (rawVal) => {
     return "UNEDUCATED";
   }
 
-  // --- 1. BACHELORS / DEGREES (Qualification + Specific Course) ---
   if (
     str.includes("BACHELOR") || str.includes("DEGREE") || str.includes("B.A") || 
     str.includes("B.SC") || str.includes("BSC") || str.includes("BED") || 
@@ -78,7 +84,6 @@ const parseEducationLevel = (rawVal) => {
       : `BACHELORS (${str})`;
   }
 
-  // --- 2. DIPLOMAS (Qualification + Specific Course) ---
   if (str.includes("DIPLOMA") || str.includes("DIP.")) {
     let course = str
       .replace(/DIPLOMA(\s+IN)?/g, '')
@@ -89,7 +94,6 @@ const parseEducationLevel = (rawVal) => {
     return course ? `DIPLOMA - ${course}` : `DIPLOMA (${str})`;
   }
 
-  // --- 3. CERTIFICATES (Qualification + Specific Course) ---
   if (str.includes("CERTIFICATE") || str.includes("CERT.")) {
     let course = str
       .replace(/CERTIFICATE(\s+IN)?/g, '')
@@ -100,17 +104,14 @@ const parseEducationLevel = (rawVal) => {
     return course ? `CERTIFICATE - ${course}` : `CERTIFICATE (${str})`;
   }
 
-  // --- 4. VOCATIONAL & HIGH SCHOOL STANDARDS ---
   if (str.includes("UBTEB") || str.includes("VOCATIONAL") || str.includes("TECHNICAL")) return "UBTEB / TECHNICAL";
   if (str.includes("UACE") || str.includes("A LEVEL") || str.includes("A-LEVEL") || str.includes("S.6") || str.includes("S6") || str.includes("SENIOR 6")) return "UACE (A-LEVEL)";
   if (str.includes("UCE") || str.includes("O LEVEL") || str.includes("O-LEVEL") || str.includes("S.4") || str.includes("S4") || str.includes("SENIOR 4")) return "UCE (O-LEVEL)";
   
-  // --- 5. LOWER SECONDARY LEVELS ---
   if (str.includes("S.3") || str.includes("S3") || str.includes("SENIOR 3")) return "S.3";
   if (str.includes("S.2") || str.includes("S2") || str.includes("SENIOR 2")) return "S.2";
   if (str.includes("S.1") || str.includes("S1") || str.includes("SENIOR 1")) return "S.1";
 
-  // --- 6. PRIMARY SCHOOL LEVELS ---
   if (str.includes("P.7") || str.includes("P7") || str.includes("PLE") || str.includes("PRIMARY 7")) return "P.7 (PLE)";
   if (str.includes("P.6") || str.includes("P6") || str.includes("PRIMARY 6")) return "P.6";
   if (str.includes("P.5") || str.includes("P5") || str.includes("PRIMARY 5")) return "P.5";
@@ -119,7 +120,6 @@ const parseEducationLevel = (rawVal) => {
   if (str.includes("P.2") || str.includes("P2") || str.includes("PRIMARY 2")) return "P.2";
   if (str.includes("P.1") || str.includes("P1") || str.includes("PRIMARY 1")) return "P.1";
 
-  // Fallback for custom unmapped qualifications
   return str;
 };
 
@@ -127,17 +127,55 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
   const [activeDomain, setActiveDomain] = useState('CRIME');
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
   const [sortOrder, setSortOrder] = useState('DEFAULT');
+  const [dateFilter, setDateFilter] = useState('ALL'); // NEW: Global Duration Filter
   
   const [selectedRegion, setSelectedRegion] = useState('ALL REGIONS');
   const [selectedStation, setSelectedStation] = useState('ALL STATIONS');
 
   const currentDataset = useMemo(() => {
-    if (activeDomain === 'CRIME') return crimeRegistry;
-    if (activeDomain === 'PERSONNEL') return nominalRolls;
-    if (activeDomain === 'SUCCESS') return successStories;
-    if (activeDomain === 'OPERATIONS') return operationalStats;
-    return [];
-  }, [activeDomain, crimeRegistry, nominalRolls, successStories, operationalStats]);
+    let baseData = [];
+    
+    // Step 1: Base Dataset Filtering
+    if (activeDomain === 'CRIME') {
+      baseData = crimeRegistry.filter(r => !isLockupLog(r)); // 🟢 Exclude lockup logs strictly
+    } else if (activeDomain === 'PERSONNEL') {
+      baseData = nominalRolls;
+    } else if (activeDomain === 'SUCCESS') {
+      baseData = successStories;
+    } else if (activeDomain === 'OPERATIONS') {
+      baseData = operationalStats;
+    }
+
+    // Step 2: Time/Duration Filtering
+    if (activeDomain !== 'PERSONNEL' && dateFilter !== 'ALL') {
+      const now = new Date();
+      baseData = baseData.filter(item => {
+        const itemDateStr = item.date || item.createdAt || item.timestamp;
+        if (!itemDateStr) return true; // Keep if no date available
+        
+        const itemDate = new Date(itemDateStr);
+        if (isNaN(itemDate)) return true;
+
+        if (dateFilter === 'TODAY') {
+          return itemDate.toDateString() === now.toDateString();
+        }
+        if (dateFilter === 'WEEK') {
+          const weekAgo = new Date();
+          weekAgo.setDate(now.getDate() - 7);
+          return itemDate >= weekAgo && itemDate <= now;
+        }
+        if (dateFilter === 'MONTH') {
+          return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
+        }
+        if (dateFilter === 'YEAR') {
+          return itemDate.getFullYear() === now.getFullYear();
+        }
+        return true;
+      });
+    }
+
+    return baseData;
+  }, [activeDomain, crimeRegistry, nominalRolls, successStories, operationalStats, dateFilter]);
 
   const aggregatedData = useMemo(() => {
     const grouped = {};
@@ -151,9 +189,12 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
           key = normalizeOffenceCategory(rawOffence);
         }
         else if (metricCategory === 'CASES') key = (item.status || 'PENDING').toUpperCase();
-        else if (metricCategory === 'ARRESTS') key = String(item.suspects || item.arrested || '0').toUpperCase();
+        else if (metricCategory === 'ARRESTS') {
+          const susCount = item.suspects || item.arrested || (item.suspectDetails ? item.suspectDetails.length : 0);
+          key = String(susCount || '0').toUpperCase();
+        }
         else if (metricCategory === 'CONVICTIONS') key = String(item.convicted || '0').toUpperCase();
-        else if (metricCategory === 'CONCLUDED') key = (item.status === 'CONCLUDED' || item.status === 'COMPLETED' ? 'CONCLUDED' : 'PENDING / IN PROGRESS').toUpperCase();
+        else if (metricCategory === 'CONCLUDED') key = (item.status === 'CONCLUDED' || item.status === 'COMPLETED' || item.status === 'CLOSED / CONVICTED' ? 'CONCLUDED' : 'PENDING / IN PROGRESS').toUpperCase();
         else if (metricCategory === 'STATION') key = (item.station || 'UNKNOWN STATION').toUpperCase();
       } 
       else if (activeDomain === 'PERSONNEL') {
@@ -270,7 +311,10 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
   const weekComparisonData = useMemo(() => {
     const reports = Array.isArray(crimeRegistry) ? crimeRegistry : [];
 
+    // 🟢 Filter out lockup logs so trends reflect ACTUAL crimes
     const filtered = reports.filter(r => {
+      if (isLockupLog(r)) return false; 
+
       const reg = (r.region || '').trim().toUpperCase();
       const stn = (r.station || '').trim().toUpperCase();
       if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
@@ -355,7 +399,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
           "Station": r.station,
           "Offence": r.offence,
           "Status": r.status,
-          "Suspects": r.suspects || 0
+          "Suspects": r.suspects || 0,
+          "Log Type": isLockupLog(r) ? "Cell Population Log" : "Crime Incident"
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(crimeData), "Crime Registry");
       }
@@ -461,7 +506,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         ].map(tab => (
           <button
             key={tab.id}
-            onClick={() => { setActiveDomain(tab.id); setMetricCategory('CATEGORY'); setSortOrder('DEFAULT'); }}
+            onClick={() => { setActiveDomain(tab.id); setMetricCategory('CATEGORY'); setSortOrder('DEFAULT'); setDateFilter('ALL'); }}
             className={`p-4 rounded-xl font-bold text-xs transition border text-left shadow-sm cursor-pointer ${
               activeDomain === tab.id 
                 ? 'bg-slate-900 text-white border-slate-900' 
@@ -626,7 +671,28 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
           
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto flex-wrap">
+              
+              {/* 🟢 NEW: Time/Duration Filter for General Analytics */}
+              {activeDomain !== 'PERSONNEL' && (
+                <div className="flex items-center space-x-3 w-full sm:w-auto">
+                  <span className="text-xs font-bold text-slate-500 uppercase whitespace-nowrap flex items-center">
+                    <Clock size={14} className="mr-1"/> Period:
+                  </span>
+                  <select 
+                    value={dateFilter}
+                    onChange={e => setDateFilter(e.target.value)}
+                    className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer w-full sm:w-auto"
+                  >
+                    <option value="ALL">All Time</option>
+                    <option value="TODAY">Today Only</option>
+                    <option value="WEEK">This Week (Last 7 Days)</option>
+                    <option value="MONTH">This Month</option>
+                    <option value="YEAR">This Year</option>
+                  </select>
+                </div>
+              )}
+
               {/* Group By Filter */}
               <div className="flex items-center space-x-3 w-full sm:w-auto">
                 <span className="text-xs font-bold text-slate-500 uppercase whitespace-nowrap">Group By:</span>

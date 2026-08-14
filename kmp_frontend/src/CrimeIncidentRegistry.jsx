@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera 
+  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera,
+  Filter, TrendingUp, TrendingDown, Minus
 } from 'lucide-react';
-import ReactQuill from 'react-quill';
-import 'react-quill/dist/quill.snow.css';
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
 
 // ==========================================
 // REGIONAL HIERARCHY MAPPING
@@ -24,7 +25,7 @@ const autoCapitalize = (text) => {
 
 // Metric Card Component
 const MetricCard = ({ title, value, colorClass }) => (
-  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+  <div className={`bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between ${title.includes('KMP Total') ? 'bg-slate-50 border-blue-200' : ''}`}>
     <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{title}</span>
     <div className={`text-2xl font-black mt-2 ${colorClass}`}>{value}</div>
   </div>
@@ -100,6 +101,9 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   const [updateSearch, setUpdateSearch] = useState('');
+
+  // 🟢 NEW STATE: Summary Duration Filter
+  const [summaryTimeFilter, setSummaryTimeFilter] = useState('ALL');
 
   const [showLockup, setShowLockup] = useState(false);
   const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' });
@@ -207,23 +211,49 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
   const metrics = useMemo(() => {
     const stationCellPop = {};
-    const todayStr = new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
-    let hasLockupUpdateToday = false;
-    let hqGrandTotalToday = null;
+    const now = new Date();
+    // Safely format today's date in 'YYYY-MM-DD'
+    const todayStr = new Date(Date.now() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
     
-    filteredReports.forEach(r => {
-       if (r.date === todayStr) {
-           if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) {
-               hqGrandTotalToday = parseInt(r.daily_lock_up) || parseInt(r.suspects) || 0;
-           } else if (r.station && r.daily_lock_up !== undefined && r.daily_lock_up !== null) {
-               stationCellPop[r.station] = parseInt(r.daily_lock_up) || 0;
-               hasLockupUpdateToday = true;
-           }
-       }
+    const allReports = Array.isArray(reports) ? reports : [];
+    
+    let hqGrandTotalToday = null;
+    let latestHqGrandTotal = null;
+    let hasLockupUpdateToday = false;
+    
+    // 🟢 Scan MASTER `reports` for Global KMP Lock-up Total
+    allReports.forEach(r => {
+      const rawDate = (r.date || '').slice(0, 10);
+      const isHQTotal = r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL');
+      const lockupVal = parseInt(r.daily_lock_up || r.suspects || 0);
+
+      if (isHQTotal) {
+        if (rawDate === todayStr && lockupVal > 0) {
+          hqGrandTotalToday = lockupVal;
+        }
+        if (!latestHqGrandTotal && lockupVal > 0) {
+          latestHqGrandTotal = lockupVal; // relies on reports array being sorted descending
+        }
+      }
+
+      if (rawDate === todayStr && r.station && (r.daily_lock_up !== undefined && r.daily_lock_up !== null)) {
+        if (!isHQTotal) {
+          stationCellPop[r.station] = lockupVal;
+          // Verify if it matches their current filtered view
+          if (filteredReports.some(fr => fr.station === r.station)) {
+             hasLockupUpdateToday = true;
+          }
+        }
+      }
     });
     
     const calculatedGlobalSum = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
-    const kmpGeneralTotal = hqGrandTotalToday !== null ? hqGrandTotalToday : calculatedGlobalSum;
+    
+    const kmpGeneralTotal = hqGrandTotalToday !== null 
+      ? hqGrandTotalToday 
+      : calculatedGlobalSum > 0 
+        ? calculatedGlobalSum 
+        : latestHqGrandTotal;
 
     let localJurisdictionTotal = 0;
     if (filterStation && filterStation !== 'ALL STATIONS') {
@@ -241,8 +271,14 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     }, 0);
 
     return {
-      localLockup: hasLockupUpdateToday || hqGrandTotalToday !== null ? localJurisdictionTotal : <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending Today</span>,
-      kmpGeneralLockup: hqGrandTotalToday !== null || calculatedGlobalSum > 0 ? kmpGeneralTotal : <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending Today</span>,
+      localLockup: (hasLockupUpdateToday || hqGrandTotalToday !== null || localJurisdictionTotal > 0)
+        ? localJurisdictionTotal 
+        : <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending Today</span>,
+        
+      kmpGeneralLockup: kmpGeneralTotal !== null && kmpGeneralTotal !== undefined
+        ? kmpGeneralTotal 
+        : <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending Today</span>,
+
       newCases: filteredReports.length,
       active: filteredReports.filter(r => r.status === 'ACTIVE INVESTIGATION').length,
       sanctioned: filteredReports.filter(r => r.status === 'FORWARDED TO COURT').length,
@@ -250,13 +286,14 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       adr: filteredReports.filter(r => r.status === 'ADR').length,
       totalSuspects: totalCaseSuspects
     };
-  }, [filteredReports, filterRegion, filterStation]);
+  }, [filteredReports, reports, filterRegion, filterStation]);
 
-  // 🟢 Separated General Crimes (excluding lockups) and Independent Daily Lock-ups
-  const { generalCrimes, lockupEntries, allTimeLockupTotal } = useMemo(() => {
+  // 🟢 Separated General Crimes (excluding lockups) and Independent Daily Lock-ups with Time Filtering & Variation
+  const { generalCrimes, lockupEntries, allTimeLockupTotal, crimeGrandTotal, suspectGrandTotal } = useMemo(() => {
     const crimeMap = {};
     const lockups = [];
     let allTimeSum = 0;
+    const now = new Date();
 
     if (Array.isArray(reports)) {
       reports.forEach(r => {
@@ -277,21 +314,54 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           suspects: parseInt(r.daily_lock_up || r.suspects || 0)
         });
       } else {
-        const offenceName = (r.offence || 'GENERAL CRIME').toUpperCase();
-        if (!crimeMap[offenceName]) {
-          crimeMap[offenceName] = { offence: offenceName, cases: 0, suspects: 0 };
+        // Apply Summary Duration Filter
+        let includeInSummary = true;
+        const rDate = new Date(r.date);
+        
+        if (summaryTimeFilter === 'TODAY') {
+          includeInSummary = rDate.toDateString() === now.toDateString();
+        } else if (summaryTimeFilter === 'WEEK') {
+          const oneWeekAgo = new Date();
+          oneWeekAgo.setDate(now.getDate() - 7);
+          includeInSummary = rDate >= oneWeekAgo && rDate <= now;
+        } else if (summaryTimeFilter === 'MONTH') {
+          includeInSummary = rDate.getMonth() === now.getMonth() && rDate.getFullYear() === now.getFullYear();
+        } else if (summaryTimeFilter === 'YEAR') {
+          includeInSummary = rDate.getFullYear() === now.getFullYear();
         }
-        crimeMap[offenceName].cases += 1;
-        crimeMap[offenceName].suspects += (r.suspectDetails || r.suspect_details || []).length;
+
+        if (includeInSummary) {
+          const offenceName = (r.offence || 'GENERAL CRIME').toUpperCase();
+          if (!crimeMap[offenceName]) {
+            crimeMap[offenceName] = { offence: offenceName, cases: 0, suspects: 0 };
+          }
+          crimeMap[offenceName].cases += 1;
+          crimeMap[offenceName].suspects += (r.suspectDetails || r.suspect_details || []).length;
+        }
       }
     });
 
+    // Process Lockup Variations
+    lockups.sort((a, b) => new Date(b.date) - new Date(a.date)); // Sort newest first
+    const processedLockups = lockups.map((log, index, arr) => {
+      if (index === arr.length - 1) {
+        return { ...log, variation: 0, hasPrev: false }; // Oldest record
+      }
+      const prevDayLog = arr[index + 1];
+      const diff = log.suspects - prevDayLog.suspects; 
+      return { ...log, variation: diff, hasPrev: true };
+    });
+
+    const crimesArray = Object.values(crimeMap).sort((a, b) => b.cases - a.cases);
+
     return {
-      generalCrimes: Object.values(crimeMap),
-      lockupEntries: lockups,
-      allTimeLockupTotal: allTimeSum
+      generalCrimes: crimesArray,
+      lockupEntries: processedLockups,
+      allTimeLockupTotal: allTimeSum,
+      crimeGrandTotal: crimesArray.reduce((acc, curr) => acc + curr.cases, 0),
+      suspectGrandTotal: crimesArray.reduce((acc, curr) => acc + curr.suspects, 0)
     };
-  }, [filteredReports, reports]);
+  }, [filteredReports, reports, summaryTimeFilter]);
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
@@ -692,10 +762,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
       <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
         <div className="absolute top-4 right-4 z-10 flex gap-2">
-          <div className="bg-slate-900 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center shadow-xs">
-            <span>KMP Total Lockup: <strong className="text-yellow-400 font-mono">{metrics.kmpGeneralLockup}</strong></span>
-          </div>
-          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none">
+          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none cursor-pointer">
             <option value="ALL TIME">ALL TIME</option>
             <option value="TODAY">TODAY ONLY</option>
             <option value="LAST 7 DAYS">LAST 7 DAYS</option>
@@ -709,7 +776,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           📋 {filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? 'Global Command Metrics' : filterStation === 'ALL STATIONS' ? 'Regional Command Metrics' : `${filterStation} Metrics`} ({dateFilter})
         </h4>
         
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 xl:grid-cols-8 gap-4">
           <MetricCard 
             title={
               filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' 
@@ -721,6 +788,16 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
             value={metrics.localLockup} 
             colorClass="text-slate-800" 
           />
+          
+          {/* 🟢 Render KMP Total right next to local lockup, ONLY if viewing a specific jurisdiction */}
+          {(filterRegion !== 'ALL REGIONS' || filterStation !== 'ALL STATIONS') && (
+            <MetricCard 
+              title="KMP Total Lock-up" 
+              value={metrics.kmpGeneralLockup} 
+              colorClass="text-amber-600" 
+            />
+          )}
+
           <MetricCard title="Total Cases" value={metrics.newCases} colorClass="text-blue-700" />
           <MetricCard title="Suspects (Case)" value={metrics.totalSuspects} colorClass="text-red-600" />
           <MetricCard title="Active" value={metrics.active} colorClass="text-yellow-600" />
@@ -936,102 +1013,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
             </select>   
           </div>
 
-          {/* ================================================================= */}
-          {/* 1. GENERAL CRIME SUMMARY TABLE (EXCLUDING LOCK-UPS)               */}
-          {/* ================================================================= */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="bg-slate-900 px-6 py-4 border-b border-slate-200">
-              <h3 className="font-extrabold text-white text-sm uppercase tracking-wider flex items-center">
-                General Crime Summary (Excluding Lock-Ups)
-              </h3>
-            </div>
-            <div className="overflow-x-auto w-full max-h-[35vh] custom-scrollbar">
-              <table className="min-w-full divide-y divide-gray-200 text-xs">
-                <thead className="bg-slate-100 text-slate-700 uppercase font-bold sticky top-0">
-                  <tr>
-                    <th className="p-3 w-12 text-center">S/N</th>
-                    <th className="p-3">Offence / Incident</th>
-                    <th className="p-3 text-center">Number of Cases</th>
-                    <th className="p-3 text-center">Suspects in Custody</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
-                  {generalCrimes.map((crime, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50">
-                      <td className="p-3 text-center font-bold text-slate-500">{idx + 1}</td>
-                      <td className="p-3 uppercase text-slate-800 font-semibold">{crime.offence}</td>
-                      <td className="p-3 text-center font-bold text-blue-600">{crime.cases}</td>
-                      <td className="p-3 text-center font-bold text-slate-700">{crime.suspects}</td>
-                    </tr>
-                  ))}
-                  {generalCrimes.length === 0 && (
-                    <tr><td colSpan="4" className="text-center py-6 text-slate-400">No crime incidents recorded for this period.</td></tr>
-                  )}
-                </tbody>
-                <tfoot className="bg-emerald-800 text-white font-extrabold sticky bottom-0">
-                  <tr>
-                    <td colSpan="2" className="p-3 text-right uppercase">Crime Grand Total:</td>
-                    <td className="p-3 text-center">{generalCrimes.reduce((sum, c) => sum + c.cases, 0)}</td>
-                    <td className="p-3 text-center">{generalCrimes.reduce((sum, c) => sum + c.suspects, 0)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-
-          {/* ================================================================= */}
-          {/* 2. INDEPENDENT DAILY SUSPECT LOCK-UP MATRIX TABLE                 */}
-          {/* ================================================================= */}
-          <div className="bg-white rounded-xl shadow-sm border border-amber-200 overflow-hidden">
-            <div className="bg-amber-900 px-6 py-4 border-b border-amber-800 flex justify-between items-center text-white">
-              <h3 className="font-extrabold text-sm uppercase tracking-wider flex items-center">
-                🛡️ Independent Daily Suspect Lock-Up Matrix
-              </h3>
-              <span className="text-xs bg-amber-800 px-3 py-1 rounded-full font-mono">
-                Daily & Cumulative Custody Records
-              </span>
-            </div>
-            <div className="overflow-x-auto w-full max-h-[35vh] custom-scrollbar">
-              <table className="min-w-full divide-y divide-gray-200 text-xs">
-                <thead className="bg-amber-50 text-amber-900 uppercase font-bold sticky top-0">
-                  <tr>
-                    <th className="p-3 w-12 text-center">S/N</th>
-                    <th className="p-3">Date (Day Record)</th>
-                    <th className="p-3">Station / Origin</th>
-                    <th className="p-3 text-center">Daily Suspect Lock-Up Count</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
-                  {lockupEntries.map((lockup, idx) => (
-                    <tr key={idx} className="hover:bg-amber-50/40">
-                      <td className="p-3 text-center font-bold text-slate-500">{idx + 1}</td>
-                      <td className="p-3 font-semibold text-slate-800">{lockup.date}</td>
-                      <td className="p-3 uppercase text-slate-700 font-bold">{lockup.station}</td>
-                      <td className="p-3 text-center font-extrabold text-amber-700 text-sm">{lockup.suspects}</td>
-                    </tr>
-                  ))}
-                  {lockupEntries.length === 0 && (
-                    <tr><td colSpan="4" className="text-center py-6 text-slate-400">No independent lock-up records found for this timeframe.</td></tr>
-                  )}
-                </tbody>
-                <tfoot className="bg-slate-900 text-white font-extrabold sticky bottom-0">
-                  <tr className="border-b border-slate-700">
-                    <td colSpan="3" className="p-3 text-right uppercase text-amber-300">7-Day / Filter Period Total:</td>
-                    <td className="p-3 text-center text-base text-amber-300 font-mono">
-                      {lockupEntries.reduce((sum, l) => sum + Number(l.suspects || 0), 0)}
-                    </td>
-                  </tr>
-                  <tr className="bg-slate-950">
-                    <td colSpan="3" className="p-3 text-right uppercase text-yellow-400">All-Time Cumulative Lock-Up Total:</td>
-                    <td className="p-3 text-center text-lg text-yellow-400 font-mono">
-                      {allTimeLockupTotal}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-
           <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (typeof setSidebarOpen === 'function') setSidebarOpen(!expanded); }}>
             <div className="overflow-x-hidden overflow-y-auto w-full max-h-[70vh] custom-scrollbar">
               <table className="w-full divide-y divide-gray-200 table-fixed">
@@ -1093,6 +1074,145 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
             </div>
           </ExpandableTableCard>
         </div>
+      </div>
+
+      {/* ========================================================= */}
+      {/* NEW BOTTOM SECTION: SUMMARIES & MATRICES                  */}
+      {/* ========================================================= */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-8 animate-in fade-in duration-300">
+        
+        {/* 🟢 GENERAL CRIME SUMMARY WITH DURATION FILTER */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+          <div className="bg-slate-900 px-4 py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <h3 className="text-xs font-extrabold text-white tracking-wider uppercase">
+              General Crime Summary (Excluding Lock-Ups)
+            </h3>
+            
+            {/* Time Duration Filter */}
+            <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700 overflow-x-auto w-full sm:w-auto">
+              {['TODAY', 'WEEK', 'MONTH', 'YEAR', 'ALL'].map(period => (
+                <button
+                  key={period}
+                  onClick={() => setSummaryTimeFilter(period)}
+                  className={`flex-1 sm:flex-none px-3 py-1 text-[10px] font-bold rounded shadow-sm transition-colors ${summaryTimeFilter === period ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
+                >
+                  {period}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          <div className="overflow-y-auto max-h-96 custom-scrollbar">
+            <table className="w-full text-left">
+              <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 shadow-sm z-10">
+                <tr>
+                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase">S/N</th>
+                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase">Offence / Incident</th>
+                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase text-center">Number of Cases</th>
+                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase text-center">Suspects in Custody</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {generalCrimes.length > 0 ? (
+                  generalCrimes.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-3 text-xs font-bold text-slate-400">{idx + 1}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-slate-800 uppercase">{item.offence}</td>
+                      <td className="px-4 py-3 text-xs font-black text-blue-600 text-center">{item.cases}</td>
+                      <td className="px-4 py-3 text-xs font-black text-slate-600 text-center">{item.suspects}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="4" className="px-4 py-8 text-center text-xs text-slate-500 font-bold">
+                      No crimes recorded for the selected duration ({summaryTimeFilter}).
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot className="bg-emerald-800 sticky bottom-0">
+                <tr>
+                  <td colSpan="2" className="px-4 py-3 text-right text-xs font-black text-white uppercase tracking-wider">Crime Grand Total:</td>
+                  <td className="px-4 py-3 text-center text-sm font-black text-white">{crimeGrandTotal}</td>
+                  <td className="px-4 py-3 text-center text-sm font-black text-white">{suspectGrandTotal}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        {/* 🟢 INDEPENDENT DAILY SUSPECT LOCK-UP MATRIX WITH VARIATION */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+          <div className="bg-amber-800 px-4 py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <h3 className="text-xs font-extrabold text-white tracking-wider uppercase flex items-center">
+              <Filter className="w-3 h-3 mr-2" />
+              Independent Daily Suspect Lock-Up Matrix
+            </h3>
+            <span className="text-[10px] font-bold text-amber-200 bg-amber-900 px-2 py-1 rounded">Daily & Cumulative Custody Records</span>
+          </div>
+          
+          <div className="overflow-y-auto max-h-96 custom-scrollbar">
+            <table className="w-full text-left">
+              <thead className="bg-amber-50 sticky top-0 border-b border-amber-200 shadow-sm z-10">
+                <tr>
+                  <th className="px-4 py-2 text-[10px] font-extrabold text-amber-900 uppercase">S/N</th>
+                  <th className="px-4 py-2 text-[10px] font-extrabold text-amber-900 uppercase">Date (Day Record)</th>
+                  <th className="px-4 py-2 text-[10px] font-extrabold text-amber-900 uppercase">Station / Origin</th>
+                  <th className="px-4 py-2 text-[10px] font-extrabold text-amber-900 uppercase text-center">Daily Count</th>
+                  <th className="px-4 py-2 text-[10px] font-extrabold text-amber-900 uppercase text-center">Daily Net Variation</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-amber-100">
+                {lockupEntries.length > 0 ? (
+                  lockupEntries.map((row, idx) => (
+                    <tr key={idx} className="hover:bg-amber-50/50 transition-colors">
+                      <td className="px-4 py-3 text-xs font-bold text-slate-400">{idx + 1}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-slate-800">{row.date}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-slate-600 uppercase">{row.station}</td>
+                      <td className="px-4 py-3 text-sm font-black text-amber-700 text-center">{row.suspects}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-center">
+                        {!row.hasPrev ? (
+                          <span className="text-slate-400 flex items-center justify-center"><Minus className="w-3 h-3 mr-1"/> Base</span>
+                        ) : row.variation > 0 ? (
+                          <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100 flex items-center justify-center max-w-max mx-auto">
+                            <TrendingUp className="w-3 h-3 mr-1" /> +{row.variation} Added
+                          </span>
+                        ) : row.variation < 0 ? (
+                          <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 flex items-center justify-center max-w-max mx-auto">
+                            <TrendingDown className="w-3 h-3 mr-1" /> {row.variation} Cleared
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 flex items-center justify-center max-w-max mx-auto">
+                            <Minus className="w-3 h-3 mr-1" /> No Change
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="5" className="px-4 py-8 text-center text-xs text-slate-500 font-bold">
+                      No independent lock-up records found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot className="bg-slate-900 sticky bottom-0">
+                <tr className="border-b border-slate-700">
+                  <td colSpan="3" className="px-4 py-2 text-right text-[10px] font-black text-amber-300 uppercase tracking-wider">7-Day / Filter Period Total:</td>
+                  <td className="px-4 py-2 text-center text-sm font-black text-amber-300">{lockupEntries.reduce((sum, l) => sum + Number(l.suspects || 0), 0)}</td>
+                  <td className="px-4 py-2 bg-slate-900"></td>
+                </tr>
+                <tr className="bg-slate-950">
+                  <td colSpan="3" className="px-4 py-3 text-right text-[11px] font-black text-yellow-400 uppercase tracking-wider">All-Time Cumulative Lock-Up Total:</td>
+                  <td className="px-4 py-3 text-center text-lg font-black text-yellow-400">{allTimeLockupTotal}</td>
+                  <td className="px-4 py-3 bg-slate-950"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+        
       </div>
 
       {selectedCase && (

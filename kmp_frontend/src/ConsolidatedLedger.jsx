@@ -19,6 +19,13 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose }) => {
     return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }).toUpperCase();
   };
 
+  // 🟢 Helper to identify purely administrative lock-up logs
+  const isLockupLog = (item) => {
+    return item.is_hq_general_total || 
+           (item.station || '').includes('HEADQUARTERS GENERAL TOTAL') || 
+           (item.daily_lock_up !== undefined && item.daily_lock_up !== null && Number(item.daily_lock_up) > 0);
+  };
+
   const dataMapping = useMemo(() => {
     // 1. Variables for Crime Data
     const crimeRegional = {};
@@ -46,6 +53,9 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose }) => {
 
     // --- Process Crimes ---
     (reports || []).filter(r => isWithinWeek(r.date)).forEach(r => {
+      // 🟢 Intercept and completely ignore Lock-up Administrative Logs
+      if (isLockupLog(r)) return;
+
       const reg = r.region ? r.region.toUpperCase() : 'UNSPECIFIED REGION';
       const off = r.offence ? r.offence.toUpperCase() : 'UNSPECIFIED INCIDENT';
       const suspects = parseInt(r.suspects) || 0;
