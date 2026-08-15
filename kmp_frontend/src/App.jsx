@@ -502,7 +502,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [updateSearch, setUpdateSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
-  
+    
   const [formData, setFormData] = useState({
     sn: null, region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
     date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
@@ -571,54 +571,6 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
 
   const populateUpdateForm = (statData) => setFormData({ ...statData });
 
-const handleStandalonePopSubmit = async () => {
-    if (formData.cell_population === '' || formData.cell_population === null || formData.cell_population === 0) {
-      return setNotification("Error: Please enter a valid cell population number.");
-    }
-    
-    const token = localStorage.getItem('kmp_authToken');
-    if (!token) return setNotification("Error: Security token missing.");
-    
-    setNotification("⏳ Logging Daily Cell Population...");
-    
-    // Auto-generate a bypass SD reference based on the station and timestamp
-    const popRef = `POP-${formData.station.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
-    
-    const apiPayload = {
-      sd_ref: popRef,
-      region: formData.region,
-      station: formData.station,
-      date: formData.date,
-      time: formData.time,
-      offence: 'Other', 
-      narrative: `Daily Lock-up / Detention Cell Population Log. Total suspects currently in custody at ${formData.station} is ${formData.cell_population}.`,
-      status: 'CLOSED / CONVICTED', // Set to closed so it doesn't inflate your active cases metric
-      suspects: 0,
-      last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
-      suspectDetails: [],
-      cell_population: formData.cell_population
-    };
-
-    try {
-        const response = await authFetch(`/api/v1/reports`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(apiPayload)
-        });
-      
-      const resData = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(resData.detail || "Database rejected the entry.");
-      
-      const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
-      setReports([newReportLocal, ...reports]);
-      setNotification(`✅ Daily Cell Population (${formData.cell_population}) logged successfully for ${formData.station}!`);
-      setFormData(prev => ({ ...prev, cell_population: 0 })); // Reset field after success
-    } catch (err) {
-      setNotification(`❌ Error: ${err.message}`);
-    }
-  };
-
-
   const handleFormSubmit = async (e) => { 
     e.preventDefault();
     const token = localStorage.getItem('kmp_authToken');
@@ -632,17 +584,28 @@ const handleStandalonePopSubmit = async () => {
       const newStat = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       
       try {
-        const response = await authFetch(`/api/v1/stats/${formData.sn}`, {
-          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord)
+        const response = await authFetch(`/api/v1/stats`, {
+          method: "POST", 
+          headers: { "Content-Type": "application/json" }, 
+          body: JSON.stringify(newStat)
         });
 
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.detail || "Neon Database rejected the entry.");
+            throw new Error(errData.detail || "Database rejected the entry.");
         }
-        setStats([newStat, ...stats]); setNotification(`Statistics recorded for ${formData.station}!`);
-        setFormData({ ...formData, arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0, sn: null });
-      } catch (err) { setNotification(`❌ Error: ${err.message}`); }
+        
+        const savedData = await response.json().catch(() => newStat);
+        setStats([savedData, ...stats]); 
+        setNotification(`Statistics recorded for ${formData.station}!`);
+        setFormData({ 
+          ...formData, 
+          arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, 
+          taken_to_court: 0, released: 0, remanded: 0, convicted: 0, sn: null 
+        });
+      } catch (err) { 
+        setNotification(`❌ Error: ${err.message}`); 
+      }
       
     } else if (operation === 'update') {
       if (!formData.sn) return setNotification("Error: Please select a record from the list to update first.");
@@ -650,13 +613,19 @@ const handleStandalonePopSubmit = async () => {
 
       try {
         const response = await fetch(`${API_URL}/api/v1/stats/${formData.sn}`, {
-          method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(updatedRecord)
+          method: "PUT", 
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
+          body: JSON.stringify(updatedRecord)
         });
         if (!response.ok) throw new Error("Failed to update record in database.");
+        
         const updatedStats = stats.map(s => s.sn === formData.sn ? updatedRecord : s);
-        setStats(updatedStats); setNotification(`Statistics SN ${formData.sn} successfully updated!`);
+        setStats(updatedStats); 
+        setNotification(`Statistics SN ${formData.sn} successfully updated!`);
         handleOperationToggle('new');
-      } catch (err) { setNotification("❌ Error: Could not update the record in the database."); }
+      } catch (err) { 
+        setNotification("❌ Error: Could not update the record in the database."); 
+      }
     }
   };
 
