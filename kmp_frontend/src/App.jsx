@@ -1635,23 +1635,29 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   const [notification, setNotification] = useState(null);
   const [selectedOfficer, setSelectedOfficer] = useState(null);
 
-  // 🟢 NEW RE-INTEGRATION STATES
+  // 🟢 STRICT INTERNAL CLEARANCES
+  const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
+                        (currentUser?.position || '').toUpperCase().includes('HR') ||
+                        currentUser?.permissions?.system_admin === true;
+
+  const canEditRecords = isCommandOrHR || currentUser?.permissions?.upload_hr === true;
+  const canViewGlobal = currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
+
   const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
   const [archiveDetails, setArchiveDetails] = useState(null);
   const [customReason, setCustomReason] = useState('');
   const [previousFnum, setPreviousFnum] = useState('');
 
-  // 🟢 BULK ARCHIVE STATES
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [selectedOfficers, setSelectedOfficers] = useState([]);
   const [bulkArchiveReason, setBulkArchiveReason] = useState('TRANSFERRED');
   const [isBulkArchiving, setIsBulkArchiving] = useState(false);
 
-  const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');  
+  const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState((isCommandOrHR || canViewGlobal) ? 'ALL STATIONS' : currentUser?.station || '');  
   const [updateSearch, setUpdateSearch] = useState('');
 
-  const [viewMode, setViewMode] = useState('active'); // 'active' | 'archive' | 'metrics'
+  const [viewMode, setViewMode] = useState('active'); // 'active' | 'archive' | 'metrics' | 'active_metrics' | 'archive_metrics'
   const [metricCategory, setMetricCategory] = useState('RANK');  
   const [archiveReason, setArchiveReason] = useState('TRANSFERRED');
 
@@ -1692,8 +1698,8 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
   };
 
-  // 🟢 SINGLE ARCHIVE HANDLER
   const handleArchivePersonnel = async () => {
+    if (!canEditRecords) return alert("Security Restriction: You do not have clearance to archive personnel.");
     const targetFnum = formData.fnum || formData.f_num; 
     
     if (!targetFnum) {
@@ -1739,8 +1745,8 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
   };
 
-  // 🟢 BULK ARCHIVE HANDLER
   const handleBulkArchive = async () => {
+    if (!canEditRecords) return alert("Security Restriction: You do not have clearance to archive personnel.");
     if (selectedOfficers.length === 0) return;
     if (!window.confirm(`Are you absolutely sure you want to archive ${selectedOfficers.length} officers with the reason: ${bulkArchiveReason}?`)) return;
 
@@ -1753,7 +1759,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     const newArchives = [];
     const archivedFnums = new Set();
 
-    // Process all concurrently
     await Promise.all(selectedOfficers.map(async (targetFnum) => {
       try {
         const response = await authFetch(`${API_URL}/api/v1/nominal-roll/${encodeURIComponent(targetFnum)}/archive`, {
@@ -1797,6 +1802,8 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
   const handleFormSubmit = async (e) => { 
     e.preventDefault();
+    if (!canEditRecords) return alert("Security Restriction: You do not have clearance to modify the Nominal Roll.");
+
     const currentRolls = Array.isArray(Nominal_Rolls) ? Nominal_Rolls : [];
     const token = localStorage.getItem('kmp_authToken');
     
@@ -1882,10 +1889,9 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
   const filteredNominal_Roll_archives = useMemo(() => {
     if (!Array.isArray(Nominal_Roll_archives)) return [];
-    const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
 
     return Nominal_Roll_archives.filter(n => {
-      if (isSuperAdmin) return true;
+      if (canViewGlobal) return true;
       const dbRegion = (n.region || '').trim().toUpperCase();
       const dbStation = (n.station || '').trim().toUpperCase();
       const selRegion = (filterRegion !== 'ALL REGIONS' ? filterRegion : currentUser.region || '').trim().toUpperCase();
@@ -1902,10 +1908,10 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       }
       return (a.name || '').localeCompare(b.name || '');
     });
-  }, [Nominal_Roll_archives, filterRegion, filterStation, currentUser]);
+  }, [Nominal_Roll_archives, filterRegion, filterStation, currentUser, canViewGlobal]);
 
   const currentRollDataset = useMemo(() => {
-    return viewMode === 'archive' ? filteredNominal_Roll_archives : filteredRolls;
+    return viewMode.includes('archive') ? filteredNominal_Roll_archives : filteredRolls;
   }, [viewMode, filteredRolls, filteredNominal_Roll_archives]);
 
   const availableUpdateRolls = useMemo(() => {
@@ -1923,7 +1929,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   }, [Nominal_Rolls, currentUser, updateSearch]);
 
   const calculatedMetrics = useMemo(() => {
-      if (viewMode !== 'metrics') return [];
+      if (!viewMode.includes('metrics')) return [];
       const grouped = {};
       
       currentRollDataset.forEach(n => {
@@ -2004,11 +2010,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     };
   }, [currentRollDataset]);
 
-  const canUploadHR = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role) || 
-                      (currentUser?.position || '').toUpperCase().includes('HR') ||
-                      currentUser?.permissions?.upload_hr || 
-                      currentUser?.permissions?.export_data;
-
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
       <div className="text-center mb-8 flex flex-col items-center">
@@ -2019,15 +2020,22 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
         <div className="flex flex-col md:flex-row justify-between items-center mb-4 border-b pb-2">
-          <h3 className="font-bold text-slate-800 flex items-center"><BarChart3 className="w-5 h-5 mr-2 text-blue-600"/> Personnel Metrics Dashboard ({viewMode === 'archive' ? 'Archived Records' : viewMode === 'metrics' ? 'Analytics View' : 'Active Roll'})</h3>
+          <h3 className="font-bold text-slate-800 flex items-center">
+            <BarChart3 className="w-5 h-5 mr-2 text-blue-600"/> 
+            Personnel Metrics Dashboard ({viewMode.includes('archive') ? 'Archived Records' : 'Active Roll'})
+          </h3>
           <div className="flex space-x-2 mt-2 md:mt-0">
              <button onClick={() => { setViewMode('active'); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Active Roll</button>
              <button onClick={() => { setViewMode('archive'); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'archive' ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Archived</button>
-             <button onClick={() => { setViewMode('metrics'); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'metrics' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Analytics</button>
+             
+             {/* 🟢 Separate Analytics Button */}
+             <button onClick={() => setViewMode(viewMode.includes('metrics') ? viewMode.replace('_metrics', '') : `${viewMode}_metrics`)} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode.includes('metrics') ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                {viewMode.includes('metrics') ? 'Close Analytics' : 'Analytics'}
+             </button>
           </div>
         </div>
 
-        {viewMode !== 'metrics' && (
+        {!viewMode.includes('metrics') && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
              <MetricCard title={viewMode === 'archive' ? "Total Archived" : "Total Personnel"} value={metricsData.total} colorClass={viewMode === 'archive' ? "text-red-700" : "text-blue-700"} />
              <MetricCard title="Male Officers" value={metricsData.male} colorClass="text-indigo-600" />
@@ -2038,208 +2046,206 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
         )}
       </div>
 
-<div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <>
-          <div className="lg:col-span-5 space-y-5">
-            {canUploadHR && (
-              <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3 overflow-hidden">
-                <div>
-                  <h4 className="font-bold text-gray-800 text-sm flex items-center">
-                    <Upload className="w-4 h-4 mr-2 text-blue-600 shrink-0" /> Batch Excel Import Existing Nominal Roll
-                  </h4>
-                  <p className="text-xs text-gray-500 mt-0.5">Upload your existing Nominal roll. Existing records will intelligently append missing attributes (like missing tribe, dob, etc.) without duplicating entries:</p>
-                </div>
-                
-                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-mono text-slate-700 flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">sn</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">f_num</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">rank</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">name</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">sex</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">position</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dob</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">doe</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">do_post</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">do_pro</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">contact</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">educ_level</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">ipps</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">tin</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">nin</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">home_dist</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">tribe</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">acc_no</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">bank_branch</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">station</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">district</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">region</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">section</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dir</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">status</span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm font-bold">last_updated_by</span>
-                </div>
-                <BulkNominalRollUpload onUploadSuccess={() => window.location.reload()} />
-              </div>
-            )}
-
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-                <h3 className="text-white font-semibold flex items-center"><Users className="w-5 h-5 mr-2 text-blue-400" /> ⚙️ Log Personnel</h3>
-              </div>
-              <div className="p-5 space-y-6">
-                <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                  <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
-                  <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
-                </div>
-
-                {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 min-w-[20px]" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 min-w-[20px]" />}<span className="text-sm font-medium">{notification}</span></div>}
-
-                {operation === 'update' && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                    <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Officer to Update</label>
-                    <input type="text" placeholder="Search by Force No, Name, IPPS..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
-                    <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
-                      {availableUpdateRolls.length === 0 ? <div className="p-3 text-xs text-gray-500 text-center">No personnel found.</div> : availableUpdateRolls.map(n => (
-                          <div key={n.sn || n.fnum} onClick={() => populateUpdateForm(n)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === n.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
-                            <span className={formData.sn === n.sn ? 'text-blue-200' : 'text-gray-400'}>F/NO: {n.fnum || n.f_num}</span> | <span className={formData.sn === n.sn ? 'text-white' : 'font-bold text-blue-700'}>{n.name}</span> | {n.station}
-                          </div>
-                        ))}
-                    </div>
+          <div className="lg:col-span-4 space-y-5">
+            {/* 🟢 HIDDEN FROM USERS WITHOUT EDITING CLEARANCE */}
+            {canEditRecords && (
+              <>
+                <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 space-y-2 overflow-hidden">
+                  <div>
+                    <h4 className="font-bold text-gray-800 text-sm flex items-center">
+                      <Upload className="w-4 h-4 mr-2 text-blue-600 shrink-0" /> Batch Excel Import
+                    </h4>
                   </div>
-                )}
-                
-                <form onSubmit={handleFormSubmit} className="space-y-6">
                   
-                  {operation === 'update' && (formData.sn || formData.fnum) && (
-                     <div className="bg-red-50 p-4 rounded-lg border border-red-200 space-y-3 mb-6 shadow-sm">
-                        <h4 className="text-xs font-bold text-red-700 uppercase border-b border-red-200 pb-1 flex items-center"><AlertTriangle size={14} className="mr-2"/> Archive / Remove Personnel</h4>
-                        <div className="flex space-x-2">
-                           <select value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} className="flex-1 text-sm border-red-300 rounded shadow-sm border p-2 font-bold text-red-700 outline-none focus:ring-2 focus:ring-red-400">
-                              <option value="TRANSFERRED">Transferred</option><option value="DEATH">Death</option><option value="DISMISSAL">Dismissal</option><option value="DESERTION">Desertion</option><option value="RETIREMENT">Retirement</option>
-                           </select>
-                           <button type="button" onClick={handleArchivePersonnel} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-bold text-sm shadow transition border border-red-800">Move to Archive</button>
-                        </div>
-                     </div>
-                  )}
-
-                  {operation === 'update' && (formData.sn || formData.fnum) && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing Record: {formData.fnum}</div>}
-                  
-                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
-                    <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">1. Primary Identifiers</h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">F/NO. *</label><input type="text" name="fnum" value={formData.fnum} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 uppercase" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">IPPS NO. *</label><input type="text" name="ipps" value={formData.ipps} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div className="col-span-2"><label className="block text-xs font-bold text-gray-700 mb-1">NAME *</label><input type="text" name="name" value={formData.name} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 uppercase" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">RANK *</label><input type="text" name="rank" value={formData.rank} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">SEX</label><select name="sex" value={formData.sex} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white"><option>MALE</option><option>FEMALE</option></select></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">TIN NO.</label><input type="text" name="tin" value={formData.tin} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">NIN</label><input type="text" name="nin" value={formData.nin} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    </div>
+                  <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-700 flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">sn</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">f_num</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">rank</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">name</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">sex</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">position</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dob</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">doe</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">do_post</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">do_pro</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">contact</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">educ_level</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">ipps</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">tin</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">nin</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">home_dist</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">tribe</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">acc_no</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">bank_branch</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">station</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">district</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">region</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">section</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dir</span>
+                    <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">status</span>
                   </div>
+                  <BulkNominalRollUpload onUploadSuccess={() => window.location.reload()} />
+                </div>
 
-                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
-                    <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">2. Service & Placement</h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">REGION *</label><select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}</select></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">DUTY STATION *</label><select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : (<option value={currentUser.station}>{currentUser.station}</option>)}</select></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">POSITION *</label><input type="text" name="position" value={formData.position} onChange={handleInputChange} required className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">DISTRICT</label><input type="text" name="district" value={formData.district} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">SECTION</label><input type="text" name="section" value={formData.section} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">DIR (Directorate)</label><input type="text" name="dir" value={formData.dir} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                    </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="bg-slate-900 px-4 py-2.5 border-b border-gray-200 flex justify-between items-center">
+                    <h3 className="text-white text-sm font-semibold flex items-center"><Users className="w-4 h-4 mr-2 text-blue-400" /> ⚙️ Log Personnel</h3>
                   </div>
-
-                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
-                    <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">3. Dates & Demographics</h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O.B</label><input type="date" name="dob" value={formData.dob} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O.E</label><input type="date" name="doe" value={formData.doe} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O. POST</label><input type="date" name="dopost" value={formData.dopost} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">D.O. PRO</label><input type="date" name="dopro" value={formData.dopro} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div className="col-span-2"><label className="block text-xs font-bold text-gray-700 mb-1">CONTACT</label><input type="text" name="contact" value={formData.contact} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">EDUC LEVEL</label><input type="text" name="educlevel" value={formData.educlevel} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">HOME DIST</label><input type="text" name="homedist" value={formData.homedist} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">TRIBE</label><input type="text" name="tribe" value={formData.tribe} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
+                  <div className="p-4 space-y-4">
+                    <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
+                      <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-1.5 text-xs font-bold rounded transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-3.5 h-3.5 inline mr-1" /> Register New</button>
+                      <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-1.5 text-xs font-bold rounded transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-3.5 h-3.5 inline mr-1" /> Update Existing</button>
                     </div>
-                  </div>
 
-                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
-                    <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-1">4. Financial & Status</h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">ACC. NO</label><input type="text" name="accno" value={formData.accno} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div><label className="block text-xs font-bold text-gray-700 mb-1">BANK & BRANCH</label><input type="text" name="bankbranch" value={formData.bankbranch} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2" /></div>
-                      <div className="col-span-2"><label className="block text-xs font-bold text-gray-700 mb-1">STATUS</label><select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded shadow-sm border p-2 bg-white font-bold"><option>ACTIVE</option><option>ON LEAVE</option><option>SUSPENDED</option></select></div>
-                    </div>
-                  </div>
+                    {notification && <div className={`px-3 py-2 rounded-lg flex items-center text-xs ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border border-red-200 text-red-800' : 'bg-green-50 border border-green-200 text-green-800'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-4 h-4 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-4 h-4 mr-2 text-green-500 shrink-0" />}<span className="font-medium">{notification}</span></div>}
 
-                  {operation === 'new' && isArchivedReturnee && archiveDetails && (
-                    <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg mt-4 animate-in fade-in zoom-in-95 shadow-sm">
-                      <div className="flex items-start mb-3">
-                        <AlertTriangle className="text-amber-500 w-5 h-5 mr-2 mt-0.5" />
-                        <div>
-                          <h4 className="text-sm font-bold text-amber-900">Historical Record Match</h4>
-                          <p className="text-xs text-amber-700 mt-0.5">
-                            This officer exists in the system archives as: 
-                            <span className="font-mono bg-amber-100 px-1.5 py-0.5 rounded mx-1 font-bold text-amber-900 border border-amber-200">
-                              {archiveDetails.old_rank} {archiveDetails.old_fnum}
-                            </span>
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-4 bg-white p-4 rounded-md border border-amber-100">
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1">Re-integration Authority / Reason *</label>
-                          <input
-                            type="text"
-                            required
-                            value={customReason}
-                            onChange={(e) => setCustomReason(e.target.value)}
-                            placeholder="e.g., Deployed from HR HQs back to KMP..."
-                            className="w-full text-xs p-2 border border-slate-300 rounded shadow-sm focus:ring-2 focus:ring-amber-500 outline-none"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center">
-                            Previous Force Number <span className="text-slate-400 font-normal ml-1">(If promoted to Gazetted File No.)</span>
-                          </label>
-                          <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
-                            <input
-                              type="text"
-                              value={previousFnum}
-                              onChange={(e) => setPreviousFnum(e.target.value)}
-                              placeholder="Leave blank if unchanged"
-                              className="flex-1 text-xs p-2 border border-slate-300 rounded shadow-sm focus:ring-2 focus:ring-amber-500 outline-none uppercase"
-                            />
-                            {previousFnum && (
-                              <div className="flex items-center text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-1.5 rounded border border-amber-200">
-                                {previousFnum} <ArrowRight className="w-3 h-3 mx-1"/> {formData.fnum}
+                    {operation === 'update' && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5">
+                        <label className="block text-[11px] font-bold text-blue-800 mb-1.5">🔍 Search & Select Officer to Update</label>
+                        <input type="text" placeholder="Search by Force No, Name, IPPS..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-xs p-1.5 mb-1.5 border border-blue-200 rounded outline-none focus:ring-1 focus:ring-blue-400" />
+                        <div className="max-h-32 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
+                          {availableUpdateRolls.length === 0 ? <div className="p-2 text-[11px] text-gray-500 text-center">No personnel found.</div> : availableUpdateRolls.map(n => (
+                              <div key={n.sn || n.fnum} onClick={() => populateUpdateForm(n)} className={`p-1.5 text-[11px] border-b cursor-pointer transition-colors ${formData.sn === n.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
+                                <span className={formData.sn === n.sn ? 'text-blue-200' : 'text-gray-400'}>F/NO: {n.fnum || n.f_num}</span> | <span className={formData.sn === n.sn ? 'text-white' : 'font-bold text-blue-700'}>{n.name}</span>
                               </div>
-                            )}
+                            ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    <form onSubmit={handleFormSubmit} className="space-y-3">
+                      
+                      {operation === 'update' && (formData.sn || formData.fnum) && (
+                        <div className="bg-red-50 p-3 rounded-lg border border-red-200 space-y-2 mb-4 shadow-sm">
+                          <h4 className="text-[11px] font-bold text-red-700 uppercase border-b border-red-200 pb-1 flex items-center"><AlertTriangle size={12} className="mr-1.5"/> Archive / Remove</h4>
+                          <div className="flex space-x-2">
+                              <select value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} className="flex-1 text-xs border-red-300 rounded shadow-sm border py-1.5 px-2 font-bold text-red-700 outline-none focus:ring-1 focus:ring-red-400">
+                                <option value="TRANSFERRED">Transferred</option><option value="DEATH">Death</option><option value="DISMISSAL">Dismissal</option><option value="DESERTION">Desertion</option><option value="RETIREMENT">Retirement</option>
+                              </select>
+                              <button type="button" onClick={handleArchivePersonnel} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded font-bold text-[11px] shadow transition border border-red-800">Move to Archive</button>
                           </div>
                         </div>
-                        <p className="text-[10px] text-amber-600 font-medium italic">
-                          * The historical archive record will be preserved. A new active record will be generated inheriting their original DOB, DOE, and IPPS profiles.
-                        </p>
-                      </div>
-                    </div>
-                  )}
+                      )}
 
-                  <button type="submit" className={`w-full transition-colors text-white py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center ${isArchivedReturnee ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-700 hover:bg-blue-800'}`}>
-                    {operation === 'new' 
-                      ? (isArchivedReturnee ? '⚠️ Execute Safe Re-integration' : '💾 Log Personnel Record') 
-                      : '💾 Save Updates'}
-                  </button>
-                </form>
-              </div>
-            </div>
+                      {operation === 'update' && (formData.sn || formData.fnum) && <div className="bg-slate-800 text-white text-[11px] font-bold px-2.5 py-1.5 rounded">Editing: {formData.fnum}</div>}
+                      
+                      <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-2.5">
+                        <h4 className="text-[10px] font-bold text-gray-500 uppercase border-b pb-0.5">1. Identifiers</h4>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">F/NO. *</label><input type="text" name="fnum" value={formData.fnum} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 uppercase" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">IPPS NO. *</label><input type="text" name="ipps" value={formData.ipps} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div className="col-span-2"><label className="block text-[10px] font-bold text-gray-700 mb-0.5">NAME *</label><input type="text" name="name" value={formData.name} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 uppercase" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">RANK *</label><input type="text" name="rank" value={formData.rank} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">SEX</label><select name="sex" value={formData.sex} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white"><option>MALE</option><option>FEMALE</option></select></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">TIN NO.</label><input type="text" name="tin" value={formData.tin} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">NIN</label><input type="text" name="nin" value={formData.nin} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                        </div>
+                      </div>
+
+                      <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-2.5">
+                        <h4 className="text-[10px] font-bold text-gray-500 uppercase border-b pb-0.5">2. Service & Placement</h4>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">REGION *</label><select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}</select></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DUTY STATION *</label><select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : (<option value={currentUser.station}>{currentUser.station}</option>)}</select></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">POSITION *</label><input type="text" name="position" value={formData.position} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DISTRICT</label><input type="text" name="district" value={formData.district} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">SECTION</label><input type="text" name="section" value={formData.section} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DIR (Directorate)</label><input type="text" name="dir" value={formData.dir} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                        </div>
+                      </div>
+
+                      <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-2.5">
+                        <h4 className="text-[10px] font-bold text-gray-500 uppercase border-b pb-0.5">3. Demographics</h4>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">D.O.B</label><input type="date" name="dob" value={formData.dob} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">D.O.E</label><input type="date" name="doe" value={formData.doe} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">D.O. POST</label><input type="date" name="dopost" value={formData.dopost} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">D.O. PRO</label><input type="date" name="dopro" value={formData.dopro} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div className="col-span-2"><label className="block text-[10px] font-bold text-gray-700 mb-0.5">CONTACT</label><input type="text" name="contact" value={formData.contact} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">EDUC LEVEL</label><input type="text" name="educlevel" value={formData.educlevel} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">HOME DIST</label><input type="text" name="homedist" value={formData.homedist} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">TRIBE</label><input type="text" name="tribe" value={formData.tribe} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                        </div>
+                      </div>
+
+                      <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-2.5">
+                        <h4 className="text-[10px] font-bold text-gray-500 uppercase border-b pb-0.5">4. Financial & Status</h4>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">ACC. NO</label><input type="text" name="accno" value={formData.accno} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">BANK & BRANCH</label><input type="text" name="bankbranch" value={formData.bankbranch} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div className="col-span-2"><label className="block text-[10px] font-bold text-gray-700 mb-0.5">STATUS</label><select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white font-bold"><option>ACTIVE</option><option>ON LEAVE</option><option>SUSPENDED</option></select></div>
+                        </div>
+                      </div>
+
+                      {operation === 'new' && isArchivedReturnee && archiveDetails && (
+                        <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg mt-3 animate-in fade-in zoom-in-95 shadow-sm">
+                          <div className="flex items-start mb-2">
+                            <AlertTriangle className="text-amber-500 w-4 h-4 mr-1.5 mt-0.5" />
+                            <div>
+                              <h4 className="text-xs font-bold text-amber-900">Historical Record Match</h4>
+                              <p className="text-[11px] text-amber-700 mt-0.5">
+                                Found in archives: 
+                                <span className="font-mono bg-amber-100 px-1 py-0.5 rounded mx-1 font-bold text-amber-900 border border-amber-200">
+                                  {archiveDetails.old_rank} {archiveDetails.old_fnum}
+                                </span>
+                              </p>
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-3 bg-white p-3 rounded-md border border-amber-100">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-700 mb-0.5">Re-integration Authority / Reason *</label>
+                              <input
+                                type="text"
+                                required
+                                value={customReason}
+                                onChange={(e) => setCustomReason(e.target.value)}
+                                placeholder="e.g., Deployed from HR HQs back to KMP..."
+                                className="w-full text-xs py-1.5 px-2 border border-slate-300 rounded shadow-sm focus:ring-1 focus:ring-amber-500 outline-none"
+                              />
+                            </div>
+                            
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-700 mb-0.5 flex items-center">
+                                Previous Force No. <span className="text-slate-400 font-normal ml-1">(If promoted to Gazetted File No.)</span>
+                              </label>
+                              <div className="flex flex-col sm:flex-row sm:items-center space-y-1.5 sm:space-y-0 sm:space-x-1.5">
+                                <input
+                                  type="text"
+                                  value={previousFnum}
+                                  onChange={(e) => setPreviousFnum(e.target.value)}
+                                  placeholder="Leave blank if unchanged"
+                                  className="flex-1 text-xs py-1.5 px-2 border border-slate-300 rounded shadow-sm focus:ring-1 focus:ring-amber-500 outline-none uppercase"
+                                />
+                                {previousFnum && (
+                                  <div className="flex items-center text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-1 rounded border border-amber-200">
+                                    {previousFnum} <ArrowRight className="w-2.5 h-2.5 mx-0.5"/> {formData.fnum}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <button type="submit" className={`w-full transition-colors text-white py-2.5 font-bold rounded-lg shadow text-xs uppercase flex justify-center items-center ${isArchivedReturnee ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-700 hover:bg-blue-800'}`}>
+                        {operation === 'new' 
+                          ? (isArchivedReturnee ? '⚠️ Execute Safe Re-integration' : '💾 Log Personnel Record') 
+                          : '💾 Save Updates'}
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
-          <div className="lg:col-span-7 space-y-4">
+          <div className="lg:col-span-8 space-y-4">
             
-            {/* 🟢 BULK ARCHIVE CONTROL BAR */}
-            {viewMode === 'active' && canUploadHR && (
+            {/* 🟢 BULK ARCHIVE CONTROL BAR (HIDDEN IF !canEditRecords) */}
+            {viewMode === 'active' && canEditRecords && (
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-3">
                 <button
                     onClick={() => { setBulkSelectMode(!bulkSelectMode); setSelectedOfficers([]); }}
@@ -2275,13 +2281,13 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
             )}
 
             <div className="flex flex-col sm:flex-row gap-3">
-              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobal} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                {canViewGlobal ? (
                   <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(Nominal_Rolls || []).map(n => n.region).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
                 ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
               </select>
-              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(isCommandOrHR || canViewGlobal)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                {(isCommandOrHR || canViewGlobal) ? (
                   <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(Nominal_Rolls || []).filter(n => n.region === filterRegion).map(n => n.station).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
                 ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
               </select>
@@ -2333,8 +2339,8 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0 z-10">
                       <tr>
-                        {/* 🟢 BULK SELECT CHECKBOX HEADER */}
-                        {bulkSelectMode && viewMode === 'active' && (
+                        {/* 🟢 BULK SELECT CHECKBOX HEADER (HIDDEN IF NO CLEARANCE) */}
+                        {bulkSelectMode && viewMode === 'active' && canEditRecords && (
                           <th className="px-3 py-3 text-center text-xs font-bold text-gray-500 uppercase whitespace-nowrap">
                              <input 
                                 type="checkbox" 
@@ -2385,8 +2391,10 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                       {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).map((n, index) => (
                         <tr 
                           key={n.sn || n.id || n.f_num || n.fnum} 
-                          className={`${viewMode === 'archive' ? 'bg-slate-50 opacity-80' : bulkSelectMode && selectedOfficers.includes(n.f_num || n.fnum) ? 'bg-red-50' : 'hover:bg-blue-50'} transition-colors cursor-pointer`} 
+                          className={`${viewMode === 'archive' ? 'bg-slate-50 opacity-80' : bulkSelectMode && selectedOfficers.includes(n.f_num || n.fnum) ? 'bg-red-50' : 'hover:bg-blue-50'} transition-colors ${canEditRecords ? 'cursor-pointer' : ''}`} 
                           onClick={() => {
+                             if (!canEditRecords) return; // Ignore clicks if they can't edit
+                             
                              if (bulkSelectMode && viewMode === 'active') {
                                 const target = n.f_num || n.fnum;
                                 if (selectedOfficers.includes(target)) {
@@ -2399,8 +2407,8 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                              }
                           }}
                         >
-                          {/* 🟢 BULK SELECT CHECKBOX ROW */}
-                          {bulkSelectMode && viewMode === 'active' && (
+                          {/* 🟢 BULK SELECT CHECKBOX ROW (HIDDEN IF NO CLEARANCE) */}
+                          {bulkSelectMode && viewMode === 'active' && canEditRecords && (
                              <td className="px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
                                 <input 
                                    type="checkbox" 
@@ -2469,6 +2477,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     </div>
   );
 };
+
 
 const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -3298,365 +3307,6 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
 };
 
 // ====================================================================
-// --- LOGIN SCREEN COMPONENT ---
-// ====================================================================
-const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUsers = [] }) => {
-  const [mode, setMode] = useState('login');
-  const [fnum, setfnum] = useState('');
-  const [password, setPassword] = useState('');
-  const [authMessage, setAuthMessage] = useState(null);
-  
-  const [signupData, setSignupData] = useState({
-    fnum: '', ipps: '', name: '', rank: '', sex: 'MALE', region: 'KMP NORTH', station: 'KAWEMPE', position: '', email: '', phone: '', password: '', profile_photo_path: ''
-  });
-  const [photoFile, setPhotoFile] = useState(null);
-
-  const availablePositions = [
-    ...POSITIONS.ADMIN, ...POSITIONS.RPC, `${signupData.region} Commander`, `Divisional Commander ${signupData.station}`, `CID Officer ${signupData.station}`, `Data Officer ${signupData.station}`, `Data Assistant Officer ${signupData.station}`
-  ];
-
-  const [attempts, setAttempts] = useState(0);
-  const [lockoutEnd, setLockoutEnd] = useState(null);
-  const [timeLeft, setTimeLeft] = useState(0);
-
-  // 🟢 LOGIN SCREEN IDLE CURTAIN STATE
-  const [isLoginIdle, setIsLoginIdle] = useState(false);
-  const idleTimerRef = useRef(null);
-
-  useEffect(() => {
-    const IDLE_TIME = 30000; // 30 seconds of idle time
-
-    const resetIdle = () => {
-      setIsLoginIdle(false);
-      clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = setTimeout(() => {
-        setIsLoginIdle(true);
-      }, IDLE_TIME);
-    };
-
-    resetIdle();
-
-    const events = ['mousemove', 'keydown', 'keyup', 'input', 'click', 'scroll', 'touchstart'];
-    events.forEach(event => window.addEventListener(event, resetIdle, true));
-
-    return () => {
-      clearTimeout(idleTimerRef.current);
-      events.forEach(event => window.removeEventListener(event, resetIdle, true));
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!lockoutEnd) return;
-    const interval = setInterval(() => {
-      const remaining = Math.ceil((lockoutEnd - Date.now()) / 1000);
-      if (remaining <= 0) { setLockoutEnd(null); setAttempts(0); setTimeLeft(0); } else { setTimeLeft(remaining); }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [lockoutEnd]);
-
-  const handleSignupChange = (e) => {
-    const { name, value } = e.target;
-    if (name === 'region') setSignupData({ ...signupData, region: value, station: REGIONAL_HIERARCHY[value][0], position: '' });
-    else if (name === 'station') setSignupData({ ...signupData, station: value, position: '' });
-    else setSignupData({ ...signupData, [name]: value });
-  };
-
-  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-
-  const handlePhotoUpload = async (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setAuthMessage("⏳ Uploading photo...");
-      const uploadData = new FormData(); uploadData.append("file", file); uploadData.append("fnum", signupData.fnum || "NEW_USER"); uploadData.append("category", "user_profile");
-      try {
-        const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, { method: "POST", body: uploadData });
-        if (!response.ok) throw new Error("Upload failed on server.");
-        const data = await response.json();
-        setSignupData(prev => ({ ...prev, profile_photo_path: data.full_s3_url || data.cloud_storage_path }));
-        setAuthMessage("✅ Photo uploaded securely!"); setTimeout(() => setAuthMessage(null), 3000);
-      } catch (error) {
-        setSignupData(prev => ({ ...prev, profile_photo_path: URL.createObjectURL(file) })); setPhotoFile(file);
-        setAuthMessage("⚠️ Network error: Using local preview. Photo will upload on submit.");
-      }
-    }
-  };
-
-  const handleSignupSubmit = async (e) => {
-    e.preventDefault();
-    if (!signupData.profile_photo_path) return setAuthMessage("⚠️ Error: Profile photo upload is mandatory.");
-    if (!/^\d{10}$/.test(signupData.phone)) return setAuthMessage("⚠️ Error: Contact number must be exactly 10 digits.");
-
-    setAuthMessage("⏳ Submitting authorization request...");
-    try {
-      const formData = new FormData();
-      Object.keys(signupData).forEach(key => formData.append(key, signupData[key]));
-      
-      let derivedRole = 'USER';
-      if (signupData.position === 'System Manager') derivedRole = 'SUPER_ADMIN';
-      else if (POSITIONS.ADMIN.includes(signupData.position) || signupData.position.includes('Divisional Commander') || signupData.station === 'KMP HEADQUARTERS' || signupData.station === 'KMP Headquarters' || signupData.region === 'POLICE HEADQUARTERS') derivedRole = 'ADMIN';
-      else if (POSITIONS.RPC.includes(signupData.position) || signupData.position.includes(`${signupData.region} Commander`)) derivedRole = 'RPC';
-      
-      formData.set("role", derivedRole);
-      if (photoFile && signupData.profile_photo_path.startsWith('blob:')) formData.set("file", photoFile);
-
-      const response = await fetch(`${API_URL}/api/v1/auth/signup`, { method: 'POST', body: formData });
-      const data = await response.json();
-
-      if (response.ok) {
-        setAuthMessage("✅ Account Request Submitted! Awaiting Admin Approval.");
-        if (onSignup) onSignup({ ...signupData, role: derivedRole });
-        setTimeout(() => setMode('login'), 2000);
-      } else { setAuthMessage(`❌ Registration Failed: ${data.detail || "Server error"}`); }
-    } catch (error) { setAuthMessage("❌ Connection error. Could not reach server."); }
-  };
-
-  const handleLoginSubmit = async (e) => { 
-    e.preventDefault();
-    if (lockoutEnd) return;
-
-    if (mode === 'login') {
-      try {
-        const formData = new URLSearchParams(); formData.append('username', fnum.trim()); formData.append('password', password.trim());
-        const response = await fetch(`${API_URL}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData });
-        const data = await response.json();
-
-        if (response.ok) {
-          localStorage.setItem('kmp_authToken', data.access_token);
-          onLogin({ 
-              fnum: data.fnum || 'A/2408', rank: data.rank || 'AIP', name: data.name || 'Afedra Vincent', sex: data.sex || 'MALE', ipps: data.ipps || '950010',
-              region: data.region || 'KMP HEADQUARTERS', division: data.division || 'KMP HEADQUARTERS', station: data.station || 'KMP HEADQUARTERS',
-              position: data.position || 'System Manager', email: data.email || 'afedravnct@gmail.com', phone: data.phone || '0779302872', role: data.role || 'SUPER_ADMIN',
-              permissions: data.permissions || {}, profile_photo_path: data.profile_photo_path || ''
-          });
-        } else {
-          setPassword(''); setAuthMessage(data.detail || "Incorrect Force Number or password");
-          const newAttempts = attempts + 1; setAttempts(newAttempts);
-          if (newAttempts >= 3) setLockoutEnd(Date.now() + 30000);
-        }
-      } catch (err) { setPassword(''); setAuthMessage("Network error. Could not connect to the server."); }
-    } else if (mode === 'forgot') {
-      try {
-        const formData = new URLSearchParams(); formData.append('fnum', fnum.trim());
-        const response = await fetch(`${API_URL}/api/v1/auth/request-reset`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData });
-        const data = await response.json();
-        if (response.ok) { setMode('login'); setfnum(''); setAuthMessage("✅ " + (data.message || "Account recovery requested.")); } 
-        else { setAuthMessage(`❌ ${data.detail || "Failed to submit request."}`); }
-      } catch (err) { setAuthMessage("❌ Network error. Could not connect to the server."); }
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative overflow-hidden">
-      
-      {/* 🟢 THE FULL-SCREEN LOGIN CURTAIN */}
-      <div 
-        className={`security-curtain-overlay fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center transition-opacity duration-700 ease-in-out ${
-          isLoginIdle ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-      >
-        <div className="absolute top-0 w-full h-2 bg-[#000000]"></div>
-        <div className="absolute top-2 w-full h-2 bg-[#facc15]"></div>
-        <div className="absolute top-4 w-full h-2 bg-[#dc2626]"></div>
-
-        <div 
-          className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-cover pointer-events-none" 
-          style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}
-        ></div>
-
-        <div className="relative z-10 flex flex-col items-center text-center p-6 max-w-3xl">
-          <div className="upf-css-globe mb-6 border border-slate-600/50"></div>
-          
-          <div className="curtain-title-container">
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-center text-white tracking-widest uppercase drop-shadow-lg flex justify-center flex-wrap leading-relaxed">
-              {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM".split("").map((char, index) => {
-                const delay = Math.pow(index, 1.2) * 0.025; 
-                return (
-                  <span
-                    key={index}
-                    className="animate-sweep-letter"
-                    style={{ 
-                      animationDelay: `${delay}s`,
-                      whiteSpace: "pre" 
-                    }}
-                  >
-                    {char === " " ? "\u00A0" : char}
-                  </span>
-                );
-              })}
-            </h2>
-          </div>
-
-          <div className="mt-6 inline-flex items-center space-x-2 bg-slate-900/90 px-5 py-2.5 rounded-full border border-cyan-500/30 shadow-xl backdrop-blur-md">
-            <Lock size={16} className="text-yellow-400 animate-bounce" />
-            <span className="text-xs sm:text-sm font-bold text-blue-200 tracking-wider">
-              KMP TRACKER SYSTEM - KMPCSDMS160626 • IDLE STANDBY MODE
-            </span>
-            <Globe size={18} className="text-cyan-400 animate-spin-globe" />
-          </div>
-
-          <p className="text-xs text-slate-400 mt-4 font-medium tracking-wide">
-            Move your mouse, click, or press any key to return to the login interface.
-          </p>
-        </div>
-
-        <div className="absolute bottom-4 w-full h-2 bg-[#dc2626]"></div> 
-        <div className="absolute bottom-2 w-full h-2 bg-[#facc15]"></div> 
-        <div className="absolute bottom-0 w-full h-2 bg-[#000000]"></div> 
-      </div>
-
-      <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
-        
-        <div className="bg-slate-900 p-6 text-center relative">
-          <img 
-            src="/upf_badge.png" 
-            alt="UPF Logo" 
-            className="w-24 h-24 mx-auto mb-4 object-contain contrast-200 brightness-75 drop-shadow-sm" 
-            onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} 
-          />
-          <h1 className="text-2xl font-extrabold text-white tracking-wide">Uganda Police Force</h1>
-          <h2 className="text-lg font-bold text-blue-400 mt-1">Kampala Metropolitan Police Headquarters</h2>
-          <h3 className="text-sm font-medium text-slate-400 mt-2 uppercase tracking-widest">Centralised Security Data Management System Access Portal</h3>
-        </div>
-        
-        <div className="p-6">
-          {lockoutEnd ? (
-            <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-center">
-              <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-red-500"/>
-              <h3 className="font-bold text-lg">Too Many Attempts</h3>
-              <p className="text-sm mt-1">Account locked for security purposes. Please wait <span className="font-bold">{timeLeft} seconds</span> before trying again.</p>
-            </div>
-          ) : (
-            <>
-              {authMessage && (
-                <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${authMessage.includes('Error') || authMessage.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
-                 <span className="text-sm font-medium">{typeof authMessage === 'string' ? authMessage : JSON.stringify(authMessage)}</span>
-                </div>
-              )}
-              
-              {mode === 'signup' ? (
-                <form onSubmit={handleSignupSubmit} className="space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
-                  <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">Request Access Authorization</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">File/Force Number *</label>
-                      <input type="text" name="fnum" required value={signupData.fnum} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm" placeholder="e.g. A/2408"/>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">IPPS Number *</label>
-                      <input type="text" name="ipps" required maxLength="6" value={signupData.ipps} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="123456"/>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
-                      <input type="text" name="name" required value={signupData.name} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Rank *</label>
-                      <input type="text" name="rank" required value={signupData.rank} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. AIP"/>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Region *</label>
-                      <select name="region" value={signupData.region} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
-                        {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                      <select name="station" value={signupData.station} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
-                        {REGIONAL_HIERARCHY[signupData.region]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label>
-                    <select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
-                      <option value="">-- Select Official Title --</option>
-                      {availablePositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Email *</label>
-                      <input type="email" name="email" required value={signupData.email} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Telephone *</label>
-                      <input type="tel" name="phone" required maxLength="10" pattern="\d{10}" value={signupData.phone} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. 0772123456" />
-                    </div>
-                  </div>
-                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                    <label className="block text-xs font-bold text-gray-700 mb-2">Officer Identification Photo (Mandatory) *</label>
-                    <div className="flex items-center space-x-4">
-                      {signupData.profile_photo_path ? (
-                        <img src={signupData.profile_photo_path} alt="Preview" className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm" />
-                      ) : (
-                        <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300"><Camera size={24} /></div>
-                      )}
-                      <div className="flex-1">
-                        <input type="file" accept="image/*" required onChange={handlePhotoUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
-                        <p className="text-xs text-gray-400 mt-1">Directly uploads to secure storage</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Create Password *</label>
-                    <input type="password" name="password" required value={signupData.password} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
-                  </div>
-                  <div className="pt-4 flex flex-col space-y-3">
-                    <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 rounded-lg transition-colors text-sm">Submit Registration Request</button>
-                    <button type="button" onClick={() => setMode('login')} className="text-sm text-blue-600 hover:underline font-medium">Cancel and return to Login</button>
-                  </div>
-                </form>
-              ) : (
-                <form onSubmit={handleLoginSubmit} className="space-y-4">
-                  {attempts > 0 && mode === 'login' && (
-                    <div className="text-xs text-red-600 font-bold bg-red-50 p-2 rounded text-center">
-                      Invalid credentials. Attempts remaining: {3 - attempts}
-                    </div>
-                  )}
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Force Number</label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"/>
-                      <input type="text" required value={fnum} onChange={(e) => setfnum(e.target.value)} className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none uppercase" placeholder="e.g. A/2408 or 63034"/>
-                    </div>
-                  </div>
-                  {mode === 'login' && (
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1">Security Key (Password)</label>
-                      <div className="relative">
-                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"/>
-                        <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="••••••••"/>
-                      </div>
-                    </div>
-                  )}
-                  <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg transition-colors">
-                    {mode === 'login' ? 'Authorize Access' : 'Request Password Reset'}
-                  </button>
-                  <div className="text-center mt-4 flex justify-between px-4">
-                    <button type="button" onClick={() => {setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0);}} className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium">
-                      {mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}
-                    </button>
-                    {mode === 'login' && (
-                      <button type="button" onClick={() => setMode('signup')} className="text-sm text-blue-600 font-bold hover:underline">
-                        Sign Up (Request Access)
-                      </button>
-                    )}
-                  </div>
-                </form>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-      <p className="text-xs text-gray-400 mt-6 flex items-center relative z-10">
-        <Lock className="w-3 h-3 mr-1"/> Protected by Central Command Security Protocols
-      </p>
-    </div>
-  );
-};
-
-
-// ====================================================================
 // --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN & SESSION TIMEOUT COMPONENT ---
 // ====================================================================
 const WorkspaceSecurityCurtain = () => {
@@ -3885,8 +3535,6 @@ const DashboardLayout = ({
   const [newForcePassword, setNewForcePassword] = useState('');
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isAnimating, setIsAnimating] = useState(true);
-  
-  // 🟢 State for expanding the motion button on hover or click
   const [isMotionExpanded, setIsMotionExpanded] = useState(false);
 
   const [lastViewedId, setLastViewedId] = useState(() => {
@@ -3894,19 +3542,14 @@ const DashboardLayout = ({
     return saved ? JSON.parse(saved) : 0;
   });
 
-  // 🟢 LIVE DATABASE HEARTBEAT & ONLINE ROSTER SYNC
   const [realOnlineUsers, setRealOnlineUsers] = useState([]);
 
-  // 🟢 NEW: Listen for 401 Unauthorized events from the backend to trigger the Modal
   useEffect(() => {
-    const handleAuthExpired = () => {
-      setIsTimedOut(true); // Forces the red timeout modal to drop immediately
-    };
+    const handleAuthExpired = () => setIsTimedOut(true);
     window.addEventListener('auth-expired', handleAuthExpired);
     return () => window.removeEventListener('auth-expired', handleAuthExpired);
   }, []);
 
-  // 🟢 LIVE DATABASE HEARTBEAT & ONLINE ROSTER SYNC
   useEffect(() => {
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
@@ -3920,13 +3563,11 @@ const DashboardLayout = ({
           headers: { 'Authorization': `Bearer ${currentToken}` }
         });
 
-        // 🟢 If the backend rejects the token, fire the expiration event
         if (hb.status === 401) {
           window.dispatchEvent(new Event('auth-expired'));
           return;
         }
 
-        // 🟢 COOPERATION: Catch the fresh token from the backend and silently update storage
         if (hb.ok) {
           const hbData = await hb.json();
           if (hbData.new_token) {
@@ -3934,7 +3575,6 @@ const DashboardLayout = ({
           }
         }
 
-        // 🟢 Always grab the freshest token for subsequent requests
         const freshToken = localStorage.getItem('kmp_authToken');
         const response = await fetch(`${API_URL}/api/v1/users/online`, {
           headers: { 'Authorization': `Bearer ${freshToken}` }
@@ -3949,20 +3589,18 @@ const DashboardLayout = ({
     };
 
     syncHeartbeat();
-    // Ping every 4 minutes (240,000ms) to reduce server load but easily keep the 30-min token alive
     const heartbeatInterval = setInterval(syncHeartbeat, 240000);
     return () => clearInterval(heartbeatInterval);
   }, []);
 
-  // 🟢 REFINED IDLE TIMER & PERSISTENT DIALOGUE LOCK
   const [showIdleWarning, setShowIdleWarning] = useState(false);
   const [idleCountdown, setIdleCountdown] = useState(60);
   const [isTimedOut, setIsTimedOut] = useState(false);
   
   const isWarningActive = useRef(false);
   const resetIdleTimersRef = useRef(null);
-  
   const latestOnLogout = useRef(onLogout);
+
   useEffect(() => {
     latestOnLogout.current = onLogout;
   }, [onLogout]);
@@ -3994,6 +3632,7 @@ const DashboardLayout = ({
           setIdleCountdown(prev => {
             if (prev <= 1) {
               clearInterval(countdownInterval);
+              setIsTimedOut(true);
               return 0;
             }
             return prev - 1;
@@ -4012,7 +3651,6 @@ const DashboardLayout = ({
 
     const handleUserActivity = () => {
       if (isWarningActive.current || isTimedOut) return;
-      
       if (!activityThrottle) {
          activityThrottle = setTimeout(() => {
             startTimers();
@@ -4022,10 +3660,7 @@ const DashboardLayout = ({
     };
 
     const events = ['mousemove', 'keydown', 'keyup', 'input', 'mousedown', 'scroll', 'touchstart', 'click'];
-    events.forEach(event => {
-      window.addEventListener(event, handleUserActivity, true);
-    });
-
+    events.forEach(event => window.addEventListener(event, handleUserActivity, true));
     startTimers();
 
     return () => {
@@ -4033,9 +3668,7 @@ const DashboardLayout = ({
       clearTimeout(logoutTimer);
       clearInterval(countdownInterval);
       clearTimeout(activityThrottle);
-      events.forEach(event => {
-        window.removeEventListener(event, handleUserActivity, true);
-      });
+      events.forEach(event => window.removeEventListener(event, handleUserActivity, true));
     };
   }, [isTimedOut]);
 
@@ -4043,15 +3676,13 @@ const DashboardLayout = ({
 
   useEffect(() => {
     if (!currentUser?.fnum || !currentPage) return;
-    
     if (lastLoggedPage.current === currentPage) return;
+    
     lastLoggedPage.current = currentPage;
-
     const token = localStorage.getItem('kmp_authToken');
     if (!token) return;
 
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-    
     fetch(`${API_URL}/api/v1/activity-logs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -4061,9 +3692,7 @@ const DashboardLayout = ({
         module: currentPage, 
         details: `User accessed ${currentPage}` 
       })
-    })
-    .then(res => res.json())
-    .catch(err => console.error("Activity log error:", err));
+    }).catch(err => console.error("Activity log error:", err));
 
   }, [currentPage, currentUser?.fnum]);
 
@@ -4087,7 +3716,6 @@ const DashboardLayout = ({
                               currentUser?.permissions?.view_nominal_roll || 
                               currentUser?.permissions?.upload_hr || 
                               currentUser?.permissions?.system_admin;
-
 
   const navItems = [
     { 
@@ -4115,28 +3743,21 @@ const DashboardLayout = ({
     try {
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const token = localStorage.getItem('kmp_authToken');
-      
-      const response = await fetch(`${API_URL}/api/v1/audit-logs`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
+      const response = await fetch(`${API_URL}/api/v1/audit-logs`, { headers: { 'Authorization': `Bearer ${token}` } });
       if (!response.ok) throw new Error("Security Clearance Denied");
 
       const logs = await response.json();
       const headers = ["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"];
       
-      const csvRows = logs.map(log => {
-        const safeDetails = log.details ? log.details.replace(/"/g, '""') : "";
-        return [
+      const csvRows = logs.map(log => [
           log.id, 
           log.event_type || "N/A", 
           log.target_user || "N/A",
           log.status || "N/A",
-          `"${safeDetails}"`, 
+          `"${(log.details || "").replace(/"/g, '""')}"`, 
           log.created_at || "Unknown Time",
           log.user_fnum || "SYSTEM"
-        ];
-      });
+      ]);
 
       const csvContent = [headers, ...csvRows].map(e => e.join(",")).join("\n");
       const blob = new Blob(['\uFEFF', csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -4159,51 +3780,25 @@ const DashboardLayout = ({
     }
   };
 
-  const isCommandLevel = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || 
-                         currentUser?.permissions?.system_admin || 
-                         ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'STAFF OFFICER ADMIN', 'SO ADMIN'].some(title => (currentUser?.position || '').toUpperCase().includes(title));
-                         
-  const isSystemRosterCleared = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster;
-
-  // 🟢 ENCLOSE ENTIRE RENDER IN A REACT FRAGMENT `<>`
   return (
     <>
       <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
         
+        {/* 🟢 SIDEBAR */}
         <div className={`transition-all duration-300 flex flex-col bg-slate-900 border-r border-slate-700 flex-shrink-0 overflow-hidden ${
           isFullScreen 
             ? 'hidden w-0' 
-            : (sidebarOpen ? 'w-64 md:w-72' : 'w-16')
+            : (sidebarOpen ? 'w-72 md:w-80' : 'w-16')
         }`}>
-          
-          {/* 🟢 MOBILE-FRIENDLY SIDEBAR HEADER & CLOSE BUTTON */}
           <div className={`p-5 flex items-center border-b border-slate-700 bg-slate-900 sticky top-0 z-50 transition-all ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
             {sidebarOpen && (
               <div className="flex items-center min-w-max">
-                <div 
-                  className="rounded-full bg-cover bg-repeat-x shrink-0 mr-2 border border-slate-700/50"
-                  style={{ 
-                    width: '20px', 
-                    height: '20px', 
-                    backgroundImage: "url('/UPF Flag Emblem.png')",
-                    animation: "spinFauxGlobe 28s linear infinite",
-                    boxShadow: "inset -3px -3px 5px rgba(0, 0, 0, 0.8), inset 1px 1px 2px rgba(255, 255, 255, 0.5), 0 0 3px rgba(255, 255, 255, 0.2)"
-                  }}
-                ></div>
+                <div className="rounded-full bg-cover bg-repeat-x shrink-0 mr-2 border border-slate-700/50" style={{ width: '20px', height: '20px', backgroundImage: "url('/UPF Flag Emblem.png')", animation: "spinFauxGlobe 28s linear infinite", boxShadow: "inset -3px -3px 5px rgba(0, 0, 0, 0.8), inset 1px 1px 2px rgba(255, 255, 255, 0.5), 0 0 3px rgba(255, 255, 255, 0.2)" }}></div>
                 <span className="font-bold text-[10px] tracking-wider text-white">KMP TRACKER SYSTEM</span>
               </div>
             )}
-            
-            <button 
-              onClick={() => setSidebarOpen(!sidebarOpen)} 
-              className="p-2.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded-lg text-slate-100 transition-colors shrink-0 shadow-md border border-slate-600 cursor-pointer flex items-center justify-center"
-              aria-label="Toggle Sidebar"
-            >
-              {sidebarOpen ? (
-                <X size={22} className="text-yellow-400 animate-in spin-in-90 duration-200" />
-              ) : (
-                <Menu size={22} className="text-yellow-400 animate-in spin-in-[-90deg] duration-200" />
-              )}
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded-lg text-slate-100 transition-colors shrink-0 shadow-md border border-slate-600 cursor-pointer flex items-center justify-center" aria-label="Toggle Sidebar">
+              {sidebarOpen ? <X size={22} className="text-yellow-400 animate-in spin-in-90 duration-200" /> : <Menu size={22} className="text-yellow-400 animate-in spin-in-[-90deg] duration-200" />}
             </button>
           </div>
               
@@ -4222,41 +3817,33 @@ const DashboardLayout = ({
                       localStorage.setItem('last_viewed_comm_id', JSON.stringify(safeId));
                     }
                   }}
-                  className={`w-full flex items-center py-3 transition-colors text-left ${sidebarOpen ? 'px-6' : 'px-0 justify-center'} ${
-                    currentPage === item.id ? 'bg-blue-600 border-l-4 border-yellow-400 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white border-l-4 border-transparent'
-                  }`}
+                  className={`w-full flex items-center py-3 transition-colors text-left ${sidebarOpen ? 'px-6' : 'px-0 justify-center'} ${currentPage === item.id ? 'bg-blue-600 border-l-4 border-yellow-400 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white border-l-4 border-transparent'}`}
                 >
                   <div className="min-w-[24px] flex justify-center shrink-0">{item.icon}</div>
-                  
                   {sidebarOpen && (
                     <span className={`ml-3 font-medium text-sm flex items-center justify-between flex-1 min-w-max ${item.id === 'home' && hasUnreadComms ? 'text-green-200 font-extrabold animate-pulse' : ''}`}>
                       {item.name}
-                      {item.id === 'home' && hasUnreadComms && (
-                        <span className="text-[9px] bg-green-200/20 text-green-200 border border-green-200 px-1.5 py-0.5 rounded uppercase tracking-wider ml-2">New Dispatch</span>
-                      )}
+                      {item.id === 'home' && hasUnreadComms && <span className="text-[9px] bg-green-200/20 text-green-200 border border-green-200 px-1.5 py-0.5 rounded uppercase tracking-wider ml-2">New Dispatch</span>}
                     </span>
                   )}
                 </button>
               ))}
             </nav>
 
-            {sidebarOpen && isCommandLevel && (
-              <div className="px-4 space-y-3 min-w-max">
-                <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
-                  <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
-                  <button 
-                    onClick={() => setCurrentPage('approvals')} 
-                    className={`w-full text-xs py-4 rounded transition font-medium ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}
-                  >
-                    Manage Pending Users & Logs
-                  </button>
+            {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.system_admin || ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'STAFF OFFICER ADMIN', 'SO ADMIN'].some(title => (currentUser?.position || '').toUpperCase().includes(title))) && (
+              <>
+                <div className="px-4 space-y-3 min-w-max">
+                  <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
+                    <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
+                    <button onClick={() => setCurrentPage('approvals')} className={`w-full text-xs py-4 rounded transition font-medium ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}>
+                      Manage Pending Users & Logs
+                    </button>
+                  </div>
                 </div>
-
-                <div className="rounded-lg p-4 bg-slate-800 mx-4">
+                <div className="rounded-lg p-4 bg-slate-800 mx-4 mt-3">
                   <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
                     <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Online ({realOnlineUsers?.length || 0})</span>
                   </button>
-                  
                   {showOnline && (
                     <div className="mt-4 space-y-2 border-t border-slate-700 pt-4 max-h-40 overflow-y-auto custom-scrollbar pr-1">
                       {realOnlineUsers.map((user) => (
@@ -4278,17 +3865,16 @@ const DashboardLayout = ({
                     </div>
                   )}
                 </div>
-              </div>
+              </>
             )}
 
-            {sidebarOpen && isSystemRosterCleared && (
+            {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) && (
               <div className="px-4 mt-3 space-y-3 min-w-max">
                 <div className="rounded-lg p-3 bg-slate-800 border border-slate-700">
                   <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400">
                     <span className="flex items-center"><Users size={16} className="mr-2"/> 👥 System Roster</span>
                     <span className="bg-slate-900 px-2 py-0.5 rounded-full text-xs text-white border border-slate-600">{users?.length || 0}</span>
                   </button>
-                  
                   {showAllUsers && (
                    <div className="mt-3 space-y-2 border-t border-slate-700 pt-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
                       {users?.map(u => (
@@ -4297,18 +3883,14 @@ const DashboardLayout = ({
                               {u.profile_photo_path ? (
                                 <img src={u.profile_photo_path} alt="" className="w-7 h-7 rounded-full object-cover border border-slate-600 group-hover:border-blue-400" onError={(e) => { e.target.style.display='none'; }} />
                               ) : (
-                                <div className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-xs border border-slate-600 group-hover:border-blue-400 group-hover:text-blue-300">
-                                  {u.name?.charAt(0) || 'U'}
-                                </div>
+                                <div className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-xs border border-slate-600 group-hover:border-blue-400 group-hover:text-blue-300">{u.name?.charAt(0) || 'U'}</div>
                               )}
                               <div>
                                 <span className="font-bold text-white block truncate w-28">{u.name}</span>
                                 <span className="text-slate-400 font-mono text-[9px]">{u.fnum}</span>
                               </div>
                             </div>
-                            <div className="text-[9px] px-1.5 py-0.5 bg-slate-800 rounded text-slate-300 font-bold uppercase border border-slate-700 group-hover:bg-blue-900 group-hover:text-blue-100 transition-colors">
-                              {String(u.role || 'USER').replace('_ADMIN', '')}
-                            </div>
+                            <div className="text-[9px] px-1.5 py-0.5 bg-slate-800 rounded text-slate-300 font-bold uppercase border border-slate-700 group-hover:bg-blue-900 group-hover:text-blue-100 transition-colors">{String(u.role || 'USER').replace('_ADMIN', '')}</div>
                          </div>
                       ))}
                    </div>
@@ -4374,188 +3956,89 @@ const DashboardLayout = ({
 
         <main className="flex-1 overflow-y-auto bg-gray-50 w-full relative flex flex-col">
           
-          {/* 🟢 Top Right Controls (Fullscreen & Interactive Expandable Motion Play/Pause Button) */}
           <div className="absolute top-4 right-6 z-50 flex items-center space-x-2">
-            
-            {/* Expandable Motion Toggle Button */}
             <button 
               onMouseEnter={() => setIsMotionExpanded(true)}
               onMouseLeave={() => setIsMotionExpanded(false)}
-              onClick={() => {
-                setIsMotionExpanded(prev => !prev);
-                setIsAnimating(!isAnimating);
-              }}
-              className={`transition-all duration-300 ease-in-out rounded-full shadow-md flex items-center justify-center border font-bold text-xs ${
-                isMotionExpanded ? 'px-3.5 py-1.5 gap-2' : 'p-2'
-              } ${
-                isAnimating 
-                  ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-500' 
-                  : 'bg-slate-700 hover:bg-slate-800 text-slate-200 border-slate-600'
-              }`}
+              onClick={() => setIsAnimating(!isAnimating)}
+              className={`transition-all duration-300 ease-in-out rounded-full shadow-md flex items-center justify-center border font-bold text-xs ${isMotionExpanded ? 'px-3.5 py-1.5 gap-2' : 'p-2'} ${isAnimating ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-500' : 'bg-slate-700 hover:bg-slate-800 text-slate-200 border-slate-600'}`}
               title={isAnimating ? "Pause Background Motion" : "Play Background Motion"}
             >
               <span className="text-sm">{isAnimating ? '⏸' : '▶'}</span>
-              {isMotionExpanded && (
-                <span className="whitespace-nowrap animate-in fade-in duration-200 font-bold">
-                  {isAnimating ? 'Pause Motion' : 'Play Motion'}
-                </span>
-              )}
+              {isMotionExpanded && <span className="whitespace-nowrap animate-in fade-in duration-200 font-bold">{isAnimating ? 'Pause Motion' : 'Play Motion'}</span>}
             </button>
 
-            {/* Fullscreen Toggle */}
-            <button 
-              onClick={() => setIsFullScreen(!isFullScreen)}
-              className="bg-blue-400 hover:bg-blue-450 text-white px-3 py-1.5 rounded text-xs font-bold shadow-md transition-colors flex items-center gap-2 border border-blue-400"
-            >
+            <button onClick={() => setIsFullScreen(!isFullScreen)} className="bg-blue-400 hover:bg-blue-450 text-white px-3 py-1.5 rounded text-xs font-bold shadow-md transition-colors flex items-center gap-2 border border-blue-400">
               {isFullScreen ? '🗗' : '⛶'}
             </button>
           </div>
 
-          {/* Uganda Flag Diagonal Wave Watermark (Guaranteed inline play state control) */}
-          <div 
-            className="absolute inset-0 pointer-events-none z-0 uganda-flag-wave-diagonal opacity-[0.10]"
-            style={{ animationPlayState: isAnimating ? 'running' : 'paused' }}
-          ></div>
-
-          {/* UPF Badge Watermark */}
+          <div className="absolute inset-0 pointer-events-none z-0 uganda-flag-wave-diagonal opacity-[0.10]" style={{ animationPlayState: isAnimating ? 'running' : 'paused' }}></div>
           <div className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.08]">
-            <img 
-              src="/upf_badge.png" 
-              alt="watermark" 
-              className="w-1/2 max-w-2xl grayscale object-contain contrast-200 brightness-75 drop-shadow-sm" 
-              onError={(e) => { e.target.style.display = 'none'; }} 
-            />
+            <img src="/upf_badge.png" alt="watermark" className="w-1/2 max-w-2xl grayscale object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
           </div>
           
           {React.Children.map(children, child => 
             (React.isValidElement(child) && typeof child.type !== 'string') 
-              ? React.cloneElement(child, { 
-                  setSidebarOpen: setSidebarOpen 
-                }) 
+              ? React.cloneElement(child, { setSidebarOpen: setSidebarOpen }) 
               : child
           )}  
         </main>
       </div>
 
-      {/* 🟢 THESE MODALS NOW LIVE OUTSIDE THE FLEX CONTAINER BUT INSIDE THE FRAGMENT */}
       {selectedUserDetail && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in">
-          
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-y-auto max-h-[95vh] custom-scrollbar flex flex-col">
-            
             <div className="bg-slate-900 text-white p-4 flex justify-between items-center shrink-0">
-              <h3 className="font-bold flex items-center text-sm">
-                <Shield size={18} className="text-blue-400 mr-2" /> 
-                ACCESS CLEARANCE MATRIX
-              </h3>
-              <button onClick={() => setSelectedUserDetail(null)} className="text-slate-400 hover:text-white transition-colors">
-                <X size={20} />
-              </button>
+              <h3 className="font-bold flex items-center text-sm"><Shield size={18} className="text-blue-400 mr-2" /> ACCESS CLEARANCE MATRIX</h3>
+              <button onClick={() => setSelectedUserDetail(null)} className="text-slate-400 hover:text-white transition-colors"><X size={20} /></button>
             </div>
             
             <div className="p-6">
               <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-gray-100">
                 <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-2xl overflow-hidden shadow-sm border-2 border-blue-500">
                   {selectedUserDetail.profile_photo_path ? (
-                     <img 
-                       src={selectedUserDetail.profile_photo_path} 
-                       alt="Profile" 
-                       className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" 
-                       onClick={() => setViewingProfileImage(selectedUserDetail.profile_photo_path)} 
-                     />
+                     <img src={selectedUserDetail.profile_photo_path} alt="Profile" className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" onClick={() => setViewingProfileImage(selectedUserDetail.profile_photo_path)} />
                   ) : (selectedUserDetail.name?.charAt(0) || 'U')}
                 </div>
               </div>
 
               <h4 className="text-xs font-bold text-slate-800 mb-3 uppercase tracking-wider">Comprehensive Profile</h4>
               <div className="grid grid-cols-2 gap-4 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-inner">
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">IPPS Number</label>
-                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.ipps || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Official Title</label>
-                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.position || 'N/A'}</div>
-                </div>
-                <div className="col-span-2">
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Command Chain (Region / Division)</label>
-                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.region || 'N/A'} / {selectedUserDetail.division || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Email Contact</label>
-                  <div className="text-xs font-bold text-slate-800 break-words">{selectedUserDetail.email || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Phone Number</label>
-                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.phone || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Sex</label>
-                  <div className="text-xs font-bold text-slate-800">{selectedUserDetail.sex || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">System Role</label>
-                  <div className="text-xs font-extrabold text-blue-700">{selectedUserDetail.role || 'USER'}</div>
-                </div>
+                <div><label className="text-[9px] font-bold text-slate-400 uppercase">IPPS Number</label><div className="text-xs font-bold text-slate-800">{selectedUserDetail.ipps || 'N/A'}</div></div>
+                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Official Title</label><div className="text-xs font-bold text-slate-800">{selectedUserDetail.position || 'N/A'}</div></div>
+                <div className="col-span-2"><label className="text-[9px] font-bold text-slate-400 uppercase">Command Chain (Region / Division)</label><div className="text-xs font-bold text-slate-800">{selectedUserDetail.region || 'N/A'} / {selectedUserDetail.division || 'N/A'}</div></div>
+                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Email Contact</label><div className="text-xs font-bold text-slate-800 break-words">{selectedUserDetail.email || 'N/A'}</div></div>
+                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Phone Number</label><div className="text-xs font-bold text-slate-800">{selectedUserDetail.phone || 'N/A'}</div></div>
+                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Sex</label><div className="text-xs font-bold text-slate-800">{selectedUserDetail.sex || 'N/A'}</div></div>
+                <div><label className="text-[9px] font-bold text-slate-400 uppercase">System Role</label><div className="text-xs font-extrabold text-blue-700">{selectedUserDetail.role || 'USER'}</div></div>
               </div>
 
               {selectedUserDetail.isSystemUser && !selectedUserDetail.isReadOnly && (
-                currentUser?.role === 'SUPER_ADMIN' || 
-                (currentUser?.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser?.region === selectedUserDetail.region)
+                currentUser?.role === 'SUPER_ADMIN' || (currentUser?.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser?.region === selectedUserDetail.region)
               ) && (
                 <>
-                  <h4 className="font-extrabold text-sm text-gray-900 border-b pb-2 flex items-center mb-4 mt-6">
-                    <Shield size={16} className="mr-2 text-red-600"/> 
-                    Component Admin Clearances
-                  </h4>
+                  <h4 className="font-extrabold text-sm text-gray-900 border-b pb-2 flex items-center mb-4 mt-6"><Shield size={16} className="mr-2 text-red-600"/> Component Admin Clearances</h4>
                   <div className="space-y-3 bg-white p-4 rounded-lg border border-red-100 shadow-sm">
-                    
                      <label className="flex items-center space-x-3 cursor-pointer group">
                       <input type="checkbox" className="w-4 h-4 text-blue-500 rounded border-gray-300 focus:ring-blue-500" defaultChecked={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newRole = e.target.checked ? 'ADMIN' : 'USER'; onUpdateUserRole(selectedUserDetail.fnum, newRole, selectedUserDetail.permissions || {}); }} />
-                      <div className="flex-1">
-                        <div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">System Administrator</div>
-                        <div className="text-xs text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit Logs.</div>
-                      </div>
+                      <div className="flex-1"><div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">System Administrator</div><div className="text-xs text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit Logs.</div></div>
                     </label>
-
                     <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input type="checkbox" className="w-4 h-4 text-blue-500 rounded border-gray-300 focus:ring-blue-500" 
-                        checked={Boolean(selectedUserDetail.permissions?.view_nominal_roll) || String(selectedUserDetail.role || '').includes('ADMIN')} 
-                        disabled={String(selectedUserDetail.role || '').includes('ADMIN')} 
-                        onChange={(e) => { 
-                          const newPerms = { ...(selectedUserDetail.permissions || {}), view_nominal_roll: e.target.checked }; 
-                          setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); 
-                          onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); 
-                        }} 
-                      />
-                      <div className="flex-1">
-                        <div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">Nominal Roll Access</div>
-                        <div className="text-xs text-slate-500 font-medium">Grants standard users clearance to view the personnel registry.</div>
-                      </div>
+                      <input type="checkbox" className="w-4 h-4 text-blue-500 rounded border-gray-300 focus:ring-blue-500" checked={Boolean(selectedUserDetail.permissions?.view_nominal_roll) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), view_nominal_roll: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
+                      <div className="flex-1"><div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">Nominal Roll Access</div><div className="text-xs text-slate-500 font-medium">Grants standard users clearance to view the personnel registry.</div></div>
                     </label>
-
                     <label className="flex items-center space-x-3 cursor-pointer group">
                       <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500" checked={Boolean(selectedUserDetail.permissions?.consolidated) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), consolidated: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1">
-                        <div className="text-sm font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">Consolidated Ledger Access</div>
-                        <div className="text-xs text-slate-500 font-medium">Allows viewing the cross-domain master Excel overlays.</div>
-                      </div>
+                      <div className="flex-1"><div className="text-sm font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">Consolidated Ledger Access</div><div className="text-xs text-slate-500 font-medium">Allows viewing the cross-domain master Excel overlays.</div></div>
                     </label>
-
                     <label className="flex items-center space-x-3 cursor-pointer group">
                       <input type="checkbox" className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500" checked={Boolean(selectedUserDetail.permissions?.export_data) || ['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), export_data: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1">
-                        <div className="text-sm font-bold text-slate-800 group-hover:text-purple-700 transition-colors">Database Export Privilege</div>
-                        <div className="text-xs text-slate-500 font-medium">Allows downloading raw .xlsx database files to local device.</div>
-                      </div>
+                      <div className="flex-1"><div className="text-sm font-bold text-slate-800 group-hover:text-purple-700 transition-colors">Database Export Privilege</div><div className="text-xs text-slate-500 font-medium">Allows downloading raw .xlsx database files to local device.</div></div>
                     </label>
-
                     <label className="flex items-center space-x-3 cursor-pointer group">
                       <input type="checkbox" className="w-4 h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500" checked={Boolean(selectedUserDetail.permissions?.view_global_roster) || ['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)} disabled={['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), view_global_roster: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1">
-                        <div className="text-sm font-bold text-slate-800 group-hover:text-orange-700 transition-colors">Global Roster Visibility</div>
-                        <div className="text-xs text-slate-500 font-medium">Allows viewing personnel from ALL regions in the System Roster.</div>
-                      </div>
+                      <div className="flex-1"><div className="text-sm font-bold text-slate-800 group-hover:text-orange-700 transition-colors">Global Roster Visibility</div><div className="text-xs text-slate-500 font-medium">Allows viewing personnel from ALL regions in the System Roster.</div></div>
                     </label>
                   </div>
 
@@ -4593,49 +4076,340 @@ const DashboardLayout = ({
             </div>
 
             <div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center rounded-b-xl shrink-0">
-              <button 
-                onClick={() => setSelectedUserDetail(null)} 
-                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center border border-gray-300"
-              >
+              <button onClick={() => setSelectedUserDetail(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center border border-gray-300">
                 <X size={14} className="mr-1"/> Close Profile
               </button>
-              
               {selectedUserDetail.isSystemUser && (
-                currentUser?.role === 'SUPER_ADMIN' || 
-                (currentUser?.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser?.region === selectedUserDetail.region)
+                currentUser?.role === 'SUPER_ADMIN' || (currentUser?.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser?.region === selectedUserDetail.region)
               ) && (
-                <button 
-                  onClick={() => {
-                     if (window.confirm(`Are you absolutely sure you want to revoke all system access for ${selectedUserDetail.name}?`)) {
-                        onRevokeUser(selectedUserDetail.fnum);
-                        setSelectedUserDetail(null);
-                     }
-                  }} 
-                  className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm"
-                >
+                <button onClick={() => { if (window.confirm(`Are you absolutely sure you want to revoke all system access for ${selectedUserDetail.name}?`)) { onRevokeUser(selectedUserDetail.fnum); setSelectedUserDetail(null); } }} className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm">
                   Revoke Access
                 </button>
               )}
             </div>
-
           </div>
         </div>
       )}
 
       {viewingProfileImage && (
         <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingProfileImage(null)}>
-          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg">
-            <X size={24}/>
-          </button>
-          <img 
-            src={viewingProfileImage} 
-            alt="Full Profile" 
-            className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" 
-            onClick={(e) => e.stopPropagation()} 
-          />
+          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg"><X size={24}/></button>
+          <img src={viewingProfileImage} alt="Full Profile" className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
+    </>
+  );
+};
 
+const App = () => {
+  const [activeComponent, setActiveComponent] = useState('DASHBOARD');
+  const [targetCommTab, setTargetCommTab] = useState('INBOX');
+  const [commDefaultTab, setCommDefaultTab] = useState('INBOX');
+
+  const [currentUser, setCurrentUser] = usePersistentState('kmp_currentUser', null);
+  const [currentPage, setCurrentPage] = usePersistentState('kmp_currentPage', 'home');
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [targetRegion, setTargetRegion] = useState('KMP HEADQUARTERS');
+  const [targetStation, setTargetStation] = useState('KMP HEADQUARTERS');
+  const [overrideRegion, setOverrideRegion] = useState(currentUser?.region || 'KMP HEADQUARTERS');
+  const [overrideStation, setOverrideStation] = useState(currentUser?.station || 'KMP HEADQUARTERS');
+
+  const [reports, setReports] = useState([]);
+  const [stats, setStats] = useState([]);
+  const [stories, setStories] = useState([]);
+  const [establishments, setEstablishments] = useState([]);
+  const [Nominal_Rolls, setNominal_Rolls] = useState([]);
+  const [Nominal_Roll_archives, setNominal_Roll_archives] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [pendingUsers, setPendingUsers] = useState([]);
+
+  const [hrLedgerData, setHrLedgerData] = useState(null);
+  const [isViewingHR, setIsViewingHR] = useState(false);
+  const [isViewingConsolidated, setIsViewingConsolidated] = useState(false);
+  const [consolidatedData, setConsolidatedData] = useState(null);
+  const [adminCommsData, setAdminCommsData] = useState([]);  
+
+  // Regional/Station filters for Grand Totals computation
+  const [filterRegion, setFilterRegion] = useState('ALL REGIONS');
+  const [filterStation, setFilterStation] = useState('ALL STATIONS');
+
+  // 🟢 COMPUTE GRAND TOTALS MEMOIZED HOOK
+  const grandTotals = useMemo(() => {
+    return calculateGrandTotals(reports, currentUser, filterRegion, filterStation);
+  }, [reports, currentUser, filterRegion, filterStation]);
+
+  // 🟢 BACKGROUND AUTO-SYNC LISTENER
+  useEffect(() => {
+    const handleOnlineStatus = async () => {
+      if (navigator.onLine) {
+        const token = localStorage.getItem('kmp_authToken');
+        if (token) {
+          const remaining = await syncOfflineQueue(token);
+          if (remaining === 0 && getOfflineQueueCount() === 0) {
+            console.log('All offline queue records successfully synced with central database.');
+          }
+        }
+      }
+    };
+
+    window.addEventListener('online', handleOnlineStatus);
+    
+    const syncInterval = setInterval(() => {
+      if (navigator.onLine) {
+        handleOnlineStatus();
+      }
+    }, 30000); 
+
+    return () => {
+      window.removeEventListener('online', handleOnlineStatus);
+      clearInterval(syncInterval);
+    };
+  }, []);
+
+  useEffect(() => {
+    const checkClearance = () => {
+      const token = localStorage.getItem('kmp_authToken');
+      const cachedUser = localStorage.getItem('kmp_currentUser');
+      if (!token || !cachedUser) { setIsInitializing(false); return; }
+      try { setCurrentUser(JSON.parse(cachedUser)); } catch (error) { localStorage.removeItem('kmp_authToken'); localStorage.removeItem('kmp_currentUser'); }
+      setIsInitializing(false);
+    };
+    checkClearance();
+  }, [setCurrentUser]);
+
+  useEffect(() => {
+    if (!currentUser?.fnum) return; 
+    const controller = new AbortController();
+    const fetchAllData = async () => {
+      const token = localStorage.getItem('kmp_authToken');
+      if (!token) return;
+      try {
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+        const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives, resUsers] = await Promise.all([
+          authFetch(`${API_URL}/api/v1/reports`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/stats`, { signal: controller.signal }),
+          authFetch(`${API_URL}/api/v1/stories`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/nominal-roll`, { signal: controller.signal }),
+          authFetch(`${API_URL}/api/v1/Admin_Communication`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/establishments`, { signal: controller.signal }),
+          authFetch(`${API_URL}/api/v1/nominal-roll-archive`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/users`, { signal: controller.signal })
+        ]);
+
+        if (!controller.signal.aborted) {
+          if (resReports.status === 401) {
+             window.dispatchEvent(new Event('auth-expired'));
+             return;
+          }
+
+          if (!resReports.ok) {
+             const errorText = await resReports.text();
+             console.error("🚨 COMMAND BACKEND ERROR:", resReports.status, errorText);
+          } else {
+             setReports(await resReports.json());
+          }
+
+          if (resStats.ok) setStats(await resStats.json());
+          if (resStories.ok) setStories(await resStories.json());
+          if (resNom.ok) setNominal_Rolls(await resNom.json());
+          if (resComms.ok) setAdminCommsData(await resComms.json());
+          if (resEst.ok) setEstablishments(await resEst.json());
+          if (resArchives.ok) setNominal_Roll_archives(await resArchives.json());
+          
+          if (resUsers.ok) {
+            const allUsers = await resUsers.json();
+            setUsers(allUsers);
+            const me = allUsers.find(u => u.fnum === currentUser.fnum);
+            if (me && (JSON.stringify(me.permissions) !== JSON.stringify(currentUser.permissions) || me.role !== currentUser.role)) {
+                setCurrentUser(prev => ({ ...prev, permissions: me.permissions, role: me.role }));
+            }
+          }
+        }
+      } catch (error) { 
+        if (error.name !== 'AbortError') {
+          console.error("Network/Fetch Error:", error);
+        }
+      } 
+    };    
+    fetchAllData();
+    return () => controller.abort();
+  }, [currentUser?.fnum]); 
+
+  const handleMasterExport = async (scope, value) => {
+    let url = `/api/v1/reports/export?timeframe=all`; 
+    if (scope && value) url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
+    downloadWithAuth(url, `KMP_Master_Ledger_${value || "General"}_${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]}.zip`);
+  };
+
+  const handleAcknowledgeComm = async (commId) => {
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const response = await fetch(`${API_URL}/api/v1/communications/${commId}/acknowledge`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+      if (response.ok) setAdminCommsData(prevData => prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c));
+    } catch (err) { console.error("Failed to acknowledge receipt", err); }
+  };
+
+  const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'home': 
+        return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+      case 'reports': 
+        return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
+      case 'statistics': 
+        return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
+      case 'success': 
+        return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
+      case 'establishments': 
+        return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
+      case 'analytics': 
+        return (
+        <AnalyticsDashboard 
+          nominalRolls={Nominal_Rolls} 
+          crimeRegistry={reports} 
+          successStories={stories} 
+          operationalStats={stats} 
+        />
+      );
+      case 'nominal-roll': 
+        return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />;
+      case 'reports_hub': 
+        return <WordReportUpload currentUser={currentUser} />; 
+      case 'approvals': 
+        return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />; 
+      case 'profile': 
+        return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
+      case 'Admin_Communication': 
+        return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} onAcknowledgeComm={handleAcknowledgeComm} initialTab={commDefaultTab} />;
+      default: 
+        return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+    }
+  };
+
+  const handleViewHRReport = async () => {
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const res = await authFetch(`${API_URL}/api/v1/reports/establishments-json`);
+      if (!res.ok) throw new Error("Security clearance rejected or server error.");
+      const data = await res.json(); setHrLedgerData(data); setIsViewingHR(true);
+    } catch (err) { alert("Cannot load HR ledger data. Ensure your session is active and you have network connectivity."); }
+  };
+
+  const handleViewConsolidated = async () => {
+      setIsViewingHR(false);
+      const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+      const lastWeek = new Date(); lastWeek.setDate(lastWeek.getDate() - 7);
+      const start = lastWeek.toISOString().split('T')[0];
+
+      try {
+          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+          const response = await authFetch(`${API_URL}/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
+          if (!response.ok) throw new Error("Backend failed to compile ledger.");
+          const data = await response.json(); setConsolidatedData(data); setIsViewingConsolidated(true);
+      } catch (err) { alert("Failed to load Consolidated Ledger. Check Python terminal for errors."); }
+  };
+
+if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
+
+  // 🟢 1. PROPERLY CLOSED GHOST SESSION CHECK
+  if (currentUser && !currentUser.region) {
+    localStorage.removeItem('kmp_currentUser'); 
+    localStorage.removeItem('kmp_authToken');
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+        <h2 className="text-2xl font-bold text-red-600 mb-2">Ghost Session Detected</h2>
+        <p className="text-slate-600 mb-6">Corrupted local data is blocking the dashboard. Click below to wipe it.</p>
+        <button onClick={() => window.location.reload()} className="px-6 py-3 bg-blue-700 text-white font-bold rounded-lg shadow-md hover:bg-blue-800">Force Clear & Restart App</button>
+      </div>
+    );
+  }
+
+  // 🟢 2. RESTORED LOGIN SCREEN
+  if (!currentUser) return <LoginScreen 
+    onLogin={(user) => {
+      localStorage.removeItem('kmp_currentPage'); setCurrentPage('home'); setCurrentUser(user);
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      fetch(`${API_URL}/api/v1/system/log-session`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fnum: user.fnum }) }).catch(e => console.error(e));
+    }} 
+    onForgot={() => {}} onSignup={(u) => setPendingUsers([...pendingUsers, u])} pendingUsers={pendingUsers} activeUsers={users} 
+  />;
+
+  // 🟢 3. RESTORED USER MANAGEMENT HANDLERS
+  const handleGenerateHRReport = () => downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
+
+  const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
+    setUsers(users.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: newPermissions } : u));
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      await fetch(`${API_URL}/api/v1/users/${fnum}/access`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify({ role: newRole, permissions: newPermissions }) });
+    } catch (err) { console.error("Failed to save permissions to database:", err); }
+  };
+
+  const handleRevokeUser = async (fnum) => {
+    const reason = window.prompt(`Please state the official reason for revoking access for ${fnum}:`);
+    if (reason === null) return; 
+    if (reason.trim() === '') return alert("An official reason is mandatory to revoke a user's access.");
+
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      await fetch(`${API_URL}/api/v1/users/${encodeURIComponent(fnum)}/revoke?reason=${encodeURIComponent(reason)}`, {
+        method: "DELETE", headers: { "Authorization": `Bearer ${token}` }
+      });
+      setUsers(users.filter(u => u.fnum !== fnum));
+      alert(`Access revoked for ${fnum}. Reason logged in Audit Trail.`);
+    } catch (err) { console.error("Failed to revoke user:", err); }
+  };
+
+// 🟢 4. MAIN APPLICATION RETURN
+  return (
+    <>
+      <DashboardLayout 
+        currentUser={currentUser} 
+        currentPage={currentPage} 
+        setCurrentPage={handlePageChange} 
+        onLogout={() => { 
+          localStorage.removeItem('kmp_authToken'); 
+          localStorage.removeItem('kmp_currentUser'); 
+          localStorage.removeItem('kmp_currentPage'); 
+          window.location.reload(); 
+        }}
+        onUpdateUserRole={handleUpdateUserRole} 
+        onRevokeUser={handleRevokeUser} 
+        users={users} 
+        Admin_Communication={adminCommsData}
+        onViewConsolidated={handleViewConsolidated} 
+        onViewHRReport={handleViewHRReport} 
+        onGenerateHRReport={handleGenerateHRReport}
+      >
+        {isViewingConsolidated && (
+          <ConsolidatedLedger 
+            data={consolidatedData} 
+            reports={reports} 
+            stats={stats} 
+            stories={stories} 
+            onClose={() => setIsViewingConsolidated(false)} 
+          />
+        )}
+        
+        {isViewingHR && hrLedgerData && (
+          <HrEstablishmentsLedger 
+            data={hrLedgerData} 
+            onClose={() => setIsViewingHR(false)} 
+            currentUser={currentUser} 
+            onUploadSuccess={() => window.location.reload()} 
+          />
+        )}
+        
+        <div className={(isViewingConsolidated || isViewingHR) ? 'hidden' : 'block w-full h-full'}>
+          {renderPage()}
+        </div>
+      </DashboardLayout>
+
+      <WorkspaceSecurityCurtain />
     </>
   );
 };

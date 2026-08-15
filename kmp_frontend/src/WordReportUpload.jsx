@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   UploadCloud, FileText, Download, CheckCircle, AlertTriangle, 
-  Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, FilePlus, ListFilter, Server, Trash2
+  Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, Server, Trash2
 } from 'lucide-react';
 
 // 🟢 Available System Templates List
@@ -21,27 +21,22 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState(null);
   
-  // 🟢 STRICT TAB SEPARATION
-  const [mainTab, setMainTab] = useState('reports'); // 'reports' | 'templates'
+  // 🟢 UNIFIED VIEW STATES (No more separate master tabs)
   const [docCategory, setDocCategory] = useState('weekly_report'); 
-  const [ledgerViewCategory, setLedgerViewCategory] = useState('weekly_report'); 
+  const [ledgerViewCategory, setLedgerViewCategory] = useState('weekly_report'); // 'weekly_report' | 'general_doc' | 'templates'
 
   const [documents, setDocuments] = useState([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
 
-  // 🟢 TEMPLATE HUB STATES
+  // For when "Command Templates" is selected in the upload form
   const [selectedTemplateId, setSelectedTemplateId] = useState('weekly_report');
-  const [uploadingTemplate, setUploadingTemplate] = useState(false);
-  const hiddenFileInput = useRef(null);
 
   const hasDownloadClearance = ['SUPER_ADMIN', 'ADMIN', 'RPC'].includes(currentUser?.role?.toUpperCase());
 
   useEffect(() => {
-    if (mainTab === 'reports') {
-      fetchArchiveList();
-    }
-  }, [mainTab]);
+    fetchArchiveList();
+  }, []);
 
   const fetchArchiveList = async () => {
     setLoadingDocs(true);
@@ -71,21 +66,27 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (!file) return alert("Please select a report file first.");
+    if (!file) return alert("Please select a file first.");
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("doc_type", docCategory); 
     
-    if (overrideRegion) formData.append("target_region", overrideRegion);
-    if (overrideStation) formData.append("target_station", overrideStation);
+    let endpoint = "";
+
+    // 🟢 DYNAMIC ROUTING: Route to templates endpoint if replacing a template, else normal report
+    if (docCategory === 'templates') {
+      endpoint = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api/v1/templates/upload/${selectedTemplateId}`;
+    } else {
+      endpoint = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api/v1/reports/upload-word-report`;
+      formData.append("doc_type", docCategory); 
+      if (overrideRegion) formData.append("target_region", overrideRegion);
+      if (overrideStation) formData.append("target_station", overrideStation);
+    }
 
     setUploading(true);
     try {
       const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      
-      const response = await fetch(`${API_URL}/api/v1/reports/upload-word-report`, {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}` },
         body: formData
@@ -94,48 +95,14 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Upload failed.");
 
-      setFeedback({ type: 'success', message: data.message });
+      setFeedback({ type: 'success', message: data.message || "File securely uploaded!" });
       setFile(null);
       fetchArchiveList(); 
     } catch (err) {
       setFeedback({ type: 'error', message: err.message });
     } finally {
       setUploading(false);
-    }
-  };
-
-  const handleTemplateUploadClick = (templateId) => {
-    if (templateId) setSelectedTemplateId(templateId);
-    hiddenFileInput.current.click();
-  };
-
-  const handleTemplateFileChange = async (e) => {
-    const templateFile = e.target.files[0];
-    if (!templateFile) return;
-
-    setUploadingTemplate(true);
-    try {
-      const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      
-      const formData = new FormData();
-      formData.append("file", templateFile);
-      
-      const response = await fetch(`${API_URL}/api/v1/templates/upload/${selectedTemplateId}`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
-        body: formData
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Template update failed.");
-
-      alert(`Success! '${TEMPLATE_TYPES[selectedTemplateId].name}' template has been updated in the system.`);
-    } catch (err) {
-      alert(`Template Upload Error: ${err.message}`);
-    } finally {
-      setUploadingTemplate(false);
-      e.target.value = null; 
+      setTimeout(() => setFeedback(null), 5000);
     }
   };
 
@@ -204,7 +171,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
           document.body.removeChild(link);
         } else if (action === 'read') {
           const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
-          
           const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
           if (isMobile) {
             window.location.href = viewerUrl;
@@ -252,151 +218,224 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   const filteredDocuments = documents.filter(doc => {
     if (ledgerViewCategory === 'weekly_report') {
       return doc.type === 'Formatted Weekly Report';
-    } else {
+    } else if (ledgerViewCategory === 'general_doc') {
       return doc.type !== 'Formatted Weekly Report'; 
     }
+    return false;
   });
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-6 font-sans mb-8">
       
-      {/* 🟢 MASTER NAVIGATION HEADER */}
-      <div className="bg-slate-900 text-white px-6 py-4 rounded-xl shadow-md flex flex-col md:flex-row justify-between items-center gap-4">
+      {/* 🟢 HEADER */}
+      <div className="bg-slate-900 text-white px-6 py-4 rounded-xl shadow-md flex items-center">
         <div>
           <h2 className="text-lg font-extrabold uppercase tracking-wider flex items-center">
-            <FileText className="w-5 h-5 mr-2 text-blue-400" />
-            File Management & Templates
+            <Server className="w-5 h-5 mr-2 text-blue-400" />
+            Central Data Repository & Templates
           </h2>
-          <p className="text-xs text-slate-400 mt-0.5">Secure storage for reports and structural command templates.</p>
-        </div>
-        
-        <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700 w-full md:w-auto">
-          <button 
-            onClick={() => setMainTab('reports')}
-            className={`flex-1 flex justify-center items-center px-6 py-2.5 text-xs font-bold rounded-md transition-colors ${mainTab === 'reports' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-300 hover:text-white hover:bg-slate-700'}`}
-          >
-            <Server className="w-4 h-4 mr-2" /> Reports Storage
-          </button>
-          <button 
-            onClick={() => setMainTab('templates')}
-            className={`flex-1 flex justify-center items-center px-6 py-2.5 text-xs font-bold rounded-md transition-colors ${mainTab === 'templates' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-300 hover:text-white hover:bg-slate-700'}`}
-          >
-            <FolderOpen className="w-4 h-4 mr-2" /> Command Templates
-          </button>
+          <p className="text-xs text-slate-400 mt-0.5">Secure upload point for structural command templates, sitreps, and general files.</p>
         </div>
       </div>
 
-      {/* ========================================================= */}
-      {/* TAB 1: REPORTS STORAGE (Upload + Ledger)                  */}
-      {/* ========================================================= */}
-      {mainTab === 'reports' && (
-        <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-          
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-            <div className="border-b border-slate-100 pb-4 mb-6">
-              <h3 className="font-extrabold text-sm text-slate-900 uppercase">Secure Document Upload</h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Upload completed reports or general statements to store them securely. They will be categorized accordingly.
-              </p>
-            </div>
-
-            <form onSubmit={handleUpload} className="max-w-3xl space-y-4">
-              <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-200 flex">
-                <button
-                  type="button"
-                  onClick={() => setDocCategory('weekly_report')}
-                  className={`flex-1 py-2 text-xs font-bold rounded shadow-sm transition-colors ${docCategory === 'weekly_report' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
-                >
-                  Weekly Report Returns
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDocCategory('general_doc')}
-                  className={`flex-1 py-2 text-xs font-bold rounded shadow-sm transition-colors ${docCategory === 'general_doc' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
-                >
-                  General Documents / Essays / Statements
-                </button>
-              </div>
-
-              <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center bg-slate-50 hover:bg-blue-50 hover:border-blue-300 transition cursor-pointer relative">
-                <input 
-                  type="file" 
-                  accept=".docx,.xlsx,.pdf" 
-                  onChange={handleFileChange} 
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                />
-                <UploadCloud className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                <p className="text-sm font-bold text-slate-600">Click or drag a completed file here</p>
-              </div>
-
-              {file && (
-                <div className="text-xs font-mono text-blue-800 bg-blue-50 p-3 rounded-lg border border-blue-200 flex justify-between items-center">
-                  <span className="flex items-center"><FileText className="w-4 h-4 mr-2" /> <strong>{file.name}</strong></span>
-                  <span className="text-blue-500 font-bold">{Math.round(file.size / 1024)} KB</span>
-                </div>
-              )}
-
-              {feedback && (
-                <div className={`p-4 rounded-xl text-xs font-bold flex items-center ${feedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
-                  {feedback.type === 'success' ? <CheckCircle className="w-4 h-4 mr-2 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 mr-2 text-red-600 shrink-0" />}
-                  {feedback.message}
-                </div>
-              )}
-
-              <button 
-                type="submit" 
-                disabled={!file || uploading}
-                className="w-full py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition bg-slate-900 hover:bg-black disabled:bg-slate-300"
-              >
-                {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</> : `Upload Document to Secure Storage`}
-              </button>
-            </form>
+      <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+        
+        {/* 🟢 UPLOAD SECTION */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+          <div className="border-b border-slate-100 pb-4 mb-6">
+            <h3 className="font-extrabold text-sm text-slate-900 uppercase">Secure File Intake Hub</h3>
+            <p className="text-xs text-slate-500 mt-1">Select your document category below to route the file to the correct internal storage directory.</p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50">
-              <div>
-                <h3 className="font-extrabold text-slate-900 uppercase flex items-center">
-                  <FileArchive className="w-5 h-5 mr-2 text-emerald-600" /> 
-                  Uploaded Reports Ledger
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">Secure access to previously uploaded reports and statements.</p>
-              </div>
-
-              <div className="flex bg-slate-200 p-1 rounded-lg border border-slate-300">
-                <button
-                  type="button"
-                  onClick={() => setLedgerViewCategory('weekly_report')}
-                  className={`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${ledgerViewCategory === 'weekly_report' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
-                >
-                  Weekly Reports
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLedgerViewCategory('general_doc')}
-                  className={`px-4 py-1.5 text-xs font-bold rounded-md transition-colors ${ledgerViewCategory === 'general_doc' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
-                >
-                  General Docs / Statements
-                </button>
-              </div>
-            </div>
+          <form onSubmit={handleUpload} className="max-w-3xl space-y-4">
             
-            <div className="overflow-x-auto w-full">
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-100">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Document Name</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Type</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Date Logged</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Size</th>
-                    <th className="px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-slate-100">
-                  {loadingDocs ? (
+            {/* 🟢 THREE-WAY TOGGLE */}
+            <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-200 flex flex-col sm:flex-row gap-1">
+              <button
+                type="button"
+                onClick={() => setDocCategory('weekly_report')}
+                className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${docCategory === 'weekly_report' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+              >
+                Weekly Reports
+              </button>
+              <button
+                type="button"
+                onClick={() => setDocCategory('general_doc')}
+                className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${docCategory === 'general_doc' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+              >
+                General Docs / Statements
+              </button>
+              <button
+                type="button"
+                onClick={() => setDocCategory('templates')}
+                className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${docCategory === 'templates' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+              >
+                Command Templates
+              </button>
+            </div>
+
+            {docCategory === 'templates' && !hasDownloadClearance ? (
+               <div className="p-8 text-center bg-red-50 border border-red-200 rounded-xl mt-4">
+                 <Lock className="w-8 h-8 text-red-500 mx-auto mb-2" />
+                 <h3 className="text-red-800 font-bold">Admin Clearance Required</h3>
+                 <p className="text-xs text-red-600 mt-1">You do not have the required command clearance to overwrite system templates.</p>
+               </div>
+            ) : (
+              <div className="space-y-4 mt-4 animate-in fade-in">
+                
+                {/* 🟢 TEMPLATE OVERWRITE SELECTOR */}
+                {docCategory === 'templates' && (
+                  <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
+                    <label className="block text-xs font-bold text-amber-900 mb-2">Target Template to Overwrite *</label>
+                    <select 
+                      value={selectedTemplateId} 
+                      onChange={(e) => setSelectedTemplateId(e.target.value)}
+                      className="w-full border border-amber-300 rounded-lg p-2.5 text-sm font-bold text-slate-700 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200 bg-white cursor-pointer"
+                    >
+                      {Object.values(TEMPLATE_TYPES).map(tpl => (
+                        <option key={tpl.id} value={tpl.id}>{tpl.name} ({tpl.ext})</option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-amber-700 mt-2 font-medium"><AlertTriangle className="w-3 h-3 inline mr-1" />Warning: Overwriting a template immediately updates it globally for all units.</p>
+                  </div>
+                )}
+
+                <div className={`border-2 border-dashed rounded-xl p-6 text-center transition cursor-pointer relative ${docCategory === 'templates' ? 'border-amber-300 bg-amber-50/50 hover:bg-amber-100 hover:border-amber-400' : 'border-slate-300 bg-slate-50 hover:bg-blue-50 hover:border-blue-300'}`}>
+                  <input 
+                    type="file" 
+                    accept=".docx,.xlsx,.pdf" 
+                    onChange={handleFileChange} 
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  />
+                  <UploadCloud className={`w-8 h-8 mx-auto mb-2 ${docCategory === 'templates' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <p className="text-sm font-bold text-slate-600">Click or drop your finalized {docCategory === 'templates' ? 'template' : 'document'} here</p>
+                </div>
+
+                {file && (
+                  <div className="text-xs font-mono text-blue-800 bg-blue-50 p-3 rounded-lg border border-blue-200 flex justify-between items-center">
+                    <span className="flex items-center"><FileText className="w-4 h-4 mr-2" /> <strong>{file.name}</strong></span>
+                    <span className="text-blue-500 font-bold">{Math.round(file.size / 1024)} KB</span>
+                  </div>
+                )}
+
+                {feedback && (
+                  <div className={`p-4 rounded-xl text-xs font-bold flex items-center ${feedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+                    {feedback.type === 'success' ? <CheckCircle className="w-4 h-4 mr-2 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 mr-2 text-red-600 shrink-0" />}
+                    {feedback.message}
+                  </div>
+                )}
+
+                <button 
+                  type="submit" 
+                  disabled={!file || uploading}
+                  className={`w-full py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition disabled:bg-slate-300 ${docCategory === 'templates' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-black'}`}
+                >
+                  {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</> : docCategory === 'templates' ? 'Confirm Template Overwrite' : 'Upload Document to Secure Storage'}
+                </button>
+              </div>
+            )}
+          </form>
+        </div>
+
+        {/* 🟢 UNIFIED LEDGER SECTION */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="p-6 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-slate-50">
+            <div>
+              <h3 className="font-extrabold text-slate-900 uppercase flex items-center">
+                <FileArchive className="w-5 h-5 mr-2 text-emerald-600" /> 
+                System Records & Templates Ledger
+              </h3>
+            </div>
+
+            <div className="flex flex-wrap bg-slate-200 p-1 rounded-lg border border-slate-300 w-full lg:w-auto">
+              <button
+                type="button"
+                onClick={() => setLedgerViewCategory('weekly_report')}
+                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${ledgerViewCategory === 'weekly_report' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
+              >
+                Weekly Reports
+              </button>
+              <button
+                type="button"
+                onClick={() => setLedgerViewCategory('general_doc')}
+                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${ledgerViewCategory === 'general_doc' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
+              >
+                General Docs
+              </button>
+              <button
+                type="button"
+                onClick={() => setLedgerViewCategory('templates')}
+                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${ledgerViewCategory === 'templates' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
+              >
+                Templates
+              </button>
+            </div>
+          </div>
+          
+          <div className="overflow-x-auto w-full">
+            <table className="min-w-full divide-y divide-slate-200">
+              <thead className="bg-slate-100">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Document Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">{ledgerViewCategory === 'templates' ? 'Description' : 'Type'}</th>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">{ledgerViewCategory === 'templates' ? 'Format' : 'Date Logged'}</th>
+                  {ledgerViewCategory !== 'templates' && <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Size</th>}
+                  <th className="px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-slate-100">
+                
+                {/* 🟢 TEMPLATES VIEW BLOCK */}
+                {ledgerViewCategory === 'templates' ? (
+                  Object.values(TEMPLATE_TYPES).map((tpl) => (
+                    <tr key={tpl.id} className="hover:bg-amber-50/30 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-800 flex items-center">
+                        <FolderOpen className="w-4 h-4 mr-2 text-amber-500 shrink-0" />
+                        {tpl.name}
+                      </td>
+                      <td className="px-6 py-4 text-xs text-slate-500 max-w-xs truncate" title={tpl.desc}>
+                        {tpl.desc}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-xs font-mono font-bold text-amber-700">
+                        {tpl.ext}
+                      </td>
+                      
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <div className="flex justify-end space-x-2">
+                          <button 
+                            onClick={() => handleFileAction(tpl.id, 'read', true)}
+                            disabled={actionLoading === `read-${tpl.id}`}
+                            className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
+                          >
+                            {actionLoading === `read-${tpl.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Eye className="w-3 h-3 mr-1" />}
+                            Read
+                          </button>
+
+                          <button 
+                            onClick={() => handleFileAction(tpl.id, 'download', true)}
+                            disabled={actionLoading === `download-${tpl.id}` || !hasDownloadClearance}
+                            className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
+                          >
+                            {actionLoading === `download-${tpl.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
+                            Download
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  
+                  /* 🟢 GENERAL / WEEKLY REPORTS VIEW BLOCK */
+                  loadingDocs ? (
                     <tr>
                       <td colSpan="5" className="px-6 py-10 text-center text-slate-500 text-sm font-medium">
                         <Loader2 className="w-5 h-5 mx-auto animate-spin mb-2 text-blue-500" /> Fetching documents...
+                      </td>
+                    </tr>
+                  ) : filteredDocuments.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" className="px-6 py-10 text-center text-slate-500 text-sm font-medium">
+                        No documents found under this category.
                       </td>
                     </tr>
                   ) : filteredDocuments.map((doc) => (
@@ -456,109 +495,13 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                         </div>
                       </td>
                     </tr>
-                  ))}
-                  {!loadingDocs && filteredDocuments.length === 0 && (
-                    <tr>
-                      <td colSpan="5" className="px-6 py-10 text-center text-slate-500 text-sm font-medium">
-                        No documents found under this category.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
-      )}
-
-      {/* ========================================================= */}
-      {/* TAB 2: COMMAND TEMPLATES LEDGER                           */}
-      {/* ========================================================= */}
-      {mainTab === 'templates' && (
-        <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-          
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="p-6 border-b border-slate-100 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div>
-                <h3 className="font-extrabold text-slate-900 uppercase flex items-center">
-                  <FolderOpen className="w-5 h-5 mr-2 text-amber-600" /> 
-                  Command Template Repository Ledger
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">Read, download, or overwrite structural templates across the system.</p>
-              </div>
-            </div>
-            
-            <div className="overflow-x-auto w-full">
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-100">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Template Name</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Description</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Format</th>
-                    <th className="px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-slate-100">
-                  {Object.values(TEMPLATE_TYPES).map((tpl) => (
-                    <tr key={tpl.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-800 flex items-center">
-                        <FileText className="w-4 h-4 mr-2 text-amber-500 shrink-0" />
-                        {tpl.name}
-                      </td>
-                      <td className="px-6 py-4 text-xs text-slate-500 max-w-xs truncate">
-                        {tpl.desc}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-xs font-mono font-bold text-amber-700">
-                        {tpl.ext}
-                      </td>
-                      
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex justify-end space-x-2">
-                          <button 
-                            onClick={() => handleFileAction(tpl.id, 'read', true)}
-                            disabled={actionLoading === `read-${tpl.id}`}
-                            className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
-                          >
-                            {actionLoading === `read-${tpl.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Eye className="w-3 h-3 mr-1" />}
-                            Read
-                          </button>
-
-                          <button 
-                            onClick={() => handleFileAction(tpl.id, 'download', true)}
-                            disabled={actionLoading === `download-${tpl.id}` || !hasDownloadClearance}
-                            className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
-                          >
-                            {actionLoading === `download-${tpl.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
-                            Download
-                          </button>
-
-                          <input 
-                            type="file" 
-                            accept=".docx,.xlsx" 
-                            className="hidden" 
-                            ref={hiddenFileInput} 
-                            onChange={handleTemplateFileChange} 
-                          />
-                          <button 
-                            onClick={() => handleTemplateUploadClick(tpl.id)}
-                            disabled={uploadingTemplate || !hasDownloadClearance}
-                            title={!hasDownloadClearance ? "Admin clearance required to overwrite" : "Upload new file to overwrite"}
-                            className="text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
-                          >
-                            {uploadingTemplate && selectedTemplateId === tpl.id ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <UploadCloud className="w-3 h-3 mr-1" />}
-                            Overwrite
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
+      </div>
     </div>
   );
 };

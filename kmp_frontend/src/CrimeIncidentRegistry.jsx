@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive
+  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save
 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -64,6 +64,10 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   // 🟢 INDEPENDENT LOCKUP STATE
   const [lockupData, setLockupData] = useState([]);
   const [standalonePopInput, setStandalonePopInput] = useState('');
+  
+  // 🟢 NEW STATE FOR EDITING LOCKUPS
+  const [isEditingLockup, setIsEditingLockup] = useState(false);
+  const [editLockupTarget, setEditLockupTarget] = useState(null);
 
   // 🟢 CLEARANCES
   const isGlobalCommand = currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster || ['IGP', 'DIGP', 'DIRECTOR', 'KMP COMMANDER'].some(title => (currentUser?.position || '').toUpperCase().includes(title)) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((currentUser?.region || '').toUpperCase());
@@ -319,36 +323,75 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     }
   };
 
+  // 🟢 FETCH TODAY'S LOCKUP FOR EDITING
+  const handleEditLockupToggle = () => {
+    if (isEditingLockup) {
+      setIsEditingLockup(false);
+      setEditLockupTarget(null);
+      setStandalonePopInput('');
+    } else {
+      const todayStr = getTodayString();
+      const existingEntry = lockupData.find(l => l.station === formData.station && l.date === todayStr);
+      
+      if (existingEntry) {
+        setEditLockupTarget(existingEntry);
+        setStandalonePopInput(existingEntry.suspects.toString());
+        setIsEditingLockup(true);
+      } else {
+        alert(`No cell population logged for ${formData.station} today yet. Please log a new entry.`);
+      }
+    }
+  };
+
   // 🟢 NEW INDEPENDENT LOCKUP SUBMIT HANDLER (Posts to /api/v1/lockup-matrix)
-// 🟢 NEW INDEPENDENT LOCKUP SUBMIT HANDLER (Posts to /api/v1/lockup-matrix)
   const handleStandalonePopSubmit = async () => {
     if (standalonePopInput === '' || standalonePopInput === null) return setNotification("Error: Please enter a cell population number.");
     
-    setNotification("⏳ Logging Daily Cell Population to Independent Matrix...");
+    setNotification(isEditingLockup ? "⏳ Updating Daily Cell Population..." : "⏳ Logging Daily Cell Population to Independent Matrix...");
     
-    // 🟢 BUG FIX: Generate reference using the selected form station, not the logged-in user's station
-    const popRef = `POP-${formData.station.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
-    
-    const apiPayload = {
-      sd_ref: popRef, 
-      // 🟢 BUG FIX: Ensure Super Admins log data for the drop-down target, NOT their own profile!
-      region: formData.region, 
-      station: formData.station,
-      date: getTodayString(), 
-      time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-      suspects: parseInt(standalonePopInput) || 0,
-      last_updated_by: `${currentUser.name} (${currentUser.fnum})`
-    };
-
     try {
-      const response = await authFetch(`/api/v1/lockup-matrix`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload)
-      });  
-      if (!response.ok) throw new Error("Database rejected the lockup entry.");
+      if (isEditingLockup && editLockupTarget) {
+        // 🟢 UPDATE EXISTING LOCKUP
+        const updatePayload = {
+          ...editLockupTarget,
+          suspects: parseInt(standalonePopInput) || 0,
+          last_updated_by: `${currentUser.name} (${currentUser.fnum})`
+        };
+
+        const response = await authFetch(`/api/v1/lockup-matrix/${editLockupTarget.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatePayload)
+        });  
+        
+        if (!response.ok) throw new Error("Database rejected the lockup update.");
+        
+        setLockupData(lockupData.map(l => l.id === editLockupTarget.id ? updatePayload : l));
+        setNotification(`✅ Daily Cell Population updated to ${standalonePopInput} for ${formData.station}!`);
+        setIsEditingLockup(false);
+        setEditLockupTarget(null);
+
+      } else {
+        // 🟢 CREATE NEW LOCKUP
+        const popRef = `POP-${formData.station.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
+        const apiPayload = {
+          sd_ref: popRef, 
+          region: formData.region, 
+          station: formData.station,
+          date: getTodayString(), 
+          time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+          suspects: parseInt(standalonePopInput) || 0,
+          last_updated_by: `${currentUser.name} (${currentUser.fnum})`
+        };
+
+        const response = await authFetch(`/api/v1/lockup-matrix`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload)
+        });  
+        if (!response.ok) throw new Error("Database rejected the lockup entry. Did you already log one today?");
+        
+        const newLockup = await response.json();
+        setLockupData([newLockup, ...lockupData]);
+        setNotification(`✅ Daily Cell Population (${standalonePopInput}) successfully logged to the Independent Matrix for ${formData.station}!`);
+      }
       
-      const newLockup = await response.json();
-      setLockupData([newLockup, ...lockupData]);
-      setNotification(`✅ Daily Cell Population (${standalonePopInput}) successfully logged to the Independent Matrix for ${formData.station}!`);
       setStandalonePopInput(''); 
       setTimeout(() => setNotification(null), 5000);
     } catch (err) {
@@ -518,7 +561,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                 <div className="md:col-span-3 bg-red-50 p-3 rounded-lg border border-red-100 mt-3">
                   <label className="block text-xs font-bold text-red-800 mb-2 flex items-center"><Camera size={12} className="mr-1"/> Suspect Mugshot (Optional)</label>
                   <div className="flex items-center space-x-4">
-                    {newSuspect.photo_url ? ( <img src={newSuspect.photo_url} alt="Mugshot" className="w-12 h-12 rounded object-cover border-2 border-red-300 shadow-sm" /> ) : ( <div className="w-12 h-12 rounded bg-red-100 flex items-center justify-center text-red-300 border-2 border-dashed border-red-300"><Camera size={16}/></div> )}
+                    {newSuspect.photo_url ? ( <img src={newSuspect.photo_url} alt="Mugshot" className="w-12 h-12 rounded object-cover border-2 border-red-300 shadow-sm" /> ) : ( <div className="w-12 h-12 rounded bg-red-100 flex items-center justify-center text-red-300 border-2 border-dashed border-red-200 text-center p-1">No Photo</div> )}
                     <input type="file" accept="image/*" onChange={handleSuspectPhotoUpload} className="text-xs file:mr-4 file:py-1.5 file:px-4 file:rounded file:border-0 file:text-xs file:font-bold file:bg-red-600 file:text-white hover:file:bg-red-700 w-full cursor-pointer" />
                   </div>
                 </div>
@@ -558,17 +601,16 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         <h2 className="text-xl text-red-300 mt-1 font-medium">Centralised Crime/Incident Compilation</h2>
       </div>
 
-      <div className="bg-white/80 backdrop-blur p-2 rounded-xl border border-slate-200 shadow-sm relative">
-        <div className="absolute top-4 right-4 z-10 flex gap-2">
-          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none cursor-pointer">
+      <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+          <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">
+            📋 {filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? 'Global Command Metrics' : filterStation === 'ALL STATIONS' ? 'Regional Command Metrics' : `${filterStation} Metrics`}
+          </h4>
+          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none cursor-pointer w-full sm:w-auto">
             <option value="ALL TIME">ALL TIME</option><option value="TODAY">TODAY ONLY</option><option value="LAST 7 DAYS">LAST 7 DAYS</option>
             <option value="LAST 30 DAYS">LAST 30 DAYS</option><option value="LAST 90 DAYS">LAST 90 DAYS</option><option value="LAST 120 DAYS">LAST 120 DAYS</option>
           </select>
         </div>
-        
-        <h4 className="text-xs font-extrabold text-slate-400 mb-2 uppercase tracking-wider">
-          📋 {filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? 'Global Command Metrics' : filterStation === 'ALL STATIONS' ? 'Regional Command Metrics' : `${filterStation} Metrics`} ({dateFilter})
-        </h4>
         
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
           <MetricCard title={filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? "Computed Sum (All)" : filterStation === 'ALL STATIONS' ? `${filterRegion} Lock-up` : `${filterStation} Lock-up`} value={metrics.localLockup} colorClass="text-slate-800" />
@@ -785,21 +827,32 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               Use this independent module to push your station's total cell population directly to the daily Lock-Up Matrix without mixing it with crime case files.
             </p>
           </div>
-          <div className="flex gap-2 w-full md:w-auto">
-            <input 
-              type="number" 
-              value={standalonePopInput} 
-              onChange={(e) => setStandalonePopInput(e.target.value)} 
-              min="0" 
-              className="w-24 text-lg border-amber-300 rounded-xl shadow-sm border p-3 bg-white focus:ring-amber-500 font-black text-amber-900 text-center outline-none" 
-              placeholder="0" 
-            />
-            <button
+          <div className="flex flex-col gap-2 w-full md:w-auto items-end">
+            <div className="flex gap-2 w-full md:w-auto">
+              <input 
+                type="number" 
+                value={standalonePopInput} 
+                onChange={(e) => setStandalonePopInput(e.target.value)} 
+                min="0" 
+                className="w-24 text-lg border-amber-300 rounded-xl shadow-sm border p-3 bg-white focus:ring-amber-500 font-black text-amber-900 text-center outline-none" 
+                placeholder="0" 
+              />
+              <button
+                type="button"
+                onClick={handleStandalonePopSubmit}
+                className={`flex-1 md:flex-none px-6 py-3 text-xs font-black text-white rounded-xl shadow-md transition-all whitespace-nowrap uppercase tracking-wider ${isEditingLockup ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-700 hover:bg-amber-800'}`}
+              >
+                {isEditingLockup ? <><Save className="inline w-4 h-4 mr-1"/> Update Entry</> : 'Push to Matrix'}
+              </button>
+            </div>
+            
+            {/* 🟢 TOGGLE EDIT MODE FOR TODAY'S LOCKUP */}
+            <button 
               type="button"
-              onClick={handleStandalonePopSubmit}
-              className="flex-1 md:flex-none px-6 py-3 text-xs font-black text-white bg-amber-700 hover:bg-amber-800 rounded-xl shadow-md transition-all whitespace-nowrap uppercase tracking-wider"
+              onClick={handleEditLockupToggle}
+              className={`text-[10px] font-bold uppercase transition flex items-center ${isEditingLockup ? 'text-red-500 hover:text-red-700' : 'text-amber-600 hover:text-amber-800'}`}
             >
-              Push to Matrix
+              {isEditingLockup ? <><X className="w-3 h-3 mr-1"/> Cancel Update</> : <><Edit className="w-3 h-3 mr-1"/> Correct today's lockup entry</>}
             </button>
           </div>
         </div>
