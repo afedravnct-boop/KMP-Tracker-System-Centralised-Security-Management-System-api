@@ -320,16 +320,20 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   };
 
   // 🟢 NEW INDEPENDENT LOCKUP SUBMIT HANDLER (Posts to /api/v1/lockup-matrix)
+// 🟢 NEW INDEPENDENT LOCKUP SUBMIT HANDLER (Posts to /api/v1/lockup-matrix)
   const handleStandalonePopSubmit = async () => {
     if (standalonePopInput === '' || standalonePopInput === null) return setNotification("Error: Please enter a cell population number.");
     
     setNotification("⏳ Logging Daily Cell Population to Independent Matrix...");
-    const popRef = `POP-${currentUser.station.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
+    
+    // 🟢 BUG FIX: Generate reference using the selected form station, not the logged-in user's station
+    const popRef = `POP-${formData.station.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
     
     const apiPayload = {
       sd_ref: popRef, 
-      region: currentUser.region, 
-      station: currentUser.station,
+      // 🟢 BUG FIX: Ensure Super Admins log data for the drop-down target, NOT their own profile!
+      region: formData.region, 
+      station: formData.station,
       date: getTodayString(), 
       time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
       suspects: parseInt(standalonePopInput) || 0,
@@ -344,7 +348,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       
       const newLockup = await response.json();
       setLockupData([newLockup, ...lockupData]);
-      setNotification(`✅ Daily Cell Population (${standalonePopInput}) successfully logged to the Independent Matrix!`);
+      setNotification(`✅ Daily Cell Population (${standalonePopInput}) successfully logged to the Independent Matrix for ${formData.station}!`);
       setStandalonePopInput(''); 
       setTimeout(() => setNotification(null), 5000);
     } catch (err) {

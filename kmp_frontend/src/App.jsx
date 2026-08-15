@@ -25,6 +25,16 @@ import SessionExpiredModal from './SessionExpiredModal';
 import AdminApprovals from "./AdminApprovals";
 import CrimeIncidentRegistry from './CrimeIncidentRegistry';
 
+const formatOfficerTitle = (officer) => {
+  if (!officer) return 'UNKNOWN OFFICER';
+  const fnum = (officer.fnum || officer.f_num || '').trim();
+  const rank = (officer.rank || '').trim();
+  const name = (officer.name || '').trim();
+  
+  // Formats strictly as: F/No Rank Name (e.g., A/2408 AIP AFEDRA VINCENT)
+  return [fnum, rank, name].filter(Boolean).join(' ').toUpperCase();
+};
+
 // 🟢 Place this utility function right near the top of src/App.jsx (outside of App)
 const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, filterStation) => {
   const scopedSubmissions = allSubmissions.filter(entry => {

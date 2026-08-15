@@ -4,6 +4,12 @@ import { X, Filter, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose }) => {
   const [lockupFilter, setLockupFilter] = useState('ALL');
 
+const formatOfficerDisplay = (str) => {
+  if (!str) return 'SYSTEM';
+  // If it's already in the format containing numbers and names, return uppercase
+  return String(str).toUpperCase();
+};
+
   // 🟢 SECURELY FILTER LOCK-UP ENTRIES
   const filteredLockupEntries = useMemo(() => {
     if (lockupFilter === 'ALL') return lockupEntries;

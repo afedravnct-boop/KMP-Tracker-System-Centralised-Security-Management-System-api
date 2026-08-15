@@ -6,7 +6,7 @@ import html
 import uuid
 import asyncio
 import secrets  # 🟢 NEW: For secure random password generation
-import string   # 🟢 NEW: For alphanumeric character mapping
+import string    # 🟢 NEW: For alphanumeric character mapping
 from datetime import datetime, timedelta
 from typing import Optional, List, Union
 from docx.shared import Pt
@@ -90,6 +90,15 @@ s3_client = boto3.client(
     region_name=os.getenv("AWS_REGION")
 )
 BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
+
+def get_officer_signature(user):
+    if not user:
+        return "UNKNOWN COMMANDER"
+    fnum = (user.fnum or "").strip()
+    rank = (user.rank or "").strip()
+    name = (user.name or "").strip()
+    # Formats strictly as: F/No Rank Name
+    return f"{fnum} {rank} {name}".strip().upper()
 
 # ==========================================
 # 1. MIDDLEWARE & STARTUP
@@ -408,9 +417,38 @@ def build_and_send_weekly_briefing():
     except Exception as e:
         print(f"Compliance scheduler failed to send email: {e}")
 
+# ==========================================
+# GEO-MAPPING & AUTO-INFERENCE HELPERS
+# ==========================================
+STATION_GEO_MAP = {
+    "KAWEMPE": {"region": "KMP NORTH", "district": "KAMPALA"},
+    "WANDEGEYA": {"region": "KMP NORTH", "district": "KAMPALA"},
+    "OLD KAMPALA": {"region": "KMP NORTH", "district": "KAMPALA"},
+    "MATUGGA": {"region": "KMP NORTH", "district": "WAKISO"},
+    "NANSANA": {"region": "KMP NORTH", "district": "WAKISO"},
+    "KASANGATI": {"region": "KMP NORTH", "district": "WAKISO"},
+    "KAKIRI": {"region": "KMP NORTH", "district": "WAKISO"},
+    "WAKISO": {"region": "KMP SOUTH", "district": "WAKISO"},
+    "NATEETE": {"region": "KMP SOUTH", "district": "WAKISO"},
+    "CPS KAMPALA": {"region": "KMP SOUTH", "district": "KAMPALA"},
+    "PARLIAMENT": {"region": "KMP SOUTH", "district": "KAMPALA"},
+    "ENTEBBE": {"region": "KMP SOUTH", "district": "WAKISO"},
+    "KABALAGALA": {"region": "KMP SOUTH", "district": "KAMPALA"},
+    "KAJJANSI": {"region": "KMP SOUTH", "district": "KAMPALA"},
+    "NSANGI": {"region": "KMP SOUTH", "district": "WAKISO"},
+    "KASENYI": {"region": "KMP SOUTH", "district": "WAKISO"},
+    "KYENGERA": {"region": "KMP SOUTH", "district": "WAKISO"},
+    "JINJA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
+    "MUKONO": {"region": "KMP EAST", "district": "MUKONO"},
+    "KIRA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
+    "KIRA DIV": {"region": "KMP EAST", "district": "WAKISO"},
+    "NAGGALAMA": {"region": "KMP EAST", "district": "MUKONO"},
+    "SEETA": {"region": "KMP EAST", "district": "MUKONO"},
+}
+
 def auto_infer_geography(station_name, current_region, current_district):
     """
-    Automatically infers Region and District (Division in KMP) based on the Station.
+    Automatically infers Region and District based on the Station using STATION_GEO_MAP.
     """
     if not station_name:
         return current_region, current_district
@@ -419,22 +457,13 @@ def auto_infer_geography(station_name, current_region, current_district):
     inferred_region = current_region
     inferred_district = current_district
 
-    # 🟢 FULL KMP REGIONAL HIERARCHY MAP (Parliament Added)
-    regional_hierarchy = {
-        "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-        "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-        "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-        "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
-        "POLICE HEADQUARTERS": ["NAGURU"]
-    }
-
-    # 1. Infer Region if missing or generic
-    if not inferred_region or inferred_region in ["", "NONE", "NAN", "ALL REGIONS"]:
-        for reg, stations in regional_hierarchy.items():
-            if stat_upper in stations:
-                inferred_region = reg
-                break
-                
+    if stat_upper in STATION_GEO_MAP:
+        geo_info = STATION_GEO_MAP[stat_upper]
+        if not inferred_region or inferred_region in ["", "NONE", "NAN", "ALL REGIONS"]:
+            inferred_region = geo_info["region"]
+        if not inferred_district or inferred_district in ["", "NONE", "NAN", "ALL REGIONS"]:
+            inferred_district = geo_info["district"]
+            
     return inferred_region, inferred_district
 
 def verify_command_clearance(current_user, target_user, action_type="GRANT_PRIVILEGE"):
@@ -1028,7 +1057,7 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
 
         suspects_data = data.pop('suspectDetails', []) 
         new_record = models.Crime_Reports(**data)
-        new_record.last_updated_by = current_user.fnum
+        new_record.last_updated_by = get_officer_signature(current_user)
         
         db.add(new_record)
         db.commit()         
@@ -1075,7 +1104,7 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
             if hasattr(existing_report, key):
                 setattr(existing_report, key, value)
                 
-        existing_report.last_updated_by = current_user.fnum
+        existing_report.last_updated_by = get_officer_signature(current_user)
         
         existing_lockups = db.query(models.Suspect_Lockup).filter(models.Suspect_Lockup.sd_ref == sn).all()
         existing_names = [lockup.name for lockup in existing_lockups]
@@ -1107,7 +1136,9 @@ def create_lockup_entry(
     Saves a new daily suspect lockup count into the independent lockup matrix table.
     """
     try:
-        new_entry = models.LockupMatrix(**entry.dict())
+        entry_data = entry.dict()
+        entry_data['last_updated_by'] = get_officer_signature(current_user)
+        new_entry = models.LockupMatrix(**entry_data)
         db.add(new_entry)
         db.commit()
         db.refresh(new_entry)
@@ -1123,26 +1154,94 @@ def get_lockup_entries(
     current_user: models.Users = Depends(get_current_user)
 ):
     """
-    Retrieves all lockup matrix entries. Global commanders see all, regional/station commanders see their jurisdiction.
+    Retrieves lockup entries:
+    - Super Admins and High Command see all records across all stations.
+    - Standard station users see their own station records + KMP General Headquarters totals.
     """
     position = (current_user.position or "").upper()
     role = (current_user.role or "").upper()
+    user_region = (current_user.region or "").strip().upper()
+    user_station = (current_user.station or "").strip().upper()
     
     is_global = (
         role in ["SUPER_ADMIN", "ADMIN"] or
         "IGP" in position or 
         "DIRECTOR" in position or 
         "KMP COMMANDER" in position or
-        current_user.region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
+        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
     )
+    
+    is_regional = role == "RPC" or "RPC" in position or "DEPUTY" in position
     
     query = db.query(models.LockupMatrix)
     
-    if not is_global:
-        # If they are just a station/divisional user, only show them their region's entries
-        query = query.filter(models.LockupMatrix.region == current_user.region)
+    if is_global:
+        # Super Admin / High Command sees everything unrestricted
+        pass
+    elif is_regional:
+        query = query.filter(
+            or_(
+                func.upper(models.LockupMatrix.region) == user_region,
+                func.upper(models.LockupMatrix.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
+            )
+        )
+    else:
+        # Station users see their station + KMP General totals
+        query = query.filter(
+            or_(
+                func.upper(models.LockupMatrix.station) == user_station,
+                func.upper(models.LockupMatrix.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
+            )
+        )
         
     return query.order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).all()
+
+@app.put("/api/v1/lockup-matrix/{sn}", response_model=schemas.LockupMatrixResponse)
+def update_lockup_entry(
+    sn: int,
+    entry: schemas.LockupMatrixCreate,
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    """
+    Updates an existing daily lockup record. Super Admins have unhindered update access.
+    """
+    existing_entry = db.query(models.LockupMatrix).filter(models.LockupMatrix.sn == sn).first()
+    if not existing_entry:
+        raise HTTPException(status_code=404, detail="Lockup matrix entry not found.")
+    
+    position = (current_user.position or "").upper()
+    role = (current_user.role or "").upper()
+    user_region = (current_user.region or "").strip().upper()
+    user_station = (current_user.station or "").strip().upper()
+    
+    is_global = (
+        role in ["SUPER_ADMIN", "ADMIN"] or
+        "IGP" in position or 
+        "DIRECTOR" in position or 
+        "KMP COMMANDER" in position or
+        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
+    )
+    
+    if not is_global:
+        entry_station = (entry.station or "").strip().upper()
+        if entry_station != user_station and entry_station != "HEADQUARTERS GENERAL TOTAL":
+            raise HTTPException(status_code=403, detail="Clearance Denied: You can only update lockup records for your own station.")
+
+    try:
+        existing_entry.date = entry.date
+        existing_entry.time = entry.time
+        existing_entry.region = entry.region
+        existing_entry.station = entry.station
+        existing_entry.suspects = entry.suspects
+        existing_entry.last_updated_by = f"{get_officer_signature(current_user)} [EDITED]"
+        
+        db.commit()
+        db.refresh(existing_entry)
+        return existing_entry
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update entry: {str(e)}")
 
 # --- OPS STATISTICS ---
 @app.get("/api/v1/stats")
@@ -1166,7 +1265,7 @@ def create_stat(data: dict, db: Session = Depends(get_db), current_user: models.
             data["station"] = current_user.station
             
         new_record = models.Operational_Statistics(**data)
-        new_record.last_updated_by = current_user.fnum
+        new_record.last_updated_by = get_officer_signature(current_user)
         db.add(new_record)
         db.commit()
         return {"status": "success"}
@@ -1195,7 +1294,7 @@ def create_story(data: dict, db: Session = Depends(get_db), current_user: models
             data["station"] = current_user.station
             
         new_record = models.Success_Stories(**data)
-        new_record.last_updated_by = current_user.fnum
+        new_record.last_updated_by = get_officer_signature(current_user)
         db.add(new_record)
         db.commit()
         db.refresh(new_record)
@@ -1226,7 +1325,7 @@ def create_establishment(data: dict, db: Session = Depends(get_db), current_user
             data["station"] = current_user.station
             
         new_est = models.Establishments(**data)
-        new_est.last_updated_by = current_user.fnum
+        new_est.last_updated_by = get_officer_signature(current_user)
         db.add(new_est)
         db.commit()
         db.refresh(new_est)
@@ -1256,7 +1355,7 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
         if hasattr(existing_est, key):
             setattr(existing_est, key, value)
 
-    existing_est.last_updated_by = current_user.fnum
+    existing_est.last_updated_by = get_officer_signature(current_user)
     db.commit()
     return {"status": "success"}
 
@@ -1389,7 +1488,7 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             clean_data['notes'] = f"Re-integrated on {datetime.utcnow().strftime('%Y-%m-%d')}. Reason: {reintegration_reason}. Prev: {archived_officer.rank} {archived_officer.fnum} | {existing_new_notes}"
             
             new_record = models.NominalRoll(**clean_data)
-            new_record.last_updated_by = current_user.fnum
+            new_record.last_updated_by = get_officer_signature(current_user)
             db.add(new_record)
             
             arch_notes = archived_officer.notes or ""
@@ -1399,7 +1498,7 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             return {"status": "success", "message": f"Officer re-integrated successfully as {clean_data.get('rank')}", "sn": new_record.id}
 
         new_record = models.NominalRoll(**clean_data)
-        new_record.last_updated_by = current_user.fnum
+        new_record.last_updated_by = get_officer_signature(current_user)
         db.add(new_record)
         db.commit()
         db.refresh(new_record)
@@ -1412,54 +1511,6 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-
-# ==========================================
-# GEO-MAPPING & AUTO-INFERENCE HELPERS
-# ==========================================
-STATION_GEO_MAP = {
-    "KAWEMPE": {"region": "KMP NORTH", "district": "KAMPALA"},
-    "WANDEGEYA": {"region": "KMP NORTH", "district": "KAMPALA"},
-    "OLD KAMPALA": {"region": "KMP NORTH", "district": "KAMPALA"},
-    "MATUGGA": {"region": "KMP NORTH", "district": "WAKISO"},
-    "NANSANA": {"region": "KMP NORTH", "district": "WAKISO"},
-    "KASANGATI": {"region": "KMP NORTH", "district": "WAKISO"},
-    "KAKIRI": {"region": "KMP NORTH", "district": "WAKISO"},
-    "WAKISO": {"region": "KMP SOUTH", "district": "WAKISO"},
-    "NATEETE": {"region": "KMP SOUTH", "district": "WAKISO"},
-    "CPS KAMPALA": {"region": "KMP SOUTH", "district": "KAMPALA"},
-    "PARLIAMENT": {"region": "KMP SOUTH", "district": "KAMPALA"},
-    "ENTEBBE": {"region": "KMP SOUTH", "district": "WAKISO"},
-    "KABALAGALA": {"region": "KMP SOUTH", "district": "KAMPALA"},
-    "KAJJANSI": {"region": "KMP SOUTH", "district": "KAMPALA"},
-    "NSANGI": {"region": "KMP SOUTH", "district": "WAKISO"},
-    "KASENYI": {"region": "KMP SOUTH", "district": "WAKISO"},
-    "KYENGERA": {"region": "KMP SOUTH", "district": "WAKISO"},
-    "JINJA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
-    "MUKONO": {"region": "KMP EAST", "district": "MUKONO"},
-    "KIRA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
-    "KIRA DIV": {"region": "KMP EAST", "district": "WAKISO"},
-    "NAGGALAMA": {"region": "KMP EAST", "district": "MUKONO"},
-    "SEETA": {"region": "KMP EAST", "district": "MUKONO"},
-}
-
-def parse_flexible_date(val):
-    if val is None or pd.isna(val):
-        return None
-    
-    if isinstance(val, datetime):
-        return val.strftime("%Y-%m-%d")
-        
-    date_str = str(val).replace("'", "").strip()
-    if not date_str or date_str.lower() in ['none', 'nan', 'nat', '']:
-        return None
-        
-    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y"):
-        try:
-            return datetime.strptime(date_str[:10], fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-            
-    return None
 
 @app.post("/api/v1/nominal-roll/bulk-upload")
 async def bulk_upload_nominal_roll(
@@ -1578,14 +1629,14 @@ async def bulk_upload_nominal_roll(
                             setattr(existing_record, key, new_val)
                     
                     existing_record.sex = inferred_sex
-                    existing_record.last_updated_by = f"{current_user.name} ({current_user.fnum})"
+                    existing_record.last_updated_by = get_officer_signature(current_user)
                     
                     existing_record.sn = existing_record.id 
                     
                     records_updated += 1
                 else:
                     new_record = models.NominalRoll(**clean_row)
-                    new_record.last_updated_by = f"{current_user.name} ({current_user.fnum})"
+                    new_record.last_updated_by = get_officer_signature(current_user)
                     db.add(new_record)
                     
                     db.flush() 
@@ -1654,7 +1705,7 @@ def archive_personnel(
         record_data["status"] = "ARCHIVED"
         record_data["archive_reason"] = request_data.archive_reason
         record_data["archive_date"] = datetime.now().date()
-        record_data["last_updated_by"] = current_user.fnum
+        record_data["last_updated_by"] = get_officer_signature(current_user)
 
         valid_archive_columns = [c.key for c in models.NominalRollArchive.__table__.columns]
         safe_record_data = {k: v for k, v in record_data.items() if k in valid_archive_columns}
