@@ -535,7 +535,13 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
       if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && s.region !== currentUser.region) return false;
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
-        return s.sn.toString().includes(query) || s.station.toLowerCase().includes(query) || s.date.includes(query);
+        
+        // 🟢 SAFEGUARDED WITH String() & Optional Chaining:
+        const snStr = String(s.sn || '').toLowerCase();
+        const stationStr = String(s.station || '').toLowerCase();
+        const dateStr = String(s.date || '').toLowerCase();
+
+        return snStr.includes(query) || stationStr.includes(query) || dateStr.includes(query);
       }
       return true;
     });
@@ -650,15 +656,25 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                   <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
                 </div>
                 {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{notification}</span></div>}
-                {operation === 'update' && (
+{operation === 'update' && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                     <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Record to Update</label>
                     <input type="text" placeholder="Search by SN, Station, or Date..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
                     <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
                       {availableUpdateStats.length === 0 ? <div className="p-3 text-xs text-gray-500 text-center">No records found matching your search.</div> : availableUpdateStats.map(s => (
-                        <div key={s.sn} onClick={() => populateUpdateForm(s)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === s.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
+                        
+                        // 🟢 ADD THE CLICK HANDLER HERE:
+                        <div 
+                          key={s.sn} 
+                          onClick={() => {
+                            populateUpdateForm(s);
+                            setNotification(`Selected Record SN: ${s.sn} (${s.station}) for update.`);
+                          }} 
+                          className={`p-2.5 text-xs border-b cursor-pointer transition-colors ${formData.sn === s.sn ? 'bg-blue-700 text-white font-bold' : 'hover:bg-blue-100 text-gray-800'}`}
+                        >
                           <span className={formData.sn === s.sn ? 'text-blue-200' : 'text-gray-400'}>SN: {s.sn}</span> | <span className={formData.sn === s.sn ? 'text-white' : 'font-bold text-blue-700'}>{s.date}</span> | {s.station}
                         </div>
+
                       ))}
                     </div>
                   </div>
