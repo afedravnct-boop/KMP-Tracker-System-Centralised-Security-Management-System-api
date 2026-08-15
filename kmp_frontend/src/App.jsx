@@ -288,9 +288,9 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const targetKeywords = ['RPC', 'DEPUTY RPC', 'DPC', 'DEPUTY DPC', 'DATA OFFICER', 'DATA ASSISTANT OFFICER', 'HR OFFICER'];
   const matchesFieldRole = targetKeywords.some(keyword => userPosition.includes(keyword) || userRole.includes(keyword));
 
-const isTargetOfficer = matchesFieldRole && !isPoliceHQ && !isSystemManager;
+  const isTargetOfficer = matchesFieldRole && !isPoliceHQ && !isSystemManager;
 
-// 🟢 NORMALIZED WEEKLY COMPLIANCE CHECK
+  // 🟢 NORMALIZED WEEKLY COMPLIANCE CHECK
   const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
 
   const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => {
@@ -330,10 +330,11 @@ const isTargetOfficer = matchesFieldRole && !isPoliceHQ && !isSystemManager;
 
   const hasUnread = safeComms.some(c => !c.acknowledged);
 
-return (
-    <div className="p-6 max-w-5xl mx-auto space-y-8 relative z-10 animate-in fade-in duration-300">
+  return (
+    // 🟢 OPTIMIZATION: Expanded max-w to 1400px to use side space, reduced padding
+    <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
       
-{/* 🟢 FLOATING COMPLIANCE OVERDUE PILL BUTTON */}
+      {/* 🟢 FLOATING COMPLIANCE OVERDUE PILL BUTTON (Shrunk slightly) */}
       {showComplianceWarning && (
         <div className="fixed bottom-6 right-6 z-[9990]">
           <div
@@ -347,33 +348,33 @@ return (
               }
             }}
             className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-2xl rounded-full border ${
-              !isBannerFolded ? 'px-4 py-3' : 'p-2.5'
+              !isBannerFolded ? 'px-3 py-2.5' : 'p-2'
             } bg-red-600 text-white border-red-300 shadow-[0_0_20px_rgba(239,68,68,0.6)] animate-pulse`}
           >
             {isBannerFolded ? (
               <div className="flex items-center space-x-2 px-1">
-                <span className="flex h-3 w-3 relative">
+                <span className="flex h-2.5 w-2.5 relative">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-400"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-400"></span>
                 </span>
-                <span className="text-xs font-extrabold tracking-wide uppercase">⚠️ Overdue</span>
+                <span className="text-[10px] font-extrabold tracking-wide uppercase">⚠️ Overdue</span>
               </div>
             ) : (
-              <div className="flex flex-col space-y-3 p-1 max-w-xs text-left" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-start text-xs leading-relaxed font-extrabold">
-                  <AlertTriangle className="mr-2 w-5 h-5 shrink-0 text-yellow-300 animate-bounce mt-0.5" />
+              <div className="flex flex-col space-y-2 p-1 max-w-xs text-left" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-start text-[11px] leading-snug font-extrabold">
+                  <AlertTriangle className="mr-2 w-4 h-4 shrink-0 text-yellow-300 animate-bounce mt-0.5" />
                   <span>COMPLIANCE ALERT: Your weekly entries are overdue for {currentUser.station}. Please submit records immediately.</span>
                 </div>
                 <div className="flex space-x-2 justify-end">
                   <button 
                     onClick={(e) => { e.stopPropagation(); setIsBannerFolded(true); }} 
-                    className="bg-red-800 text-white px-3 py-1.5 rounded font-bold shadow text-xs hover:bg-red-900 transition cursor-pointer"
+                    className="bg-red-800 text-white px-2.5 py-1 rounded font-bold shadow text-[10px] hover:bg-red-900 transition cursor-pointer"
                   >
                     Minimize
                   </button>
                   <button 
                     onClick={() => setCurrentPage('statistics')} 
-                    className="bg-white text-red-700 px-3 py-1.5 rounded font-bold shadow text-xs hover:bg-gray-100 transition cursor-pointer"
+                    className="bg-white text-red-700 px-2.5 py-1 rounded font-bold shadow text-[10px] hover:bg-gray-100 transition cursor-pointer"
                   >
                     Go to Statistics
                   </button>
@@ -385,93 +386,96 @@ return (
       )}
 
       {showComplianceSuccess && (
-        <div className="bg-emerald-600 text-white font-extrabold p-4 rounded-xl shadow-2xl flex items-center border-2 border-emerald-400 max-w-sm fixed bottom-24 right-6 z-[9980]">
-          <CheckCircle className="mr-3 w-6 h-6 shrink-0 text-emerald-200" />
-          <span className="text-xs">COMMENDATION: Thank you, {currentUser.rank} {currentUser.name}, for duly filing your weekly returns.</span>
+        <div className="bg-emerald-600 text-white font-extrabold p-3 rounded-lg shadow-2xl flex items-center border border-emerald-400 max-w-sm fixed bottom-24 right-6 z-[9980]">
+          <CheckCircle className="mr-2 w-5 h-5 shrink-0 text-emerald-200" />
+          <span className="text-[11px]">COMMENDATION: Thank you, {currentUser.rank} {currentUser.name}, for duly filing your weekly returns.</span>
         </div>
       )}
 
-      <div className="text-center flex flex-col items-center mt-4">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-24 h-24 mb-1 object-contain drop-shadow-md contrast-200 brightness-75" />
-        <h1 className="text-3xl font-bold text-gray-900 tracking-wide">UGANDA POLICE FORCE</h1>
-        <h2 className="text-lg font-bold text-slate-600 mt-1 uppercase tracking-wide">KAMPALA METROPOLITAN POLICE HEADQUARTERS</h2>
-        <h3 className="text-sm font-bold text-blue-600 mt-3 uppercase tracking-widest bg-blue-50 px-4 py-1 rounded-full border border-blue-200">Centralised Security Data Management System</h3>
+      {/* 🟢 HEADER (Shrunk sizes) */}
+      <div className="text-center flex flex-col items-center mt-2">
+        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-1 object-contain drop-shadow-md contrast-200 brightness-75" />
+        <h1 className="text-2xl font-extrabold text-gray-900 tracking-wide">UGANDA POLICE FORCE</h1>
+        <h2 className="text-base font-bold text-slate-600 uppercase tracking-wide">KAMPALA METROPOLITAN POLICE HEADQUARTERS</h2>
+        <h3 className="text-[11px] font-bold text-blue-600 mt-2 uppercase tracking-widest bg-blue-50 px-3 py-1 rounded-full border border-blue-200">Centralised Security Data Management System</h3>
       </div>
 
       <div className="w-full">
-        <h3 className="text-center text-sm font-bold text-slate-600 bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+        <h3 className="text-center text-xs font-bold text-slate-600 bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
             Welcome, <span className="text-blue-700">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
         </h3>   
       </div>
 
-      <div onClick={onOpenInbox} className="h-28 bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-green-400 group relative overflow-hidden mb-4">
+      {/* 🟢 COMMS BANNER (Shrunk padding and height) */}
+      <div onClick={onOpenInbox} className="min-h-[4.5rem] bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-green-400 group relative overflow-hidden mb-2">
         {hasUnread && (
-          <><div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping"></div>
-            <div className="absolute top-3 right-3 w-3 h-3 bg-green-500 rounded-full"></div></>
+          <><div className="absolute top-2 right-2 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping"></div>
+            <div className="absolute top-2 right-2 w-2.5 h-2.5 bg-green-500 rounded-full"></div></>
         )}
-        <div className="w-14 h-14 rounded-full bg-slate-900 text-white flex items-center justify-center mr-4 group-hover:bg-slate-800 transition-colors shrink-0">
-          <RadioReceiver size={24} className={hasUnread ? "text-green-400 animate-pulse" : "text-slate-400"} />
+        <div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center mr-3 group-hover:bg-slate-800 transition-colors shrink-0">
+          <RadioReceiver size={18} className={hasUnread ? "text-green-400 animate-pulse" : "text-slate-400"} />
         </div>
         <div className="flex-1">
           <h3 className="text-sm font-extrabold text-slate-900 leading-tight">Command Dispatches & Alerts</h3>
-          <p className="text-xs font-medium mt-1 line-clamp-2 transition-colors duration-300 flex items-center">
+          <p className="text-[11px] font-medium mt-0.5 line-clamp-2 transition-colors duration-300 flex items-center">
             {hasUnread ? <span className="text-green-600 font-bold">You have unread Correspondences. Click to view.</span> : <span className="text-slate-500">Secure directives, network alerts, and command communications.</span>}
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
-          <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-300 group">
-            <div className="w-14 h-14 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mr-4 group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0"><LayoutDashboard size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Crime Registry</h3><p className="text-xs text-slate-500 font-medium mt-1">Log and track daily serious incidents.</p></div>
+      {/* 🟢 OPTIMIZED MODULE GRID (4 Columns on large screens, shrunk icons/padding) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full">
+          <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 group">
+            <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mr-3 group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0"><LayoutDashboard size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Crime Registry</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Log and track daily incidents.</p></div>
           </div>
           
-          <div onClick={() => setCurrentPage('statistics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-300 group">
-            <div className="w-14 h-14 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mr-4 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0"><BarChart3 size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">OPS Statistics</h3><p className="text-xs text-slate-500 font-medium mt-1">Weekly numerical aggregates for operations.</p></div>
+          <div onClick={() => setCurrentPage('statistics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 group">
+            <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mr-3 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0"><BarChart3 size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">OPS Statistics</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Weekly numerical aggregates.</p></div>
           </div>
 
-          <div onClick={() => setCurrentPage('success')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-yellow-400 group">
-            <div className="w-14 h-14 rounded-full bg-yellow-50 text-yellow-600 flex items-center justify-center mr-4 group-hover:bg-yellow-500 group-hover:text-white transition-colors shrink-0"><Trophy size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Success Stories</h3><p className="text-xs text-slate-500 font-medium mt-1">Document tactical milestones against Crime.</p></div>
+          <div onClick={() => setCurrentPage('success')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-yellow-400 group">
+            <div className="w-10 h-10 rounded-full bg-yellow-50 text-yellow-600 flex items-center justify-center mr-3 group-hover:bg-yellow-500 group-hover:text-white transition-colors shrink-0"><Trophy size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Success Stories</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Document tactical milestones.</p></div>
           </div>
 
-          <div onClick={() => setCurrentPage('establishments')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-emerald-300 group">
-            <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mr-4 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0"><Building size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-xs text-slate-500 font-medium mt-1">Map divisions, stations, posts and booths.</p></div>
+          <div onClick={() => setCurrentPage('establishments')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-emerald-300 group">
+            <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mr-3 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0"><Building size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Map divisions, stations, posts.</p></div>
           </div>
 
-          {/* 🟢 NEW ANALYTICS DASHBOARD MODULE TILE */}
-          <div onClick={() => setCurrentPage('analytics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-cyan-400 group">
-            <div className="w-14 h-14 rounded-full bg-cyan-50 text-cyan-600 flex items-center justify-center mr-4 group-hover:bg-cyan-600 group-hover:text-white transition-colors shrink-0"><PieChart size={24} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Analytics Dashboard</h3><p className="text-xs text-slate-500 font-medium mt-1">Visual graphs, cross-tabs & Excel reports.</p></div>
+          <div onClick={() => setCurrentPage('analytics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-cyan-400 group">
+            <div className="w-10 h-10 rounded-full bg-cyan-50 text-cyan-600 flex items-center justify-center mr-3 group-hover:bg-cyan-600 group-hover:text-white transition-colors shrink-0"><PieChart size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Analytics Dashboard</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Graphs, cross-tabs & reports.</p></div>
           </div>
 
           {hasNominalClearance && (
-            <div onClick={() => setCurrentPage('nominal-roll')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-purple-300 group">
-              <div className="w-14 h-14 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mr-4 group-hover:bg-purple-600 group-hover:text-white transition-colors shrink-0"><Users size={24} /></div>
-              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Master Nominal Roll</h3><p className="text-xs text-slate-500 font-medium mt-1">Personnel data and deployment registry.</p></div>
+            <div onClick={() => setCurrentPage('nominal-roll')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-purple-300 group">
+              <div className="w-10 h-10 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mr-3 group-hover:bg-purple-600 group-hover:text-white transition-colors shrink-0"><Users size={18} /></div>
+              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Nominal Roll</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Personnel deployment registry.</p></div>
             </div>
           )}
 
+          {/* 🟢 "WIDE" BUTTONS: These span 2 columns on large screens to stretch cleanly */}
           {isAdmin && (
-            <div onClick={() => setCurrentPage('approvals')} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-slate-500 group">
-              <div className="w-14 h-14 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-4 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0"><UserPlus size={24} /></div>
-              <div><h3 className="text-sm font-extrabold text-white leading-tight">Access Approvals</h3><p className="text-xs text-slate-400 font-medium mt-1">Review system logs and pending signups.</p></div>
+            <div onClick={() => setCurrentPage('approvals')} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-slate-500 group lg:col-span-2">
+              <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-3 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0"><UserPlus size={18} /></div>
+              <div><h3 className="text-sm font-extrabold text-white leading-tight">Access Approvals</h3><p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-snug">Review system logs and pending signups.</p></div>
             </div>
           )}
           
           {canViewConsolidated && (
-            <div onClick={onViewConsolidated} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-slate-500 group md:col-span-2 lg:col-span-3">
-              <div className="w-14 h-14 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-4 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0"><Eye size={24} /></div>
-              <div><h3 className="text-sm font-extrabold text-white leading-tight">Consolidated Entries</h3><p className="text-xs text-slate-400 font-medium mt-1">Cross-domain master visualization.</p></div>
+            <div onClick={onViewConsolidated} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-slate-500 group lg:col-span-2">
+              <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-3 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0"><Eye size={18} /></div>
+              <div><h3 className="text-sm font-extrabold text-white leading-tight">Consolidated Entries</h3><p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-snug">Cross-domain master visualization.</p></div>
             </div>
           )}
 
           {canExportData && (
-            <div onClick={() => onMasterExport('all', 'all')} className="bg-blue-900 rounded-xl shadow-sm border border-blue-800 p-6 flex items-center cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 hover:border-blue-400 group md:col-span-2 lg:col-span-3">
-              <div className="w-14 h-14 rounded-full bg-blue-800 text-blue-200 flex items-center justify-center mr-4 group-hover:bg-blue-700 group-hover:text-white transition-colors shrink-0"><Download size={24} /></div>
-              <div><h3 className="text-sm font-extrabold text-white leading-tight">Download Master Database</h3><p className="text-xs text-blue-200 font-medium mt-1">Export full encrypted .xlsx ledger.</p></div>
+            <div onClick={() => onMasterExport('all', 'all')} className="bg-blue-900 rounded-xl shadow-sm border border-blue-800 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-400 group lg:col-span-2">
+              <div className="w-10 h-10 rounded-full bg-blue-800 text-blue-200 flex items-center justify-center mr-3 group-hover:bg-blue-700 group-hover:text-white transition-colors shrink-0"><Download size={18} /></div>
+              <div><h3 className="text-sm font-extrabold text-white leading-tight">Download Master Database</h3><p className="text-[11px] text-blue-200 font-medium mt-0.5 leading-snug">Export full encrypted .xlsx ledger.</p></div>
             </div>
           )}
       </div>
@@ -3674,11 +3678,11 @@ const IdleWarningModal = () => {
           width: '20px', 
           height: '20px', 
           backgroundImage: "url('/UPF Flag Emblem.png')",
-          animation: "spinFauxGlobe 12s linear infinite",
+          animation: "spinFauxGlobe 28s linear infinite",
           boxShadow: "inset -3px -3px 5px rgba(0, 0, 0, 0.8), inset 1px 1px 2px rgba(255, 255, 255, 0.5), 0 0 3px rgba(255, 255, 255, 0.2)"
         }}
       ></div>
-      <span className="font-bold text-[13px] tracking-wider text-white">KMP TRACKER SYSTEM</span>
+      <span className="font-bold text-[10px] tracking-wider text-white">KMP TRACKER SYSTEM</span>
     </div>
   )}
   

@@ -5,14 +5,14 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
   
   // 🟢 1. ROBUST PARSING LOGIC FOR NOMINAL ROLL AGGREGATES
   const nominalAggregates = useMemo(() => {
-    // Safely grab the nominal roll array and filter out Archived personnel
-    const rawRoll = (data?.nominal_roll || []).filter(p => {
+    // Safely grab the nominal roll array (handling multiple possible backend keys)
+    const rawRoll = (data?.nominal_roll || data?.nominal_rolls || data?.Nominal_Rolls || data?.personnel || []).filter(p => {
         const statusStr = String(p.status || '').trim().toUpperCase();
         return statusStr !== 'ARCHIVED' && p.is_archived !== true;
     });
     
     const regions = [
-      { key: 'GENERAL / HQ', match: ['HEADQUARTERS', 'HQ'] },
+      { key: 'GENERAL / HQ', match: ['HEADQUARTERS', 'HQ', 'GENERAL'] },
       { key: 'KMP EAST', match: ['KMP EAST', 'EAST'] },
       { key: 'KMP NORTH', match: ['KMP NORTH', 'NORTH'] },
       { key: 'KMP SOUTH', match: ['KMP SOUTH', 'SOUTH'] }
@@ -21,11 +21,15 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
     // 🟢 FIX 1: Flawless Officer vs NCO Classification (IGP down to AIP)
     const isOfficer = (rankStr) => {
       if (!rankStr) return false;
-      // Strip periods and split by spaces/slashes to catch things like "D/AIP" or "A.I.P"
-      let cleanRank = String(rankStr).toUpperCase().replace(/\./g, '');
-      const words = cleanRank.split(/[\s/]+/); 
-      const officerKeywords = ['IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'ASP', 'IP', 'AIP', 'INSPECTOR', 'SUPERINTENDENT', 'COMMISSIONER'];
-      return words.some(word => officerKeywords.includes(word));
+      // Clean the rank string (e.g., "D/AIP" -> "DAIP", "A.I.P" -> "AIP")
+      let cleanRank = String(rankStr).toUpperCase().replace(/[\.\/]/g, '').trim();
+      const officerKeywords = ['IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'ASP', 'IP', 'AIP', 'DAIP', 'DIP'];
+      
+      const words = cleanRank.split(/\s+/); 
+      return words.some(word => officerKeywords.includes(word)) || 
+             cleanRank.includes('INSPECTOR') || 
+             cleanRank.includes('SUPERINTENDENT') || 
+             cleanRank.includes('COMMISSIONER');
     };
 
     // Deep-parse the demographics safely, preventing null crashes
@@ -47,7 +51,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
         } else if (sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF')) {
             stats.sex.F++;
         } else {
-            // Default to Male if completely blank to preserve headcount
+            // Default to Male if completely blank to preserve headcount metrics
             stats.sex.M++; 
         }
 
@@ -57,14 +61,13 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
         
         if (dobStr) {
           let birthYear;
-          const strVal = String(dobStr);
-          // Handle various DB date structures (YYYY-MM-DD or DD/MM/YYYY)
+          const strVal = String(dobStr).trim();
           if (strVal.includes('-')) {
              const parts = strVal.split('-');
-             birthYear = parts[0].length === 4 ? parseInt(parts[0]) : parseInt(parts[2]);
+             birthYear = parts[0].length === 4 ? parseInt(parts[0], 10) : parseInt(parts[2], 10);
           } else if (strVal.includes('/')) {
              const parts = strVal.split('/');
-             birthYear = parts[2].length === 4 ? parseInt(parts[2]) : parseInt(parts[0]);
+             birthYear = parts[2].length === 4 ? parseInt(parts[2], 10) : parseInt(parts[0], 10);
           } else {
              birthYear = new Date(strVal).getFullYear();
           }
@@ -102,7 +105,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
       return stats;
     };
 
-    return regions.map(reg => {
+    const aggregatedRegions = regions.map(reg => {
       const regionPersonnel = rawRoll.filter(p => {
         const pReg = String(p.region || '').trim().toUpperCase();
         return reg.match.some(m => pReg.includes(m));
@@ -120,6 +123,29 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
         regionTotal: regionPersonnel.length
       };
     });
+    
+    // Catch-all for personnel whose Region wasn't mapped cleanly
+    const assignedIds = new Set();
+    aggregatedRegions.forEach(r => {
+        rawRoll.filter(p => regions.find(reg => reg.key === r.region)?.match.some(m => String(p.region || '').toUpperCase().includes(m)))
+               .forEach(p => assignedIds.add(p.id || p.sn || p.fnum));
+    });
+    
+    const unassigned = rawRoll.filter(p => !assignedIds.has(p.id || p.sn || p.fnum));
+    if (unassigned.length > 0) {
+        const officers = unassigned.filter(p => isOfficer(p.rank));
+        const ncos = unassigned.filter(p => !isOfficer(p.rank));
+        aggregatedRegions.push({
+            region: 'OTHER / UNASSIGNED',
+            officers: calculateStats(officers),
+            ncos: calculateStats(ncos),
+            totalOff: officers.length,
+            totalNco: ncos.length,
+            regionTotal: unassigned.length
+        });
+    }
+
+    return aggregatedRegions;
   }, [data]);
 
   const masterTotals = useMemo(() => {
@@ -136,11 +162,11 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
     }, { totalOff: 0, totalNco: 0, regionTotal: 0, offSex: {M:0, F:0}, ncoSex: {M:0, F:0} });
   }, [nominalAggregates]);
 
-  const estData = Array.isArray(data?.establishments) ? data.establishments : [];
+  const estData = Array.isArray(data?.establishments) ? data.establishments : (Array.isArray(data?.Establishments) ? data.Establishments : []);
   const estTotals = estData.reduce((acc, curr) => {
-      acc.station += (Number(curr.personnel_in_station) || 0);
-      acc.post += (Number(curr.personnel_in_post) || 0);
-      acc.booth += (Number(curr.personnel_in_booth) || 0);
+      acc.station += (parseInt(curr.personnel_in_station, 10) || 0);
+      acc.post += (parseInt(curr.personnel_in_post, 10) || 0);
+      acc.booth += (parseInt(curr.personnel_in_booth, 10) || 0);
       return acc;
   }, { station: 0, post: 0, booth: 0 });
 
@@ -301,17 +327,22 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                    {estData.map((e, idx) => {
-                      const totalPerLocation = (Number(e.personnel_in_station) || 0) + (Number(e.personnel_in_sub_station) || 0) + (Number(e.personnel_in_post) || 0) + (Number(e.personnel_in_booth) || 0);
+                      const stn = parseInt(e.personnel_in_station, 10) || 0;
+                      const sub = parseInt(e.personnel_in_sub_station, 10) || 0;
+                      const pst = parseInt(e.personnel_in_post, 10) || 0;
+                      const bth = parseInt(e.personnel_in_booth, 10) || 0;
+                      const totalPerLocation = stn + sub + pst + bth;
+                      
                       return (
                          <tr key={idx} className="hover:bg-emerald-50/40 transition-colors">
                             <td className="p-3 text-xs text-slate-500 font-bold">{idx + 1}</td>
                             <td className="p-3 text-xs font-black text-slate-800 bg-slate-50/50 uppercase">{e.region}</td>
                             <td className="p-3 text-xs font-bold text-slate-600 uppercase">{e.division || '-'}</td>
                             <td className="p-3 text-xs font-bold text-slate-600 bg-slate-50/50 uppercase">{e.station || '-'}</td>
-                            <td className="p-3 text-center text-sm font-extrabold text-green-700">{e.personnel_in_station > 0 ? e.personnel_in_station : '-'}</td>
+                            <td className="p-3 text-center text-sm font-extrabold text-green-700">{stn > 0 ? stn : '-'}</td>
                             <td className="p-3 text-xs font-medium text-slate-600 bg-slate-50/50 capitalize">{e.sub_station || '-'}</td>
                             <td className="p-3 text-xs font-medium text-slate-600 capitalize">{e.post || '-'}</td>
-                            <td className="p-3 text-center text-sm font-bold text-emerald-600 bg-slate-50/50">{e.personnel_in_post > 0 ? e.personnel_in_post : '-'}</td>
+                            <td className="p-3 text-center text-sm font-bold text-emerald-600 bg-slate-50/50">{pst > 0 ? pst : '-'}</td>
                             <td className="p-3 text-center text-sm font-black text-emerald-900 bg-emerald-50 shadow-inner border-l border-emerald-100">{totalPerLocation > 0 ? totalPerLocation : '-'}</td>
                          </tr>
                       );
