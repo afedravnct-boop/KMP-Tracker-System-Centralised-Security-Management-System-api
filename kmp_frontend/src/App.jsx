@@ -502,7 +502,9 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
   const [updateSearch, setUpdateSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
-    
+  
+  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+  
   const [formData, setFormData] = useState({
     sn: null, region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
     date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
@@ -536,8 +538,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
         
-        // 🟢 SAFEGUARDED WITH String() & Optional Chaining:
-        const snStr = String(s.sn || '').toLowerCase();
+        const snStr = String(s.id || s.sn || '').toLowerCase();
         const stationStr = String(s.station || '').toLowerCase();
         const dateStr = String(s.date || '').toLowerCase();
 
@@ -575,7 +576,14 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
     }
   };
 
-  const populateUpdateForm = (statData) => setFormData({ ...statData });
+  const populateUpdateForm = (statData) => {
+    const recordIdentifier = statData.id !== undefined && statData.id !== null ? statData.id : statData.sn;
+    setFormData({ 
+      ...statData, 
+      sn: recordIdentifier,
+      id: statData.id 
+    });
+  };
 
   const handleFormSubmit = async (e) => { 
     e.preventDefault();
@@ -586,7 +594,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
       const isDuplicate = stats.some(s => s.station === formData.station && s.date === formData.date);
       if (isDuplicate) return setNotification(`Error: Statistics for ${formData.station} on ${formData.date} are already logged. Please use 'Update Existing'.`);
 
-      const exactNextSN = stats.length > 0 ? Math.max(...stats.map(s => s.sn)) + 1 : 1;
+      const exactNextSN = stats.length > 0 ? Math.max(...stats.map(s => s.sn || 0)) + 1 : 1;
       const newStat = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       
       try {
@@ -607,27 +615,28 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
         setFormData({ 
           ...formData, 
           arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, 
-          taken_to_court: 0, released: 0, remanded: 0, convicted: 0, sn: null 
+          taken_to_court: 0, released: 0, remanded: 0, convicted: 0, sn: null, id: null 
         });
       } catch (err) { 
         setNotification(`❌ Error: ${err.message}`); 
       }
       
     } else if (operation === 'update') {
-      if (!formData.sn) return setNotification("Error: Please select a record from the list to update first.");
+      const recordKey = formData.id || formData.sn;
+      if (!recordKey) return setNotification("Error: Please select a record from the list to update first.");
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
 
       try {
-        const response = await fetch(`${API_URL}/api/v1/stats/${formData.sn}`, {
+        const response = await fetch(`${API_URL}/api/v1/stats/${recordKey}`, {
           method: "PUT", 
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
           body: JSON.stringify(updatedRecord)
         });
         if (!response.ok) throw new Error("Failed to update record in database.");
         
-        const updatedStats = stats.map(s => s.sn === formData.sn ? updatedRecord : s);
+        const updatedStats = stats.map(s => (s.id === recordKey || s.sn === recordKey) ? updatedRecord : s);
         setStats(updatedStats); 
-        setNotification(`Statistics SN ${formData.sn} successfully updated!`);
+        setNotification(`Statistics ID ${recordKey} successfully updated!`);
         handleOperationToggle('new');
       } catch (err) { 
         setNotification("❌ Error: Could not update the record in the database."); 
@@ -656,32 +665,39 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                   <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
                 </div>
                 {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{notification}</span></div>}
-{operation === 'update' && (
+                
+                {operation === 'update' && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                     <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Record to Update</label>
                     <input type="text" placeholder="Search by SN, Station, or Date..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
                     <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
-                      {availableUpdateStats.length === 0 ? <div className="p-3 text-xs text-gray-500 text-center">No records found matching your search.</div> : availableUpdateStats.map(s => (
-                        
-{/* 🟢 FIXED CLICK HANDLER FOR NEONDB ID & SERIAL NUMBER */}
-<div 
-                          key={s.id || s.sn} 
-                          onClick={() => {
-                            populateUpdateForm(s);
-                            const recordKey = s.id || s.sn; // Fallback to id if sn is missing
-                            setNotification(`Selected Record ID: ${recordKey} (${s.station}) for update.`);
-}} 
-                          className={`p-2.5 text-xs border-b cursor-pointer transition-colors ${(formData.sn === (s.id || s.sn) || formData.id === (s.id || s.sn)) ? 'bg-blue-700 text-white font-bold' : 'hover:bg-blue-100 text-gray-800'}`}
-                        >
-                          <span className={(formData.sn === (s.id || s.sn) || formData.id === (s.id || s.sn)) ? 'text-blue-200' : 'text-gray-400'}>ID: {s.id || s.sn}</span> | <span className={(formData.sn === (s.id || s.sn) || formData.id === (s.id || s.sn)) ? 'text-white' : 'font-bold text-blue-700'}>{s.date}</span> | {s.station}
-                        </div>
+                      {availableUpdateStats.length === 0 ? (
+                        <div className="p-3 text-xs text-gray-500 text-center">No records found matching your search.</div>
+                      ) : (
+                        availableUpdateStats.map(s => {
+                          const recordKey = s.id !== undefined && s.id !== null ? s.id : s.sn;
+                          const isSelected = formData.sn === recordKey || formData.id === recordKey;
 
-                      ))}
+                          return (
+                            <div 
+                              key={recordKey} 
+                              onClick={() => {
+                                populateUpdateForm(s);
+                                setNotification(`Selected Record ID: ${recordKey} (${s.station}) for update.`);
+                              }} 
+                              className={`p-2.5 text-xs border-b cursor-pointer transition-colors ${isSelected ? 'bg-blue-700 text-white font-bold' : 'hover:bg-blue-100 text-gray-800'}`}
+                            >
+                              <span className={isSelected ? 'text-blue-200' : 'text-gray-400'}>ID: {recordKey}</span> | <span className={isSelected ? 'text-white' : 'font-bold text-blue-700'}>{s.date}</span> | {s.station}
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 )}
+
                 <form onSubmit={handleFormSubmit} className="space-y-5">
-                  {operation === 'update' && (formData.sn || formData.id) && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing Record ID: {formData.sn || formData.id}</div>}
+                  {operation === 'update' && (formData.sn || formData.id) && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing Record ID: {formData.id || formData.sn}</div>}
                   <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
                       <div>
