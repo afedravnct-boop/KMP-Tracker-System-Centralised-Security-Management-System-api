@@ -1292,6 +1292,36 @@ def create_stat(data: dict, db: Session = Depends(get_db), current_user: models.
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.put("/api/v1/stats/{stat_id}")
+def update_stat(stat_id: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        existing_stat = db.query(models.Operational_Statistics).filter(
+            or_(models.Operational_Statistics.id == stat_id, models.Operational_Statistics.sn == stat_id)
+        ).first()
+        
+        if not existing_stat:
+            raise HTTPException(status_code=404, detail="Operational Statistics record not found.")
+
+        data.pop('sn', None)
+        data.pop('id', None)
+
+        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
+            data.pop("region", None)
+            data.pop("station", None)
+
+        for key, value in data.items():
+            if hasattr(existing_stat, key):
+                setattr(existing_stat, key, value)
+
+        existing_stat.last_updated_by = get_officer_signature(current_user)
+        db.commit()
+        db.refresh(existing_stat)
+        
+        return {"status": "success", "message": f"Statistics record {stat_id} updated successfully."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
 # --- SUCCESS STORIES ---
 @app.get("/api/v1/stories")
 def get_stories(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
