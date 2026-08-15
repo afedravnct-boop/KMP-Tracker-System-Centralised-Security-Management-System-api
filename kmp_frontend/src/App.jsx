@@ -668,9 +668,9 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                           key={s.id || s.sn} 
                           onClick={() => {
                             populateUpdateForm(s);
-                            const activeKey = s.id !== undefined && s.id !== null ? s.id : s.sn;
-                            setNotification(`Selected Record ID: ${activeKey} (${s.station}) for update.`);
-                          }} 
+                            const recordKey = s.id || s.sn; // Fallback to id if sn is missing
+                            setNotification(`Selected Record ID: ${recordKey} (${s.station}) for update.`);
+}} 
                           className={`p-2.5 text-xs border-b cursor-pointer transition-colors ${(formData.sn === (s.id || s.sn) || formData.id === (s.id || s.sn)) ? 'bg-blue-700 text-white font-bold' : 'hover:bg-blue-100 text-gray-800'}`}
                         >
                           <span className={(formData.sn === (s.id || s.sn) || formData.id === (s.id || s.sn)) ? 'text-blue-200' : 'text-gray-400'}>ID: {s.id || s.sn}</span> | <span className={(formData.sn === (s.id || s.sn) || formData.id === (s.id || s.sn)) ? 'text-white' : 'font-bold text-blue-700'}>{s.date}</span> | {s.station}
