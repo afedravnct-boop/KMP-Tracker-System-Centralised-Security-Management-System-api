@@ -663,16 +663,17 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                     <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
                       {availableUpdateStats.length === 0 ? <div className="p-3 text-xs text-gray-500 text-center">No records found matching your search.</div> : availableUpdateStats.map(s => (
                         
-                        // 🟢 ADD THE CLICK HANDLER HERE:
-                        <div 
-                          key={s.sn} 
+{/* 🟢 FIXED CLICK HANDLER FOR NEONDB ID & SERIAL NUMBER */}
+<div 
+                          key={s.id || s.sn} 
                           onClick={() => {
                             populateUpdateForm(s);
-                            setNotification(`Selected Record SN: ${s.sn} (${s.station}) for update.`);
+                            const activeKey = s.id !== undefined && s.id !== null ? s.id : s.sn;
+                            setNotification(`Selected Record ID: ${activeKey} (${s.station}) for update.`);
                           }} 
-                          className={`p-2.5 text-xs border-b cursor-pointer transition-colors ${formData.sn === s.sn ? 'bg-blue-700 text-white font-bold' : 'hover:bg-blue-100 text-gray-800'}`}
+                          className={`p-2.5 text-xs border-b cursor-pointer transition-colors ${(formData.sn === (s.id || s.sn) || formData.id === (s.id || s.sn)) ? 'bg-blue-700 text-white font-bold' : 'hover:bg-blue-100 text-gray-800'}`}
                         >
-                          <span className={formData.sn === s.sn ? 'text-blue-200' : 'text-gray-400'}>SN: {s.sn}</span> | <span className={formData.sn === s.sn ? 'text-white' : 'font-bold text-blue-700'}>{s.date}</span> | {s.station}
+                          <span className={(formData.sn === (s.id || s.sn) || formData.id === (s.id || s.sn)) ? 'text-blue-200' : 'text-gray-400'}>ID: {s.id || s.sn}</span> | <span className={(formData.sn === (s.id || s.sn) || formData.id === (s.id || s.sn)) ? 'text-white' : 'font-bold text-blue-700'}>{s.date}</span> | {s.station}
                         </div>
 
                       ))}
@@ -680,7 +681,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
                   </div>
                 )}
                 <form onSubmit={handleFormSubmit} className="space-y-5">
-                  {operation === 'update' && formData.sn && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing Record SN: {formData.sn}</div>}
+                  {operation === 'update' && (formData.sn || formData.id) && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing Record ID: {formData.sn || formData.id}</div>}
                   <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
                       <div>
