@@ -285,3 +285,22 @@ class ActivityLogReq(BaseModel):
     action: str
     module: str
     details: str
+
+class LockupMatrixBase(BaseModel):
+    sd_ref: str
+    date: str
+    time: Optional[str] = None
+    region: str
+    station: str
+    suspects: int
+    last_updated_by: Optional[str] = None
+
+class LockupMatrixCreate(LockupMatrixBase):
+    pass
+
+class LockupMatrixResponse(LockupMatrixBase):
+    sn: int
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

@@ -1094,6 +1094,54 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/api/v1/lockup-matrix", response_model=schemas.LockupMatrixResponse)
+def create_lockup_entry(
+    entry: schemas.LockupMatrixCreate, 
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
+    """
+    Saves a new daily suspect lockup count into the independent lockup matrix table.
+    """
+    try:
+        new_entry = models.LockupMatrix(**entry.dict())
+        db.add(new_entry)
+        db.commit()
+        db.refresh(new_entry)
+        return new_entry
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to log cell population: {str(e)}")
+
+
+@app.get("/api/v1/lockup-matrix", response_model=list[schemas.LockupMatrixResponse])
+def get_lockup_entries(
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
+    """
+    Retrieves all lockup matrix entries. Global commanders see all, regional/station commanders see their jurisdiction.
+    """
+    position = (current_user.position or "").upper()
+    role = (current_user.role or "").upper()
+    
+    is_global = (
+        role in ["SUPER_ADMIN", "ADMIN"] or
+        "IGP" in position or 
+        "DIRECTOR" in position or 
+        "KMP COMMANDER" in position or
+        current_user.region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
+    )
+    
+    query = db.query(models.LockupMatrix)
+    
+    if not is_global:
+        # If they are just a station/divisional user, only show them their region's entries
+        query = query.filter(models.LockupMatrix.region == current_user.region)
+        
+    return query.order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).all()
+
 # --- OPS STATISTICS ---
 @app.get("/api/v1/stats")
 def get_stats(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):

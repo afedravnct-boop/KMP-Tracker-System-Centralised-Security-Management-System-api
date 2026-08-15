@@ -351,3 +351,16 @@ class CommandTemplate(Base):
     updated_by = Column(String, nullable=True) 
     
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class LockupMatrix(Base):
+    __tablename__ = "lockup_matrix"
+
+    sn = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    sd_ref = Column(String, unique=True, index=True, nullable=False) # e.g., POP-KMP-123456
+    date = Column(String, index=True, nullable=False)                # YYYY-MM-DD format
+    time = Column(String, nullable=True)                             # e.g., 0830Hrs
+    region = Column(String, index=True, nullable=False)              # e.g., KMP EAST
+    station = Column(String, index=True, nullable=False)             # e.g., KIRA DIVISION
+    suspects = Column(Integer, default=0, nullable=False)            # Total count
+    last_updated_by = Column(String, nullable=True)                  # User info who logged it
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

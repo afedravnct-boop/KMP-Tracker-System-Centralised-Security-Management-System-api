@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera,
-  Filter, TrendingUp, TrendingDown, Minus
+  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter
 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
+import LockupMatrixLedger from './LockupMatrixLedger';
 
 // ==========================================
 // REGIONAL HIERARCHY MAPPING
@@ -101,6 +101,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   
   const [showHqGrandModal, setShowHqGrandModal] = useState(false);
   const [hqGrandTotalInput, setHqGrandTotalInput] = useState('');
+  const [showLockupMatrixModal, setShowLockupMatrixModal] = useState(false);  
 
   const [filterRegion, setFilterRegion] = useState(isGlobalCommand ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(isRegionalCommand ? 'ALL STATIONS' : currentUser?.station || '');
@@ -111,7 +112,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
   // 🟢 SUMMARY FILTERS
   const [summaryTimeFilter, setSummaryTimeFilter] = useState('ALL');
-  const [lockupFilter, setLockupFilter] = useState('ALL');
 
   const [showLockup, setShowLockup] = useState(false);
   const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' });
@@ -370,38 +370,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       suspectGrandTotal: crimesArray.reduce((acc, curr) => acc + curr.suspects, 0)
     };
   }, [filteredReports, reports, summaryTimeFilter]);
-
-  // 🟢 SECURELY FILTER LOCK-UP ENTRIES
-  const filteredLockupEntries = useMemo(() => {
-    if (lockupFilter === 'ALL') return lockupEntries;
-    
-    const today = new Date();
-    const tzOffset = today.getTimezoneOffset() * 60000; 
-    const localToday = new Date(today - tzOffset);
-    
-    const todayStr = localToday.toISOString().split('T')[0];
-    
-    const weekAgo = new Date(localToday);
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const weekStr = weekAgo.toISOString().split('T')[0];
-    
-    const monthAgo = new Date(localToday);
-    monthAgo.setDate(monthAgo.getDate() - 30);
-    const monthStr = monthAgo.toISOString().split('T')[0];
-    
-    const yearAgo = new Date(localToday);
-    yearAgo.setDate(yearAgo.getDate() - 365);
-    const yearStr = yearAgo.toISOString().split('T')[0];
-
-    return lockupEntries.filter(row => {
-      if (!row.date) return false;
-      if (lockupFilter === 'TODAY') return row.date >= todayStr;
-      if (lockupFilter === 'WEEK') return row.date >= weekStr;
-      if (lockupFilter === 'MONTH') return row.date >= monthStr;
-      if (lockupFilter === 'YEAR') return row.date >= yearStr;
-      return true;
-    });
-  }, [lockupEntries, lockupFilter]);
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
@@ -1119,8 +1087,17 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       {/* ========================================================= */}
       {/* NEW BOTTOM SECTION: SUMMARIES & MATRICES                  */}
       {/* ========================================================= */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-8 animate-in fade-in duration-300">
+      <div className="mt-8 space-y-6 animate-in fade-in duration-300 max-w-4xl mx-auto">
         
+        {/* 🟢 BUTTON TO OPEN INDEPENDENT LOCKUP MATRIX */}
+        <button 
+          onClick={() => setShowLockupMatrixModal(true)}
+          className="w-full bg-amber-800 hover:bg-amber-900 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center border border-amber-600 group mb-6"
+        >
+          <Filter className="w-5 h-5 mr-3 group-hover:scale-110 transition-transform" />
+          VIEW INDEPENDENT DAILY SUSPECT LOCK-UP MATRIX
+        </button>
+
         {/* 🟢 GENERAL CRIME SUMMARY WITH DURATION FILTER */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
           <div className="bg-slate-900 px-4 py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -1180,102 +1157,16 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
             </table>
           </div>
         </div>
-
-        {/* 🟢 INDEPENDENT DAILY SUSPECT LOCK-UP MATRIX WITH VARIATION */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-          <div className="bg-amber-800 px-4 py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 shrink-0">
-            <h3 className="text-xs font-extrabold text-white tracking-wider uppercase flex items-center">
-              <Filter className="w-3 h-3 mr-2" />
-              Independent Daily Suspect Lock-Up Matrix
-            </h3>
-            
-            {/* 🟢 NEW INTERACTIVE FILTER BUTTONS (Amber Themed) */}
-            <div className="flex bg-amber-900 rounded-lg p-0.5 shadow-inner border border-amber-700/50 overflow-x-auto max-w-full custom-scrollbar">
-              {['TODAY', 'WEEK', 'MONTH', 'YEAR', 'ALL'].map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setLockupFilter(f)}
-                  className={`px-3 py-1 text-[10px] font-extrabold uppercase rounded-md transition-colors whitespace-nowrap ${
-                    lockupFilter === f
-                      ? 'bg-amber-500 text-amber-950 shadow-sm'
-                      : 'text-amber-200 hover:text-white hover:bg-amber-800/80'
-                  }`}
-                >
-                  {f}
-                </button>
-              ))}
-            </div>
-          </div>
-          
-          <div className="overflow-y-auto max-h-96 custom-scrollbar">
-            <table className="w-full text-left">
-              <thead className="bg-amber-50 sticky top-0 border-b border-amber-200 shadow-sm z-10">
-                <tr>
-                  <th className="px-4 py-2 text-[10px] font-extrabold text-amber-900 uppercase">S/N</th>
-                  <th className="px-4 py-2 text-[10px] font-extrabold text-amber-900 uppercase">Date (Day Record)</th>
-                  <th className="px-4 py-2 text-[10px] font-extrabold text-amber-900 uppercase">Station / Origin</th>
-                  <th className="px-4 py-2 text-[10px] font-extrabold text-amber-900 uppercase text-center">Daily Count</th>
-                  <th className="px-4 py-2 text-[10px] font-extrabold text-amber-900 uppercase text-center">Daily Net Variation</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-amber-100">
-                {filteredLockupEntries.length > 0 ? (
-                  filteredLockupEntries.map((row, idx) => (
-                    <tr key={idx} className="hover:bg-amber-50/50 transition-colors">
-                      <td className="px-4 py-3 text-xs font-bold text-slate-400">{idx + 1}</td>
-                      <td className="px-4 py-3 text-xs font-bold text-slate-800">{row.date}</td>
-                      <td className="px-4 py-3 text-xs font-bold text-slate-600 uppercase">{row.station}</td>
-                      <td className="px-4 py-3 text-sm font-black text-amber-700 text-center">{row.suspects}</td>
-                      <td className="px-4 py-3 text-xs font-bold text-center">
-                        {!row.hasPrev ? (
-                          <span className="text-slate-400 flex items-center justify-center"><Minus className="w-3 h-3 mr-1"/> Base</span>
-                        ) : row.variation > 0 ? (
-                          <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100 flex items-center justify-center max-w-max mx-auto">
-                            <TrendingUp className="w-3 h-3 mr-1" /> +{row.variation} Added
-                          </span>
-                        ) : row.variation < 0 ? (
-                          <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 flex items-center justify-center max-w-max mx-auto">
-                            <TrendingDown className="w-3 h-3 mr-1" /> {row.variation} Cleared
-                          </span>
-                        ) : (
-                          <span className="text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 flex items-center justify-center max-w-max mx-auto">
-                            <Minus className="w-3 h-3 mr-1" /> No Change
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="5" className="px-4 py-8 text-center text-xs text-slate-500 font-bold">
-                      No independent lock-up records found for this period.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-              <tfoot className="bg-slate-900 sticky bottom-0 z-10">
-                <tr className="border-b border-slate-700">
-                  <td colSpan="3" className="px-4 py-2 text-right text-[10px] font-black text-amber-300 uppercase tracking-wider">
-                    {lockupFilter === 'ALL' ? 'All-Time Filtered Total:' : `${lockupFilter} Period Total:`}
-                  </td>
-                  <td className="px-4 py-2 text-center text-sm font-black text-amber-300">
-                    {filteredLockupEntries.reduce((sum, l) => sum + Number(l.suspects || 0), 0)}
-                  </td>
-                  <td className="px-4 py-2 bg-slate-900"></td>
-                </tr>
-                <tr className="bg-slate-950">
-                  <td colSpan="3" className="px-4 py-3 text-right text-[11px] font-black text-yellow-400 uppercase tracking-wider">
-                    Cumulative Matrix Lock-Up Total:
-                  </td>
-                  <td className="px-4 py-3 text-center text-lg font-black text-yellow-400">{allTimeLockupTotal}</td>
-                  <td className="px-4 py-3 bg-slate-950"></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-        
       </div>
+
+      {/* MODAL RENDERERS (Place this right next to your selectedCase modal) */}
+      {showLockupMatrixModal && (
+        <LockupMatrixLedger 
+          lockupEntries={lockupEntries} 
+          allTimeLockupTotal={allTimeLockupTotal} 
+          onClose={() => setShowLockupMatrixModal(false)} 
+        />
+      )}
 
       {selectedCase && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 sm:p-6 animate-in fade-in zoom-in-95 duration-200">
