@@ -2490,7 +2490,6 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   );
 };
 
-export default Nominal_Roll;
 
 const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   const [isEditing, setIsEditing] = useState(false);
