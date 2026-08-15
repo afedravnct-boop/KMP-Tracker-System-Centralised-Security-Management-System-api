@@ -624,6 +624,16 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
     } else if (operation === 'update') {
       const recordKey = formData.id || formData.sn;
       if (!recordKey) return setNotification("Error: Please select a record from the list to update first.");
+
+      // 🟢 Enforce Duplicate Detection (Reject if another distinct record already exists for same station & date)
+      const isDuplicateConflict = stats.some(s => 
+        (s.station === formData.station && s.date === formData.date) && 
+        (s.id !== recordKey && s.sn !== recordKey)
+      );
+      if (isDuplicateConflict) {
+        return setNotification(`❌ Error: Another record for ${formData.station} on ${formData.date} already exists. Duplicate entries for the same station and date are prohibited.`);
+      }
+
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
 
       try {
@@ -632,14 +642,18 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
           body: JSON.stringify(updatedRecord)
         });
-        if (!response.ok) throw new Error("Failed to update record in database.");
+
+        if (!response.ok) {
+          const errorBody = await response.text();
+          throw new Error(errorBody || "Failed to update record in database.");
+        }
         
         const updatedStats = stats.map(s => (s.id === recordKey || s.sn === recordKey) ? updatedRecord : s);
         setStats(updatedStats); 
         setNotification(`Statistics ID ${recordKey} successfully updated!`);
         handleOperationToggle('new');
       } catch (err) { 
-        setNotification("❌ Error: Could not update the record in the database."); 
+        setNotification(`❌ Error: ${err.message}`); 
       }
     }
   };
