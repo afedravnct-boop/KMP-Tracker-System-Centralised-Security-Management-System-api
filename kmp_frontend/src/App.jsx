@@ -1640,14 +1640,19 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
                         (currentUser?.position || '').toUpperCase().includes('HR') ||
                         currentUser?.permissions?.system_admin === true;
 
+  // Edit/Upload/Archive is restricted to Command/HR OR users explicitly given "upload_hr" clearance
   const canEditRecords = isCommandOrHR || currentUser?.permissions?.upload_hr === true;
+  
+  // Global visibility is restricted to Super Admin or those with explicit "view_global_roster" clearance
   const canViewGlobal = currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
 
+  // 🟢 NEW RE-INTEGRATION STATES
   const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
   const [archiveDetails, setArchiveDetails] = useState(null);
   const [customReason, setCustomReason] = useState('');
   const [previousFnum, setPreviousFnum] = useState('');
 
+  // 🟢 BULK ARCHIVE STATES
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [selectedOfficers, setSelectedOfficers] = useState([]);
   const [bulkArchiveReason, setBulkArchiveReason] = useState('TRANSFERRED');
@@ -1657,7 +1662,10 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   const [filterStation, setFilterStation] = useState((isCommandOrHR || canViewGlobal) ? 'ALL STATIONS' : currentUser?.station || '');  
   const [updateSearch, setUpdateSearch] = useState('');
 
-  const [viewMode, setViewMode] = useState('active'); // 'active' | 'archive' | 'metrics' | 'active_metrics' | 'archive_metrics'
+  // 🟢 VIEW STATES: Distinguish between the base dataset and whether we are showing its analytics
+  const [viewMode, setViewMode] = useState('active'); // 'active' | 'archive'
+  const [showAnalytics, setShowAnalytics] = useState(false); // true | false
+  
   const [metricCategory, setMetricCategory] = useState('RANK');  
   const [archiveReason, setArchiveReason] = useState('TRANSFERRED');
 
@@ -1698,6 +1706,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
   };
 
+  // 🟢 SINGLE ARCHIVE HANDLER
   const handleArchivePersonnel = async () => {
     if (!canEditRecords) return alert("Security Restriction: You do not have clearance to archive personnel.");
     const targetFnum = formData.fnum || formData.f_num; 
@@ -1745,6 +1754,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     }
   };
 
+  // 🟢 BULK ARCHIVE HANDLER
   const handleBulkArchive = async () => {
     if (!canEditRecords) return alert("Security Restriction: You do not have clearance to archive personnel.");
     if (selectedOfficers.length === 0) return;
@@ -1759,6 +1769,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     const newArchives = [];
     const archivedFnums = new Set();
 
+    // Process all concurrently
     await Promise.all(selectedOfficers.map(async (targetFnum) => {
       try {
         const response = await authFetch(`${API_URL}/api/v1/nominal-roll/${encodeURIComponent(targetFnum)}/archive`, {
@@ -1910,8 +1921,9 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     });
   }, [Nominal_Roll_archives, filterRegion, filterStation, currentUser, canViewGlobal]);
 
+  // 🟢 CORE LOGIC: Determines exactly WHICH dataset the analytics/tables will read from
   const currentRollDataset = useMemo(() => {
-    return viewMode.includes('archive') ? filteredNominal_Roll_archives : filteredRolls;
+    return viewMode === 'archive' ? filteredNominal_Roll_archives : filteredRolls;
   }, [viewMode, filteredRolls, filteredNominal_Roll_archives]);
 
   const availableUpdateRolls = useMemo(() => {
@@ -1928,8 +1940,9 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
     });
   }, [Nominal_Rolls, currentUser, updateSearch]);
 
+  // 🟢 ANALYTICS CALCULATOR: Dynamically reads from `currentRollDataset` (Active OR Archived)
   const calculatedMetrics = useMemo(() => {
-      if (!viewMode.includes('metrics')) return [];
+      if (!showAnalytics) return [];
       const grouped = {};
       
       currentRollDataset.forEach(n => {
@@ -1979,7 +1992,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
       } else {
           return resultsArray.sort((a, b) => b.total - a.total);
       }
-  }, [currentRollDataset, metricCategory, viewMode]);
+  }, [currentRollDataset, metricCategory, showAnalytics]);
 
   const metricsData = useMemo(() => {
     let maleCount = 0;
@@ -2022,20 +2035,19 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
         <div className="flex flex-col md:flex-row justify-between items-center mb-4 border-b pb-2">
           <h3 className="font-bold text-slate-800 flex items-center">
             <BarChart3 className="w-5 h-5 mr-2 text-blue-600"/> 
-            Personnel Metrics Dashboard ({viewMode.includes('archive') ? 'Archived Records' : 'Active Roll'})
+            Personnel Metrics Dashboard ({viewMode === 'archive' ? 'Archived Records' : 'Active Roll'})
           </h3>
           <div className="flex space-x-2 mt-2 md:mt-0">
-             <button onClick={() => { setViewMode('active'); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Active Roll</button>
-             <button onClick={() => { setViewMode('archive'); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'archive' ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Archived</button>
-             
-             {/* 🟢 Separate Analytics Button */}
-             <button onClick={() => setViewMode(viewMode.includes('metrics') ? viewMode.replace('_metrics', '') : `${viewMode}_metrics`)} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode.includes('metrics') ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                {viewMode.includes('metrics') ? 'Close Analytics' : 'Analytics'}
+             <button onClick={() => { setViewMode('active'); setShowAnalytics(false); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'active' && !showAnalytics ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Active Roll</button>
+             <button onClick={() => { setViewMode('archive'); setShowAnalytics(false); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'archive' && !showAnalytics ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Archived</button>
+             <button onClick={() => setShowAnalytics(!showAnalytics)} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${showAnalytics ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                {showAnalytics ? 'Close Analytics' : 'Analytics'}
              </button>
           </div>
         </div>
 
-        {!viewMode.includes('metrics') && (
+        {/* Top level stat cards */}
+        {!showAnalytics && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
              <MetricCard title={viewMode === 'archive' ? "Total Archived" : "Total Personnel"} value={metricsData.total} colorClass={viewMode === 'archive' ? "text-red-700" : "text-blue-700"} />
              <MetricCard title="Male Officers" value={metricsData.male} colorClass="text-indigo-600" />
@@ -2048,7 +2060,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <>
-          <div className="lg:col-span-4 space-y-5">
+          <div className="lg:col-span-5 space-y-5">
             {/* 🟢 HIDDEN FROM USERS WITHOUT EDITING CLEARANCE */}
             {canEditRecords && (
               <>
@@ -2242,9 +2254,9 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
             )}
           </div>
 
-          <div className="lg:col-span-8 space-y-4">
+          <div className="lg:col-span-7 space-y-4">
             
-            {/* 🟢 BULK ARCHIVE CONTROL BAR (HIDDEN IF !canEditRecords) */}
+            {/* 🟢 BULK ARCHIVE CONTROL BAR (HIDDEN IF NO CLEARANCE) */}
             {viewMode === 'active' && canEditRecords && (
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-3">
                 <button
@@ -2293,10 +2305,10 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
               </select>
             </div>
 
-            {viewMode === 'metrics' ? (
+            {showAnalytics ? (
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm animate-in fade-in zoom-in-95 duration-200">
                   <div className="flex justify-between items-center mb-6 border-b pb-4">
-                      <h3 className="font-extrabold text-lg text-indigo-900 flex items-center"><PieChart className="mr-2"/> Nominal Roll Analytics</h3>
+                      <h3 className="font-extrabold text-lg text-indigo-900 flex items-center"><PieChart className="mr-2"/> {viewMode === 'archive' ? 'Archived Roll Analytics' : 'Active Roll Analytics'}</h3>
                       <div className="flex items-center space-x-2 bg-indigo-50 p-2 rounded-lg border border-indigo-100">
                          <label className="text-xs font-bold text-indigo-800 uppercase">Categorize By:</label>
                          <select value={metricCategory} onChange={e => setMetricCategory(e.target.value)} className="border border-indigo-300 rounded p-1 text-sm font-bold text-indigo-700 outline-none bg-white">
@@ -2478,6 +2490,7 @@ const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Ro
   );
 };
 
+export default Nominal_Roll;
 
 const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   const [isEditing, setIsEditing] = useState(false);
