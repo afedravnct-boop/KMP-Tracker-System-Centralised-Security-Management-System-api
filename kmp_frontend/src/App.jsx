@@ -3743,22 +3743,48 @@ const IdleWarningModal = () => {
                 ))}
               </nav>
 
-              {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) || currentUser.permissions?.system_admin) && (
-                <div className="px-4 space-y-3 min-w-max">
-                  <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
-                    <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
-                    <button 
-                      onClick={() => setCurrentPage('approvals')} 
-                      className={`w-full text-xs py-4 rounded transition font-medium ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}
-                    >
-                      Manage Pending Users & Logs
-                    </button>
+              {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.system_admin || ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'STAFF OFFICER ADMIN', 'SO ADMIN'].some(title => (currentUser?.position || '').toUpperCase().includes(title))) && (
+                <>
+                  <div className="px-4 space-y-3 min-w-max">
+                    <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
+                      <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
+                      <button 
+                        onClick={() => setCurrentPage('approvals')} 
+                        className={`w-full text-xs py-4 rounded transition font-medium ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}
+                      >
+                        Manage Pending Users & Logs
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="rounded-lg p-4 bg-slate-800">
+                  <div className="rounded-lg p-4 bg-slate-800 mx-4">
                     <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
                       <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Online ({realOnlineUsers?.length || 0})</span>
                     </button>
+                    
+                    {showOnline && (
+                      <div className="mt-4 space-y-2 border-t border-slate-700 pt-4 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                        {realOnlineUsers.map((user) => (
+                          <div key={user.fnum} onClick={() => { setSelectedUserDetail({ ...user, isSystemUser: true, isReadOnly: true }); setNewForcePassword(''); }} className="text-xs bg-slate-800 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between group">
+                            <div className="flex items-center space-x-3">
+                              {user.profile_photo_path ? (
+                                <img src={user.profile_photo_path} alt="" className="w-7 h-7 rounded-full border border-green-400 object-cover shadow-sm group-hover:border-green-300 transition-colors" onError={(e) => { e.target.style.display='none'; }} />
+                              ) : (
+                                <div className="w-7 h-7 bg-green-600 rounded-full flex items-center justify-center text-white font-bold shadow-sm">{user.name?.charAt(0) || 'U'}</div>
+                              )}
+                              <div>
+                                <span className="font-bold text-white block truncate w-32">{user.name} {user.fnum === currentUser.fnum ? '(You)' : ''}</span>
+                                <span className="text-slate-400 text-[9px] uppercase tracking-wider">{user.station}</span>
+                              </div>
+                            </div>
+                            <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e] animate-pulse"></div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
                     
                     {showOnline && (
                       <div className="mt-4 space-y-2 border-t border-slate-700 pt-4 max-h-40 overflow-y-auto custom-scrollbar pr-1">

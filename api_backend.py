@@ -12,6 +12,8 @@ from typing import Optional, List, Union
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import urllib.parse
+import fitz
+
 
 import pytz
 import uvicorn
@@ -43,6 +45,10 @@ from sqlalchemy import Column, Integer
 from sqlalchemy import text
 from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+import openpyxl
+from pptx import Presentation
+from pptx.util import Inches, Pt as PPTXPt
+from pptx.dml.color import RGBColor as PPTXRGBColor
 
 from urllib.parse import unquote
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -2753,6 +2759,105 @@ async def upload_word_report(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to process document: {str(e)}")
 
+def apply_universal_forensic_stamp(file_bytes: bytes, filename: str, user) -> bytes:
+    """
+    Universally inspects and applies an official UPF forensic watermark/stamp 
+    to Word (.docx), Excel (.xlsx), PowerPoint (.pptx), and PDF (.pdf) documents.
+    """
+    ext = filename.lower().split('.')[-1]
+    fnum = getattr(user, 'fnum', 'UNKNOWN')
+    rank = getattr(user, 'rank', '')
+    name = getattr(user, 'name', 'OFFICER')
+    station = getattr(user, 'station', 'KMP HQ')
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S EAT")
+    
+    stamp_text = (
+        f"RESTRICTED | ACCESSED BY: {fnum} {rank} {name} | STATION: {station} | {timestamp}"
+    )
+
+    buffer = io.BytesIO(file_bytes)
+
+    # ==========================================
+    # 1. WORD DOCUMENTS (.docx)
+    # ==========================================
+    if ext == 'docx':
+        doc = Document(buffer)
+        for section in doc.sections:
+            footer = section.footer
+            footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+            footer_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            run = footer_p.add_run(f"\n{stamp_text}")
+            run.font.name = 'Courier New'
+            run.font.size = Pt(7.5)
+            run.font.bold = True
+            run.font.color.rgb = RGBColor(139, 0, 0) # Dark Red Forensic Stamp
+        
+        out = io.BytesIO()
+        doc.save(out)
+        return out.getvalue()
+
+    # ==========================================
+    # 2. EXCEL SPREADSHEETS (.xlsx)
+    # ==========================================
+    elif ext in ['xlsx', 'xls']:
+        wb = openpyxl.load_workbook(buffer)
+        for ws in wb.worksheets:
+            # Inject into bottom center footer of every sheet
+            ws.odd_footer.center.text = stamp_text
+            ws.odd_footer.center.font_size = 8
+            ws.odd_footer.center.font_name = "Courier New"
+        
+        out = io.BytesIO()
+        wb.save(out)
+        return out.getvalue()
+
+    # ==========================================
+    # 3. POWERPOINT PRESENTATIONS (.pptx)
+    # ==========================================
+    elif ext in ['pptx', 'ppt']:
+        prs = Presentation(buffer)
+        for slide in prs.slides:
+            # Add a subtle footer text box at the bottom of every slide
+            left = Inches(0.5)
+            top = Inches(7.1)
+            width = Inches(9.0)
+            height = Inches(0.3)
+            txBox = slide.shapes.add_textbox(left, top, width, height)
+            tf = txBox.text_frame
+            p = tf.paragraphs[0]
+            p.text = stamp_text
+            p.font.size = PPTXPt(8)
+            p.font.name = 'Courier New'
+            p.font.color.rgb = PPTXRGBColor(139, 0, 0)
+        
+        out = io.BytesIO()
+        prs.save(out)
+        return out.getvalue()
+
+    # ==========================================
+    # 4. PORTABLE DOCUMENT FORMAT (.pdf)
+    # ==========================================
+    elif ext == 'pdf':
+        pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
+        for page in pdf_document:
+            rect = page.rect
+            # Insert forensic stamp at the bottom margin of each page
+            point = fitz.Point(36, rect.height - 20)
+            page.insert_text(
+                point, 
+                stamp_text, 
+                fontsize=8, 
+                fontname="Courier", 
+                color=(0.55, 0, 0)
+            )
+        
+        out = io.BytesIO()
+        pdf_document.save(out)
+        pdf_document.close()
+        return out.getvalue()
+
+    # Fallback for unhandled types: return original bytes
+    return file_bytes
 
 @app.delete("/api/v1/reports/archive/{doc_id}")
 def delete_archive_file(
@@ -2810,13 +2915,14 @@ def download_archive_file(
 
     parsed_url = urllib.parse.urlparse(doc_record.file_path)
     original_s3_key = parsed_url.path.lstrip('/') 
+    file_extension = doc_record.file_name.lower().split('.')[-1]
 
     try:
+        # 1. Download raw file bytes from S3
         file_stream = io.BytesIO()
         s3_client.download_fileobj(BUCKET_NAME, original_s3_key, file_stream)
         file_stream.seek(0)
-
-        word_doc = Document(file_stream)
+        raw_bytes = file_stream.getvalue()
 
         eat_time = datetime.utcnow() + timedelta(hours=3)
         timestamp_eat = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
@@ -2834,30 +2940,78 @@ def download_archive_file(
             "========================================================"
         )
 
-        section = word_doc.sections[0]
-        footer = section.footer
-        footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
-        
-        footer_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        
-        run = footer_p.add_run(receipt_text)
-        
-        run.font.name = 'Courier New' 
-        run.font.size = Pt(7.5) 
-        run.font.bold = True
-        run.font.color.rgb = RGBColor(139, 0, 0) 
-
         output_stream = io.BytesIO()
-        word_doc.save(output_stream)
+        content_type = "application/octet-stream"
+
+        # ==========================================
+        # FORMAT-ADAPTIVE STAMPING ENGINE
+        # ==========================================
+        if file_extension == 'docx':
+            word_doc = Document(io.BytesIO(raw_bytes))
+            section = word_doc.sections[0]
+            footer = section.footer
+            footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+            footer_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            run = footer_p.add_run(receipt_text)
+            run.font.name = 'Courier New' 
+            run.font.size = Pt(7.5) 
+            run.font.bold = True
+            run.font.color.rgb = RGBColor(139, 0, 0) 
+            word_doc.save(output_stream)
+            content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+        elif file_extension in ['xlsx', 'xls']:
+            wb = openpyxl.load_workbook(io.BytesIO(raw_bytes))
+            for ws in wb.worksheets:
+                ws.odd_footer.center.text = receipt_text
+                ws.odd_footer.center.font_size = 7.5
+                ws.odd_footer.center.font_name = "Courier New"
+            wb.save(output_stream)
+            content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+        elif file_extension in ['pptx', 'ppt']:
+            prs = Presentation(io.BytesIO(raw_bytes))
+            for slide in prs.slides:
+                txBox = slide.shapes.add_textbox(Inches(0.5), Inches(7.0), Inches(9.0), Inches(0.4))
+                tf = txBox.text_frame
+                p = tf.paragraphs[0]
+                p.text = receipt_text
+                p.font.size = PPTXPt(7)
+                p.font.name = 'Courier New'
+                p.font.color.rgb = PPTXRGBColor(139, 0, 0)
+            prs.save(output_stream)
+            content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+        elif file_extension == 'pdf':
+            pdf_document = fitz.open(stream=raw_bytes, filetype="pdf")
+            for page in pdf_document:
+                rect = page.rect
+                # Write receipt text into the bottom margin of each PDF page
+                point = fitz.Point(36, rect.height - 35)
+                page.insert_text(
+                    point, 
+                    receipt_text, 
+                    fontsize=6.5, 
+                    fontname="Courier", 
+                    color=(0.55, 0, 0)
+                )
+            pdf_document.save(output_stream)
+            pdf_document.close()
+            content_type = "application/pdf"
+
+        else:
+            # Fallback for any other binary formats: output original bytes
+            output_stream.write(raw_bytes)
+
         output_stream.seek(0)
 
-        stamped_s3_key = f"forensic_cache/{current_user.fnum}_DOC_{doc_id}.docx"
-        
+        # 2. Cache stamped file securely back to S3
+        stamped_s3_key = f"forensic_cache/{current_user.fnum}_DOC_{doc_id}.{file_extension}"
         s3_client.upload_fileobj(
             output_stream, 
             BUCKET_NAME, 
             stamped_s3_key,
-            ExtraArgs={"ContentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+            ExtraArgs={"ContentType": content_type}
         )
 
         aws_region = os.getenv("AWS_REGION", "eu-central-1")
@@ -2866,7 +3020,7 @@ def download_archive_file(
         return {"download_url": stamped_url}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Forensic Stamping Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Universal Forensic Stamping Error: {str(e)}")
 
 @app.get("/api/v1/templates/download/{template_type}")
 def download_official_template(template_type: str, current_user: models.Users = Depends(get_current_user)):
