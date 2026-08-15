@@ -419,11 +419,11 @@ def auto_infer_geography(station_name, current_region, current_district):
     inferred_region = current_region
     inferred_district = current_district
 
-    # Map your KMP Regional Hierarchy
+    # 🟢 FULL KMP REGIONAL HIERARCHY MAP (Parliament Added)
     regional_hierarchy = {
         "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
         "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-        "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+        "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
         "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
         "POLICE HEADQUARTERS": ["NAGURU"]
     }
@@ -434,6 +434,8 @@ def auto_infer_geography(station_name, current_region, current_district):
             if stat_upper in stations:
                 inferred_region = reg
                 break
+                
+    return inferred_region, inferred_district
 
 def verify_command_clearance(current_user, target_user, action_type="GRANT_PRIVILEGE"):
     """
@@ -2043,6 +2045,7 @@ def get_consolidated_ledger(start_date: str, end_date: str, db: Session = Depend
 @app.get("/api/v1/reports/hr-establishments-json")
 def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
+        # 1. Fetch RAW Nominal Roll Data
         hr_query = db.query(models.NominalRoll)
         if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
             hr_query = hr_query.filter(models.NominalRoll.station == current_user.station)
@@ -2050,29 +2053,13 @@ def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.User
             hr_query = hr_query.filter(models.NominalRoll.region == current_user.region)
             
         hr_records = hr_query.all()
-        grouped_hr = {}
-        
-        for r in hr_records:
-            region = getattr(r, 'region', 'GENERAL / HQ') or 'GENERAL / HQ'
-            station = getattr(r, 'station', 'N/A') or 'N/A'
-            rank = getattr(r, 'rank', 'UNRANKED') or 'UNRANKED'
-            
-            key = (region.strip().upper(), station.strip().upper())
-            if key not in grouped_hr:
-                grouped_hr[key] = {"total_personnel": 0, "ranks": {}}
-            
-            grouped_hr[key]["total_personnel"] += 1
-            grouped_hr[key]["ranks"][rank] = grouped_hr[key]["ranks"].get(rank, 0) + 1
-            
         hr_list = []
-        for (region, station), data in grouped_hr.items():
-            hr_list.append({
-                "region": region,
-                "station": station,
-                "total_personnel": data["total_personnel"],
-                "rank_breakdown": data["ranks"]
-            })
+        for r in hr_records:
+            r_dict = r.__dict__.copy()
+            r_dict.pop("_sa_instance_state", None)
+            hr_list.append(r_dict)
 
+        # 2. Fetch RAW Establishments Data
         est_query = db.query(models.Establishments)
         if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
             est_query = est_query.filter(models.Establishments.station == current_user.station)
@@ -2082,21 +2069,13 @@ def get_hr_summary_json(db: Session = Depends(get_db), current_user: models.User
         est_records = est_query.all()
         est_list = []
         for e in est_records:
-            pers_stn = getattr(e, 'personnel_in_station', 0) or 0
-            pers_post = getattr(e, 'personnel_in_post', 0) or 0
-            pers_booth = getattr(e, 'personnel_in_booth', getattr(e, 'booths', 0)) or 0
-            est_list.append({
-                "region": getattr(e, 'region', '-'), 
-                "division": getattr(e, 'division', '-'), 
-                "station": getattr(e, 'station', '-'),
-                "pers_stn": pers_stn, 
-                "sub_station": getattr(e, 'sub_station', '-'), 
-                "post": getattr(e, 'post', '-'),
-                "pers_post": pers_post, 
-                "sub_total": pers_stn + pers_post + pers_booth
-            })
+            e_dict = e.__dict__.copy()
+            e_dict.pop("_sa_instance_state", None)
+            est_list.append(e_dict)
 
-        return {"hr": hr_list, "establishments": est_list}
+        # 3. Return the RAW data so the React Ledger can parse the Demographics!
+        return {"nominal_roll": hr_list, "establishments": est_list}
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load HR aggregate data: {str(e)}")
 
