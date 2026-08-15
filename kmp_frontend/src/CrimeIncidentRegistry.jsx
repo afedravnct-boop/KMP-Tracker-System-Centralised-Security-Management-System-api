@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter
+  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive
 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -17,13 +17,8 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// Helper function for auto-capitalization
-const autoCapitalize = (text) => {
-  if (!text) return '';
-  return text.toUpperCase();
-};
+const autoCapitalize = (text) => text ? text.toUpperCase() : '';
 
-// 🟢 Visually separated the KMP Master Card from standard local metrics
 const MetricCard = ({ title, value, colorClass }) => {
   const isKMPMaster = title === 'KMP Master Lock-up' || title === 'KMP Master';
   return (
@@ -38,62 +33,42 @@ const MetricCard = ({ title, value, colorClass }) => {
   );
 };
 
-// Expandable Table Card Component
 const ExpandableTableCard = ({ title, children, onToggle }) => {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-      <div className="bg-slate-900 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
-        <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{title}</h3>
-        <button 
-          onClick={() => {
-            const nextState = !expanded;
-            setExpanded(nextState);
-            if (onToggle) onToggle(nextState);
-          }}
-          className="text-xs text-blue-400 hover:text-white font-bold transition"
-        >
-          {expanded ? 'Collapse View ↗' : 'Expand View ↙'}
-        </button>
+    <>
+      {expanded && <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9990] animate-in fade-in" />}
+      <div className={expanded ? "fixed inset-4 sm:inset-10 z-[9999] bg-white rounded-xl shadow-2xl border border-slate-300 flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden" : "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col"}>
+        <div className="bg-slate-900 px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200 flex justify-between items-center shrink-0">
+          <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{title}</h3>
+          <button onClick={() => { const nextState = !expanded; setExpanded(nextState); if (onToggle) onToggle(nextState); }} className="text-xs text-blue-400 hover:text-white font-bold transition flex items-center bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 shadow-inner">
+            {expanded ? 'Collapse View ↙' : 'Expand View ↗'}
+          </button>
+        </div>
+        <div className={`w-full ${expanded ? 'flex-1 overflow-hidden [&>div]:max-h-full [&>div]:h-full' : ''}`}>
+          {children}
+        </div>
       </div>
-      {children}
-    </div>
+    </>
   );
 };
 
-// Mock authFetch helper
 const authFetch = async (url, options = {}) => {
   const token = localStorage.getItem('kmp_authToken');
   const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-  const headers = {
-    ...options.headers,
-    "Authorization": `Bearer ${token}`
-  };
-  return fetch(`${API_URL}${url}`, { ...options, headers });
+  return fetch(`${API_URL}${url}`, { ...options, headers: { ...options.headers, "Authorization": `Bearer ${token}` } });
 };
 
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
-  // 🟢 COMMAND CLEARANCE HIERARCHY (Strictly Isolated)
-  const isGlobalCommand = 
-    currentUser?.role === 'SUPER_ADMIN' || 
-    currentUser?.permissions?.view_global_roster || 
-    ['IGP', 'DIGP'].some(title => (currentUser?.position || '').toUpperCase().includes(title)) ||
-    (currentUser?.position || '').toUpperCase().includes('DIRECTOR') ||
-    (currentUser?.position || '').toUpperCase().includes('KMP COMMANDER') ||
-    ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((currentUser?.region || '').toUpperCase());
+  
+  // 🟢 INDEPENDENT LOCKUP STATE
+  const [lockupData, setLockupData] = useState([]);
+  const [standalonePopInput, setStandalonePopInput] = useState('');
 
-  // 🟢 Divisional Commanders default to their specific Division (Station)
-  const isRegionalCommand = 
-    isGlobalCommand || 
-    ['RPC', 'DEPUTY COMMANDER'].includes((currentUser?.role || '').toUpperCase()) ||
-    (currentUser?.position || '').toUpperCase().includes('RPC') ||
-    (currentUser?.position || '').toUpperCase().includes('REGIONAL');
-
-  const isHQOr999 = 
-    ['SUPER_ADMIN', 'ADMIN'].includes((currentUser?.role || '').toUpperCase()) || 
-    (currentUser?.station || '').toUpperCase().includes('HEADQUARTERS') ||
-    (currentUser?.region || '').toUpperCase().includes('HEADQUARTERS') ||
-    (currentUser?.position || '').toUpperCase().includes('999');
+  // 🟢 CLEARANCES
+  const isGlobalCommand = currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster || ['IGP', 'DIGP', 'DIRECTOR', 'KMP COMMANDER'].some(title => (currentUser?.position || '').toUpperCase().includes(title)) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((currentUser?.region || '').toUpperCase());
+  const isRegionalCommand = isGlobalCommand || ['RPC', 'DEPUTY COMMANDER'].includes((currentUser?.role || '').toUpperCase()) || (currentUser?.position || '').toUpperCase().includes('RPC') || (currentUser?.position || '').toUpperCase().includes('REGIONAL');
+  const isHQOr999 = ['SUPER_ADMIN', 'ADMIN'].includes((currentUser?.role || '').toUpperCase()) || (currentUser?.station || '').toUpperCase().includes('HEADQUARTERS') || (currentUser?.region || '').toUpperCase().includes('HEADQUARTERS') || (currentUser?.position || '').toUpperCase().includes('999');
 
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -109,8 +84,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   const [updateSearch, setUpdateSearch] = useState('');
-
-  // 🟢 SUMMARY FILTERS
   const [summaryTimeFilter, setSummaryTimeFilter] = useState('ALL');
 
   const [showLockup, setShowLockup] = useState(false);
@@ -122,17 +95,31 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
     region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
     date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-    offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: '',
-    cell_population: 0
+    offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
   });
+
+  // 🟢 FETCH INDEPENDENT LOCKUP DATA ON MOUNT
+  useEffect(() => {
+    const fetchLockupData = async () => {
+      try {
+        const response = await authFetch('/api/v1/lockup-matrix');
+        if (response.ok) {
+          const data = await response.json();
+          setLockupData(data);
+        }
+      } catch (err) {
+        console.error("Failed to load lockup matrix:", err);
+      }
+    };
+    fetchLockupData();
+  }, []);
 
   const resetFormToBlank = () => {
     setFormData({
       sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
       region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
       date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-      offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: '',
-      cell_population: 0
+      offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
     });
     setUpdateSearch('');
   };
@@ -140,38 +127,34 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const handleOperationToggle = (mode) => {
     setOperation(mode);
     setNotification(null);
-    if (mode === 'new') {
-      resetFormToBlank();
-    }
+    if (mode === 'new') resetFormToBlank();
   };
 
   const populateUpdateCrimeForm = (caseData) => {
     setFormData({ 
       ...caseData, sd_ref: caseData.sdRef || caseData.sd_ref, offence: caseData.offence || 'Other',
-      customOffence: '', suspectDetails: caseData.suspectDetails || [], updateText: '',
-      cell_population: caseData.daily_lock_up || 0 
+      customOffence: '', suspectDetails: caseData.suspectDetails || [], updateText: ''
     });
   };
 
+  // 🟢 PURE CRIME FILTERING (No Lockups Here!)
   const filteredReports = useMemo(() => {
     if (!Array.isArray(reports)) return [];
-    
     const activeRegion = (filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion.trim().toUpperCase() : null;
     const activeStation = (filterStation && filterStation !== 'ALL STATIONS') ? filterStation.trim().toUpperCase() : null;
 
     const results = reports.filter(r => {
+      // Reject legacy lockup logs if they accidentally ended up here
+      if (r.is_hq_general_total || (r.offence || '').toUpperCase().includes("LOCK-UP TOTAL")) return false;
+
       const dbRegion = (r.region || '').trim().toUpperCase();
       const dbStation = (r.station || '').trim().toUpperCase();
-      
       if (activeRegion && dbRegion !== activeRegion) return false;
       if (activeStation && dbStation !== activeStation) return false;
       
       if (searchQuery) {
         const query = searchQuery.toLowerCase().trim();
-        const textMatch = 
-          (r.narrative || '').toLowerCase().includes(query) || 
-          (r.station || '').toLowerCase().includes(query) || 
-          (r.sdRef || r.sd_ref || '').toLowerCase().includes(query);
+        const textMatch = (r.narrative || '').toLowerCase().includes(query) || (r.station || '').toLowerCase().includes(query) || (r.sdRef || r.sd_ref || '').toLowerCase().includes(query);
         if (!textMatch) return false;
       }
       
@@ -180,34 +163,24 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
           if (r.date !== todayStr) return false;
         } else if (dateFilter === 'LAST 7 DAYS') {
-          const repDate = new Date(r.date);
-          if ((Date.now() - repDate) / (1000 * 60 * 60 * 24) > 7) return false;
+          if ((Date.now() - new Date(r.date)) / (1000 * 60 * 60 * 24) > 7) return false;
         } else if (dateFilter === 'LAST 30 DAYS') {
-          const repDate = new Date(r.date);
-          if ((Date.now() - repDate) / (1000 * 60 * 60 * 24) > 30) return false;
+          if ((Date.now() - new Date(r.date)) / (1000 * 60 * 60 * 24) > 30) return false;
         } else if (dateFilter === 'LAST 90 DAYS') {
-          const repDate = new Date(r.date);
-          if ((Date.now() - repDate) / (1000 * 60 * 60 * 24) > 90) return false;
+          if ((Date.now() - new Date(r.date)) / (1000 * 60 * 60 * 24) > 90) return false;
         } else if (dateFilter === 'LAST 120 DAYS') {
-          const repDate = new Date(r.date);
-          if ((Date.now() - repDate) / (1000 * 60 * 60 * 24) > 120) return false;
+          if ((Date.now() - new Date(r.date)) / (1000 * 60 * 60 * 24) > 120) return false;
         }
       }
       return true;
     });
-
-    return results.sort((a, b) => {
-      const idA = a.id || a.sn || 0;
-      const idB = b.id || b.sn || 0;
-      return idB - idA;
-    });
-
+    return results.sort((a, b) => (b.id || b.sn || 0) - (a.id || a.sn || 0));
   }, [reports, filterRegion, filterStation, searchQuery, dateFilter]);
 
   const isStationSpecific = filterStation && filterStation !== 'ALL STATIONS';
 
   const availableUpdateCases = useMemo(() => {
-    return (Array.isArray(reports) ? reports : []).filter(r => {
+    return filteredReports.filter(r => {
       if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && r.region !== currentUser.region) return false;
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
@@ -215,53 +188,33 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       }
       return true;
     });
-  }, [reports, currentUser, updateSearch]);
+  }, [filteredReports, currentUser, updateSearch]);
 
+  // 🟢 METRICS (Calculates Lockup from lockupData, Cases from filteredReports)
   const metrics = useMemo(() => {
     const stationCellPop = {};
-    const now = new Date();
-    // Safely format today's date in 'YYYY-MM-DD'
-    const todayStr = new Date(Date.now() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-    
-    const allReports = Array.isArray(reports) ? reports : [];
+    const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
     
     let hqGrandTotalToday = null;
     let latestHqGrandTotal = null;
     let hasLockupUpdateToday = false;
     
-    // 🟢 Scan MASTER `reports` for Global KMP Lock-up Total
-    allReports.forEach(r => {
-      const rawDate = (r.date || '').slice(0, 10);
-      const isHQTotal = r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL');
-      const lockupVal = parseInt(r.daily_lock_up || r.suspects || 0);
-
+    // Parse pure lockup data
+    lockupData.forEach(l => {
+      const isHQTotal = l.station === 'HEADQUARTERS GENERAL TOTAL' || l.region === 'KMP HEADQUARTERS';
       if (isHQTotal) {
-        if (rawDate === todayStr && lockupVal > 0) {
-          hqGrandTotalToday = lockupVal;
-        }
-        if (!latestHqGrandTotal && lockupVal > 0) {
-          latestHqGrandTotal = lockupVal; // relies on reports array being sorted descending
-        }
-      }
-
-      if (rawDate === todayStr && r.station && (r.daily_lock_up !== undefined && r.daily_lock_up !== null)) {
-        if (!isHQTotal) {
-          stationCellPop[r.station] = lockupVal;
-          // Verify if it matches their current filtered view
-          if (filteredReports.some(fr => fr.station === r.station)) {
-             hasLockupUpdateToday = true;
-          }
+        if (l.date === todayStr && l.suspects > 0) hqGrandTotalToday = l.suspects;
+        if (!latestHqGrandTotal && l.suspects > 0) latestHqGrandTotal = l.suspects;
+      } else {
+        if (l.date === todayStr) {
+          stationCellPop[l.station] = l.suspects;
+          if (l.station === filterStation) hasLockupUpdateToday = true;
         }
       }
     });
     
     const calculatedGlobalSum = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
-    
-    const kmpGeneralTotal = hqGrandTotalToday !== null 
-      ? hqGrandTotalToday 
-      : calculatedGlobalSum > 0 
-        ? calculatedGlobalSum 
-        : latestHqGrandTotal;
+    const kmpGeneralTotal = hqGrandTotalToday !== null ? hqGrandTotalToday : calculatedGlobalSum > 0 ? calculatedGlobalSum : latestHqGrandTotal;
 
     let localJurisdictionTotal = 0;
     if (filterStation && filterStation !== 'ALL STATIONS') {
@@ -273,20 +226,11 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       localJurisdictionTotal = calculatedGlobalSum;
     }
 
-    const totalCaseSuspects = filteredReports.reduce((sum, r) => {
-      if (r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL')) return sum;
-      return sum + (r.suspectDetails || r.suspect_details || []).length;
-    }, 0);
+    const totalCaseSuspects = filteredReports.reduce((sum, r) => sum + (r.suspectDetails || r.suspect_details || []).length, 0);
 
     return {
-      localLockup: (hasLockupUpdateToday || localJurisdictionTotal > 0)
-        ? localJurisdictionTotal 
-        : <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending Today</span>,
-        
-      kmpGeneralLockup: kmpGeneralTotal !== null && kmpGeneralTotal !== undefined
-        ? kmpGeneralTotal 
-        : <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending Today</span>,
-
+      localLockup: (hasLockupUpdateToday || localJurisdictionTotal > 0) ? localJurisdictionTotal : <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending</span>,
+      kmpGeneralLockup: kmpGeneralTotal !== null && kmpGeneralTotal !== undefined ? kmpGeneralTotal : <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending</span>,
       newCases: filteredReports.length,
       active: filteredReports.filter(r => r.status === 'ACTIVE INVESTIGATION').length,
       sanctioned: filteredReports.filter(r => r.status === 'FORWARDED TO COURT').length,
@@ -294,108 +238,61 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       adr: filteredReports.filter(r => r.status === 'ADR').length,
       totalSuspects: totalCaseSuspects
     };
-  }, [filteredReports, reports, filterRegion, filterStation]);
+  }, [filteredReports, lockupData, filterRegion, filterStation]);
 
-  // 🟢 Separated General Crimes (excluding lockups) and Independent Daily Lock-ups with Time Filtering & Variation
-  const { generalCrimes, lockupEntries, allTimeLockupTotal, crimeGrandTotal, suspectGrandTotal } = useMemo(() => {
+  // 🟢 PURE CRIME SUMMARIES & PROCESSED LOCKUPS
+  const { generalCrimes, processedLockups, allTimeLockupTotal, crimeGrandTotal, suspectGrandTotal } = useMemo(() => {
     const crimeMap = {};
-    const lockups = [];
-    let allTimeSum = 0;
     const now = new Date();
 
-    if (Array.isArray(reports)) {
-      reports.forEach(r => {
-        const isLockupLog = r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL') || (r.daily_lock_up !== undefined && r.daily_lock_up !== null && r.daily_lock_up > 0);
-        if (isLockupLog) {
-          allTimeSum += parseInt(r.daily_lock_up || r.suspects || 0);
-        }
-      });
-    }
-
+    // 1. Process Crime Types
     filteredReports.forEach(r => {
-      const isLockupLog = r.is_hq_general_total || (r.station || '').includes('HEADQUARTERS GENERAL TOTAL') || (r.daily_lock_up !== undefined && r.daily_lock_up !== null && r.daily_lock_up > 0);
-      
-      if (isLockupLog) {
-        lockups.push({
-          date: r.date || 'Unknown Date',
-          station: r.station || 'HQ GENERAL',
-          suspects: parseInt(r.daily_lock_up || r.suspects || 0)
-        });
-      } else {
-        // Apply Summary Duration Filter
-        let includeInSummary = true;
-        const rDate = new Date(r.date);
-        
-        if (summaryTimeFilter === 'TODAY') {
-          includeInSummary = rDate.toDateString() === now.toDateString();
-        } else if (summaryTimeFilter === 'WEEK') {
-          const oneWeekAgo = new Date();
-          oneWeekAgo.setDate(now.getDate() - 7);
-          includeInSummary = rDate >= oneWeekAgo && rDate <= now;
-        } else if (summaryTimeFilter === 'MONTH') {
-          includeInSummary = rDate.getMonth() === now.getMonth() && rDate.getFullYear() === now.getFullYear();
-        } else if (summaryTimeFilter === 'YEAR') {
-          includeInSummary = rDate.getFullYear() === now.getFullYear();
-        }
+      let includeInSummary = true;
+      const rDate = new Date(r.date);
+      if (summaryTimeFilter === 'TODAY') includeInSummary = rDate.toDateString() === now.toDateString();
+      else if (summaryTimeFilter === 'WEEK') includeInSummary = rDate >= new Date(now.setDate(now.getDate() - 7)) && rDate <= new Date();
+      else if (summaryTimeFilter === 'MONTH') includeInSummary = rDate.getMonth() === now.getMonth() && rDate.getFullYear() === now.getFullYear();
+      else if (summaryTimeFilter === 'YEAR') includeInSummary = rDate.getFullYear() === now.getFullYear();
 
-        if (includeInSummary) {
-          const offenceName = (r.offence || 'GENERAL CRIME').toUpperCase();
-          if (!crimeMap[offenceName]) {
-            crimeMap[offenceName] = { offence: offenceName, cases: 0, suspects: 0 };
-          }
-          crimeMap[offenceName].cases += 1;
-          crimeMap[offenceName].suspects += (r.suspectDetails || r.suspect_details || []).length;
-        }
+      if (includeInSummary) {
+        const offenceName = (r.offence || 'GENERAL CRIME').toUpperCase();
+        if (!crimeMap[offenceName]) crimeMap[offenceName] = { offence: offenceName, cases: 0, suspects: 0 };
+        crimeMap[offenceName].cases += 1;
+        crimeMap[offenceName].suspects += (r.suspectDetails || r.suspect_details || []).length;
       }
     });
-
-    // Process Lockup Variations
-    lockups.sort((a, b) => new Date(b.date) - new Date(a.date)); // Sort newest first
-    const processedLockups = lockups.map((log, index, arr) => {
-      if (index === arr.length - 1) {
-        return { ...log, variation: 0, hasPrev: false }; // Oldest record
-      }
-      const prevDayLog = arr[index + 1];
-      const diff = log.suspects - prevDayLog.suspects; 
-      return { ...log, variation: diff, hasPrev: true };
-    });
-
     const crimesArray = Object.values(crimeMap).sort((a, b) => b.cases - a.cases);
 
+    // 2. Process Independent Lockups (Add variations)
+    const sortedLockups = [...lockupData].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const lockupsWithVar = sortedLockups.map((log, index, arr) => {
+      if (index === arr.length - 1) return { ...log, variation: 0, hasPrev: false };
+      return { ...log, variation: log.suspects - arr[index + 1].suspects, hasPrev: true };
+    });
+    
     return {
       generalCrimes: crimesArray,
-      lockupEntries: processedLockups,
-      allTimeLockupTotal: allTimeSum,
+      processedLockups: lockupsWithVar,
+      allTimeLockupTotal: lockupData.reduce((acc, l) => acc + (parseInt(l.suspects) || 0), 0),
       crimeGrandTotal: crimesArray.reduce((acc, curr) => acc + curr.cases, 0),
       suspectGrandTotal: crimesArray.reduce((acc, curr) => acc + curr.suspects, 0)
     };
-  }, [filteredReports, reports, summaryTimeFilter]);
+  }, [filteredReports, lockupData, summaryTimeFilter]);
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
-    if (name === 'region') {
-      setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] });
-    } else if (name === 'narrative' || name === 'updateText' || name === 'customOffence') {
-      setFormData({ ...formData, [name]: autoCapitalize(value) });
-    } else {
-      setFormData({ ...formData, [name]: type === 'number' ? parseInt(value) || 0 : value });
-    }
+    if (name === 'region') setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] });
+    else if (['narrative', 'updateText', 'customOffence'].includes(name)) setFormData({ ...formData, [name]: autoCapitalize(value) });
+    else setFormData({ ...formData, [name]: type === 'number' ? parseInt(value) || 0 : value });
   };
 
   const handleAddSuspect = () => {
     if (!newSuspect.name.trim()) return alert("Suspect name is required.");
-    setFormData({
-      ...formData,
-      suspectDetails: [...formData.suspectDetails, { ...newSuspect, id: Date.now() }]
-    });
+    setFormData({ ...formData, suspectDetails: [...formData.suspectDetails, { ...newSuspect, id: Date.now() }] });
     setNewSuspect({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' }); 
   };
 
-  const handleRemoveSuspect = (id) => {
-    setFormData({
-      ...formData, suspectDetails: formData.suspectDetails.filter(s => s.id !== id)
-    });
-  };
+  const handleRemoveSuspect = (id) => setFormData({ ...formData, suspectDetails: formData.suspectDetails.filter(s => s.id !== id) });
 
   const handleSuspectPhotoUpload = async (e) => {
     const file = e.target.files[0];
@@ -409,99 +306,79 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       try {
         const token = localStorage.getItem('kmp_authToken');
         const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        const response = await fetch(`${API_URL}/api/v1/investigation/upload/`, {
-          method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: uploadData,
-        });
+        const response = await fetch(`${API_URL}/api/v1/investigation/upload/`, { method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: uploadData });
         const data = await response.json();
         if (data.full_s3_url || data.cloud_storage_path) {
           setNewSuspect({ ...newSuspect, photo_url: data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}` });
           setNotification("✅ Mugshot uploaded securely!");
-        } else {
-          throw new Error("Invalid response");
-        }
+        } else throw new Error("Invalid response");
       } catch (error) {
-        console.warn("Backend offline. Using local preview.", error);
         setNewSuspect({ ...newSuspect, photo_url: URL.createObjectURL(file) });
         setNotification("⚠️ API unreachable. Using temporary local preview.");
       }
     }
   };
 
+  // 🟢 NEW INDEPENDENT LOCKUP SUBMIT HANDLER (Posts to /api/v1/lockup-matrix)
   const handleStandalonePopSubmit = async () => {
-    if (formData.cell_population === '' || formData.cell_population === null) {
-      return setNotification("Error: Please enter a cell population number.");
-    }
+    if (standalonePopInput === '' || standalonePopInput === null) return setNotification("Error: Please enter a cell population number.");
     
-    const token = localStorage.getItem('kmp_authToken');
-    if (!token) return setNotification("Error: Security token missing.");
+    setNotification("⏳ Logging Daily Cell Population to Independent Matrix...");
+    const popRef = `POP-${currentUser.station.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
     
-    setNotification("⏳ Logging Daily Cell Population...");
-    const popRef = `POP-${formData.station.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
-    
-    let formattedTime = formData.time || '';
-    if (formattedTime && !/hrs$/i.test(formattedTime.trim())) formattedTime = `${formattedTime.trim()}Hrs`;
-
     const apiPayload = {
-      sd_ref: popRef, region: formData.region, station: formData.station,
-      date: formData.date, time: formattedTime, offence: 'Other', 
-      narrative: `Daily Lock-up / Detention Cell Population Log. Total suspects currently in custody at ${formData.station} is ${formData.cell_population}.`,
-      status: 'CLOSED / CONVICTED', suspects: 0,
-      last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
-      suspectDetails: [], daily_lock_up: formData.cell_population || 0 
+      sd_ref: popRef, 
+      region: currentUser.region, 
+      station: currentUser.station,
+      date: getTodayString(), 
+      time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+      suspects: parseInt(standalonePopInput) || 0,
+      last_updated_by: `${currentUser.name} (${currentUser.fnum})`
     };
 
     try {
-      const response = await authFetch(`/api/v1/reports`, {
+      const response = await authFetch(`/api/v1/lockup-matrix`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload)
       });  
+      if (!response.ok) throw new Error("Database rejected the lockup entry.");
       
-      const resData = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(resData.detail || "Database rejected the entry.");
-      
-      const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
-      setReports([newReportLocal, ...reports]);
-      setNotification(`✅ Daily Cell Population (${formData.cell_population}) logged successfully for ${formData.station}!`);
-      setFormData(prev => ({ ...prev, cell_population: 0 })); 
-      
+      const newLockup = await response.json();
+      setLockupData([newLockup, ...lockupData]);
+      setNotification(`✅ Daily Cell Population (${standalonePopInput}) successfully logged to the Independent Matrix!`);
+      setStandalonePopInput(''); 
       setTimeout(() => setNotification(null), 5000);
     } catch (err) {
       setNotification(`❌ Error: ${err.message}`);
     }
   };
 
+  // 🟢 HQ MASTER LOCKUP FALLBACK HANDLER
   const handleHqGrandTotalSubmit = async (e) => {
     e.preventDefault();
     if (!hqGrandTotalInput && hqGrandTotalInput !== 0) return alert("Please enter a valid Grand Total.");
     
-    const token = localStorage.getItem('kmp_authToken');
-    if (!token) return alert("Security token missing.");
-
-    setNotification("⏳ Submitting Headquarters General Grand Total...");
+    setNotification("⏳ Submitting HQ General Grand Total to Independent Matrix...");
     const hqRef = `HQ-GRAND-${Date.now().toString().slice(-6)}`;
 
     const apiPayload = {
-      sd_ref: hqRef, region: "KMP HEADQUARTERS", station: "HEADQUARTERS GENERAL TOTAL",
+      sd_ref: hqRef, 
+      region: "KMP HEADQUARTERS", 
+      station: "HEADQUARTERS GENERAL TOTAL",
       date: getTodayString(),
       time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-      offence: "HQ GENERAL SUSPECT LOCK-UP TOTAL",
-      narrative: `Command Fallback Entry: Headquarters fallback general suspect lock-up grand total logged as ${hqGrandTotalInput} due to delayed station returns.`,
-      status: "CLOSED / CONVICTED", suspects: parseInt(hqGrandTotalInput) || 0,
-      last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
-      suspectDetails: [], daily_lock_up: parseInt(hqGrandTotalInput) || 0,
-      is_hq_general_total: true
+      suspects: parseInt(hqGrandTotalInput) || 0,
+      last_updated_by: `${currentUser.name} (${currentUser.fnum})`
     };
 
     try {
-      const response = await authFetch(`/api/v1/reports`, {
+      const response = await authFetch(`/api/v1/lockup-matrix`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload)
-        });
+      });
+      if (!response.ok) throw new Error("Database rejected HQ total.");
 
-      const resData = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(resData.detail || "Database rejected HQ total.");
-
-      const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
-      setReports([newReportLocal, ...reports]);
-      setNotification(`✅ Headquarters General Total (${hqGrandTotalInput}) successfully posted as override!`);
+      const newLockup = await response.json();
+      setLockupData([newLockup, ...lockupData]);
+      setNotification(`✅ HQ General Total (${hqGrandTotalInput}) successfully posted!`);
       setShowHqGrandModal(false);
       setHqGrandTotalInput('');
       setTimeout(() => setNotification(null), 5000);
@@ -513,90 +390,55 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     const token = localStorage.getItem('kmp_authToken');
-    if (!token) return setNotification("Error: Security token missing. Please log out and log back in.");
+    if (!token) return setNotification("Error: Security token missing.");
     
     let formattedTime = formData.time || '';
-    if (formattedTime && !/hrs$/i.test(formattedTime.trim())) {
-      formattedTime = `${formattedTime.trim()}Hrs`;
-    }
+    if (formattedTime && !/hrs$/i.test(formattedTime.trim())) formattedTime = `${formattedTime.trim()}Hrs`;
 
     if (operation === 'new') {
       const final_reference = `${formData.ref_type} ${formData.ref_number.toUpperCase()}`.trim();
-      const isDuplicate = reports.some(r => 
-        r.station === formData.station && (
-          (r.sd_ref || r.sdRef || '').trim().toLowerCase() === final_reference.toLowerCase() || 
-          r.narrative.trim().toLowerCase() === formData.narrative.trim().toLowerCase()
-        )
-      );
+      const isDuplicate = reports.some(r => r.station === formData.station && ((r.sd_ref || r.sdRef || '').trim().toLowerCase() === final_reference.toLowerCase() || r.narrative.trim().toLowerCase() === formData.narrative.trim().toLowerCase()));
+      if (isDuplicate) return setNotification(`Error: This specific ${formData.ref_type} entry or identical narrative already exists.`);
 
-      if (isDuplicate) return setNotification(`Error: This specific ${formData.ref_type} entry or identical narrative already exists at ${formData.station}.`);
-
-      const finalOffence = formData.offence === 'Other' ? formData.customOffence : formData.offence;
-      
       const apiPayload = {
         sd_ref: final_reference, region: formData.region, station: formData.station,
-        date: formData.date, time: formattedTime, offence: finalOffence, narrative: formData.narrative,
-        status: formData.status, suspects: formData.suspectDetails.length, 
+        date: formData.date, time: formattedTime, offence: formData.offence === 'Other' ? formData.customOffence : formData.offence, 
+        narrative: formData.narrative, status: formData.status, suspects: formData.suspectDetails.length, 
         last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails,
-        daily_lock_up: formData.cell_population || 0 
+        daily_lock_up: 0 // Kept at 0 because lockups are now entirely separate!
       };
       
       try {
-        const response = await authFetch(`/api/v1/reports`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload)
-        });
-        
+        const response = await authFetch(`/api/v1/reports`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload) });
         const resData = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(resData.detail || "Neon Database rejected the entry.");
+        if (!response.ok) throw new Error(resData.detail || "Database rejected the entry.");
         
-        const newReportLocal = { ...apiPayload, id: resData.id, sn: resData.sn };
-        setReports([newReportLocal, ...reports]);
-        
-        setNotification(`✅ Case SN ${newReportLocal.sn} (Ref: ${newReportLocal.sd_ref}) successfully registered!`);
+        setReports([{ ...apiPayload, id: resData.id, sn: resData.sn }, ...reports]);
+        setNotification(`✅ Case SN ${resData.sn} (Ref: ${apiPayload.sd_ref}) successfully registered!`);
         resetFormToBlank();
         setTimeout(() => setNotification(null), 5000);
+      } catch (err) { setNotification(`❌ Error: ${err.message}`); }
 
-      } catch (err) {
-        setNotification(`❌ Error: ${err.message}`);
-      }
     } else if (operation === 'update') {
-      if (!formData.sn) return setNotification("Error: Please select a case from the list to update first.");
-
-      let updatedNarrative = formData.updateText 
-        ? `${formData.narrative}<br/><br/><strong>[UPDATE ${new Date().toLocaleString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '')}]:</strong><br/>${formData.updateText}` 
-        : formData.narrative;
+      if (!formData.sn) return setNotification("Error: Please select a case first.");
+      let updatedNarrative = formData.updateText ? `${formData.narrative}<br/><br/><strong>[UPDATE ${new Date().toLocaleString()}]:</strong><br/>${formData.updateText}` : formData.narrative;
         
       const updatedRecord = { 
-        ...formData, time: formattedTime, narrative: updatedNarrative, sd_ref: formData.sd_ref, 
-        suspects: (formData.suspects || 0) + formData.suspectDetails.length,
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails,
-        daily_lock_up: formData.cell_population || 0 
+        ...formData, time: formattedTime, narrative: updatedNarrative, suspects: (formData.suspects || 0) + formData.suspectDetails.length,
+        last_updated_by: `${currentUser.name} (${currentUser.fnum})`, daily_lock_up: 0
       };
-      
-      delete updatedRecord.cell_population; 
-      delete updatedRecord.updateText; 
-      delete updatedRecord.ref_type; 
-      delete updatedRecord.ref_number;
+      delete updatedRecord.updateText; delete updatedRecord.ref_type; delete updatedRecord.ref_number;
       
       try {
         const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        const response = await fetch(`${API_URL}/api/v1/reports/${formData.sn}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-          body: JSON.stringify(updatedRecord)
-        });
-
+        const response = await fetch(`${API_URL}/api/v1/reports/${formData.sn}`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(updatedRecord) });
         if (!response.ok) throw new Error("Failed to update record in database.");
 
         setReports(reports.map(r => r.sn === formData.sn ? updatedRecord : r));
-        
         setNotification(`✅ Case SN ${formData.sn} successfully updated!`);
         handleOperationToggle('new');
         setTimeout(() => setNotification(null), 5000);
-
-      } catch (err) {
-        setNotification("❌ Error: Could not update the record in the database.");
-      }
+      } catch (err) { setNotification("❌ Error: Could not update the record."); }
     }
   };
   
@@ -607,29 +449,18 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-amber-300 animate-in zoom-in-95">
             <div className="bg-amber-600 text-white px-6 py-4 flex justify-between items-center">
-              <h3 className="font-extrabold uppercase text-sm tracking-wider flex items-center">
-                <Shield className="mr-2" size={18} /> Command Fallback: General Grand Total
-              </h3>
+              <h3 className="font-extrabold uppercase text-sm tracking-wider flex items-center"><Shield className="mr-2" size={18} /> Command Fallback: General Grand Total</h3>
               <button onClick={() => setShowHqGrandModal(false)} className="hover:bg-amber-700 p-1 rounded transition"><X size={18}/></button>
             </div>
             <div className="p-6 space-y-4">
-              <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                Use this section to log the combined national/regional general grand total if individual stations fail to submit their cell populations before the deadline. This will serve as the master metric total for today.
-              </p>
+              <p className="text-xs text-slate-600 leading-relaxed font-medium">Use this to log the combined national/regional general grand total if stations fail to submit their cell populations before the deadline.</p>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Enter Master Grand Total Suspects *</label>
-                <input 
-                  type="number" 
-                  min="0" 
-                  value={hqGrandTotalInput} 
-                  onChange={(e) => setHqGrandTotalInput(e.target.value)} 
-                  placeholder="e.g. 450" 
-                  className="w-full text-lg font-black text-slate-900 border border-slate-300 rounded-lg p-3 outline-none focus:border-amber-600"
-                />
+                <input type="number" min="0" value={hqGrandTotalInput} onChange={(e) => setHqGrandTotalInput(e.target.value)} placeholder="e.g. 450" className="w-full text-lg font-black text-slate-900 border border-slate-300 rounded-lg p-3 outline-none focus:border-amber-600" />
               </div>
               <div className="flex justify-end space-x-3 pt-2">
                 <button type="button" onClick={() => setShowHqGrandModal(false)} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg font-bold text-xs">Cancel</button>
-                <button type="button" onClick={handleHqGrandTotalSubmit} className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs uppercase tracking-wider shadow">Post Grand Total</button>
+                <button type="button" onClick={handleHqGrandTotalSubmit} className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs uppercase shadow">Post Grand Total</button>
               </div>
             </div>
           </div>
@@ -643,7 +474,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               <h3 className="font-extrabold flex items-center tracking-wider"><Users className="mr-2" size={20}/> SUSPECT LOCKUP REGISTER</h3>
               <button onClick={() => setShowLockup(false)} className="hover:bg-red-600 p-1 rounded transition"><X size={20}/></button>
             </div>
-            
             <div className="p-6 overflow-y-auto bg-slate-50 space-y-6 flex-1 custom-scrollbar">
               <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">Add Suspect Details</h4>
@@ -677,70 +507,42 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Mental Health Status</label>
                     <select value={newSuspect.mental_health_status} onChange={e => setNewSuspect({...newSuspect, mental_health_status: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 bg-white font-bold text-slate-800">
-                      <option value="NORMAL">NORMAL</option>
-                      <option value="SUSPECTED PSYCHOLOGICAL CONDITION">SUSPECTED PSYCHOLOGICAL CONDITION</option>
-                      <option value="UNSTABLE">UNSTABLE</option>
-                      <option value="UNDER OBSERVATION">UNDER OBSERVATION</option>
+                      <option value="NORMAL">NORMAL</option><option value="SUSPECTED PSYCHOLOGICAL CONDITION">SUSPECTED PSYCHOLOGICAL CONDITION</option><option value="UNSTABLE">UNSTABLE</option><option value="UNDER OBSERVATION">UNDER OBSERVATION</option>
                     </select>
                   </div>
                 </div>
-                
                 <div className="md:col-span-3 bg-red-50 p-3 rounded-lg border border-red-100 mt-3">
-                  <label className="block text-xs font-bold text-red-800 mb-2 flex items-center">
-                    <Camera size={12} className="mr-1"/> Suspect Mugshot (Optional)
-                  </label>
+                  <label className="block text-xs font-bold text-red-800 mb-2 flex items-center"><Camera size={12} className="mr-1"/> Suspect Mugshot (Optional)</label>
                   <div className="flex items-center space-x-4">
-                    {newSuspect.photo_url ? (
-                      <img src={newSuspect.photo_url} alt="Mugshot" className="w-12 h-12 rounded object-cover border-2 border-red-300 shadow-sm" />
-                    ) : (
-                      <div className="w-12 h-12 rounded bg-red-100 flex items-center justify-center text-red-300 border-2 border-dashed border-red-300">
-                        <Camera size={16}/>
-                      </div>
-                    )}
-                    <input 
-                      type="file" accept="image/*" onChange={handleSuspectPhotoUpload} 
-                      className="text-xs file:mr-4 file:py-1.5 file:px-4 file:rounded file:border-0 file:text-xs file:font-bold file:bg-red-600 file:text-white hover:file:bg-red-700 w-full cursor-pointer" 
-                    />
+                    {newSuspect.photo_url ? ( <img src={newSuspect.photo_url} alt="Mugshot" className="w-12 h-12 rounded object-cover border-2 border-red-300 shadow-sm" /> ) : ( <div className="w-12 h-12 rounded bg-red-100 flex items-center justify-center text-red-300 border-2 border-dashed border-red-300"><Camera size={16}/></div> )}
+                    <input type="file" accept="image/*" onChange={handleSuspectPhotoUpload} className="text-xs file:mr-4 file:py-1.5 file:px-4 file:rounded file:border-0 file:text-xs file:font-bold file:bg-red-600 file:text-white hover:file:bg-red-700 w-full cursor-pointer" />
                   </div>
                 </div>
                 <div className="flex justify-end mt-4">
-                  <button type="button" onClick={handleAddSuspect} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded text-sm transition-colors flex items-center">
-                    <PlusCircle size={16} className="mr-1"/> Add to Register
-                  </button>
+                  <button type="button" onClick={handleAddSuspect} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded text-sm transition-colors flex items-center"><PlusCircle size={16} className="mr-1"/> Add to Register</button>
                 </div>
               </div>
-
               <div>
                 <h4 className="text-sm font-bold text-slate-700 mb-3 border-b pb-2">Currently Logged Suspects ({formData.suspectDetails.length})</h4>
                 {formData.suspectDetails.length === 0 ? (
-                  <div className="text-center p-6 bg-white border border-dashed border-gray-300 rounded-lg text-gray-400 text-sm font-medium">
-                    No suspects added to this report yet.
-                  </div>
+                  <div className="text-center p-6 bg-white border border-dashed border-gray-300 rounded-lg text-gray-400 text-sm font-medium">No suspects added to this report yet.</div>
                 ) : (
                   <div className="space-y-2">
                     {formData.suspectDetails.map((suspect, index) => (
                       <div key={suspect.id} className="bg-white border border-red-100 rounded-lg p-3 flex justify-between items-center shadow-sm">
                         <div>
                           <div className="font-bold text-slate-800 text-sm uppercase">{index + 1}. {suspect.name}</div>
-                          <div className="text-xs text-slate-500 font-medium mt-1">
-                            {suspect.sex} • {suspect.age ? `${suspect.age}yrs` : 'Age Unknown'} • {suspect.tribe || 'Tribe Unknown'} <br/>
-                            Res: {suspect.residence || 'N/A'} | Tel: {suspect.contact || 'N/A'}
-                          </div>
+                          <div className="text-xs text-slate-500 font-medium mt-1">{suspect.sex} • {suspect.age ? `${suspect.age}yrs` : 'Age Unknown'} • {suspect.tribe || 'Tribe Unknown'} <br/>Res: {suspect.residence || 'N/A'} | Tel: {suspect.contact || 'N/A'}</div>
                         </div>
-                        <button type="button" onClick={() => handleRemoveSuspect(suspect.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded transition">
-                          <X size={18}/>
-                        </button>
+                        <button type="button" onClick={() => handleRemoveSuspect(suspect.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded transition"><X size={18}/></button>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
             </div>
-            
             <div className="bg-white p-4 border-t border-gray-200 flex justify-end shrink-0">
-              <button type="button" onClick={() => setShowLockup(false)} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-6 rounded transition">
-                Confirm & Return to Report
-              </button>
+              <button type="button" onClick={() => setShowLockup(false)} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-6 rounded transition">Confirm & Return to Report</button>
             </div>
           </div>
         </div>
@@ -752,31 +554,11 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         <h2 className="text-xl text-red-300 mt-1 font-medium">Centralised Crime/Incident Compilation</h2>
       </div>
 
-      {isHQOr999 && (
-        <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md">
-          <div>
-            <h3 className="text-white text-xs font-extrabold uppercase tracking-wider">Command Fallback Portal</h3>
-            <p className="text-slate-400 text-[11px] mt-0.5">If stations fail to submit individual cell population returns in time, log the master grand total here.</p>
-          </div>
-          <button 
-            type="button"
-            onClick={() => setShowHqGrandModal(true)}
-            className="bg-amber-600 hover:bg-amber-500 text-white font-extrabold px-4 py-2 rounded-lg text-xs uppercase tracking-wider transition shadow-sm cursor-pointer whitespace-nowrap"
-          >
-            + Log HQ General Grand Total
-          </button>
-        </div>
-      )}
-
       <div className="bg-white/80 backdrop-blur p-2 rounded-xl border border-slate-200 shadow-sm relative">
         <div className="absolute top-4 right-4 z-10 flex gap-2">
           <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none cursor-pointer">
-            <option value="ALL TIME">ALL TIME</option>
-            <option value="TODAY">TODAY ONLY</option>
-            <option value="LAST 7 DAYS">LAST 7 DAYS</option>
-            <option value="LAST 30 DAYS">LAST 30 DAYS</option>
-            <option value="LAST 90 DAYS">LAST 90 DAYS</option>
-            <option value="LAST 120 DAYS">LAST 120 DAYS</option>
+            <option value="ALL TIME">ALL TIME</option><option value="TODAY">TODAY ONLY</option><option value="LAST 7 DAYS">LAST 7 DAYS</option>
+            <option value="LAST 30 DAYS">LAST 30 DAYS</option><option value="LAST 90 DAYS">LAST 90 DAYS</option><option value="LAST 120 DAYS">LAST 120 DAYS</option>
           </select>
         </div>
         
@@ -785,26 +567,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         </h4>
         
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
-          {/* 🟢 Card 1: Local Jurisdiction Lock-Up */}
-          <MetricCard 
-            title={
-              filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' 
-                ? "Computed Sum (All)" 
-                : filterStation === 'ALL STATIONS' 
-                  ? `${filterRegion} Lock-up` 
-                  : `${filterStation} Lock-up`
-            } 
-            value={metrics.localLockup} 
-            colorClass="text-slate-800" 
-          />
-          
-          {/* 🟢 Card 2: KMP Master Lock-Up (Permanently Visible) */}
-          <MetricCard 
-            title="KMP Master Lock-up" 
-            value={metrics.kmpGeneralLockup} 
-            colorClass="text-amber-600" 
-          />
-
+          <MetricCard title={filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? "Computed Sum (All)" : filterStation === 'ALL STATIONS' ? `${filterRegion} Lock-up` : `${filterStation} Lock-up`} value={metrics.localLockup} colorClass="text-slate-800" />
+          <MetricCard title="KMP Master Lock-up" value={metrics.kmpGeneralLockup} colorClass="text-amber-600" />
           <MetricCard title="Total Cases" value={metrics.newCases} colorClass="text-blue-700" />
           <MetricCard title="Suspects (Case)" value={metrics.totalSuspects} colorClass="text-red-600" />
           <MetricCard title="Active" value={metrics.active} colorClass="text-yellow-600" />
@@ -823,12 +587,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
             
             <div className="p-5 space-y-6">
               <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
-                  <PlusCircle className="w-4 h-4 inline mr-1" /> Register New
-                </button>
-                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
-                  <Edit className="w-4 h-4 inline mr-1" /> Update Existing
-                </button>
+                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
+                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
               </div>
 
               {notification && (
@@ -847,14 +607,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                       <div className="p-3 text-xs text-gray-500 text-center">No cases found matching your search.</div>
                     ) : (
                       availableUpdateCases.map(c => (
-                        <div 
-                          key={c.id || c.sn} 
-                          onClick={() => {
-                            populateUpdateCrimeForm(c);
-                            setUpdateSearch(c.sdRef || c.sd_ref || '');
-                          }} 
-                          className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === (c.id || c.sn) ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}
-                        >
+                        <div key={c.id || c.sn} onClick={() => { populateUpdateCrimeForm(c); setUpdateSearch(c.sdRef || c.sd_ref || ''); }} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === (c.id || c.sn) ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
                           <span className={formData.sn === (c.id || c.sn) ? 'text-blue-200' : 'text-gray-400'}>DB-ID: {c.id || c.sn}</span> | <span className={formData.sn === (c.id || c.sn) ? 'text-white' : 'font-bold text-blue-700'}>{c.sdRef || c.sd_ref}</span> | {c.station}
                         </div>
                       ))
@@ -864,11 +617,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               )}
 
               <form onSubmit={handleFormSubmit} className="space-y-4">
-                {operation === 'update' && formData.sn && (
-                   <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">
-                     Currently Editing DB-ID: {formData.sn}
-                   </div>
-                )}
+                {operation === 'update' && formData.sn && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing DB-ID: {formData.sn}</div>}
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
@@ -943,7 +692,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                       <option>ACTIVE INVESTIGATION</option><option>FORWARDED TO COURT</option><option>CLOSED / CONVICTED</option><option>ADR</option>
                     </select>
                   </div>
-                  
                   <div>
                     <label className="block text-xs font-bold text-red-600 mb-1 flex items-center"><Lock size={12} className="mr-1"/> Suspects in Custody</label>
                     <div className="flex space-x-2">
@@ -951,37 +699,9 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                         {operation === 'update' ? formData.suspects : formData.suspectDetails.length}
                       </div>
                       <button type="button" onClick={() => setShowLockup(true)} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded shadow text-xs transition flex items-center justify-center">
-                        <Users size={14} className="mr-2"/> Manage Lockup
+                        <Users size={14} className="mr-2"/> Add Suspect Data
                       </button>
                     </div>
-                  </div>
-                </div>
-
-                {/* 🟢 NEW CLARIFIED UI FOR LOCAL STATION LOCKUP */}
-                <div className="col-span-2 bg-slate-200 p-4 rounded-lg border border-slate-300 shadow-inner mt-4">
-                  <label className="block text-sm font-extrabold text-slate-800 mb-1">
-                    Local Station Daily Lock-up / Cell Population
-                  </label>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 leading-relaxed">
-                    * Note: Enter the TOTAL number of suspects currently held in your local station's cell. This updates your station lock-up independently from the KMP Master Total.
-                  </p>
-                  <div className="flex gap-3">
-                    <input 
-                      type="number" 
-                      name="cell_population" 
-                      value={formData.cell_population} 
-                      onChange={handleInputChange} 
-                      min="0" 
-                      className="flex-1 text-lg border-slate-400 rounded-md shadow-sm border p-3 bg-white focus:ring-blue-500 font-black text-slate-900" 
-                      placeholder="Total suspects in custody..." 
-                    />
-                    <button
-                      type="button"
-                      onClick={handleStandalonePopSubmit}
-                      className="w-full sm:w-auto px-3 py-1.5 text-xs font-extrabold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg shadow-xs transition-all whitespace-nowrap overflow-hidden text-ellipsis cursor-pointer"
-                    >
-                      📋 Log Daily Cell Population
-                    </button>
                   </div>
                 </div>
 
@@ -999,25 +719,11 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
              </div>
-            <select 
-              value={filterRegion} 
-              onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
-              disabled={!isGlobalCommand} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
-            >
-              {isGlobalCommand ? (
-                <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-              ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!isGlobalCommand} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+              {isGlobalCommand ? <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</> : <option value={currentUser?.region}>{currentUser?.region}</option>}
             </select>
-            <select 
-              value={filterStation} 
-              onChange={(e) => setFilterStation(e.target.value)} 
-              disabled={!isRegionalCommand} 
-              className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500"
-            >
-              {isRegionalCommand ? (
-                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
-              ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!isRegionalCommand} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+              {isRegionalCommand ? <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</> : <option value={currentUser?.station}>{currentUser?.station}</option>}
             </select>   
           </div>
 
@@ -1037,42 +743,18 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredReports.map((report, index) => (
-                    <tr 
-                      key={report.id || report.sn || index} 
-                      className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer group" 
-                      onClick={() => { 
-                        if (operation === 'update') {
-                          populateUpdateCrimeForm(report); 
-                        } else {
-                          setSelectedCase(report);
-                        }
-                      }}
-                    >
-                      <td className="px-4 py-4 whitespace-nowrap text-[13px] font-black text-gray-900 align-top group-hover:text-blue-700 transition-colors">
-                        {isStationSpecific ? (index + 1) : (report.id || report.sn || '—')}
-                      </td>
-                      
-                      <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-blue-700 align-top break-words">
-                        {report.sdRef || report.sd_ref}
-                      </td>
-                      
-                      <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-500 align-top">
-                        {report.date}<br/><span className="text-[10px] text-gray-400">{report.time}</span>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-700 align-top font-bold">
-                        {report.station} <br/><span className="text-[10px] text-gray-400 font-medium">{report.region}</span>
-                      </td>
+                    <tr key={report.id || report.sn || index} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer group" onClick={() => { if (operation === 'update') { populateUpdateCrimeForm(report); } else { setSelectedCase(report); } }}>
+                      <td className="px-4 py-4 whitespace-nowrap text-[13px] font-black text-gray-900 align-top group-hover:text-blue-700 transition-colors">{isStationSpecific ? (index + 1) : (report.id || report.sn || '—')}</td>
+                      <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-blue-700 align-top break-words">{report.sdRef || report.sd_ref}</td>
+                      <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-500 align-top">{report.date}<br/><span className="text-[10px] text-gray-400">{report.time}</span></td>
+                      <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-700 align-top font-bold">{report.station} <br/><span className="text-[10px] text-gray-400 font-medium">{report.region}</span></td>
                       <td className="px-4 py-4 text-xs text-gray-700 align-top whitespace-normal break-words">
                         {report.offence && <div className="font-extrabold text-red-600 uppercase mb-1">{report.offence}</div>}
                         <div className="ql-editor p-0 line-clamp-3 text-slate-600 [&_*]:!text-xs [&_*]:!bg-transparent" dangerouslySetInnerHTML={{ __html: report.narrative }} />
                       </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-red-600 text-center align-top">
-                        {(report.suspectDetails || report.suspect_details || []).length}
-                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-red-600 text-center align-top">{(report.suspectDetails || report.suspect_details || []).length}</td>
                       <td className="px-4 py-4 whitespace-normal break-words align-top">
-                        <span className={`px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' : ''} ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800 border border-purple-200' : ''} ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800 border border-green-200' : ''} ${report.status.includes('ADR') ? 'bg-orange-100 text-orange-800 border border-orange-200' : ''}`}>
-                          {report.status}
-                        </span>
+                        <span className={`px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' : ''} ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800 border border-purple-200' : ''} ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800 border border-green-200' : ''} ${report.status.includes('ADR') ? 'bg-orange-100 text-orange-800 border border-orange-200' : ''}`}>{report.status}</span>
                       </td>
                     </tr>
                   ))}
@@ -1085,34 +767,55 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       </div>
 
       {/* ========================================================= */}
-      {/* NEW BOTTOM SECTION: SUMMARIES & MATRICES                  */}
+      {/* 🟢 SEPARATED LOCKUP LOGGING & MATRICES                    */}
       {/* ========================================================= */}
       <div className="mt-8 space-y-6 animate-in fade-in duration-300 max-w-4xl mx-auto">
         
+        {/* 🟢 ISOLATED STATION LOCKUP LOGGER */}
+        <div className="bg-amber-50 p-5 rounded-2xl border border-amber-200 shadow-md flex flex-col md:flex-row items-center gap-4">
+          <div className="flex-1">
+            <h3 className="font-extrabold text-amber-900 uppercase tracking-wider text-sm flex items-center">
+              <HardDrive className="w-5 h-5 mr-2 text-amber-600"/> Log Independent Daily Lock-Up
+            </h3>
+            <p className="text-[11px] font-bold text-amber-700/70 mt-1 leading-relaxed">
+              Use this independent module to push your station's total cell population directly to the daily Lock-Up Matrix without mixing it with crime case files.
+            </p>
+          </div>
+          <div className="flex gap-2 w-full md:w-auto">
+            <input 
+              type="number" 
+              value={standalonePopInput} 
+              onChange={(e) => setStandalonePopInput(e.target.value)} 
+              min="0" 
+              className="w-24 text-lg border-amber-300 rounded-xl shadow-sm border p-3 bg-white focus:ring-amber-500 font-black text-amber-900 text-center outline-none" 
+              placeholder="0" 
+            />
+            <button
+              type="button"
+              onClick={handleStandalonePopSubmit}
+              className="flex-1 md:flex-none px-6 py-3 text-xs font-black text-white bg-amber-700 hover:bg-amber-800 rounded-xl shadow-md transition-all whitespace-nowrap uppercase tracking-wider"
+            >
+              Push to Matrix
+            </button>
+          </div>
+        </div>
+
         {/* 🟢 BUTTON TO OPEN INDEPENDENT LOCKUP MATRIX */}
         <button 
           onClick={() => setShowLockupMatrixModal(true)}
-          className="w-full bg-amber-800 hover:bg-amber-900 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center border border-amber-600 group mb-6"
+          className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center border border-slate-700 group mb-6"
         >
-          <Filter className="w-5 h-5 mr-3 group-hover:scale-110 transition-transform" />
+          <Filter className="w-5 h-5 mr-3 text-amber-400 group-hover:scale-110 transition-transform" />
           VIEW INDEPENDENT DAILY SUSPECT LOCK-UP MATRIX
         </button>
 
         {/* 🟢 GENERAL CRIME SUMMARY WITH DURATION FILTER */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
           <div className="bg-slate-900 px-4 py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <h3 className="text-xs font-extrabold text-white tracking-wider uppercase">
-              General Crime Summary (Excluding Lock-Ups)
-            </h3>
-            
-            {/* Time Duration Filter */}
+            <h3 className="text-xs font-extrabold text-white tracking-wider uppercase">General Crime Summary (Excluding Lock-Ups)</h3>
             <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700 overflow-x-auto w-full sm:w-auto">
               {['TODAY', 'WEEK', 'MONTH', 'YEAR', 'ALL'].map(period => (
-                <button
-                  key={period}
-                  onClick={() => setSummaryTimeFilter(period)}
-                  className={`flex-1 sm:flex-none px-3 py-1 text-[10px] font-bold rounded shadow-sm transition-colors ${summaryTimeFilter === period ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
-                >
+                <button key={period} onClick={() => setSummaryTimeFilter(period)} className={`flex-1 sm:flex-none px-3 py-1 text-[10px] font-bold rounded shadow-sm transition-colors ${summaryTimeFilter === period ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>
                   {period}
                 </button>
               ))}
@@ -1140,11 +843,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                     </tr>
                   ))
                 ) : (
-                  <tr>
-                    <td colSpan="4" className="px-4 py-8 text-center text-xs text-slate-500 font-bold">
-                      No crimes recorded for the selected duration ({summaryTimeFilter}).
-                    </td>
-                  </tr>
+                  <tr><td colSpan="4" className="px-4 py-8 text-center text-xs text-slate-500 font-bold">No crimes recorded for the selected duration.</td></tr>
                 )}
               </tbody>
               <tfoot className="bg-emerald-800 sticky bottom-0">
@@ -1159,122 +858,61 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         </div>
       </div>
 
-      {/* MODAL RENDERERS (Place this right next to your selectedCase modal) */}
       {showLockupMatrixModal && (
-        <LockupMatrixLedger 
-          lockupEntries={lockupEntries} 
-          allTimeLockupTotal={allTimeLockupTotal} 
-          onClose={() => setShowLockupMatrixModal(false)} 
-        />
+        <LockupMatrixLedger lockupEntries={processedLockups} allTimeLockupTotal={allTimeLockupTotal} onClose={() => setShowLockupMatrixModal(false)} />
       )}
 
       {selectedCase && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 sm:p-6 animate-in fade-in zoom-in-95 duration-200">
           <div className="bg-white shadow-2xl max-w-4xl w-full flex flex-col max-h-[95vh] rounded-xl overflow-hidden border border-slate-300">
-            
             <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0 shadow-md z-10">
-              <h3 className="font-bold flex items-center text-sm uppercase tracking-wider">
-                <Shield className="text-blue-400 mr-2" size={18} /> 
-                OFFICIAL CRIME DOSSIER — REF: {selectedCase.sdRef || selectedCase.sd_ref}
-              </h3>
-              <button onClick={() => setSelectedCase(null)} className="text-slate-400 hover:text-white hover:bg-slate-700 p-1.5 rounded transition-colors">
-                <X size={20} />
-              </button>
+              <h3 className="font-bold flex items-center text-sm uppercase tracking-wider"><Shield className="text-blue-400 mr-2" size={18} /> OFFICIAL CRIME DOSSIER — REF: {selectedCase.sdRef || selectedCase.sd_ref}</h3>
+              <button onClick={() => setSelectedCase(null)} className="text-slate-400 hover:text-white hover:bg-slate-700 p-1.5 rounded transition-colors"><X size={20} /></button>
             </div>
-
             <div className="p-8 overflow-y-auto space-y-8 flex-1 custom-scrollbar bg-slate-50" style={{ backgroundImage: 'radial-gradient(#e5e7eb 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
-              
               <div className="flex flex-col items-center justify-center text-center border-b-2 border-slate-800 pb-6">
                  <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-2 object-contain grayscale contrast-200 brightness-50" onError={(e) => { e.target.style.display = 'none'; }} />
                  <h2 className="text-xl font-extrabold text-slate-900 tracking-widest uppercase">Uganda Police Force</h2>
                  <h3 className="text-sm font-bold text-slate-600 uppercase mt-1 tracking-wider">Crime Incident Matrix Profile</h3>
               </div>
-
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 bg-white p-6 border border-slate-200 shadow-sm rounded-lg">
-                <div className="border-l-4 border-blue-600 pl-3">
-                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Database SN (ID)</div>
-                  <div className="text-sm font-black text-slate-900">{selectedCase.id || selectedCase.sn}</div>
-                </div>
-                <div className="border-l-4 border-slate-600 pl-3">
-                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Time & Date Logged</div>
-                  <div className="text-sm font-bold text-slate-900">{selectedCase.date} <span className="text-slate-500 font-medium">@ {selectedCase.time}</span></div>
-                </div>
-                <div className="border-l-4 border-slate-600 pl-3">
-                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Command Jurisdiction</div>
-                  <div className="text-sm font-bold text-slate-900">{selectedCase.station}</div>
-                  <div className="text-xs text-slate-500 font-medium">{selectedCase.region}</div>
-                </div>
-                <div className="border-l-4 border-slate-600 pl-3">
-                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Investigation Status</div>
-                  <div className="text-sm font-extrabold text-blue-700 uppercase">{selectedCase.status}</div>
-                </div>
+                <div className="border-l-4 border-blue-600 pl-3"><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Database SN (ID)</div><div className="text-sm font-black text-slate-900">{selectedCase.id || selectedCase.sn}</div></div>
+                <div className="border-l-4 border-slate-600 pl-3"><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Time & Date Logged</div><div className="text-sm font-bold text-slate-900">{selectedCase.date} <span className="text-slate-500 font-medium">@ {selectedCase.time}</span></div></div>
+                <div className="border-l-4 border-slate-600 pl-3"><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Command Jurisdiction</div><div className="text-sm font-bold text-slate-900">{selectedCase.station}</div><div className="text-xs text-slate-500 font-medium">{selectedCase.region}</div></div>
+                <div className="border-l-4 border-slate-600 pl-3"><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Investigation Status</div><div className="text-sm font-extrabold text-blue-700 uppercase">{selectedCase.status}</div></div>
               </div>
-
               <div className="bg-white p-8 border border-slate-200 shadow-sm rounded-lg">
                 <div className="mb-6">
                   <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 mb-3">Primary Offence Matrix</div>
-                  
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="text-lg font-black text-red-600 uppercase">{selectedCase.offence || 'UNSPECIFIED OFFENCE'}</div>
-                    <div className="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-md border border-slate-200 shadow-sm">
-                      REF: {selectedCase.sdRef || selectedCase.sd_ref}
-                    </div>
+                    <div className="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-md border border-slate-200 shadow-sm">REF: {selectedCase.sdRef || selectedCase.sd_ref}</div>
                   </div>
                 </div>
-                
-                <div>
-                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 mb-3">Official Incident Narrative</div>
-                  <div className="text-sm text-slate-800 leading-normal ql-editor whitespace-normal break-words p-0 min-h-[150px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
-                </div>
+                <div><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 mb-3">Official Incident Narrative</div><div className="text-sm text-slate-800 leading-normal ql-editor whitespace-normal break-words p-0 min-h-[150px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} /></div>
               </div>
-
               {selectedCase.suspectDetails && selectedCase.suspectDetails.length > 0 && (
                 <div className="bg-white p-6 border border-red-200 shadow-sm rounded-lg">
-                  <div className="text-[10px] font-extrabold text-red-800 uppercase tracking-widest border-b border-red-100 pb-2 mb-4 flex items-center">
-                    <Lock size={14} className="mr-2"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})
-                  </div>
+                  <div className="text-[10px] font-extrabold text-red-800 uppercase tracking-widest border-b border-red-100 pb-2 mb-4 flex items-center"><Lock size={14} className="mr-2"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})</div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {selectedCase.suspectDetails.map((s, idx) => (
                       <div key={idx} className="bg-red-50 p-4 rounded-lg border border-red-200 flex items-start space-x-4">
-                        <div className="shrink-0">
-                          {s.photo_url ? (
-                            <img src={s.photo_url} alt={s.name} className="w-16 h-16 rounded object-cover border-2 border-red-300 shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
-                          ) : (
-                            <div className="w-16 h-16 rounded bg-red-100 text-red-400 flex items-center justify-center font-bold text-[10px] border-2 border-dashed border-red-200 text-center p-1">No Photo</div>
-                          )}
-                        </div>
+                        <div className="shrink-0">{s.photo_url ? ( <img src={s.photo_url} alt={s.name} className="w-16 h-16 rounded object-cover border-2 border-red-300 shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} /> ) : ( <div className="w-16 h-16 rounded bg-red-100 text-red-400 flex items-center justify-center font-bold text-[10px] border-2 border-dashed border-red-200 text-center p-1">No Photo</div> )}</div>
                         <div className="flex-1 min-w-0">
                           <div className="font-extrabold uppercase text-slate-900 text-sm truncate">{idx + 1}. {s.name}</div>
-                          <div className="text-xs text-red-900 font-medium mt-1">
-                            {s.sex} • {s.age ? `${s.age} Yrs` : 'Age Unk'} • {s.tribe || 'Tribe Unk'}
-                          </div>
-                          <div className="text-xs text-slate-700 mt-1">
-                            <span className="font-bold">Res:</span> {s.residence || 'N/A'} <br/>
-                            <span className="font-bold">Tel:</span> {s.contact || 'N/A'}
-                          </div>
-                          {s.mental_health_status && s.mental_health_status !== 'NORMAL' && (
-                             <div className="inline-block mt-2 text-[10px] bg-amber-100 text-amber-800 border border-amber-300 font-bold px-2 py-0.5 rounded-sm">
-                               Status: {s.mental_health_status}
-                             </div>
-                          )}
+                          <div className="text-xs text-red-900 font-medium mt-1">{s.sex} • {s.age ? `${s.age} Yrs` : 'Age Unk'} • {s.tribe || 'Tribe Unk'}</div>
+                          <div className="text-xs text-slate-700 mt-1"><span className="font-bold">Res:</span> {s.residence || 'N/A'} <br/><span className="font-bold">Tel:</span> {s.contact || 'N/A'}</div>
+                          {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( <div className="inline-block mt-2 text-[10px] bg-amber-100 text-amber-800 border border-amber-300 font-bold px-2 py-0.5 rounded-sm">Status: {s.mental_health_status}</div> )}
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
-              
-              <div className="text-center pt-6 opacity-40">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">End of Official Record Extract</p>
-                <p className="text-[9px] text-slate-400 mt-1">System Audit ID: {selectedCase.id || selectedCase.sn} • Printed: {new Date().toLocaleString()}</p>
-              </div>
-
+              <div className="text-center pt-6 opacity-40"><p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">End of Official Record Extract</p><p className="text-[9px] text-slate-400 mt-1">System Audit ID: {selectedCase.id || selectedCase.sn} • Printed: {new Date().toLocaleString()}</p></div>
             </div>
-
             <div className="bg-slate-100 p-4 border-t border-slate-300 flex justify-end shrink-0 shadow-inner z-10">
-              <button onClick={() => setSelectedCase(null)} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all shadow border border-slate-950 flex items-center">
-                <X size={16} className="mr-2"/> Close Dossier
-              </button>
+              <button onClick={() => setSelectedCase(null)} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all shadow border border-slate-950 flex items-center"><X size={16} className="mr-2"/> Close Dossier</button>
             </div>
           </div>
         </div>

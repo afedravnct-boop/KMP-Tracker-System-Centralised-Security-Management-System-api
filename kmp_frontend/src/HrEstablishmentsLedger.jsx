@@ -3,10 +3,38 @@ import { X, Shield, FileText, Users, Building } from 'lucide-react';
 
 const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
   
-  // 🟢 1. ROBUST PARSING LOGIC FOR NOMINAL ROLL AGGREGATES
+  // 🟢 1. AGGRESSIVE DATA HUNTER: Finds the array no matter how the parent named it
+  const getRawRoll = () => {
+    if (Array.isArray(data)) {
+        if (data.length > 0 && (data[0].fnum || data[0].f_num || data[0].rank)) return data;
+        return [];
+    }
+    if (data && typeof data === 'object') {
+        const keys = ['nominalRoll', 'nominal_roll', 'nominalRolls', 'nominal_rolls', 'Nominal_Rolls', 'personnel', 'hr', 'hrData'];
+        for (let key of keys) {
+            if (Array.isArray(data[key])) return data[key];
+        }
+    }
+    return [];
+  };
+
+  const getEstData = () => {
+    if (Array.isArray(data)) {
+        if (data.length > 0 && (data[0].personnel_in_station !== undefined || data[0].pers_stn !== undefined)) return data;
+        return [];
+    }
+    if (data && typeof data === 'object') {
+        const keys = ['establishments', 'Establishments', 'estData', 'establishmentsData'];
+        for (let key of keys) {
+            if (Array.isArray(data[key])) return data[key];
+        }
+    }
+    return [];
+  };
+
+  // 🟢 2. ROBUST PARSING LOGIC FOR NOMINAL ROLL AGGREGATES
   const nominalAggregates = useMemo(() => {
-    // Safely grab the nominal roll array (handling multiple possible backend keys)
-    const rawRoll = (data?.nominal_roll || data?.nominal_rolls || data?.Nominal_Rolls || data?.personnel || []).filter(p => {
+    const rawRoll = getRawRoll().filter(p => {
         const statusStr = String(p.status || '').trim().toUpperCase();
         return statusStr !== 'ARCHIVED' && p.is_archived !== true;
     });
@@ -18,10 +46,9 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
       { key: 'KMP SOUTH', match: ['KMP SOUTH', 'SOUTH'] }
     ];
 
-    // 🟢 FIX 1: Flawless Officer vs NCO Classification (IGP down to AIP)
+    // Flawless Officer vs NCO Classification (IGP down to AIP)
     const isOfficer = (rankStr) => {
       if (!rankStr) return false;
-      // Clean the rank string (e.g., "D/AIP" -> "DAIP", "A.I.P" -> "AIP")
       let cleanRank = String(rankStr).toUpperCase().replace(/[\.\/]/g, '').trim();
       const officerKeywords = ['IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'ASP', 'IP', 'AIP', 'DAIP', 'DIP'];
       
@@ -42,7 +69,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
       };
 
       personnelList.forEach(p => {
-        // 🟢 FIX 2: Sex Parsing - Checks explicit sex or infers from NIN (CM/CF)
+        // Sex Parsing
         const sexStr = String(p.sex || p.gender || '').trim().toUpperCase();
         const ninStr = String(p.nin || '').trim().toUpperCase();
         
@@ -51,11 +78,10 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
         } else if (sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF')) {
             stats.sex.F++;
         } else {
-            // Default to Male if completely blank to preserve headcount metrics
-            stats.sex.M++; 
+            stats.sex.M++; // Default to Male to preserve headcount metrics
         }
 
-        // 🟢 FIX 3: Age Parsing - Robust Date string extraction
+        // Age Parsing
         const dobStr = p.dob || p.date_of_birth || p.dateofbirth;
         let ageCalculated = false;
         
@@ -86,7 +112,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
             stats.age.unknown++;
         }
 
-        // 🟢 FIX 4: Education Parsing - Broad Keyword tracking
+        // Education Parsing
         const eduStr = String(p.educ_level || p.educlevel || p.education || '').trim().toUpperCase();
         
         if (eduStr.includes('DEGREE') || eduStr.includes('BACHELOR') || eduStr.match(/\bB\.?A\b/) || eduStr.match(/\bB\.?SC\b/) || eduStr.includes('MASTER') || eduStr.includes('PHD')) {
@@ -162,11 +188,11 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
     }, { totalOff: 0, totalNco: 0, regionTotal: 0, offSex: {M:0, F:0}, ncoSex: {M:0, F:0} });
   }, [nominalAggregates]);
 
-  const estData = Array.isArray(data?.establishments) ? data.establishments : (Array.isArray(data?.Establishments) ? data.Establishments : []);
+  const estData = getEstData();
   const estTotals = estData.reduce((acc, curr) => {
-      acc.station += (parseInt(curr.personnel_in_station, 10) || 0);
-      acc.post += (parseInt(curr.personnel_in_post, 10) || 0);
-      acc.booth += (parseInt(curr.personnel_in_booth, 10) || 0);
+      acc.station += (parseInt(curr.personnel_in_station ?? curr.pers_stn, 10) || 0);
+      acc.post += (parseInt(curr.personnel_in_post ?? curr.pers_post, 10) || 0);
+      acc.booth += (parseInt(curr.personnel_in_booth ?? curr.booths, 10) || 0);
       return acc;
   }, { station: 0, post: 0, booth: 0 });
 
@@ -327,10 +353,10 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                    {estData.map((e, idx) => {
-                      const stn = parseInt(e.personnel_in_station, 10) || 0;
-                      const sub = parseInt(e.personnel_in_sub_station, 10) || 0;
-                      const pst = parseInt(e.personnel_in_post, 10) || 0;
-                      const bth = parseInt(e.personnel_in_booth, 10) || 0;
+                      const stn = parseInt(e.personnel_in_station ?? e.pers_stn, 10) || 0;
+                      const sub = parseInt(e.personnel_in_sub_station ?? 0, 10) || 0;
+                      const pst = parseInt(e.personnel_in_post ?? e.pers_post, 10) || 0;
+                      const bth = parseInt(e.personnel_in_booth ?? e.booths, 10) || 0;
                       const totalPerLocation = stn + sub + pst + bth;
                       
                       return (
