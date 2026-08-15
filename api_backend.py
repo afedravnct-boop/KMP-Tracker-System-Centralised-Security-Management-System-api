@@ -904,19 +904,32 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
         query = db.query(models.Users).filter(models.Users.is_approved == True)
         perms = current_user.permissions or {}
         
+        user_role = (current_user.role or "").upper()
+        user_position = (current_user.position or "").upper()
+        
+        # 🟢 Global High Command / Super Admin / Top Leadership check
         is_global = (
-            current_user.role == "SUPER_ADMIN" or 
+            user_role == "SUPER_ADMIN" or 
             perms.get("view_global_roster", False) or
+            "KMP COMMANDER" in user_position or
+            "DEPUTY KMP COMMANDER" in user_position or
+            "STAFF OFFICER ADMIN" in user_position or
+            "SO ADMIN" in user_position or
             current_user.region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
             current_user.station in ["KMP HEADQUARTERS", "KMP Headquarters", "NAGURU"]
         )
         
         if not is_global:
-            is_regional = (current_user.role == "RPC" or perms.get("view_regional_roster", False) or "Deputy" in (current_user.position or ""))
+            is_regional = (
+                user_role == "RPC" or 
+                "RPC" in user_position or 
+                perms.get("view_regional_roster", False) or 
+                "DEPUTY" in user_position
+            )
             if is_regional:
-                query = query.filter(models.Users.region == current_user.region)
+                query = query.filter(func.upper(models.Users.region) == func.upper(current_user.region))
             else:
-                query = query.filter(models.Users.station == current_user.station)
+                query = query.filter(func.upper(models.Users.station) == func.upper(current_user.station))
                 
         users = query.all()
         return [
@@ -3009,13 +3022,24 @@ def update_user_access(
     ).first()
     
     if not target_user:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"Officer '{clean_fnum}' not found in database records."
-        )
+        raise HTTPException(status_code=404, detail=f"Officer '{clean_fnum}' not found.")
     
-    # 🟢 Verify strict Chain-of-Command clearance before granting or modifying privileges
-    verify_command_clearance(admin, target_user, action_type="GRANT_PRIVILEGE")
+    # 🟢 High Command & Super Admin Bypass Check
+    admin_pos = (admin.position or "").upper()
+    admin_role = (admin.role or "").upper()
+    
+    is_high_command = (
+        admin_role == "SUPER_ADMIN" or
+        "SUPER ADMIN" in admin_role or
+        "KMP COMMANDER" in admin_pos or
+        "DEPUTY KMP COMMANDER" in admin_pos or
+        "STAFF OFFICER ADMIN" in admin_pos or
+        "SO ADMIN" in admin_pos
+    )
+
+    if not is_high_command:
+        # Enforce strict regional/divisional boundaries for lower-tier admins
+        verify_command_clearance(admin, target_user, action_type="GRANT_PRIVILEGE")
 
     old_role = target_user.role
     target_user.role = access_data.role
@@ -3023,12 +3047,9 @@ def update_user_access(
     
     if hasattr(models, 'Audit_Logs'):
         log_semantic_audit(
-            db=db,
-            fnum=admin.fnum,
-            action="USER_ACCESS_UPDATE",
-            target_identifier=clean_fnum,
-            changes={"role": (old_role, access_data.role)},
-            remarks=f"Admin updated access matrix and permissions for {clean_fnum}."
+            db=db, fnum=admin.fnum, action="USER_ACCESS_UPDATE",
+            target_identifier=clean_fnum, changes={"role": (old_role, access_data.role)},
+            remarks=f"Command Authority updated access matrix for {clean_fnum}."
         )
         
     db.commit()
