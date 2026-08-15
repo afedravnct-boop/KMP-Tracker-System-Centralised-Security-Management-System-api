@@ -373,7 +373,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
     });
-     
+      
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.detail || `HTTP Error ${response.status}`);
@@ -436,7 +436,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
-       
+        
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.detail || `HTTP Error ${response.status}`);
@@ -485,7 +485,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-       
+        
       const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
         method: "PATCH", 
         headers: { 
@@ -494,12 +494,12 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
         }, 
         body: JSON.stringify(payload)
       });
-       
+        
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || `Server Error: ${response.status}`);
       }
-       
+        
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId));
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
@@ -511,18 +511,18 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     try {
       const formData = new URLSearchParams();
       formData.append('action', actionStr);
-       
+        
       const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
         method: "POST", 
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, 
         body: formData
       });
-       
+        
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail);
-       
+        
       setResetRequests(resetRequests.filter(r => r.id !== reqId));
-       
+        
       if (actionStr === "APPROVE") {
         alert(`Password successfully reset! Temporary key: ${data.new_password}`);
       } else {
@@ -604,11 +604,14 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                     <th className="p-3 text-center text-emerald-700 bg-emerald-50/50">Analytics / Reports</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+<tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                   {filteredSystemUsers.map(u => {
                     const p = u.permissions || {};
                     const isSuperAdmin = u.role === 'SUPER_ADMIN';
                     const isRevoked = u.role === 'REVOKED';
+                    
+                    // 🟢 PREVENT LOWER ADMINS FROM DEMOTING A SUPER ADMIN
+                    const isRoleSelectDisabled = isSuperAdmin && currentUser?.role !== 'SUPER_ADMIN';
 
                     return (
                       <tr key={u.fnum} className={`transition-colors ${isRevoked ? 'bg-red-50/40' : 'hover:bg-slate-50'}`}>
@@ -631,6 +634,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                           <select 
                             value={u.role || 'USER'}
                             onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)}
+                            disabled={isRoleSelectDisabled}
                             className={`border rounded-lg px-2.5 py-1 font-bold outline-none cursor-pointer text-[11px] ${
                               u.role === 'SUPER_ADMIN' ? 'bg-red-50 text-red-700 border-red-300' :
                               u.role === 'ASSISTANT_SUPER_ADMIN' ? 'bg-rose-50 text-rose-700 border-rose-300' :
@@ -658,22 +662,27 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                           { key: 'export_data', color: 'red', bg: 'bg-red-50/20' },
                           { key: 'can_view_analytics', color: 'emerald', bg: 'bg-emerald-50/20' }
                         ].map((col, idx) => {
-                          const isLocked = !isSuperAdminOrTopCommand && p.super_admin_locks?.[col.key];
-                          
-                          // 🟢 FIXED: Super Admin and Top Command are never locked out of checking/unchecking
-                          const isDisabled = (currentUser?.role === 'SYSTEM_ADMIN') || (isLocked && !isSuperAdminOrTopCommand) || isRevoked;
+                          const hasSuperAdminLock = Boolean(p.super_admin_locks?.[col.key]);
+                          const isLockedVisually = hasSuperAdminLock && !isSuperAdminOrTopCommand;
+
+                          // 🟢 THE FIX: If target is Super Admin, permanently disable and lock the checkboxes
+                          const isDisabled = 
+                            isSuperAdmin || // <-- PROTECTS SUPER ADMINS FROM BEING UNCHECKED
+                            isRevoked || 
+                            currentUser?.role === 'SYSTEM_ADMIN' || 
+                            (!isSuperAdminOrTopCommand && hasSuperAdminLock);
 
                           return (
                             <td key={idx} className={`p-3 text-center ${col.bg || ''}`}>
                               <div className="relative inline-flex items-center justify-center">
                                 <input 
                                   type="checkbox" 
-                                  checked={isSuperAdmin || Boolean(p[col.key])} 
+                                  checked={isSuperAdmin || Boolean(p[col.key])} // <-- Always force checked for Super Admins
                                   disabled={isDisabled}
                                   onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
-                                  className={`w-4 h-4 rounded cursor-pointer disabled:opacity-40 text-${col.color}-600`} 
+                                  className={`w-4 h-4 rounded cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed accent-${col.color}-600`} 
                                 />
-                                {isLocked && <Lock size={10} className="absolute -top-1.5 -right-2 text-red-600 drop-shadow-sm" />}
+                                {(isLockedVisually || isSuperAdmin) && <Lock size={10} className="absolute -top-1.5 -right-2 text-red-600 drop-shadow-sm" title={isSuperAdmin ? "Super Admin Access Locked" : "Locked by High Command"} />}
                               </div>
                             </td>
                           );
