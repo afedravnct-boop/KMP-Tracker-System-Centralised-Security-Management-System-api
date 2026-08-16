@@ -180,12 +180,52 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
       acc.totalNco += curr.totalNco;
       acc.regionTotal += curr.regionTotal;
       
-      ['M', 'F'].forEach(s => {
-         acc.offSex[s] += curr.officers.sex[s];
-         acc.ncoSex[s] += curr.ncos.sex[s];
-      });
+      // Sex ratio sums
+      acc.offSex.M += curr.officers.sex.M;
+      acc.offSex.F += curr.officers.sex.F;
+      acc.ncoSex.M += curr.ncos.sex.M;
+      acc.ncoSex.F += curr.ncos.sex.F;
+
+      // Officer Age sums
+      acc.offAge.twenties += curr.officers.age.twenties;
+      acc.offAge.thirties += curr.officers.age.thirties;
+      acc.offAge.forties += curr.officers.age.forties;
+      acc.offAge.fifties += curr.officers.age.fifties;
+      acc.offAge.unknown += curr.officers.age.unknown;
+
+      // NCO Age sums
+      acc.ncoAge.twenties += curr.ncos.age.twenties;
+      acc.ncoAge.thirties += curr.ncos.age.thirties;
+      acc.ncoAge.forties += curr.ncos.age.forties;
+      acc.ncoAge.fifties += curr.ncos.age.fifties;
+      acc.ncoAge.unknown += curr.ncos.age.unknown;
+
+      // Officer Education sums
+      acc.offEdu.degree += curr.officers.edu.degree;
+      acc.offEdu.diploma += curr.officers.edu.diploma;
+      acc.offEdu.cert += curr.officers.edu.cert;
+      acc.offEdu.highschool += curr.officers.edu.highschool;
+      acc.offEdu.others += curr.officers.edu.others;
+
+      // NCO Education sums
+      acc.ncoEdu.degree += curr.ncos.edu.degree;
+      acc.ncoEdu.diploma += curr.ncos.edu.diploma;
+      acc.ncoEdu.cert += curr.ncos.edu.cert;
+      acc.ncoEdu.highschool += curr.ncos.edu.highschool;
+      acc.ncoEdu.others += curr.ncos.edu.others;
+
       return acc;
-    }, { totalOff: 0, totalNco: 0, regionTotal: 0, offSex: {M:0, F:0}, ncoSex: {M:0, F:0} });
+    }, { 
+      totalOff: 0, 
+      totalNco: 0, 
+      regionTotal: 0, 
+      offSex: {M:0, F:0}, 
+      ncoSex: {M:0, F:0},
+      offAge: { twenties: 0, thirties: 0, forties: 0, fifties: 0, unknown: 0 },
+      ncoAge: { twenties: 0, thirties: 0, forties: 0, fifties: 0, unknown: 0 },
+      offEdu: { degree: 0, diploma: 0, cert: 0, highschool: 0, others: 0 },
+      ncoEdu: { degree: 0, diploma: 0, cert: 0, highschool: 0, others: 0 }
+    });
   }, [nominalAggregates]);
 
   const estData = getEstData();
@@ -304,7 +344,16 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
                       </td>
                       <td className="p-4 text-center text-base font-black text-blue-300 border-r border-slate-700">{masterTotals.totalOff}</td>
                       <td className="p-4 text-center text-base font-black text-green-400 border-r border-slate-700">{masterTotals.totalNco}</td>
-                      <td colSpan="2" className="p-4 text-center text-[10px] font-medium text-slate-400 border-r border-slate-700 bg-slate-900/50 italic">Full Age Demographic Analysis Processed</td>
+                      
+                      {/* Officer Vertical Age Demographics Sums */}
+                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
+                        {renderAgeBlock(masterTotals.offAge)}
+                      </td>
+                      {/* NCO Vertical Age Demographics Sums */}
+                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
+                        {renderAgeBlock(masterTotals.ncoAge)}
+                      </td>
+
                       <td className="p-2 text-center align-middle border-r border-slate-700 bg-slate-700/50">
                          <div className="inline-flex flex-col space-y-1">
                             <span className="text-[10px] font-bold text-blue-200 bg-blue-900/50 px-2 border border-blue-800 rounded shadow-sm">M: {masterTotals.offSex.M}</span>
@@ -317,7 +366,16 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
                             <span className="text-[10px] font-bold text-pink-300 bg-pink-900/50 px-2 border border-pink-800 rounded shadow-sm">F: {masterTotals.ncoSex.F}</span>
                          </div>
                       </td>
-                      <td colSpan="2" className="p-4 text-center text-[10px] font-medium text-slate-400 border-r border-slate-700 bg-slate-900/50 italic">Full Educational Base Analyzed</td>
+                      
+                      {/* Officer Vertical Education Sums */}
+                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
+                        {renderEduBlock(masterTotals.offEdu)}
+                      </td>
+                      {/* NCO Vertical Education Sums */}
+                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
+                        {renderEduBlock(masterTotals.ncoEdu)}
+                      </td>
+
                       <td className="p-4 text-center text-lg font-black text-white bg-blue-800 border-r border-blue-900 shadow-inner">{masterTotals.totalOff}</td>
                       <td className="p-4 text-center text-lg font-black text-white bg-emerald-700 border-r border-emerald-900 shadow-inner">{masterTotals.totalNco}</td>
                       <td className="p-4 text-center text-xl font-black text-yellow-400 bg-slate-950 shadow-inner">

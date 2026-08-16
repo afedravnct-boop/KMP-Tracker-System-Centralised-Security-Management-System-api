@@ -3,17 +3,18 @@ import { AlertTriangle } from 'lucide-react';
 
 const SessionExpiredModal = ({ onContinue }) => {
   const [timeLeft, setTimeLeft] = useState(60);
-  // States: 'WARNING' -> 'EXPIRED_IDLE' -> 'RETURNING' -> 'FINAL_LOGOUT'
+  // States: 'WARNING' -> 'FINAL_LOGOUT'
   const [phase, setPhase] = useState('WARNING'); 
 
-  // 1. Countdown from 60 to 0
+  // 1. Strict Countdown from 60 to 0
   useEffect(() => {
     if (phase === 'WARNING') {
       const timer = setInterval(() => {
         setTimeLeft((prev) => {
           if (prev <= 1) {
             clearInterval(timer);
-            setPhase('EXPIRED_IDLE');
+            // 🟢 AUTOMATIC TRANSITION: Once 0 is reached, immediately wipe session and force logout view
+            handleAutomaticExpiration();
             return 0;
           }
           return prev - 1;
@@ -23,31 +24,15 @@ const SessionExpiredModal = ({ onContinue }) => {
     }
   }, [phase]);
 
-  // 2. Detect when the user returns (mouse movement, keystroke) AFTER expiration
-  useEffect(() => {
-    if (phase === 'EXPIRED_IDLE') {
-      const handleActivity = () => {
-        setPhase('RETURNING');
-      };
-      
-      const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
-      events.forEach(e => window.addEventListener(e, handleActivity, { once: true }));
-      
-      return () => {
-        events.forEach(e => window.removeEventListener(e, handleActivity));
-      };
-    }
-  }, [phase]);
-
-  // 3. Give it exactly 5 seconds after detecting activity before showing the final dialogue box
-  useEffect(() => {
-    if (phase === 'RETURNING') {
-      const delayTimer = setTimeout(() => {
-        setPhase('FINAL_LOGOUT');
-      }, 5000);
-      return () => clearTimeout(delayTimer);
-    }
-  }, [phase]);
+  const handleAutomaticExpiration = () => {
+    // Obliterate session storage automatically so unattended computers are never left vulnerable
+    localStorage.removeItem('kmp_authToken');
+    localStorage.removeItem('kmp_currentUser');
+    localStorage.removeItem('kmp_currentPage');
+    localStorage.clear();
+    sessionStorage.clear();
+    setPhase('FINAL_LOGOUT');
+  };
 
   const handleForceLogout = (e) => {
     if (e) {
@@ -55,14 +40,11 @@ const SessionExpiredModal = ({ onContinue }) => {
       e.stopPropagation();
     }
 
-    // 1. NUCLEAR LOGOUT: Obliterate all system cache so React cannot reconstruct the Dashboard
-    localStorage.removeItem('kmp_authToken');
-    localStorage.removeItem('kmp_currentUser');
-    localStorage.removeItem('kmp_currentPage');
+    // Ensure cache is completely clear
     localStorage.clear();
     sessionStorage.clear();
     
-    // 2. Force hard reload to root login page
+    // Force hard reload to root login page
     window.location.replace('/');
   };
 
@@ -75,7 +57,7 @@ const SessionExpiredModal = ({ onContinue }) => {
           <AlertTriangle className={`w-8 h-8 ${phase === 'WARNING' ? 'text-amber-500' : 'text-red-500'}`} />
         </div>
         
-        {/* PHASE 1: WARNING */}
+        {/* PHASE 1: WARNING & COUNTDOWN */}
         {phase === 'WARNING' && (
           <>
             <h2 className="text-xl font-extrabold text-slate-900 mb-2">Session Timeout Warning</h2>
@@ -92,25 +74,7 @@ const SessionExpiredModal = ({ onContinue }) => {
           </>
         )}
 
-        {/* PHASE 2 & 3: EXPIRED (AWAITING ACTIVITY & 5-SECOND DELAY) */}
-        {(phase === 'EXPIRED_IDLE' || phase === 'RETURNING') && (
-          <>
-            <h2 className="text-xl font-extrabold text-slate-900 mb-2">Session Expired</h2>
-            <p className="text-sm text-slate-600 mb-8 font-medium leading-relaxed">
-              Your 60 seconds within which to extend the session equally expired without activity, session has expired.
-            </p>
-            {/* Subtle visual cue during the 5-second waiting period */}
-            {phase === 'RETURNING' && (
-              <div className="flex justify-center space-x-2 mt-2">
-                <div className="w-2 h-2 bg-red-500 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-red-500 rounded-full animate-bounce delay-75"></div>
-                <div className="w-2 h-2 bg-red-500 rounded-full animate-bounce delay-150"></div>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* PHASE 4: FINAL LOGOUT PROMPT */}
+        {/* PHASE 2: FINAL LOGOUT PROMPT (Reached Automatically at 0s) */}
         {phase === 'FINAL_LOGOUT' && (
           <>
             <h2 className="text-xl font-extrabold text-slate-900 mb-2">Session Expired Due to Inactivity</h2>

@@ -1,14 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save
+  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout
 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import LockupMatrixLedger from './LockupMatrixLedger';
 
-// ==========================================
-// REGIONAL HIERARCHY MAPPING
-// ==========================================
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -60,19 +57,16 @@ const authFetch = async (url, options = {}) => {
 };
 
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
-  
-  // 🟢 INDEPENDENT LOCKUP STATE
   const [lockupData, setLockupData] = useState([]);
   const [standalonePopInput, setStandalonePopInput] = useState('');
-  
-  // 🟢 NEW STATE FOR EDITING LOCKUPS
   const [isEditingLockup, setIsEditingLockup] = useState(false);
   const [editLockupTarget, setEditLockupTarget] = useState(null);
 
-  // 🟢 CLEARANCES
+  // 🟢 AGRICULTURAL CRIMES FILTER STATE
+  const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
+
   const isGlobalCommand = currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster || ['IGP', 'DIGP', 'DIRECTOR', 'KMP COMMANDER'].some(title => (currentUser?.position || '').toUpperCase().includes(title)) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((currentUser?.region || '').toUpperCase());
   const isRegionalCommand = isGlobalCommand || ['RPC', 'DEPUTY COMMANDER'].includes((currentUser?.role || '').toUpperCase()) || (currentUser?.position || '').toUpperCase().includes('RPC') || (currentUser?.position || '').toUpperCase().includes('REGIONAL');
-  const isHQOr999 = ['SUPER_ADMIN', 'ADMIN'].includes((currentUser?.role || '').toUpperCase()) || (currentUser?.station || '').toUpperCase().includes('HEADQUARTERS') || (currentUser?.region || '').toUpperCase().includes('HEADQUARTERS') || (currentUser?.position || '').toUpperCase().includes('999');
 
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -102,7 +96,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
   });
 
-  // 🟢 FETCH INDEPENDENT LOCKUP DATA ON MOUNT
   useEffect(() => {
     const fetchLockupData = async () => {
       try {
@@ -141,20 +134,27 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     });
   };
 
-  // 🟢 PURE CRIME FILTERING (No Lockups Here!)
+  // 🟢 FILTERED REPORTS WITH AGRICULTURAL CRIME MATCHING
   const filteredReports = useMemo(() => {
     if (!Array.isArray(reports)) return [];
     const activeRegion = (filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion.trim().toUpperCase() : null;
     const activeStation = (filterStation && filterStation !== 'ALL STATIONS') ? filterStation.trim().toUpperCase() : null;
 
     const results = reports.filter(r => {
-      // Reject legacy lockup logs if they accidentally ended up here
       if (r.is_hq_general_total || (r.offence || '').toUpperCase().includes("LOCK-UP TOTAL")) return false;
 
       const dbRegion = (r.region || '').trim().toUpperCase();
       const dbStation = (r.station || '').trim().toUpperCase();
       if (activeRegion && dbRegion !== activeRegion) return false;
       if (activeStation && dbStation !== activeStation) return false;
+
+      // 🟢 Agricultural Crimes Filter Logic
+      if (showAgriculturalOnly) {
+        const offenceText = `${r.offence || ''} ${r.narrative || ''}`.toLowerCase();
+        const agriKeywords = ['animal', 'crop', 'farm', 'theft', 'breaking', 'robbery', 'cattle', 'goat', 'sheep', 'pig', 'coffee', 'cocoa', 'matooke', 'sugarcane', 'vanilla', 'cassava'];
+        const isAgri = agriKeywords.some(kw => offenceText.includes(kw));
+        if (!isAgri) return false;
+      }
       
       if (searchQuery) {
         const query = searchQuery.toLowerCase().trim();
@@ -179,7 +179,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       return true;
     });
     return results.sort((a, b) => (b.id || b.sn || 0) - (a.id || a.sn || 0));
-  }, [reports, filterRegion, filterStation, searchQuery, dateFilter]);
+  }, [reports, filterRegion, filterStation, searchQuery, dateFilter, showAgriculturalOnly]);
 
   const isStationSpecific = filterStation && filterStation !== 'ALL STATIONS';
 

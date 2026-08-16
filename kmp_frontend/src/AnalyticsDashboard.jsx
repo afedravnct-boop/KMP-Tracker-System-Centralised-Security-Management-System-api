@@ -627,32 +627,36 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {weekComparisonData.rows.map((row, index) => (
-                    <tr key={index} className="even:bg-slate-50 hover:bg-blue-50/50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap text-xs font-bold text-slate-500 uppercase">{row.region}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-extrabold text-blue-700">{row.station}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-bold text-slate-600">{row.previousWeekCount}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-extrabold text-slate-900">{row.currentWeekCount}</td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm text-center font-extrabold ${row.diff > 0 ? 'text-red-600' : row.diff < 0 ? 'text-green-600' : 'text-slate-500'}`}>
-                        {row.diff > 0 ? `+${row.diff}` : row.diff}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        {row.diff > 0 ? (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800">
-                            <TrendingUp size={14} className="mr-1" /> +{row.pctChange}% (Up)
-                          </span>
-                        ) : row.diff < 0 ? (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800">
-                            <TrendingDown size={14} className="mr-1" /> {row.pctChange}% (Down)
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
-                            Stable (0%)
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {weekComparisonData.rows.map((row, index) => {
+                    const diff = row.currentWeekCount - row.previousWeekCount;
+                    const pctChange = row.previousWeekCount === 0 ? (row.currentWeekCount > 0 ? 100 : 0) : Math.round((diff / row.previousWeekCount) * 100);
+                    return (
+                      <tr key={index} className="even:bg-slate-50 hover:bg-blue-50/50 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap text-xs font-bold text-slate-500 uppercase">{row.region}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-extrabold text-blue-700">{row.station}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-bold text-slate-600">{row.previousWeekCount}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-extrabold text-slate-900">{row.currentWeekCount}</td>
+                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-center font-extrabold ${diff > 0 ? 'text-red-600' : diff < 0 ? 'text-green-600' : 'text-slate-500'}`}>
+                          {diff > 0 ? `+${diff}` : diff}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                          {diff > 0 ? (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800">
+                              <TrendingUp size={14} className="mr-1" /> +{pctChange}% (Up)
+                            </span>
+                          ) : diff < 0 ? (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800">
+                              <TrendingDown size={14} className="mr-1" /> {pctChange}% (Down)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+                              Stable (0%)
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {weekComparisonData.rows.length === 0 && (
                     <tr>
                       <td colSpan="6" className="text-center py-10 text-slate-400 font-medium text-sm">
