@@ -319,6 +319,14 @@ class LockupMatrixBase(BaseModel):
     region: str
     station: str
     suspects: int
+    
+    # 🟢 NEW SEQUENTIAL BREAKDOWN FIELDS
+    male_count: int = 0
+    female_count: int = 0
+    detention_1day: int = 0
+    detention_2days: int = 0
+    detention_3days_over: int = 0
+
     last_updated_by: Optional[str] = None
 
 class LockupMatrixCreate(LockupMatrixBase):

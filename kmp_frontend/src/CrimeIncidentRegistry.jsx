@@ -555,40 +555,45 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
             <div className="p-6 overflow-y-auto bg-slate-50 space-y-6 flex-1 custom-scrollbar">
               <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">Add Suspect Details</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
-                    <input type="text" value={newSuspect.name} onChange={e => setNewSuspect({...newSuspect, name: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 uppercase focus:ring-red-500" placeholder="e.g. OPIO JOHN"/>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Sex</label>
-                    <select value={newSuspect.sex} onChange={e => setNewSuspect({...newSuspect, sex: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 bg-white">
-                      <option>MALE</option><option>FEMALE</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Age</label>
-                    <input type="number" value={newSuspect.age} onChange={e => setNewSuspect({...newSuspect, age: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. 24"/>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Tribe/Nationality</label>
-                    <input type="text" value={newSuspect.tribe} onChange={e => setNewSuspect({...newSuspect, tribe: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 uppercase"/>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Contact/Phone</label>
-                    <input type="text" value={newSuspect.contact} onChange={e => setNewSuspect({...newSuspect, contact: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2"/>
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Residence/Location</label>
-                    <input type="text" value={newSuspect.residence} onChange={e => setNewSuspect({...newSuspect, residence: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. Bwaise Zone 2"/>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Mental Health Status</label>
-                    <select value={newSuspect.mental_health_status} onChange={e => setNewSuspect({...newSuspect, mental_health_status: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 bg-white font-bold text-slate-800">
-                      <option value="NORMAL">NORMAL</option><option value="SUSPECTED PSYCHOLOGICAL CONDITION">SUSPECTED PSYCHOLOGICAL CONDITION</option><option value="UNSTABLE">UNSTABLE</option><option value="UNDER OBSERVATION">UNDER OBSERVATION</option>
-                    </select>
-                  </div>
-                </div>
+                // Inside the Suspect Registration Modal / Form section of CrimeIncidentRegistry.jsx:
+<div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+  <div className="md:col-span-2">
+    <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
+    <input type="text" value={newSuspect.name} onChange={e => setNewSuspect({...newSuspect, name: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 uppercase" placeholder="e.g. OPIO JOHN"/>
+  </div>
+  <div>
+    <label className="block text-xs font-bold text-gray-700 mb-1">Sex</label>
+    <select value={newSuspect.sex} onChange={e => setNewSuspect({...newSuspect, sex: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 bg-white">
+      <option>MALE</option><option>FEMALE</option>
+    </select>
+  </div>
+  <div>
+    <label className="block text-xs font-bold text-gray-700 mb-1">Age</label>
+    <input type="number" value={newSuspect.age} onChange={e => setNewSuspect({...newSuspect, age: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. 24"/>
+  </div>
+  <div>
+    <label className="block text-xs font-bold text-gray-700 mb-1">Tribe</label>
+    <input type="text" value={newSuspect.tribe} onChange={e => setNewSuspect({...newSuspect, tribe: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 uppercase" placeholder="e.g. ACHOLI"/>
+  </div>
+  <div>
+    <label className="block text-xs font-bold text-gray-700 mb-1">Nationality</label>
+    <input type="text" value={newSuspect.nationality} onChange={e => setNewSuspect({...newSuspect, nationality: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 uppercase" placeholder="e.g. UGANDAN"/>
+  </div>
+  <div>
+    <label className="block text-xs font-bold text-gray-700 mb-1">Contact/Phone</label>
+    <input type="text" value={newSuspect.contact} onChange={e => setNewSuspect({...newSuspect, contact: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2"/>
+  </div>
+  <div className="md:col-span-2">
+    <label className="block text-xs font-bold text-gray-700 mb-1">Residence/Location</label>
+    <input type="text" value={newSuspect.residence} onChange={e => setNewSuspect({...newSuspect, residence: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. Bwaise Zone 2"/>
+  </div>
+  <div>
+    <label className="block text-xs font-bold text-gray-700 mb-1">Mental Health Status</label>
+    <select value={newSuspect.mental_health_status} onChange={e => setNewSuspect({...newSuspect, mental_health_status: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 bg-white font-bold text-slate-800">
+      <option value="NORMAL">NORMAL</option><option value="SUSPECTED PSYCHOLOGICAL CONDITION">SUSPECTED PSYCHOLOGICAL CONDITION</option><option value="UNSTABLE">UNSTABLE</option><option value="UNDER OBSERVATION">UNDER OBSERVATION</option>
+    </select>
+  </div>
+</div>
                 <div className="md:col-span-3 bg-red-50 p-3 rounded-lg border border-red-100 mt-3">
                   <label className="block text-xs font-bold text-red-800 mb-2 flex items-center"><Camera size={12} className="mr-1"/> Suspect Mugshot (Optional)</label>
                   <div className="flex items-center space-x-4">

@@ -4,11 +4,10 @@ import { X, Filter, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose }) => {
   const [lockupFilter, setLockupFilter] = useState('ALL');
 
-const formatOfficerDisplay = (str) => {
-  if (!str) return 'SYSTEM';
-  // If it's already in the format containing numbers and names, return uppercase
-  return String(str).toUpperCase();
-};
+  const formatOfficerDisplay = (str) => {
+    if (!str) return 'SYSTEM';
+    return String(str).toUpperCase();
+  };
 
   // 🟢 SECURELY FILTER LOCK-UP ENTRIES
   const filteredLockupEntries = useMemo(() => {
@@ -42,18 +41,31 @@ const formatOfficerDisplay = (str) => {
     });
   }, [lockupEntries, lockupFilter]);
 
+  // Calculations for filtered totals
+  const totals = useMemo(() => {
+    return filteredLockupEntries.reduce((acc, row) => {
+      acc.suspects += Number(row.suspects || 0);
+      acc.male += Number(row.male_count || 0);
+      acc.female += Number(row.female_count || 0);
+      acc.d1 += Number(row.detention_1day || 0);
+      acc.d2 += Number(row.detention_2days || 0);
+      acc.d3 += Number(row.detention_3days_over || 0);
+      return acc;
+    }, { suspects: 0, male: 0, female: 0, d1: 0, d2: 0, d3: 0 });
+  }, [filteredLockupEntries]);
+
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[99999] flex items-center justify-center p-4 sm:p-6 animate-in fade-in zoom-in-95 duration-200">
-      <div className="bg-white shadow-2xl max-w-4xl w-full flex flex-col max-h-[90vh] rounded-xl overflow-hidden border border-amber-300">
+      <div className="bg-white shadow-2xl max-w-6xl w-full flex flex-col max-h-[90vh] rounded-xl overflow-hidden border border-amber-300">
         
         {/* HEADER */}
         <div className="bg-amber-800 px-6 py-4 flex justify-between items-center shrink-0 shadow-md z-10">
           <div>
             <h3 className="text-sm font-extrabold text-white tracking-wider uppercase flex items-center">
               <Filter className="w-4 h-4 mr-2" />
-              Independent Daily Suspect Lock-Up Matrix
+              Independent Daily Suspect Lock-Up Matrix Ledger
             </h3>
-            <p className="text-[10px] text-amber-200 font-medium mt-0.5">Daily & Cumulative Custody Records</p>
+            <p className="text-[10px] text-amber-200 font-medium mt-0.5">Daily & Cumulative Custody Breakdown Records</p>
           </div>
           <button onClick={onClose} className="text-amber-200 hover:text-white hover:bg-amber-700 p-1.5 rounded transition-colors">
             <X size={20} />
@@ -81,46 +93,73 @@ const formatOfficerDisplay = (str) => {
         
         {/* TABLE BODY */}
         <div className="overflow-y-auto flex-1 custom-scrollbar bg-slate-50">
-          <table className="w-full text-left">
-            <thead className="bg-amber-100 sticky top-0 border-b border-amber-200 shadow-sm z-10">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-amber-100 sticky top-0 border-b border-amber-200 shadow-sm z-20">
               <tr>
-                <th className="px-6 py-3 text-[11px] font-extrabold text-amber-900 uppercase">S/N</th>
-                <th className="px-6 py-3 text-[11px] font-extrabold text-amber-900 uppercase">Date (Day Record)</th>
-                <th className="px-6 py-3 text-[11px] font-extrabold text-amber-900 uppercase">Station / Origin</th>
-                <th className="px-6 py-3 text-[11px] font-extrabold text-amber-900 uppercase text-center">Daily Count</th>
-                <th className="px-6 py-3 text-[11px] font-extrabold text-amber-900 uppercase text-center">Daily Net Variation</th>
+                <th rowSpan="2" className="px-4 py-3 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200 text-center">S/N</th>
+                <th rowSpan="2" className="px-4 py-3 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200">Date Logged</th>
+                <th rowSpan="2" className="px-4 py-3 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200">Station / Origin</th>
+                <th rowSpan="2" className="px-4 py-3 text-[10px] font-black text-white uppercase bg-amber-900 border-r border-amber-800 text-center">Total Suspects</th>
+                
+                {/* 🟢 SUBDIVIDED SEX COLUMN */}
+                <th colSpan="2" className="px-2 py-2 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200 text-center bg-amber-200/50">SEX</th>
+                
+                {/* 🟢 SUBDIVIDED DURATION IN DETENTION COLUMN */}
+                <th colSpan="3" className="px-2 py-2 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200 text-center bg-amber-100">DURATION IN DETENTION</th>
+                
+                <th rowSpan="2" className="px-4 py-3 text-[10px] font-black text-amber-900 uppercase text-center border-r border-amber-200">Daily Net Variation</th>
+                <th rowSpan="2" className="px-4 py-3 text-[10px] font-black text-amber-900 uppercase">Last Updated By</th>
+              </tr>
+              <tr className="bg-amber-50 border-b-2 border-amber-200">
+                <th className="px-3 py-2 text-[9px] font-extrabold text-blue-800 uppercase border-r border-amber-200 text-center bg-blue-50/50">Male</th>
+                <th className="px-3 py-2 text-[9px] font-extrabold text-pink-800 uppercase border-r border-amber-200 text-center bg-pink-50/50">Female</th>
+                
+                <th className="px-3 py-2 text-[9px] font-extrabold text-slate-700 uppercase border-r border-amber-200 text-center">1 Day</th>
+                <th className="px-3 py-2 text-[9px] font-extrabold text-slate-700 uppercase border-r border-amber-200 text-center">2 Days</th>
+                <th className="px-3 py-2 text-[9px] font-extrabold text-slate-700 uppercase border-r border-amber-200 text-center">3 Days & Over</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-amber-100 bg-white">
               {filteredLockupEntries.length > 0 ? (
                 filteredLockupEntries.map((row, idx) => (
                   <tr key={idx} className="hover:bg-amber-50/50 transition-colors">
-                    <td className="px-6 py-4 text-xs font-bold text-slate-400">{idx + 1}</td>
-                    <td className="px-6 py-4 text-xs font-bold text-slate-800">{row.date}</td>
-                    <td className="px-6 py-4 text-xs font-bold text-slate-600 uppercase">{row.station}</td>
-                    <td className="px-6 py-4 text-base font-black text-amber-700 text-center">{row.suspects}</td>
-                    <td className="px-6 py-4 text-xs font-bold text-center">
+                    <td className="px-4 py-3 text-xs font-bold text-slate-400 text-center border-r border-slate-100">{idx + 1}</td>
+                    <td className="px-4 py-3 text-xs font-bold text-slate-800 border-r border-slate-100">{row.date}</td>
+                    <td className="px-4 py-3 text-xs font-bold text-slate-600 uppercase border-r border-slate-100">{row.station}</td>
+                    <td className="px-4 py-3 text-sm font-black text-amber-900 text-center bg-amber-50/30 border-r border-slate-100">{row.suspects}</td>
+                    
+                    {/* Sex Breakdown Values */}
+                    <td className="px-3 py-3 text-xs font-bold text-blue-700 text-center border-r border-slate-100 bg-blue-50/20">{row.male_count || 0}</td>
+                    <td className="px-3 py-3 text-xs font-bold text-pink-700 text-center border-r border-slate-100 bg-pink-50/20">{row.female_count || 0}</td>
+
+                    {/* Detention Duration Breakdown Values */}
+                    <td className="px-3 py-3 text-xs font-medium text-slate-700 text-center border-r border-slate-100">{row.detention_1day || 0}</td>
+                    <td className="px-3 py-3 text-xs font-medium text-slate-700 text-center border-r border-slate-100">{row.detention_2days || 0}</td>
+                    <td className="px-3 py-3 text-xs font-medium text-slate-700 text-center border-r border-slate-100">{row.detention_3days_over || 0}</td>
+
+                    <td className="px-4 py-3 text-xs font-bold text-center border-r border-slate-100">
                       {!row.hasPrev ? (
                         <span className="text-slate-400 flex items-center justify-center"><Minus className="w-3 h-3 mr-1"/> Base</span>
                       ) : row.variation > 0 ? (
                         <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100 flex items-center justify-center max-w-max mx-auto">
-                          <TrendingUp className="w-3 h-3 mr-1" /> +{row.variation} Added
+                          <TrendingUp className="w-3 h-3 mr-1" /> +{row.variation}
                         </span>
                       ) : row.variation < 0 ? (
                         <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 flex items-center justify-center max-w-max mx-auto">
-                          <TrendingDown className="w-3 h-3 mr-1" /> {row.variation} Cleared
+                          <TrendingDown className="w-3 h-3 mr-1" /> {row.variation}
                         </span>
                       ) : (
                         <span className="text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 flex items-center justify-center max-w-max mx-auto">
-                          <Minus className="w-3 h-3 mr-1" /> No Change
+                          <Minus className="w-3 h-3 mr-1" /> 0
                         </span>
                       )}
                     </td>
+                    <td className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase">{formatOfficerDisplay(row.last_updated_by)}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan="5" className="px-6 py-12 text-center text-sm text-slate-500 font-bold">
+                  <td colSpan="10" className="px-6 py-12 text-center text-sm text-slate-500 font-bold">
                     No independent lock-up records found for this period.
                   </td>
                 </tr>
@@ -129,19 +168,18 @@ const formatOfficerDisplay = (str) => {
           </table>
         </div>
 
-        {/* FOOTER */}
-        <div className="bg-slate-900 shrink-0 shadow-inner z-10 border-t border-slate-700">
-          <div className="flex justify-between items-center px-6 py-3 border-b border-slate-700">
-            <div className="text-[11px] font-black text-amber-300 uppercase tracking-wider">
-              {lockupFilter === 'ALL' ? 'All-Time Filtered Total:' : `${lockupFilter} Period Total:`}
-            </div>
-            <div className="text-base font-black text-amber-300">
-              {filteredLockupEntries.reduce((sum, l) => sum + Number(l.suspects || 0), 0)}
-            </div>
+        {/* FOOTER TOTALS */}
+        <div className="bg-slate-900 shrink-0 shadow-inner z-10 border-t border-slate-700 text-amber-300">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2 px-6 py-3 border-b border-slate-800 text-xs font-black uppercase">
+            <div>{lockupFilter} Period Totals:</div>
+            <div>Total: <span className="text-white">{totals.suspects}</span></div>
+            <div>Male: <span className="text-blue-400">{totals.male}</span></div>
+            <div>Female: <span className="text-pink-400">{totals.female}</span></div>
+            <div className="col-span-2">Detention Split (1d / 2d / 3d+): <span className="text-white">{totals.d1} / {totals.d2} / {totals.d3}</span></div>
           </div>
           <div className="flex justify-between items-center px-6 py-4 bg-slate-950">
             <div className="text-xs font-black text-yellow-400 uppercase tracking-wider">
-              Cumulative Matrix Lock-Up Total:
+              Cumulative Matrix Lock-Up Total (All-Time):
             </div>
             <div className="text-xl font-black text-yellow-400">{allTimeLockupTotal}</div>
           </div>

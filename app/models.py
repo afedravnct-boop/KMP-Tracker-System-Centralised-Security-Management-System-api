@@ -52,6 +52,7 @@ class Suspect_Lockup(Base):
     sex = Column(String, default="MALE")
     age = Column(Integer, nullable=True)
     tribe = Column(String, nullable=True)
+    nationality = Column(String)
     residence = Column(String, nullable=True)
     contact = Column(String, nullable=True)
     mental_health_status = Column(String, default="NORMAL")
@@ -376,10 +377,18 @@ class LockupMatrix(Base):
 
     sn = Column(Integer, primary_key=True, index=True, autoincrement=True)
     sd_ref = Column(String, unique=True, index=True, nullable=False) # e.g., POP-KMP-123456
-    date = Column(String, index=True, nullable=False)                # YYYY-MM-DD format
+    date = Column(String, index=True, nullable=False)               # YYYY-MM-DD format
     time = Column(String, nullable=True)                             # e.g., 0830Hrs
     region = Column(String, index=True, nullable=False)              # e.g., KMP EAST
     station = Column(String, index=True, nullable=False)             # e.g., KIRA DIVISION
     suspects = Column(Integer, default=0, nullable=False)            # Total count
+    
+    # 🟢 NEW SEQUENTIAL BREAKDOWN COLUMNS
+    male_count = Column(Integer, default=0, nullable=False)          # Male breakdown under Sex
+    female_count = Column(Integer, default=0, nullable=False)        # Female breakdown under Sex
+    detention_1day = Column(Integer, default=0, nullable=False)      # Spent 1 day in detention
+    detention_2days = Column(Integer, default=0, nullable=False)     # Spent 2 days in detention
+    detention_3days_over = Column(Integer, default=0, nullable=False)# Spent 3 days & over in detention
+
     last_updated_by = Column(String, nullable=True)                  # User info who logged it
     created_at = Column(DateTime(timezone=True), server_default=func.now())
