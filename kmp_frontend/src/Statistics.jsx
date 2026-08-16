@@ -211,16 +211,6 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
           {statsDomain === 'AGRICULTURAL' ? '🌱 Agricultural Crimes Statistics' : '⚡ Disruptive OPS Statistics'}
         </h1>
         <h3 className="text-sm sm:text-lg text-blue-700 mt-2 font-medium">Weekly Numerical Aggregates</h3>
-
-        {/* 🟢 Domain Toggle Selector */}
-        <div className="flex bg-slate-200 p-1 rounded-xl mt-4 border shadow-inner">
-          <button type="button" onClick={() => setStatsDomain('DISRUPTIVE')} className={`px-4 py-2 rounded-lg font-bold text-xs transition ${statsDomain === 'DISRUPTIVE' ? 'bg-slate-900 text-white shadow' : 'text-slate-700'}`}>
-            ⚡ Disruptive OPS
-          </button>
-          <button type="button" onClick={() => setStatsDomain('AGRICULTURAL')} className={`px-4 py-2 rounded-lg font-bold text-xs transition ${statsDomain === 'AGRICULTURAL' ? 'bg-emerald-700 text-white shadow' : 'text-slate-700'}`}>
-            🌱 Agricultural Crimes Stats
-          </button>
-        </div>
       </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -228,7 +218,10 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
           <div className="lg:col-span-4 space-y-6">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-                <h3 className="text-white font-semibold flex items-center"><BarChart3 className="w-5 h-5 mr-2 text-blue-400" /> ⚙️ Log Statistics</h3>
+                <h3 className="text-white font-semibold flex items-center">
+                  <BarChart3 className="w-5 h-5 mr-2 text-blue-400" /> 
+                  ⚙️ Log {statsDomain === 'AGRICULTURAL' ? 'Agri-Crimes' : 'Disruptive'} Stats
+                </h3>
               </div>
               <div className="p-5 space-y-6">
                 <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
@@ -331,17 +324,30 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3">
-              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                  <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-                ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
-              </select>
-              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-                {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
-                  <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
-                ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
-              </select>
+            {/* 🟢 Region/Station filters on the left, Domain Toggle Selector pushed to the right on the same line */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                  {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                    <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+                  ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+                </select>
+                <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                  {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                    <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
+                  ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+                </select>
+              </div>
+
+              {/* Domain Toggle Selector placed on the right side of the filters line */}
+              <div className="inline-flex bg-slate-200 p-1 rounded-xl border shadow-inner shrink-0">
+                <button type="button" onClick={() => setStatsDomain('DISRUPTIVE')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition ${statsDomain === 'DISRUPTIVE' ? 'bg-slate-900 text-white shadow' : 'text-slate-700'}`}>
+                  ⚡ Disruptive OPS
+                </button>
+                <button type="button" onClick={() => setStatsDomain('AGRICULTURAL')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition ${statsDomain === 'AGRICULTURAL' ? 'bg-emerald-700 text-white shadow' : 'text-slate-700'}`}>
+                  🌱 Agricultural Crimes Stats
+                </button>
+              </div>
             </div>
 
             <ExpandableTableCard title={`Weekly Metrics Breakdown Ledger (${statsDomain === 'AGRICULTURAL' ? 'Agricultural Crimes' : 'Disruptive OPS'})`} onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
