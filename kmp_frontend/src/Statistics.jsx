@@ -37,12 +37,16 @@ const authFetch = async (url, options = {}) => {
   return fetch(`${API_URL}${url}`, { ...options, headers: { ...options.headers, "Authorization": `Bearer ${token}` } });
 };
 
-const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
+const Statistics = ({ currentUser, stats = [], agricStats = [], setStats, setAgricStats, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
   // 🟢 DOMAIN TOGGLE: 'DISRUPTIVE' vs 'AGRICULTURAL'
   const [statsDomain, setStatsDomain] = useState('DISRUPTIVE');
+
+  // 🟢 Active dataset selector based on toggle state
+  const currentDomainStats = statsDomain === 'AGRICULTURAL' ? agricStats : stats;
+  const activeSetter = statsDomain === 'AGRICULTURAL' ? setAgricStats : setStats;
 
   const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
@@ -58,7 +62,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
   });
 
   const filteredStats = useMemo(() => {
-    return (Array.isArray(stats) ? stats : []).filter(s => {
+    return (Array.isArray(currentDomainStats) ? currentDomainStats : []).filter(s => {
       if (filterRegion !== 'ALL REGIONS' && s.region !== filterRegion) return false;
       if (filterStation !== 'ALL STATIONS' && s.station !== filterStation) return false;
 
@@ -76,10 +80,10 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
       }
       return true;
     });
-  }, [stats, filterRegion, filterStation, dateFilter]);
+  }, [currentDomainStats, filterRegion, filterStation, dateFilter]);
 
   const availableUpdateStats = useMemo(() => {
-    return (Array.isArray(stats) ? stats : []).filter(s => {
+    return (Array.isArray(currentDomainStats) ? currentDomainStats : []).filter(s => {
       if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && s.region !== currentUser.region) return false;
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
@@ -90,7 +94,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
       }
       return true;
     });
-  }, [stats, currentUser, updateSearch]);
+  }, [currentDomainStats, currentUser, updateSearch]);
 
   const totals = useMemo(() => {
     return filteredStats.reduce((acc, curr) => {
@@ -134,7 +138,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
     const targetEndpoint = statsDomain === 'AGRICULTURAL' ? '/api/v1/agric-stats' : '/api/v1/stats';
 
     if (operation === 'new') {
-      const isDuplicate = stats.some(s => 
+      const isDuplicate = currentDomainStats.some(s => 
         String(s.station || '').trim().toUpperCase() === String(formData.station || '').trim().toUpperCase() && 
         String(s.date) === String(formData.date)
       );
@@ -143,7 +147,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
         return setNotification(`❌ Error: Statistics for station '${formData.station}' on date '${formData.date}' have already been logged.`);
       }
 
-      const exactNextSN = stats.length > 0 ? Math.max(...stats.map(s => s.sn || s.id || 0)) + 1 : 1;
+      const exactNextSN = currentDomainStats.length > 0 ? Math.max(...currentDomainStats.map(s => s.sn || s.id || 0)) + 1 : 1;
       const newStat = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       
       try {
@@ -157,7 +161,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
         }
         
         const savedData = await response.json().catch(() => newStat);
-        setStats([savedData, ...stats]); 
+        activeSetter([savedData, ...currentDomainStats]); 
         setNotification(`✅ Statistics recorded successfully for ${formData.station}!`);
         setFormData({ 
           ...formData, arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, 
@@ -171,7 +175,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
       const recordKey = formData.id || formData.sn;
       if (!recordKey) return setNotification("Error: Please select a record from the list to update first.");
 
-      const isDuplicateConflict = stats.some(s => 
+      const isDuplicateConflict = currentDomainStats.some(s => 
         (String(s.station || '').trim().toUpperCase() === String(formData.station || '').trim().toUpperCase() && 
          String(s.date) === String(formData.date)) && 
         (s.id !== recordKey && s.sn !== recordKey)
@@ -193,8 +197,8 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
           throw new Error(errText || "Failed to update record in database.");
         }
         
-        const updatedStats = stats.map(s => (s.id === recordKey || s.sn === recordKey) ? updatedRecord : s);
-        setStats(updatedStats); 
+        const updatedStats = currentDomainStats.map(s => (s.id === recordKey || s.sn === recordKey) ? updatedRecord : s);
+        activeSetter(updatedStats); 
         setNotification(`✅ Statistics ID ${recordKey} successfully updated!`);
         handleOperationToggle('new');
       } catch (err) { 
@@ -324,7 +328,7 @@ const Statistics = ({ currentUser, stats, setStats, setSidebarOpen }) => {
               </div>
             </div>
 
-            {/* 🟢 Region/Station filters on the left, Domain Toggle Selector pushed to the right on the same line */}
+            {/* Region/Station filters on the left, Domain Toggle Selector pushed to the right on the same line */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
                 <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">

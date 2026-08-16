@@ -1342,6 +1342,42 @@ def create_agric_stats(payload: AgricStatsCreate, db: Session = Depends(get_db))
     db.refresh(db_item)
     return db_item
 
+@app.get("/api/v1/agric-stats", response_model=list[AgricStatsResponse])
+def get_agric_stats(db: Session = Depends(get_db)):
+    return db.query(AgricCrimeStatistics).all()
+
+@app.post("/api/v1/agric-stats", response_model=AgricStatsResponse)
+def create_agric_stats(payload: AgricStatsCreate, db: Session = Depends(get_db)):
+    existing = db.query(AgricCrimeStatistics).filter(
+        AgricCrimeStatistics.station.ilike(payload.station),
+        AgricCrimeStatistics.date == payload.date
+    ).first()
+
+    if existing:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Statistics for station '{payload.station}' on date '{payload.date}' already exist."
+        )
+
+    db_item = AgricCrimeStatistics(**payload.dict())
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+@app.put("/api/v1/agric-stats/{record_id}", response_model=AgricStatsResponse)
+def update_agric_stats(record_id: int, payload: AgricStatsCreate, db: Session = Depends(get_db)):
+    db_item = db.query(AgricCrimeStatistics).filter(AgricCrimeStatistics.id == record_id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Record not found")
+        
+    for key, value in payload.dict(exclude_unset=True).items():
+        setattr(db_item, key, value)
+        
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
 # --- SUCCESS STORIES ---
 @app.get("/api/v1/stories")
 def get_stories(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
