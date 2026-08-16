@@ -1063,10 +1063,7 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
 
         if is_hq_general_total:
             if not is_hq_admin:
-                raise HTTPException(
-                    status_code=403, 
-                    detail="Clearance Denied: Only KMP Headquarters admins or 999 Data Officers can input independent General Totals."
-                )
+                raise HTTPException(status_code=403, detail="Clearance Denied.")
             data["region"] = "KMP HEADQUARTERS"
             data["station"] = "HEADQUARTERS GENERAL TOTAL"
             data["offence"] = data.get("offence", "HQ GENERAL SUSPECT LOCK-UP TOTAL")
@@ -1075,23 +1072,68 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
                 data["region"] = current_user.region
                 data["station"] = current_user.station
 
+        # 🟢 ADVANCED DUPLICATE DETECTION & REJECTION
+        incoming_sd_ref = (data.get("sd_ref") or "").strip().lower()
+        incoming_station = (data.get("station") or "").strip().lower()
+        incoming_narrative = (data.get("narrative") or "").strip().lower()
+        incoming_offence = (data.get("offence") or "").strip().lower()
+
+        if incoming_sd_ref or incoming_narrative:
+            # Fetch existing station reports to check against
+            existing_reports = db.query(models.Crime_Reports).filter(
+                func.lower(models.Crime_Reports.station) == incoming_station
+            ).all()
+
+            for r in existing_reports:
+                existing_ref = (r.sd_ref or "").strip().lower()
+                existing_narrative = (r.narrative or "").strip().lower()
+                existing_offence = (r.offence or "").strip().lower()
+
+                # Rule 1: Reject if Reference Number is an exact match in the same station
+                if incoming_sd_ref and existing_ref and incoming_sd_ref == existing_ref:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Duplicate Rejection: Reference '{data.get('sd_ref')}' already exists for {data.get('station')} station."
+                    )
+
+                # Rule 2: Reject if Narrative is completely identical and not blank
+                if incoming_narrative and len(incoming_narrative) > 10 and existing_narrative and incoming_narrative == existing_narrative:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="Duplicate Rejection: An identical incident narrative has already been logged for this station."
+                    )
+
+                # Rule 3: Check for similar offences with highly overlapping narrative text (e.g. over 85% string similarity or identical core description)
+                if incoming_offence and existing_offence and incoming_offence == existing_offence:
+                    if incoming_narrative and existing_narrative:
+                        # Simple keyword/substring overlap check for similar narratives under same offence
+                        words_incoming = set(incoming_narrative.split())
+                        words_existing = set(existing_narrative.split())
+                        if len(words_incoming) > 5:
+                            common_words = words_incoming.intersection(words_existing)
+                            similarity_ratio = len(common_words) / max(len(words_incoming), len(words_existing))
+                            if similarity_ratio > 0.85:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail=f"Duplicate Rejection: A very similar '{incoming_offence}' incident with near-identical narrative details already exists."
+                                )
+
         suspects_data = data.pop('suspectDetails', []) 
         new_record = models.Crime_Reports(**data)
         new_record.last_updated_by = get_officer_signature(current_user)
         
         db.add(new_record)
-        db.flush() # 🟢 Creates the ID without committing
-        
+        db.flush() 
         new_record.sn = new_record.id 
         
         for s in suspects_data:
             new_suspect = models.Suspect_Lockup(
-                report_id=new_record.id, # ✅ CORRECT MAPPING TO NEONDB
+                report_id=new_record.id, 
                 name=s.get('name'), 
                 sex=s.get('sex'), 
                 age=str(s.get('age')) if s.get('age') else None,
                 tribe=s.get('tribe'),
-                nationality=s.get('nationality'), # 🟢 Mapped Nationality field
+                nationality=s.get('nationality'),
                 residence=s.get('residence'), 
                 contact=s.get('contact'),
                 mental_health_status=s.get('mental_health_status'),
@@ -1102,6 +1144,9 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
         db.commit()
         db.refresh(new_record)
         return {"status": "success", "id": new_record.id, "sn": new_record.sn}
+    except HTTPException as he:
+        db.rollback()
+        raise he
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

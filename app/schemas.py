@@ -322,7 +322,9 @@ class LockupMatrixBase(BaseModel):
     
     # 🟢 NEW SEQUENTIAL BREAKDOWN FIELDS
     male_count: int = 0
+    male_juvenile_count: int = 0
     female_count: int = 0
+    female_juvenile_count: int = 0
     detention_1day: int = 0
     detention_2days: int = 0
     detention_3days_over: int = 0

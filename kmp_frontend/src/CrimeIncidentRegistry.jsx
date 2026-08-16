@@ -358,7 +358,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     if (isEditingLockup) {
       setIsEditingLockup(false);
       setEditLockupTarget(null);
-      setStandalonePopInput({ total: '', male: '', female: '', d1: '', d2: '', d3: '' });
+      setStandalonePopInput({ total: '', male: '', male_juvenile: '', female: '', female_juvenile: '', d1: '', d2: '', d3: '' });
     } else {
       const todayStr = getTodayString();
       const existingEntry = lockupData.find(l => l.station === formData.station && l.date === todayStr);
@@ -845,11 +845,26 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         </div>
 
         <div className="lg:col-span-7 space-y-6">
-          <div className="flex flex-col sm:flex-row gap-3">
-             <div className="relative flex-1"> 
+          <div className="flex flex-col sm:flex-row gap-3 items-center">
+             <div className="relative flex-1 w-full"> 
                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-               <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500" />
+               <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500 bg-white" />
              </div>
+
+             {/* 🟢 AGRICULTURAL CRIMES TOGGLE FILTER BUTTON */}
+             <button
+               type="button"
+               onClick={() => setShowAgriculturalOnly(prev => !prev)}
+               className={`px-4 py-2 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
+                 showAgriculturalOnly 
+                   ? 'bg-emerald-700 text-white border-emerald-800 ring-2 ring-emerald-500/20' 
+                   : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-50'
+               }`}
+             >
+               <Sprout className="w-4 h-4 mr-1.5" />
+               {showAgriculturalOnly ? 'Agri-Crimes Filter: ON' : 'Filter Agri-Crimes'}
+             </button>
+
             <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!isGlobalCommand} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
               {isGlobalCommand ? <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</> : <option value={currentUser?.region}>{currentUser?.region}</option>}
             </select>

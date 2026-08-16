@@ -385,7 +385,9 @@ class LockupMatrix(Base):
     
     # 🟢 NEW SEQUENTIAL BREAKDOWN COLUMNS
     male_count = Column(Integer, default=0, nullable=False)          # Male breakdown under Sex
+    male_juvenile_count = Column(Integer, default=0, nullable=False)
     female_count = Column(Integer, default=0, nullable=False)        # Female breakdown under Sex
+    female_juvenile_count = Column(Integer, default=0, nullable=False)
     detention_1day = Column(Integer, default=0, nullable=False)      # Spent 1 day in detention
     detention_2days = Column(Integer, default=0, nullable=False)     # Spent 2 days in detention
     detention_3days_over = Column(Integer, default=0, nullable=False)# Spent 3 days & over in detention

@@ -46,12 +46,14 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose }) => {
     return filteredLockupEntries.reduce((acc, row) => {
       acc.suspects += Number(row.suspects || 0);
       acc.male += Number(row.male_count || 0);
+      acc.male_juvenile += Number(row.male_count || 0);
       acc.female += Number(row.female_count || 0);
+      acc.female_juvenile += Number(row.male_count || 0);
       acc.d1 += Number(row.detention_1day || 0);
       acc.d2 += Number(row.detention_2days || 0);
       acc.d3 += Number(row.detention_3days_over || 0);
       return acc;
-    }, { suspects: 0, male: 0, female: 0, d1: 0, d2: 0, d3: 0 });
+    }, { suspects: 0, male: 0, male_juvenile: 0, female: 0, female_juvenile: 0, d1: 0, d2: 0, d3: 0 });
   }, [filteredLockupEntries]);
 
   return (
