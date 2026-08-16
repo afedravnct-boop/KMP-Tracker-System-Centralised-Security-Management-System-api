@@ -14,6 +14,8 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+const autoCapitalize = (text) => text ? text.toUpperCase() : '';
+
 const MetricCard = ({ title, value, colorClass }) => {
   const isKMPMaster = title === 'KMP Master Lock-up' || title === 'KMP Master';
   return (
@@ -52,10 +54,29 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
+// 🟢 AUTO-LOGOUT IMPLEMENTED HERE
 const authFetch = async (url, options = {}) => {
   const token = localStorage.getItem('kmp_authToken');
   const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-  return fetch(`${API_URL}${url}`, { ...options, headers: { ...options.headers, "Authorization": `Bearer ${token}` } });
+  
+  const existingHeaders = options.headers || {};
+  
+  const response = await fetch(`${API_URL}${url}`, { 
+    ...options, 
+    headers: { 
+      ...existingHeaders, 
+      "Authorization": `Bearer ${token}` 
+    } 
+  });
+
+  if (response.status === 401) {
+    console.warn("Session expired. Automatically logging out...");
+    localStorage.removeItem('kmp_authToken');
+    localStorage.removeItem('kmp_currentUser'); 
+    window.location.href = '/'; 
+  }
+
+  return response;
 };
 
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
@@ -718,7 +739,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                   )}
                 </div>
 
-                {/* 🟢 FIXED REACT-QUILL BINDINGS */}
                 <div className="pb-8"> 
                   <label className="block text-xs font-bold text-gray-700 mb-1">
                     {operation === 'update' ? 'Original Incident Narrative (Read-Only)' : 'Incident Narrative *'}
