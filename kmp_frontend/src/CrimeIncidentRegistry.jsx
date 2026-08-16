@@ -24,7 +24,11 @@ const MetricCard = ({ title, value, colorClass }) => {
         {title}
       </h4>
       <div className={`text-base font-black leading-none flex items-center justify-center ${colorClass}`}>
-        {value}
+        {value === "Pending" ? (
+          <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending</span>
+        ) : (
+          value
+        )}
       </div>
     </div>
   );
@@ -203,7 +207,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     let latestHqGrandTotal = null;
     let hasLockupUpdateToday = false;
     
-    // Parse pure lockup data
     lockupData.forEach(l => {
       const isHQTotal = l.station === 'HEADQUARTERS GENERAL TOTAL' || l.region === 'KMP HEADQUARTERS';
       if (isHQTotal) {
@@ -233,8 +236,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     const totalCaseSuspects = filteredReports.reduce((sum, r) => sum + (r.suspectDetails || r.suspect_details || []).length, 0);
 
     return {
-      localLockup: (hasLockupUpdateToday || localJurisdictionTotal > 0) ? localJurisdictionTotal : <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending</span>,
-      kmpGeneralLockup: kmpGeneralTotal !== null && kmpGeneralTotal !== undefined ? kmpGeneralTotal : <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 animate-pulse">Pending</span>,
+      localLockup: (hasLockupUpdateToday || localJurisdictionTotal > 0) ? localJurisdictionTotal : "Pending",
+      kmpGeneralLockup: kmpGeneralTotal !== null && kmpGeneralTotal !== undefined ? kmpGeneralTotal : "Pending",
       newCases: filteredReports.length,
       active: filteredReports.filter(r => r.status === 'ACTIVE INVESTIGATION').length,
       sanctioned: filteredReports.filter(r => r.status === 'FORWARDED TO COURT').length,
@@ -249,7 +252,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     const crimeMap = {};
     const now = new Date();
 
-    // 1. Process Crime Types
     filteredReports.forEach(r => {
       let includeInSummary = true;
       const rDate = new Date(r.date);
@@ -267,7 +269,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     });
     const crimesArray = Object.values(crimeMap).sort((a, b) => b.cases - a.cases);
 
-    // 2. Process Independent Lockups (Add variations)
     const sortedLockups = [...lockupData].sort((a, b) => new Date(b.date) - new Date(a.date));
     const lockupsWithVar = sortedLockups.map((log, index, arr) => {
       if (index === arr.length - 1) return { ...log, variation: 0, hasPrev: false };
@@ -323,7 +324,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     }
   };
 
-  // 🟢 FETCH TODAY'S LOCKUP FOR EDITING
   const handleEditLockupToggle = () => {
     if (isEditingLockup) {
       setIsEditingLockup(false);
@@ -343,7 +343,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     }
   };
 
-  // 🟢 NEW INDEPENDENT LOCKUP SUBMIT HANDLER (Posts to /api/v1/lockup-matrix)
   const handleStandalonePopSubmit = async () => {
     if (standalonePopInput === '' || standalonePopInput === null) return setNotification("Error: Please enter a cell population number.");
     
@@ -351,7 +350,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     
     try {
       if (isEditingLockup && editLockupTarget) {
-        // 🟢 UPDATE EXISTING LOCKUP
         const updatePayload = {
           ...editLockupTarget,
           suspects: parseInt(standalonePopInput) || 0,
@@ -370,7 +368,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         setEditLockupTarget(null);
 
       } else {
-        // 🟢 CREATE NEW LOCKUP
         const popRef = `POP-${formData.station.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
         const apiPayload = {
           sd_ref: popRef, 
@@ -399,7 +396,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     }
   };
 
-  // 🟢 HQ MASTER LOCKUP FALLBACK HANDLER
   const handleHqGrandTotalSubmit = async (e) => {
     e.preventDefault();
     if (!hqGrandTotalInput && hqGrandTotalInput !== 0) return alert("Please enter a valid Grand Total.");
@@ -452,7 +448,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         date: formData.date, time: formattedTime, offence: formData.offence === 'Other' ? formData.customOffence : formData.offence, 
         narrative: formData.narrative, status: formData.status, suspects: formData.suspectDetails.length, 
         last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails,
-        daily_lock_up: 0 // Kept at 0 because lockups are now entirely separate!
+        daily_lock_up: 0 
       };
       
       try {
@@ -812,12 +808,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         </div>
       </div>
 
-      {/* ========================================================= */}
-      {/* 🟢 SEPARATED LOCKUP LOGGING & MATRICES                    */}
-      {/* ========================================================= */}
       <div className="mt-8 space-y-6 animate-in fade-in duration-300 max-w-4xl mx-auto">
         
-        {/* 🟢 ISOLATED STATION LOCKUP LOGGER */}
         <div className="bg-amber-50 p-5 rounded-2xl border border-amber-200 shadow-md flex flex-col md:flex-row items-center gap-4">
           <div className="flex-1">
             <h3 className="font-extrabold text-amber-900 uppercase tracking-wider text-sm flex items-center">
@@ -846,7 +838,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               </button>
             </div>
             
-            {/* 🟢 TOGGLE EDIT MODE FOR TODAY'S LOCKUP */}
             <button 
               type="button"
               onClick={handleEditLockupToggle}
@@ -857,7 +848,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           </div>
         </div>
 
-        {/* 🟢 BUTTON TO OPEN INDEPENDENT LOCKUP MATRIX */}
         <button 
           onClick={() => setShowLockupMatrixModal(true)}
           className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center border border-slate-700 group mb-6"
@@ -866,7 +856,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           VIEW INDEPENDENT DAILY SUSPECT LOCK-UP MATRIX
         </button>
 
-        {/* 🟢 GENERAL CRIME SUMMARY WITH DURATION FILTER */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
           <div className="bg-slate-900 px-4 py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <h3 className="text-xs font-extrabold text-white tracking-wider uppercase">General Crime Summary (Excluding Lock-Ups)</h3>
