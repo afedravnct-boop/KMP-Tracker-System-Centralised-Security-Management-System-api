@@ -11,8 +11,8 @@ const REGIONAL_HIERARCHY = {
 };
 
 const CHART_COLORS = [
-  '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#16a34a', 
-  '#0891b2', '#4f46e5', '#9333ea', '#e11d48', '#ca8a04'
+  '#85581A', '#A97142', '#596E47', '#7C9070', '#C5A880', 
+  '#4A5D4E', '#B38B59', '#6B5837', '#9E7B54', '#3E4D3E'
 ];
 
 // OFFICIAL UPF RANK HIERARCHY
@@ -46,7 +46,7 @@ const normalizeOffenceCategory = (rawOffence) => {
     return "DEFILEMENT / RAPE";
   }
 
-  // 2. Fallback: Alphabetize keywords to make order irrelevant (e.g., "ROBBERY AGGRAVATED" -> "AGGRAVATED ROBBERY")
+  // 2. Fallback: Alphabetize keywords to make order irrelevant
   const words = clean.replace(/[^A-Z0-9\s]/g, '').split(/\s+/).filter(Boolean);
   words.sort();
   
@@ -127,7 +127,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
   const [activeDomain, setActiveDomain] = useState('CRIME');
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
   const [sortOrder, setSortOrder] = useState('DEFAULT');
-  const [dateFilter, setDateFilter] = useState('ALL'); // NEW: Global Duration Filter
+  const [dateFilter, setDateFilter] = useState('ALL'); 
   
   const [selectedRegion, setSelectedRegion] = useState('ALL REGIONS');
   const [selectedStation, setSelectedStation] = useState('ALL STATIONS');
@@ -135,9 +135,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
   const currentDataset = useMemo(() => {
     let baseData = [];
     
-    // Step 1: Base Dataset Filtering
     if (activeDomain === 'CRIME') {
-      baseData = crimeRegistry.filter(r => !isLockupLog(r)); // 🟢 Exclude lockup logs strictly
+      baseData = crimeRegistry.filter(r => !isLockupLog(r)); 
     } else if (activeDomain === 'PERSONNEL') {
       baseData = nominalRolls;
     } else if (activeDomain === 'SUCCESS') {
@@ -146,12 +145,11 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       baseData = operationalStats;
     }
 
-    // Step 2: Time/Duration Filtering
     if (activeDomain !== 'PERSONNEL' && dateFilter !== 'ALL') {
       const now = new Date();
       baseData = baseData.filter(item => {
         const itemDateStr = item.date || item.createdAt || item.timestamp;
-        if (!itemDateStr) return true; // Keep if no date available
+        if (!itemDateStr) return true; 
         
         const itemDate = new Date(itemDateStr);
         if (isNaN(itemDate)) return true;
@@ -239,9 +237,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       grouped[key].count += 1;
     });
 
-    // DYNAMIC SORTING LOGIC
     return Object.values(grouped).sort((a, b) => {
-      // 1. SMART DEFAULT OR FORCED HIERARCHY
       if (sortOrder === 'HIERARCHY' || (sortOrder === 'DEFAULT' && activeDomain === 'PERSONNEL' && metricCategory === 'RANK')) {
         const indexA = RANK_HIERARCHY.indexOf(a.label);
         const indexB = RANK_HIERARCHY.indexOf(b.label);
@@ -249,17 +245,9 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         const weightB = indexB === -1 ? 999 : indexB;
         return weightA - weightB;
       }
-      
-      // 2. ALPHABETICAL ASCENDING (A-Z)
       if (sortOrder === 'ALPHA_ASC') return a.label.localeCompare(b.label);
-      
-      // 3. ALPHABETICAL DESCENDING (Z-A)
       if (sortOrder === 'ALPHA_DESC') return b.label.localeCompare(a.label);
-      
-      // 4. FREQUENCY ASCENDING (Lowest First)
       if (sortOrder === 'FREQ_ASC') return a.count - b.count;
-      
-      // 5. FREQUENCY DESCENDING (Highest First)
       return b.count - a.count;
     });
   }, [currentDataset, activeDomain, metricCategory, sortOrder]);
@@ -311,7 +299,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
   const weekComparisonData = useMemo(() => {
     const reports = Array.isArray(crimeRegistry) ? crimeRegistry : [];
 
-    // 🟢 Filter out lockup logs so trends reflect ACTUAL crimes
     const filtered = reports.filter(r => {
       if (isLockupLog(r)) return false; 
 
@@ -374,7 +361,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       const stampedBy = `${currentUser?.rank || 'OFFICER'} ${currentUser?.name || 'UNKNOWN'} (F/NO: ${currentUser?.fnum || 'HQ'})`;
       const commandPost = `${currentUser?.station || 'KMP HEADQUARTERS'}, ${currentUser?.region || 'KMP HEADQUARTERS'}`;
 
-      // 1. Audit Stamp Sheet
       const metaSheetData = [
         ["KAMPALA METROPOLITAN POLICE - CENTRAL SECURITY DATA MANAGEMENT SYSTEM"],
         ["OFFICIAL FORENSIC ANALYTICS AUDIT REPORT"],
@@ -388,7 +374,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       const wsMeta = XLSX.utils.aoa_to_sheet(metaSheetData);
       XLSX.utils.book_append_sheet(wb, wsMeta, "Forensic Audit Stamp");
 
-      // 2. Crime Registry Sheet
       if (Array.isArray(crimeRegistry) && crimeRegistry.length > 0) {
         const crimeData = crimeRegistry.map((r, index) => ({
           "S/N": index + 1,
@@ -405,7 +390,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(crimeData), "Crime Registry");
       }
 
-      // 3. Nominal Roll Sheet 
       if (Array.isArray(nominalRolls) && nominalRolls.length > 0) {
         const nomData = nominalRolls.map((n, index) => ({
           "S/N": index + 1, 
@@ -425,7 +409,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(nomData), "Nominal Roll");
       }
 
-      // 4. Operations Stats Sheet
       if (Array.isArray(operationalStats) && operationalStats.length > 0) {
         const opsData = operationalStats.map((o, index) => ({
           "S/N": index + 1,
@@ -435,7 +418,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(opsData), "Operations Stats");
       }
 
-      // 5. Success Stories Sheet
       if (Array.isArray(successStories) && successStories.length > 0) {
         const successData = successStories.map((s, index) => ({
           "S/N": index + 1,
@@ -444,15 +426,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         }));
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(successData), "Success Stories");
       }
-
-      wb.Props = {
-        Title: "KMP Command Analytics Report",
-        Subject: `Encrypted Analytics generated by ${stampedBy}`,
-        Author: stampedBy,
-        Manager: "Kampala Metropolitan Police Command",
-        Company: "Uganda Police Force",
-        CreatedDate: new Date()
-      };
 
       const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
       const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -472,7 +445,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         window.URL.revokeObjectURL(downloadUrl);
       }, 2000);
 
-      alert("🔒 Secure Analytics Report Downloaded Successfully!\n\nNote: Serial numbers (S/N) are chronologically numbered 1 through N for your regional jurisdiction, with Database Audit IDs preserved.");
+      alert("🔒 Secure Analytics Report Downloaded Successfully!");
 
     } catch (error) {
       console.error("Secure Export Error:", error);
@@ -481,16 +454,17 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
   };
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto space-y-6 animate-in fade-in duration-300 font-sans">
+    // 🟢 DESERT GRASS BACKGROUND CONTAINER (#f4eee2) WITH WARM NATURAL ACCENTS
+    <div className="p-6 max-w-[1600px] mx-auto space-y-6 animate-in fade-in duration-300 font-sans min-h-screen" style={{ backgroundColor: '#f4eee2' }}>
       
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-200 gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#fbf8f3] p-6 rounded-2xl shadow-sm border border-[#e2d6c3] gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">KMP Command Analytics Dashboard</h1>
-          <p className="text-xs text-slate-500 mt-1 font-medium">Real-time cross-tabulation, visual metrics, intelligence tracking, and encrypted reporting.</p>
+          <h1 className="text-2xl font-extrabold text-[#3a3225] tracking-tight">KMP Command Analytics Dashboard</h1>
+          <p className="text-xs text-[#736450] mt-1 font-medium">Real-time cross-tabulation, visual metrics, intelligence tracking, and encrypted reporting.</p>
         </div>
         <button 
           onClick={handleExportExcel}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-md transition flex items-center space-x-2 cursor-pointer"
+          className="bg-[#596E47] hover:bg-[#4A5D4E] text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-md transition flex items-center space-x-2 cursor-pointer"
         >
           <span>📥 Download 4-Sheet Analytics Report (Excel)</span>
         </button>
@@ -509,8 +483,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
             onClick={() => { setActiveDomain(tab.id); setMetricCategory('CATEGORY'); setSortOrder('DEFAULT'); setDateFilter('ALL'); }}
             className={`p-4 rounded-xl font-bold text-xs transition border text-left shadow-sm cursor-pointer ${
               activeDomain === tab.id 
-                ? 'bg-slate-900 text-white border-slate-900' 
-                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                ? 'bg-[#3a3225] text-[#f4eee2] border-[#3a3225]' 
+                : 'bg-[#fbf8f3] text-[#594d3c] border-[#e2d6c3] hover:bg-[#f1ebd9]'
             }`}
           >
             {tab.label}
@@ -521,12 +495,12 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       {activeDomain === 'TRENDS' ? (
         <div className="space-y-6 animate-in fade-in duration-200">
           
-          <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-xl flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="bg-[#3a3225] rounded-2xl p-6 text-[#f4eee2] shadow-xl flex flex-col md:flex-row justify-between items-center gap-4 border border-[#534735]">
             <div>
-              <h2 className="text-xl font-extrabold flex items-center tracking-wide">
-                <TrendingUp className="mr-3 text-blue-400 w-6 h-6" /> Week-to-Week Comparative Crime Volume
+              <h2 className="text-xl font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+                <TrendingUp className="mr-3 text-[#C5A880] w-6 h-6" /> Week-to-Week Comparative Crime Volume
               </h2>
-              <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider">
+              <p className="text-xs text-[#b8ab97] mt-1 uppercase tracking-wider">
                 Analyzing trends across regions and stations ({weekComparisonData.previousWeek} vs {weekComparisonData.currentWeek})
               </p>
             </div>
@@ -535,7 +509,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
               <select 
                 value={selectedRegion} 
                 onChange={(e) => { setSelectedRegion(e.target.value); setSelectedStation('ALL STATIONS'); }}
-                className="bg-slate-800 text-white border border-slate-700 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-blue-400 cursor-pointer"
+                className="bg-[#2d271d] text-[#f4eee2] border border-[#534735] text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-[#C5A880] cursor-pointer"
               >
                 <option value="ALL REGIONS">ALL REGIONS</option>
                 <option value="KMP NORTH">KMP NORTH</option>
@@ -548,7 +522,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
               <select 
                 value={selectedStation} 
                 onChange={(e) => setSelectedStation(e.target.value)}
-                className="bg-slate-800 text-white border border-slate-700 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-blue-400 cursor-pointer"
+                className="bg-[#2d271d] text-[#f4eee2] border border-[#534735] text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-[#C5A880] cursor-pointer"
               >
                 <option value="ALL STATIONS">ALL STATIONS</option>
                 {selectedRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[selectedRegion] || []).map(stn => (
@@ -559,97 +533,97 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+            <div className="bg-[#fbf8f3] p-5 rounded-xl border border-[#e2d6c3] shadow-sm flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Current Period ({weekComparisonData.currentWeek})</span>
-                <div className="text-3xl font-extrabold text-blue-700 mt-1">
-                  {weekComparisonData.rows.reduce((sum, r) => sum + r.currentWeekCount, 0)} <span className="text-sm font-medium text-slate-500">Cases</span>
+                <span className="text-xs font-bold text-[#736450] uppercase tracking-wider">Current Period ({weekComparisonData.currentWeek})</span>
+                <div className="text-3xl font-extrabold text-[#596E47] mt-1">
+                  {weekComparisonData.rows.reduce((sum, r) => sum + r.currentWeekCount, 0)} <span className="text-sm font-medium text-[#736450]">Cases</span>
                 </div>
               </div>
-              <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600">
+              <div className="w-12 h-12 bg-[#e9eedf] rounded-xl flex items-center justify-center text-[#596E47]">
                 <Calendar size={24} />
               </div>
             </div>
 
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+            <div className="bg-[#fbf8f3] p-5 rounded-xl border border-[#e2d6c3] shadow-sm flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Previous Period ({weekComparisonData.previousWeek})</span>
-                <div className="text-3xl font-extrabold text-slate-700 mt-1">
-                  {weekComparisonData.rows.reduce((sum, r) => sum + r.previousWeekCount, 0)} <span className="text-sm font-medium text-slate-500">Cases</span>
+                <span className="text-xs font-bold text-[#736450] uppercase tracking-wider">Previous Period ({weekComparisonData.previousWeek})</span>
+                <div className="text-3xl font-extrabold text-[#594d3c] mt-1">
+                  {weekComparisonData.rows.reduce((sum, r) => sum + r.previousWeekCount, 0)} <span className="text-sm font-medium text-[#736450]">Cases</span>
                 </div>
               </div>
-              <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center text-slate-600">
+              <div className="w-12 h-12 bg-[#efece6] rounded-xl flex items-center justify-center text-[#736450]">
                 <Shield size={24} />
               </div>
             </div>
 
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+            <div className="bg-[#fbf8f3] p-5 rounded-xl border border-[#e2d6c3] shadow-sm flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Net Trend Shift</span>
+                <span className="text-xs font-bold text-[#736450] uppercase tracking-wider">Net Trend Shift</span>
                 {(() => {
                   const curTotal = weekComparisonData.rows.reduce((sum, r) => sum + r.currentWeekCount, 0);
                   const prevTotal = weekComparisonData.rows.reduce((sum, r) => sum + r.previousWeekCount, 0);
                   const diff = curTotal - prevTotal;
                   return (
-                    <div className={`text-3xl font-extrabold mt-1 flex items-center ${diff <= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <div className={`text-3xl font-extrabold mt-1 flex items-center ${diff <= 0 ? 'text-[#596E47]' : 'text-amber-800'}`}>
                       {diff > 0 ? `+${diff}` : diff} 
                       {diff <= 0 ? <ArrowDownRight className="ml-2 w-6 h-6" /> : <ArrowUpRight className="ml-2 w-6 h-6" />}
                     </div>
                   );
                 })()}
               </div>
-              <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
+              <div className="w-12 h-12 bg-[#e9eedf] rounded-xl flex items-center justify-center text-[#596E47]">
                 <BarChart3 size={24} />
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
-              <h3 className="font-extrabold text-slate-800 text-sm uppercase tracking-wider flex items-center">
-                <Filter size={16} className="mr-2 text-blue-600" /> Week-to-Week Crime Volume Breakdown by Station
+          <div className="bg-[#fbf8f3] rounded-xl shadow-sm border border-[#e2d6c3] overflow-hidden">
+            <div className="bg-[#f4eee2] px-6 py-4 border-b border-[#e2d6c3] flex justify-between items-center">
+              <h3 className="font-extrabold text-[#3a3225] text-sm uppercase tracking-wider flex items-center">
+                <Filter size={16} className="mr-2 text-[#596E47]" /> Week-to-Week Crime Volume Breakdown by Station
               </h3>
-              <span className="text-xs font-bold text-slate-500 bg-white px-3 py-1 rounded-full border shadow-xs">
+              <span className="text-xs font-bold text-[#736450] bg-[#fbf8f3] px-3 py-1 rounded-full border border-[#e2d6c3] shadow-xs">
                 {weekComparisonData.rows.length} Stations Monitored
               </span>
             </div>
 
             <div className="overflow-x-auto w-full">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-slate-100">
+              <table className="min-w-full divide-y divide-[#e2d6c3]">
+                <thead className="bg-[#efece6]">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Region</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Station / Division</th>
-                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-600 uppercase tracking-wider">Previous Week ({weekComparisonData.previousWeek})</th>
-                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-600 uppercase tracking-wider">Current Week ({weekComparisonData.currentWeek})</th>
-                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-600 uppercase tracking-wider">Variance (Cases)</th>
-                    <th className="px-6 py-3 text-center text-xs font-bold text-slate-600 uppercase tracking-wider">Trend Direction</th>
+                    <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase tracking-wider">Region</th>
+                    <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase tracking-wider">Station / Division</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase tracking-wider">Previous Week ({weekComparisonData.previousWeek})</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase tracking-wider">Current Week ({weekComparisonData.currentWeek})</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase tracking-wider">Variance (Cases)</th>
+                    <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase tracking-wider">Trend Direction</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
                   {weekComparisonData.rows.map((row, index) => {
                     const diff = row.currentWeekCount - row.previousWeekCount;
                     const pctChange = row.previousWeekCount === 0 ? (row.currentWeekCount > 0 ? 100 : 0) : Math.round((diff / row.previousWeekCount) * 100);
                     return (
-                      <tr key={index} className="even:bg-slate-50 hover:bg-blue-50/50 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap text-xs font-bold text-slate-500 uppercase">{row.region}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-extrabold text-blue-700">{row.station}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-bold text-slate-600">{row.previousWeekCount}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-extrabold text-slate-900">{row.currentWeekCount}</td>
-                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-center font-extrabold ${diff > 0 ? 'text-red-600' : diff < 0 ? 'text-green-600' : 'text-slate-500'}`}>
+                      <tr key={index} className="even:bg-[#f4eee2]/50 hover:bg-[#e9eedf]/30 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap text-xs font-bold text-[#736450] uppercase">{row.region}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-extrabold text-[#3a3225]">{row.station}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-bold text-[#736450]">{row.previousWeekCount}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-extrabold text-[#3a3225]">{row.currentWeekCount}</td>
+                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-center font-extrabold ${diff > 0 ? 'text-amber-800' : diff < 0 ? 'text-[#596E47]' : 'text-[#736450]'}`}>
                           {diff > 0 ? `+${diff}` : diff}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-center">
                           {diff > 0 ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900">
                               <TrendingUp size={14} className="mr-1" /> +{pctChange}% (Up)
                             </span>
                           ) : diff < 0 ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-[#e9eedf] text-[#3b4c2e]">
                               <TrendingDown size={14} className="mr-1" /> {pctChange}% (Down)
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-[#efece6] text-[#736450]">
                               Stable (0%)
                             </span>
                           )}
@@ -659,7 +633,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
                   })}
                   {weekComparisonData.rows.length === 0 && (
                     <tr>
-                      <td colSpan="6" className="text-center py-10 text-slate-400 font-medium text-sm">
+                      <td colSpan="6" className="text-center py-10 text-[#736450] font-medium text-sm">
                         No crime incidents found matching the selected parameters.
                       </td>
                     </tr>
@@ -673,20 +647,19 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       ) : (
         <div className="space-y-6 animate-in fade-in duration-200">
           
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="bg-[#fbf8f3] p-4 rounded-xl shadow-sm border border-[#e2d6c3] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto flex-wrap">
               
-              {/* 🟢 NEW: Time/Duration Filter for General Analytics */}
               {activeDomain !== 'PERSONNEL' && (
                 <div className="flex items-center space-x-3 w-full sm:w-auto">
-                  <span className="text-xs font-bold text-slate-500 uppercase whitespace-nowrap flex items-center">
+                  <span className="text-xs font-bold text-[#736450] uppercase whitespace-nowrap flex items-center">
                     <Clock size={14} className="mr-1"/> Period:
                   </span>
                   <select 
                     value={dateFilter}
                     onChange={e => setDateFilter(e.target.value)}
-                    className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer w-full sm:w-auto"
+                    className="border border-[#e2d6c3] rounded-lg p-2 text-xs font-bold text-[#3a3225] bg-white outline-none cursor-pointer w-full sm:w-auto"
                   >
                     <option value="ALL">All Time</option>
                     <option value="TODAY">Today Only</option>
@@ -697,16 +670,15 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
                 </div>
               )}
 
-              {/* Group By Filter */}
               <div className="flex items-center space-x-3 w-full sm:w-auto">
-                <span className="text-xs font-bold text-slate-500 uppercase whitespace-nowrap">Group By:</span>
+                <span className="text-xs font-bold text-[#736450] uppercase whitespace-nowrap">Group By:</span>
                 <select 
                   value={metricCategory}
                   onChange={e => {
                     setMetricCategory(e.target.value);
                     setSortOrder('DEFAULT');
                   }}
-                  className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer w-full sm:w-auto"
+                  className="border border-[#e2d6c3] rounded-lg p-2 text-xs font-bold text-[#3a3225] bg-white outline-none cursor-pointer w-full sm:w-auto"
                 >
                   {activeDomain === 'CRIME' && (
                     <>
@@ -747,13 +719,12 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
                 </select>
               </div>
 
-              {/* Sort By Filter */}
               <div className="flex items-center space-x-3 w-full sm:w-auto">
-                <span className="text-xs font-bold text-slate-500 uppercase whitespace-nowrap">Sort By:</span>
+                <span className="text-xs font-bold text-[#736450] uppercase whitespace-nowrap">Sort By:</span>
                 <select 
                   value={sortOrder}
                   onChange={e => setSortOrder(e.target.value)}
-                  className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer w-full sm:w-auto"
+                  className="border border-[#e2d6c3] rounded-lg p-2 text-xs font-bold text-[#3a3225] bg-white outline-none cursor-pointer w-full sm:w-auto"
                 >
                   <option value="DEFAULT">Smart Default</option>
                   <option value="FREQ_DESC">Frequency (Highest First)</option>
@@ -767,7 +738,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
               </div>
             </div>
 
-            <span className="text-xs font-extrabold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100 whitespace-nowrap">
+            <span className="text-xs font-extrabold text-[#596E47] bg-[#e9eedf] px-3 py-1.5 rounded-lg border border-[#cfe1b9] whitespace-nowrap">
               Total Analyzed Entries: {totalRecords}
             </span>
 
@@ -775,9 +746,9 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide w-full text-left mb-4 flex items-center">
-                <PieChart size={16} className="mr-2 text-blue-600" /> Proportional Share ({metricCategory.replace('_', ' ')})
+            <div className="bg-[#fbf8f3] p-6 rounded-2xl shadow-sm border border-[#e2d6c3] flex flex-col items-center justify-between">
+              <h3 className="text-sm font-bold text-[#3a3225] uppercase tracking-wide w-full text-left mb-4 flex items-center">
+                <PieChart size={16} className="mr-2 text-[#596E47]" /> Proportional Share ({metricCategory.replace('_', ' ')})
               </h3>
               
               <div className="relative w-48 h-48 my-2">
@@ -793,45 +764,45 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
                     ))}
                   </svg>
                 ) : (
-                  <div className="w-full h-full rounded-full border-4 border-dashed border-slate-200 flex items-center justify-center text-xs text-slate-400 font-bold">
+                  <div className="w-full h-full rounded-full border-4 border-dashed border-[#e2d6c3] flex items-center justify-center text-xs text-[#736450] font-bold">
                     No Data
                   </div>
                 )}
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-xs text-slate-400 font-bold uppercase">Total</span>
-                  <span className="text-lg font-extrabold text-slate-800">{totalRecords}</span>
+                  <span className="text-xs text-[#736450] font-bold uppercase">Total</span>
+                  <span className="text-lg font-extrabold text-[#3a3225]">{totalRecords}</span>
                 </div>
               </div>
 
               <div className="w-full mt-4 max-h-32 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
                 {pieSlices.map((slice, idx) => (
-                  <div key={idx} className="flex items-center justify-between text-xs font-bold text-slate-700 px-2 py-1 bg-slate-50 rounded">
+                  <div key={idx} className="flex items-center justify-between text-xs font-bold text-[#594d3c] px-2 py-1 bg-[#f4eee2] rounded">
                     <div className="flex items-center space-x-2 truncate">
                       <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: slice.color }}></span>
                       <span className="truncate">{slice.label}</span>
                     </div>
-                    <span className="text-slate-500 font-mono shrink-0 ml-2">{slice.count} ({slice.percent}%)</span>
+                    <span className="text-[#736450] font-mono shrink-0 ml-2">{slice.count} ({slice.percent}%)</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide flex items-center">
-                <BarChart3 size={16} className="mr-2 text-indigo-600" /> Comparative Bar Graph ({metricCategory.replace('_', ' ')})
+            <div className="bg-[#fbf8f3] p-6 rounded-2xl shadow-sm border border-[#e2d6c3] space-y-4">
+              <h3 className="text-sm font-bold text-[#3a3225] uppercase tracking-wide flex items-center">
+                <BarChart3 size={16} className="mr-2 text-[#596E47]" /> Comparative Bar Graph ({metricCategory.replace('_', ' ')})
               </h3>
               <div className="space-y-3 max-h-[340px] overflow-y-auto pr-2 custom-scrollbar">
                 {aggregatedData.map((item, idx) => {
                   const percentage = totalRecords > 0 ? (item.count / totalRecords) * 100 : 0;
                   return (
                     <div key={idx} className="space-y-1">
-                      <div className="flex justify-between text-xs font-bold text-slate-700">
+                      <div className="flex justify-between text-xs font-bold text-[#594d3c]">
                         <span className="truncate pr-2">{item.label}</span>
-                        <span className="text-blue-600 shrink-0">{item.count} ({percentage.toFixed(1)}%)</span>
+                        <span className="text-[#596E47] shrink-0">{item.count} ({percentage.toFixed(1)}%)</span>
                       </div>
-                      <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
+                      <div className="w-full bg-[#efece6] h-3 rounded-full overflow-hidden">
                         <div 
-                          className="bg-blue-600 h-full rounded-full transition-all duration-500" 
+                          className="bg-[#596E47] h-full rounded-full transition-all duration-500" 
                           style={{ width: `${Math.max(percentage, 2)}%` }}
                         ></div>
                       </div>
@@ -839,29 +810,29 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
                   );
                 })}
                 {aggregatedData.length === 0 && (
-                  <div className="p-8 text-center text-slate-400 text-xs">No records available for analysis in this view.</div>
+                  <div className="p-8 text-center text-[#736450] text-xs">No records available for analysis in this view.</div>
                 )}
               </div>
             </div>
 
           </div>
 
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-4">Statistical Distribution Breakdown ({activeDomain})</h3>
-            <div className="border border-slate-100 rounded-xl overflow-hidden max-h-[340px] overflow-y-auto custom-scrollbar">
+          <div className="bg-[#fbf8f3] p-6 rounded-2xl shadow-sm border border-[#e2d6c3]">
+            <h3 className="text-sm font-bold text-[#3a3225] uppercase tracking-wide mb-4">Statistical Distribution Breakdown ({activeDomain})</h3>
+            <div className="border border-[#e2d6c3] rounded-xl overflow-hidden max-h-[340px] overflow-y-auto custom-scrollbar">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-700 uppercase font-bold sticky top-0 border-b border-slate-200">
+                <thead className="bg-[#efece6] text-[#3a3225] uppercase font-bold sticky top-0 border-b border-[#e2d6c3]">
                   <tr>
                     <th className="p-3">{metricCategory.replace('_', ' ')} Attribute</th>
                     <th className="p-3 text-right">Frequency</th>
                     <th className="p-3 text-right">Share (%)</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
+                <tbody className="divide-y divide-[#e2d6c3] font-medium text-[#594d3c]">
                   {aggregatedData.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50">
-                      <td className="p-3 uppercase text-slate-800 font-semibold">{item.label}</td>
-                      <td className="p-3 text-right font-extrabold text-blue-600">{item.count}</td>
+                    <tr key={idx} className="hover:bg-[#f4eee2]">
+                      <td className="p-3 uppercase text-[#3a3225] font-semibold">{item.label}</td>
+                      <td className="p-3 text-right font-extrabold text-[#596E47]">{item.count}</td>
                       <td className="p-3 text-right">{totalRecords > 0 ? ((item.count / totalRecords) * 100).toFixed(1) : 0}%</td>
                     </tr>
                   ))}
@@ -869,8 +840,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
               </table>
             </div>
             
-            <div className="pt-4 text-center border-t border-slate-100 mt-4">
-              <p className="text-[11px] text-slate-400 font-medium">Data compiled securely by KMP Centralised Security Data Management System.</p>
+            <div className="pt-4 text-center border-t border-[#e2d6c3] mt-4">
+              <p className="text-[11px] text-[#736450] font-medium">Data compiled securely by KMP Centralised Security Data Management System.</p>
             </div>
           </div>
 
