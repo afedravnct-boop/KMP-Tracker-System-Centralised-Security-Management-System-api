@@ -1080,15 +1080,13 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
         new_record.last_updated_by = get_officer_signature(current_user)
         
         db.add(new_record)
-        db.commit()         
-        db.refresh(new_record)
+        db.flush() # 🟢 Creates the ID without committing
         
         new_record.sn = new_record.id 
-        db.commit()
         
         for s in suspects_data:
             new_suspect = models.Suspect_Lockup(
-                sd_ref=new_record.sn,
+                report_id=new_record.id, # ✅ CORRECT MAPPING TO NEONDB
                 name=s.get('name'), 
                 sex=s.get('sex'), 
                 age=str(s.get('age')) if s.get('age') else None,
@@ -1101,6 +1099,7 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
             db.add(new_suspect)
             
         db.commit()
+        db.refresh(new_record)
         return {"status": "success", "id": new_record.id, "sn": new_record.sn}
     except Exception as e:
         db.rollback()
@@ -1126,13 +1125,14 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
                 
         existing_report.last_updated_by = get_officer_signature(current_user)
         
-        existing_lockups = db.query(models.Suspect_Lockup).filter(models.Suspect_Lockup.sd_ref == sn).all()
+        existing_lockups = db.query(models.Suspect_Lockup).filter(models.Suspect_Lockup.report_id == sn).all()
         existing_names = [lockup.name for lockup in existing_lockups]
         
         for s in suspects_data:
             if s.get('name') not in existing_names:
                 new_suspect = models.Suspect_Lockup(
-                    sd_ref=sn, name=s.get('name'), sex=s.get('sex'), age=str(s.get('age')) if s.get('age') else None,
+                    report_id=sn, # ✅ CORRECT MAPPING TO NEONDB
+                    name=s.get('name'), sex=s.get('sex'), age=str(s.get('age')) if s.get('age') else None,
                     tribe=s.get('tribe'), residence=s.get('residence'), contact=s.get('contact'),
                     mental_health_status=s.get('mental_health_status'),
                     photo_url=s.get('photo_url') 
@@ -1322,25 +1322,6 @@ def update_stat(stat_id: int, data: dict, db: Session = Depends(get_db), current
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/v1/agric-stats", response_model=AgricStatsResponse)
-def create_agric_stats(payload: AgricStatsCreate, db: Session = Depends(get_db)):
-    existing = db.query(AgricCrimeStatistics).filter(
-        AgricCrimeStatistics.station.ilike(payload.station),
-        AgricCrimeStatistics.date == payload.date
-    ).first()
-
-    if existing:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Statistics for station '{payload.station}' on date '{payload.date}' already exist."
-        )
-
-    db_item = AgricCrimeStatistics(**payload.dict())
-    db.add(db_item)
-    db.commit()
-    db.refresh(db_item)
-    return db_item
 
 @app.get("/api/v1/agric-stats", response_model=list[AgricStatsResponse])
 def get_agric_stats(db: Session = Depends(get_db)):
