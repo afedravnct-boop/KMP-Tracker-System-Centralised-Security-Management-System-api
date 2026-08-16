@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, UniqueConstraint, JSON
+from sqlalchemy import Column, Integer, String, Text, Date, DateTime, Boolean, ForeignKey, UniqueConstraint, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -84,6 +84,25 @@ class Operational_Statistics(Base):
     convicted = Column(Integer, default=0)
     last_updated_by = Column(String)
     created_at = Column(DateTime, default=get_eat_time)
+
+class AgricCrimeStatistics(Base):
+    __tablename__ = "agric_crimes_statistics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sn = Column(Integer, nullable=True)
+    region = Column(String, nullable=False)
+    station = Column(String, nullable=False)
+    date = Column(Date, nullable=False)
+    arrested = Column(Integer, default=0)
+    given_bond = Column(Integer, default=0)
+    cautioned = Column(Integer, default=0)
+    pending_court = Column(Integer, default=0)
+    taken_to_court = Column(Integer, default=0)
+    released = Column(Integer, default=0)
+    remanded = Column(Integer, default=0)
+    convicted = Column(Integer, default=0)
+    last_updated_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 # ==========================================
 # 3. SUCCESS STORIES

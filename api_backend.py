@@ -62,6 +62,7 @@ from app.database import LogsSessionLocal as SessionLogsLocal
 from app.core import security
 from auth import router as auth_router
 from docx import Document
+from app.schemas import AgricStatsCreate, AgricStatsResponse
 
 # ==========================================
 # 0. LOAD ENVIRONMENT VARIABLES & CONFIG
@@ -1321,6 +1322,25 @@ def update_stat(stat_id: int, data: dict, db: Session = Depends(get_db), current
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/agric-stats", response_model=AgricStatsResponse)
+def create_agric_stats(payload: AgricStatsCreate, db: Session = Depends(get_db)):
+    existing = db.query(AgricCrimeStatistics).filter(
+        AgricCrimeStatistics.station.ilike(payload.station),
+        AgricCrimeStatistics.date == payload.date
+    ).first()
+
+    if existing:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Statistics for station '{payload.station}' on date '{payload.date}' already exist."
+        )
+
+    db_item = AgricCrimeStatistics(**payload.dict())
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db_item
 
 # --- SUCCESS STORIES ---
 @app.get("/api/v1/stories")

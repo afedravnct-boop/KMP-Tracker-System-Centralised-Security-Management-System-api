@@ -88,6 +88,32 @@ class StatisticResponse(StatisticBase):
     
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
+class AgricStatsBase(BaseModel):
+    region: str
+    station: str
+    date: date
+    arrested: Optional[int] = 0
+    given_bond: Optional[int] = 0
+    cautioned: Optional[int] = 0
+    pending_court: Optional[int] = 0
+    taken_to_court: Optional[int] = 0
+    released: Optional[int] = 0
+    remanded: Optional[int] = 0
+    convicted: Optional[int] = 0
+
+class AgricStatsCreate(AgricStatsBase):
+    sn: Optional[int] = None
+    last_updated_by: Optional[str] = None
+
+class AgricStatsResponse(AgricStatsBase):
+    id: int
+    sn: Optional[int] = None
+    last_updated_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
 # ==========================================
 # 3. SUCCESS STORIES
 # ==========================================
