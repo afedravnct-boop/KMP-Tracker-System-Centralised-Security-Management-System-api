@@ -14,7 +14,21 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-const autoCapitalize = (text) => text ? text.toUpperCase() : '';
+// Auto-Capitalization (Ignores HTML tags during typing)
+const autoCapitalize = (text) => {
+  if (!text) return '';
+  return text.replace(/(^\s*(?:<[^>]+>\s*)*|[\.\!\?]\s+(?:<[^>]+>\s*)*|<(?:p|br|div|li|h[1-6])[^>]*>\s*)([a-z])/gi, (match, prefix, letter) => {
+    return prefix + letter.toUpperCase();
+  });
+};
+
+// 🟢 NEW HELPER: Converts HTML to clean, plain text while preserving line breaks for the database
+const extractPlainText = (htmlString) => {
+  if (!htmlString) return '';
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = htmlString;
+  return tempDiv.innerText.trim();
+};
 
 const MetricCard = ({ title, value, colorClass }) => {
   const isKMPMaster = title === 'KMP Master Lock-up' || title === 'KMP Master';
@@ -54,7 +68,6 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-// 🟢 AUTO-LOGOUT IMPLEMENTED HERE
 const authFetch = async (url, options = {}) => {
   const token = localStorage.getItem('kmp_authToken');
   const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -85,7 +98,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [isEditingLockup, setIsEditingLockup] = useState(false);
   const [editLockupTarget, setEditLockupTarget] = useState(null);
 
-  // 🟢 AGRICULTURAL CRIMES FILTER STATE
   const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
 
   const isGlobalCommand = currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster || ['IGP', 'DIGP', 'DIRECTOR', 'KMP COMMANDER'].some(title => (currentUser?.position || '').toUpperCase().includes(title)) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((currentUser?.region || '').toUpperCase());
@@ -157,7 +169,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     });
   };
 
-  // 🟢 FILTERED REPORTS WITH AGRICULTURAL CRIME MATCHING
   const filteredReports = useMemo(() => {
     if (!Array.isArray(reports)) return [];
     const activeRegion = (filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion.trim().toUpperCase() : null;
@@ -171,7 +182,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       if (activeRegion && dbRegion !== activeRegion) return false;
       if (activeStation && dbStation !== activeStation) return false;
 
-      // 🟢 Agricultural Crimes Filter Logic
       if (showAgriculturalOnly) {
         const offenceText = `${r.offence || ''} ${r.narrative || ''}`.toLowerCase();
         const agriKeywords = ['animal', 'crop', 'farm', 'theft', 'breaking', 'robbery', 'cattle', 'goat', 'sheep', 'pig', 'coffee', 'cocoa', 'matooke', 'sugarcane', 'vanilla', 'cassava'];
@@ -217,7 +227,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     });
   }, [filteredReports, currentUser, updateSearch]);
 
-  // 🟢 METRICS (Calculates Lockup from lockupData, Cases from filteredReports)
   const metrics = useMemo(() => {
     const stationCellPop = {};
     const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -266,7 +275,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     };
   }, [filteredReports, lockupData, filterRegion, filterStation]);
 
-  // 🟢 PURE CRIME SUMMARIES & PROCESSED LOCKUPS
   const { generalCrimes, processedLockups, allTimeLockupTotal, crimeGrandTotal, suspectGrandTotal } = useMemo(() => {
     const crimeMap = {};
     const now = new Date();
@@ -303,7 +311,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     };
   }, [filteredReports, lockupData, summaryTimeFilter]);
 
-  // 🟢 FIXED INPUT HANDLER (Prevents loop by modifying state safely)
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
     if (name === 'region') {
@@ -462,15 +469,19 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     let formattedTime = formData.time || '';
     if (formattedTime && !/hrs$/i.test(formattedTime.trim())) formattedTime = `${formattedTime.trim()}Hrs`;
 
+    // 🟢 Extract plain text before sending to Database
+    const plainNarrative = extractPlainText(formData.narrative);
+    const plainUpdateText = extractPlainText(formData.updateText);
+
     if (operation === 'new') {
       const final_reference = `${formData.ref_type} ${formData.ref_number.toUpperCase()}`.trim();
-      const isDuplicate = reports.some(r => r.station === formData.station && ((r.sd_ref || r.sdRef || '').trim().toLowerCase() === final_reference.toLowerCase() || r.narrative.trim().toLowerCase() === formData.narrative.trim().toLowerCase()));
+      const isDuplicate = reports.some(r => r.station === formData.station && ((r.sd_ref || r.sdRef || '').trim().toLowerCase() === final_reference.toLowerCase() || (r.narrative || '').trim().toLowerCase() === plainNarrative.toLowerCase()));
       if (isDuplicate) return setNotification(`Error: This specific ${formData.ref_type} entry or identical narrative already exists.`);
 
       const apiPayload = {
         sd_ref: final_reference, region: formData.region, station: formData.station,
         date: formData.date, time: formattedTime, offence: formData.offence === 'Other' ? formData.customOffence : formData.offence, 
-        narrative: formData.narrative, status: formData.status, suspects: formData.suspectDetails.length, 
+        narrative: plainNarrative, status: formData.status, suspects: formData.suspectDetails.length, 
         last_updated_by: `${currentUser.name} (${currentUser.fnum})`, suspectDetails: formData.suspectDetails,
         daily_lock_up: 0 
       };
@@ -488,7 +499,11 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
     } else if (operation === 'update') {
       if (!formData.sn) return setNotification("Error: Please select a case first.");
-      let updatedNarrative = formData.updateText ? `${formData.narrative}<br/><br/><strong>[UPDATE ${new Date().toLocaleString()}]:</strong><br/>${formData.updateText}` : formData.narrative;
+      
+      // Format updates cleanly without HTML
+      let updatedNarrative = plainUpdateText 
+        ? `${plainNarrative}\n\n[UPDATE ${new Date().toLocaleString()}]:\n${plainUpdateText}` 
+        : plainNarrative;
         
       const updatedRecord = { 
         ...formData, time: formattedTime, narrative: updatedNarrative, suspects: (formData.suspects || 0) + formData.suspectDetails.length,
@@ -747,6 +762,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                     theme="snow" 
                     value={formData.narrative} 
                     onChange={(content) => setFormData(prev => ({ ...prev, narrative: content }))} 
+                    onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, narrative: autoCapitalize(editor.getHTML()) }))}
                     readOnly={operation === 'update'} 
                     className={`bg-white rounded-md [&_.ql-editor]:min-h-[100px] ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`}
                     modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
@@ -760,6 +776,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                       theme="snow" 
                       value={formData.updateText || ''} 
                       onChange={(content) => setFormData(prev => ({ ...prev, updateText: content }))} 
+                      onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, updateText: autoCapitalize(editor.getHTML()) }))}
                       className="bg-white rounded-md border-blue-300 [&_.ql-editor]:min-h-[100px]" 
                       placeholder="Enter new developments here. Use the toolbar for numbering..." 
                       modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
@@ -832,7 +849,8 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                       <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-700 align-top font-bold">{report.station} <br/><span className="text-[10px] text-gray-400 font-medium">{report.region}</span></td>
                       <td className="px-4 py-4 text-xs text-gray-700 align-top whitespace-normal break-words">
                         {report.offence && <div className="font-extrabold text-red-600 uppercase mb-1">{report.offence}</div>}
-                        <div className="ql-editor p-0 line-clamp-3 text-slate-600 [&_*]:!text-xs [&_*]:!bg-transparent" dangerouslySetInnerHTML={{ __html: report.narrative }} />
+                        {/* 🟢 RENDERING AS CLEAN PLAIN TEXT, PRESERVING LINE BREAKS */}
+                        <div className="text-slate-600 text-xs whitespace-pre-wrap line-clamp-3">{report.narrative}</div>
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-red-600 text-center align-top">{(report.suspectDetails || report.suspect_details || []).length}</td>
                       <td className="px-4 py-4 whitespace-normal break-words align-top">
@@ -845,102 +863,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
               </table>
             </div>
           </ExpandableTableCard>
-        </div>
-      </div>
-
-      <div className="mt-8 space-y-6 animate-in fade-in duration-300 max-w-4xl mx-auto">
-        
-        <div className="bg-amber-50 p-5 rounded-2xl border border-amber-200 shadow-md flex flex-col md:flex-row items-center gap-4">
-          <div className="flex-1">
-            <h3 className="font-extrabold text-amber-900 uppercase tracking-wider text-sm flex items-center">
-              <HardDrive className="w-5 h-5 mr-2 text-amber-600"/> Log Independent Daily Lock-Up
-            </h3>
-            <p className="text-[11px] font-bold text-amber-700/70 mt-1 leading-relaxed">
-              Use this independent module to push your station's total cell population directly to the daily Lock-Up Matrix without mixing it with crime case files.
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 w-full md:w-auto items-end">
-            <div className="flex gap-2 w-full md:w-auto">
-              <input 
-                type="number" 
-                value={standalonePopInput} 
-                onChange={(e) => setStandalonePopInput(e.target.value)} 
-                min="0" 
-                className="w-24 text-lg border-amber-300 rounded-xl shadow-sm border p-3 bg-white focus:ring-amber-500 font-black text-amber-900 text-center outline-none" 
-                placeholder="0" 
-              />
-              <button
-                type="button"
-                onClick={handleStandalonePopSubmit}
-                className={`flex-1 md:flex-none px-6 py-3 text-xs font-black text-white rounded-xl shadow-md transition-all whitespace-nowrap uppercase tracking-wider ${isEditingLockup ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-700 hover:bg-amber-800'}`}
-              >
-                {isEditingLockup ? <><Save className="inline w-4 h-4 mr-1"/> Update Entry</> : 'Push to Matrix'}
-              </button>
-            </div>
-            
-            <button 
-              type="button"
-              onClick={handleEditLockupToggle}
-              className={`text-[10px] font-bold uppercase transition flex items-center ${isEditingLockup ? 'text-red-500 hover:text-red-700' : 'text-amber-600 hover:text-amber-800'}`}
-            >
-              {isEditingLockup ? <><X className="w-3 h-3 mr-1"/> Cancel Update</> : <><Edit className="w-3 h-3 mr-1"/> Correct today's lockup entry</>}
-            </button>
-          </div>
-        </div>
-
-        <button 
-          onClick={() => setShowLockupMatrixModal(true)}
-          className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center border border-slate-700 group mb-6"
-        >
-          <Filter className="w-5 h-5 mr-3 text-amber-400 group-hover:scale-110 transition-transform" />
-          VIEW INDEPENDENT DAILY SUSPECT LOCK-UP MATRIX
-        </button>
-
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-          <div className="bg-slate-900 px-4 py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <h3 className="text-xs font-extrabold text-white tracking-wider uppercase">General Crime Summary (Excluding Lock-Ups)</h3>
-            <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700 overflow-x-auto w-full sm:w-auto">
-              {['TODAY', 'WEEK', 'MONTH', 'YEAR', 'ALL'].map(period => (
-                <button key={period} onClick={() => setSummaryTimeFilter(period)} className={`flex-1 sm:flex-none px-3 py-1 text-[10px] font-bold rounded shadow-sm transition-colors ${summaryTimeFilter === period ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>
-                  {period}
-                </button>
-              ))}
-            </div>
-          </div>
-          
-          <div className="overflow-y-auto max-h-96 custom-scrollbar">
-            <table className="w-full text-left">
-              <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 shadow-sm z-10">
-                <tr>
-                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase">S/N</th>
-                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase">Offence / Incident</th>
-                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase text-center">Number of Cases</th>
-                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase text-center">Suspects in Custody</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {generalCrimes.length > 0 ? (
-                  generalCrimes.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3 text-xs font-bold text-slate-400">{idx + 1}</td>
-                      <td className="px-4 py-3 text-xs font-bold text-slate-800 uppercase">{item.offence}</td>
-                      <td className="px-4 py-3 text-xs font-black text-blue-600 text-center">{item.cases}</td>
-                      <td className="px-4 py-3 text-xs font-black text-slate-600 text-center">{item.suspects}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr><td colSpan="4" className="px-4 py-8 text-center text-xs text-slate-500 font-bold">No crimes recorded for the selected duration.</td></tr>
-                )}
-              </tbody>
-              <tfoot className="bg-emerald-800 sticky bottom-0">
-                <tr>
-                  <td colSpan="2" className="px-4 py-3 text-right text-xs font-black text-white uppercase tracking-wider">Crime Grand Total:</td>
-                  <td className="px-4 py-3 text-center text-sm font-black text-white">{crimeGrandTotal}</td>
-                  <td className="px-4 py-3 text-center text-sm font-black text-white">{suspectGrandTotal}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
         </div>
       </div>
 
@@ -975,7 +897,13 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                     <div className="text-sm font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-md border border-slate-200 shadow-sm">REF: {selectedCase.sdRef || selectedCase.sd_ref}</div>
                   </div>
                 </div>
-                <div><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 mb-3">Official Incident Narrative</div><div className="text-sm text-slate-800 leading-normal ql-editor whitespace-normal break-words p-0 min-h-[150px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} /></div>
+                <div>
+                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 mb-3">Official Incident Narrative</div>
+                  {/* 🟢 RENDERING DOSSIER NARRATIVE AS CLEAN PLAIN TEXT */}
+                  <div className="text-sm text-slate-800 leading-normal whitespace-pre-wrap break-words min-h-[150px]">
+                    {selectedCase.narrative}
+                  </div>
+                </div>
               </div>
               {selectedCase.suspectDetails && selectedCase.suspectDetails.length > 0 && (
                 <div className="bg-white p-6 border border-red-200 shadow-sm rounded-lg">
