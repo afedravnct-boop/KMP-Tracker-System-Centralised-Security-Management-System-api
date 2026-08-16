@@ -14,8 +14,6 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-const autoCapitalize = (text) => text ? text.toUpperCase() : '';
-
 const MetricCard = ({ title, value, colorClass }) => {
   const isKMPMaster = title === 'KMP Master Lock-up' || title === 'KMP Master';
   return (
@@ -284,11 +282,16 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     };
   }, [filteredReports, lockupData, summaryTimeFilter]);
 
+  // 🟢 FIXED INPUT HANDLER (Prevents loop by modifying state safely)
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
-    if (name === 'region') setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] });
-    else if (['narrative', 'updateText', 'customOffence'].includes(name)) setFormData({ ...formData, [name]: autoCapitalize(value) });
-    else setFormData({ ...formData, [name]: type === 'number' ? parseInt(value) || 0 : value });
+    if (name === 'region') {
+      setFormData(prev => ({ ...prev, region: value, station: REGIONAL_HIERARCHY[value]?.[0] || '' }));
+    } else if (['customOffence'].includes(name)) {
+      setFormData(prev => ({ ...prev, [name]: value.toUpperCase() }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: type === 'number' ? parseInt(value) || 0 : value }));
+    }
   };
 
   const handleAddSuspect = () => {
@@ -715,15 +718,32 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                   )}
                 </div>
 
+                {/* 🟢 FIXED REACT-QUILL BINDINGS */}
                 <div className="pb-8"> 
-                  <label className="block text-xs font-bold text-gray-700 mb-1">{operation === 'update' ? 'Original Incident Narrative (Read-Only)' : 'Incident Narrative'}</label>
-                  <ReactQuill theme="snow" value={formData.narrative} onChange={(content) => setFormData({ ...formData, narrative: autoCapitalize(content) })} readOnly={operation === 'update'} className={`bg-white rounded-md [&_.ql-editor]:min-h-[100px] ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`} modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    {operation === 'update' ? 'Original Incident Narrative (Read-Only)' : 'Incident Narrative *'}
+                  </label>
+                  <ReactQuill 
+                    theme="snow" 
+                    value={formData.narrative} 
+                    onChange={(content) => setFormData(prev => ({ ...prev, narrative: content }))} 
+                    readOnly={operation === 'update'} 
+                    className={`bg-white rounded-md [&_.ql-editor]:min-h-[100px] ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`}
+                    modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
+                  />
                 </div>
 
                 {operation === 'update' && (
                   <div className="pb-8 mt-4"> 
                     <label className="block text-xs font-bold text-blue-700 mb-1">Append New Update / Action Taken *</label>
-                    <ReactQuill theme="snow" value={formData.updateText || ''} onChange={(content) => setFormData({ ...formData, updateText: autoCapitalize(content) })} className="bg-white rounded-md border-blue-300 [&_.ql-editor]:min-h-[100px]" placeholder="Enter new developments here. Use the toolbar for numbering..." modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
+                    <ReactQuill 
+                      theme="snow" 
+                      value={formData.updateText || ''} 
+                      onChange={(content) => setFormData(prev => ({ ...prev, updateText: content }))} 
+                      className="bg-white rounded-md border-blue-300 [&_.ql-editor]:min-h-[100px]" 
+                      placeholder="Enter new developments here. Use the toolbar for numbering..." 
+                      modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
+                    />
                   </div>
                 )}
 
