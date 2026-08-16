@@ -168,7 +168,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     });
   };
 
-  const filteredReports = useMemo(() => {
+const filteredReports = useMemo(() => {
     if (!Array.isArray(reports)) return [];
     const activeRegion = (filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion.trim().toUpperCase() : null;
     const activeStation = (filterStation && filterStation !== 'ALL STATIONS') ? filterStation.trim().toUpperCase() : null;
@@ -181,11 +181,24 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       if (activeRegion && dbRegion !== activeRegion) return false;
       if (activeStation && dbStation !== activeStation) return false;
 
+      // 🟢 SELECTIVE AGRICULTURAL & LIVESTOCK CRIME FILTERING
       if (showAgriculturalOnly) {
-        const offenceText = `${r.offence || ''} ${r.narrative || ''}`.toLowerCase();
-        const agriKeywords = ['animal', 'crop', 'farm', 'theft', 'breaking', 'robbery', 'cattle', 'goat', 'sheep', 'pig', 'coffee', 'cocoa', 'matooke', 'sugarcane', 'vanilla', 'cassava'];
-        const isAgri = agriKeywords.some(kw => offenceText.includes(kw));
-        if (!isAgri) return false;
+        const offenceText = (r.offence || '').toLowerCase();
+        const narrativeText = extractPlainText(r.narrative || '').toLowerCase();
+        const combinedText = `${offenceText} ${narrativeText}`;
+
+        const agriKeywords = [
+          'agriculture', 'agri', 'crop', 'crops', 'farm', 'farming', 'farmer', 'farmers', 'plant', 'plants', 
+          'cattle', 'cow', 'cows', 'bull', 'bulls', 'calf', 'calves', 'ox', 'oxen',
+          'goat', 'goats', 'kid', 'kids', 'sheep', 'ram', 'ewe', 'lamb', 'pig', 'pigs', 'swine',
+          'chicken', 'chickens', 'poultry', 'duck', 'ducks', 'bird', 'birds', 'egg', 'eggs',
+          'produce', 'harvest', 'milk', 'dairy', 'coffee', 'cocoa', 'matooke', 'banana', 'bananas',
+          'sugarcane', 'vanilla', 'cassava', 'maize', 'bean', 'beans', 'grain', 'grains',
+          'theft of cattle', 'stock theft', 'livestock', 'stray animal', 'grazing'
+        ];
+
+        const isAgriMatch = agriKeywords.some(keyword => combinedText.includes(keyword));
+        if (!isAgriMatch) return false;
       }
       
       if (searchQuery) {
