@@ -14,6 +14,7 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+// Auto-Capitalization (Ignores HTML tags during typing)
 const autoCapitalize = (text) => {
   if (!text) return '';
   return text.replace(/(^\s*(?:<[^>]+>\s*)*|[\.\!\?]\s+(?:<[^>]+>\s*)*|<(?:p|br|div|li|h[1-6])[^>]*>\s*)([a-z])/gi, (match, prefix, letter) => {
@@ -92,7 +93,7 @@ const authFetch = async (url, options = {}) => {
 
 const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
   const [lockupData, setLockupData] = useState([]);
-  const [standalonePopInput, setStandalonePopInput] = useState('');
+  const [standalonePopInput, setStandalonePopInput] = useState({ total: '', male: '', female: '', d1: '', d2: '', d3: '' });
   const [isEditingLockup, setIsEditingLockup] = useState(false);
   const [editLockupTarget, setEditLockupTarget] = useState(null);
 
@@ -118,7 +119,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [summaryTimeFilter, setSummaryTimeFilter] = useState('ALL');
 
   const [showLockup, setShowLockup] = useState(false);
-  const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' });
+  const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', nationality: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' });
 
   const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
 
@@ -323,7 +324,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const handleAddSuspect = () => {
     if (!newSuspect.name.trim()) return alert("Suspect name is required.");
     setFormData({ ...formData, suspectDetails: [...formData.suspectDetails, { ...newSuspect, id: Date.now() }] });
-    setNewSuspect({ name: '', sex: 'MALE', age: '', tribe: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' }); 
+    setNewSuspect({ name: '', sex: 'MALE', age: '', tribe: '', nationality: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' }); 
   };
 
   const handleRemoveSuspect = (id) => setFormData({ ...formData, suspectDetails: formData.suspectDetails.filter(s => s.id !== id) });
@@ -357,14 +358,21 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     if (isEditingLockup) {
       setIsEditingLockup(false);
       setEditLockupTarget(null);
-      setStandalonePopInput('');
+      setStandalonePopInput({ total: '', male: '', female: '', d1: '', d2: '', d3: '' });
     } else {
       const todayStr = getTodayString();
       const existingEntry = lockupData.find(l => l.station === formData.station && l.date === todayStr);
       
       if (existingEntry) {
         setEditLockupTarget(existingEntry);
-        setStandalonePopInput(existingEntry.suspects.toString());
+        setStandalonePopInput({
+          total: existingEntry.suspects.toString(),
+          male: (existingEntry.male_count || 0).toString(),
+          female: (existingEntry.female_count || 0).toString(),
+          d1: (existingEntry.detention_1day || 0).toString(),
+          d2: (existingEntry.detention_2days || 0).toString(),
+          d3: (existingEntry.detention_3days_over || 0).toString()
+        });
         setIsEditingLockup(true);
       } else {
         alert(`No cell population logged for ${formData.station} today yet. Please log a new entry.`);
@@ -373,7 +381,16 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   };
 
   const handleStandalonePopSubmit = async () => {
-    if (standalonePopInput === '' || standalonePopInput === null) return setNotification("Error: Please enter a cell population number.");
+    const totalVal = parseInt(standalonePopInput.total) || 0;
+    const maleVal = parseInt(standalonePopInput.male) || 0;
+    const femaleVal = parseInt(standalonePopInput.female) || 0;
+    const d1Val = parseInt(standalonePopInput.d1) || 0;
+    const d2Val = parseInt(standalonePopInput.d2) || 0;
+    const d3Val = parseInt(standalonePopInput.d3) || 0;
+
+    if (totalVal === 0 && maleVal === 0 && femaleVal === 0) {
+      return setNotification("Error: Please enter valid cell population numbers.");
+    }
     
     setNotification(isEditingLockup ? "⏳ Updating Daily Cell Population..." : "⏳ Logging Daily Cell Population to Independent Matrix...");
     
@@ -381,7 +398,12 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       if (isEditingLockup && editLockupTarget) {
         const updatePayload = {
           ...editLockupTarget,
-          suspects: parseInt(standalonePopInput) || 0,
+          suspects: totalVal,
+          male_count: maleVal,
+          female_count: femaleVal,
+          detention_1day: d1Val,
+          detention_2days: d2Val,
+          detention_3days_over: d3Val,
           last_updated_by: `${currentUser.name} (${currentUser.fnum})`
         };
 
@@ -392,7 +414,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         if (!response.ok) throw new Error("Database rejected the lockup update.");
         
         setLockupData(lockupData.map(l => l.id === editLockupTarget.id ? updatePayload : l));
-        setNotification(`✅ Daily Cell Population updated to ${standalonePopInput} for ${formData.station}!`);
+        setNotification(`✅ Daily Cell Population updated successfully for ${formData.station}!`);
         setIsEditingLockup(false);
         setEditLockupTarget(null);
 
@@ -404,7 +426,12 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
           station: formData.station,
           date: getTodayString(), 
           time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-          suspects: parseInt(standalonePopInput) || 0,
+          suspects: totalVal,
+          male_count: maleVal,
+          female_count: femaleVal,
+          detention_1day: d1Val,
+          detention_2days: d2Val,
+          detention_3days_over: d3Val,
           last_updated_by: `${currentUser.name} (${currentUser.fnum})`
         };
 
@@ -415,10 +442,10 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
         
         const newLockup = await response.json();
         setLockupData([newLockup, ...lockupData]);
-        setNotification(`✅ Daily Cell Population (${standalonePopInput}) successfully logged to the Independent Matrix for ${formData.station}!`);
+        setNotification(`✅ Daily Cell Population successfully logged to the Independent Matrix for ${formData.station}!`);
       }
       
-      setStandalonePopInput(''); 
+      setStandalonePopInput({ total: '', male: '', female: '', d1: '', d2: '', d3: '' }); 
       setTimeout(() => setNotification(null), 5000);
     } catch (err) {
       setNotification(`❌ Error: ${err.message}`);
@@ -439,6 +466,11 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
       date: getTodayString(),
       time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
       suspects: parseInt(hqGrandTotalInput) || 0,
+      male_count: 0,
+      female_count: 0,
+      detention_1day: 0,
+      detention_2days: 0,
+      detention_3days_over: 0,
       last_updated_by: `${currentUser.name} (${currentUser.fnum})`
     };
 
@@ -555,45 +587,44 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
             <div className="p-6 overflow-y-auto bg-slate-50 space-y-6 flex-1 custom-scrollbar">
               <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">Add Suspect Details</h4>
-                // Inside the Suspect Registration Modal / Form section of CrimeIncidentRegistry.jsx:
-<div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-  <div className="md:col-span-2">
-    <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
-    <input type="text" value={newSuspect.name} onChange={e => setNewSuspect({...newSuspect, name: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 uppercase" placeholder="e.g. OPIO JOHN"/>
-  </div>
-  <div>
-    <label className="block text-xs font-bold text-gray-700 mb-1">Sex</label>
-    <select value={newSuspect.sex} onChange={e => setNewSuspect({...newSuspect, sex: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 bg-white">
-      <option>MALE</option><option>FEMALE</option>
-    </select>
-  </div>
-  <div>
-    <label className="block text-xs font-bold text-gray-700 mb-1">Age</label>
-    <input type="number" value={newSuspect.age} onChange={e => setNewSuspect({...newSuspect, age: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. 24"/>
-  </div>
-  <div>
-    <label className="block text-xs font-bold text-gray-700 mb-1">Tribe</label>
-    <input type="text" value={newSuspect.tribe} onChange={e => setNewSuspect({...newSuspect, tribe: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 uppercase" placeholder="e.g. ACHOLI"/>
-  </div>
-  <div>
-    <label className="block text-xs font-bold text-gray-700 mb-1">Nationality</label>
-    <input type="text" value={newSuspect.nationality} onChange={e => setNewSuspect({...newSuspect, nationality: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 uppercase" placeholder="e.g. UGANDAN"/>
-  </div>
-  <div>
-    <label className="block text-xs font-bold text-gray-700 mb-1">Contact/Phone</label>
-    <input type="text" value={newSuspect.contact} onChange={e => setNewSuspect({...newSuspect, contact: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2"/>
-  </div>
-  <div className="md:col-span-2">
-    <label className="block text-xs font-bold text-gray-700 mb-1">Residence/Location</label>
-    <input type="text" value={newSuspect.residence} onChange={e => setNewSuspect({...newSuspect, residence: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. Bwaise Zone 2"/>
-  </div>
-  <div>
-    <label className="block text-xs font-bold text-gray-700 mb-1">Mental Health Status</label>
-    <select value={newSuspect.mental_health_status} onChange={e => setNewSuspect({...newSuspect, mental_health_status: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 bg-white font-bold text-slate-800">
-      <option value="NORMAL">NORMAL</option><option value="SUSPECTED PSYCHOLOGICAL CONDITION">SUSPECTED PSYCHOLOGICAL CONDITION</option><option value="UNSTABLE">UNSTABLE</option><option value="UNDER OBSERVATION">UNDER OBSERVATION</option>
-    </select>
-  </div>
-</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
+                    <input type="text" value={newSuspect.name} onChange={e => setNewSuspect({...newSuspect, name: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 uppercase" placeholder="e.g. OPIO JOHN"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Sex</label>
+                    <select value={newSuspect.sex} onChange={e => setNewSuspect({...newSuspect, sex: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 bg-white">
+                      <option>MALE</option><option>FEMALE</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Age</label>
+                    <input type="number" value={newSuspect.age} onChange={e => setNewSuspect({...newSuspect, age: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. 24"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Tribe</label>
+                    <input type="text" value={newSuspect.tribe} onChange={e => setNewSuspect({...newSuspect, tribe: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 uppercase" placeholder="e.g. ACHOLI"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Nationality</label>
+                    <input type="text" value={newSuspect.nationality} onChange={e => setNewSuspect({...newSuspect, nationality: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 uppercase" placeholder="e.g. UGANDAN"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Contact/Phone</label>
+                    <input type="text" value={newSuspect.contact} onChange={e => setNewSuspect({...newSuspect, contact: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2"/>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Residence/Location</label>
+                    <input type="text" value={newSuspect.residence} onChange={e => setNewSuspect({...newSuspect, residence: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2" placeholder="e.g. Bwaise Zone 2"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Mental Health Status</label>
+                    <select value={newSuspect.mental_health_status} onChange={e => setNewSuspect({...newSuspect, mental_health_status: e.target.value})} className="w-full text-sm border-gray-300 rounded border p-2 bg-white font-bold text-slate-800">
+                      <option value="NORMAL">NORMAL</option><option value="SUSPECTED PSYCHOLOGICAL CONDITION">SUSPECTED PSYCHOLOGICAL CONDITION</option><option value="UNSTABLE">UNSTABLE</option><option value="UNDER OBSERVATION">UNDER OBSERVATION</option>
+                    </select>
+                  </div>
+                </div>
                 <div className="md:col-span-3 bg-red-50 p-3 rounded-lg border border-red-100 mt-3">
                   <label className="block text-xs font-bold text-red-800 mb-2 flex items-center"><Camera size={12} className="mr-1"/> Suspect Mugshot (Optional)</label>
                   <div className="flex items-center space-x-4">
@@ -615,7 +646,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                       <div key={suspect.id} className="bg-white border border-red-100 rounded-lg p-3 flex justify-between items-center shadow-sm">
                         <div>
                           <div className="font-bold text-slate-800 text-sm uppercase">{index + 1}. {suspect.name}</div>
-                          <div className="text-xs text-slate-500 font-medium mt-1">{suspect.sex} • {suspect.age ? `${suspect.age}yrs` : 'Age Unknown'} • {suspect.tribe || 'Tribe Unknown'} <br/>Res: {suspect.residence || 'N/A'} | Tel: {suspect.contact || 'N/A'}</div>
+                          <div className="text-xs text-slate-500 font-medium mt-1">{suspect.sex} • {suspect.age ? `${suspect.age}yrs` : 'Age Unknown'} • Tribe: {suspect.tribe || 'N/A'} • Nat: {suspect.nationality || 'N/A'} <br/>Res: {suspect.residence || 'N/A'} | Tel: {suspect.contact || 'N/A'}</div>
                         </div>
                         <button type="button" onClick={() => handleRemoveSuspect(suspect.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded transition"><X size={18}/></button>
                       </div>
@@ -850,7 +881,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                       <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-700 align-top font-bold">{report.station} <br/><span className="text-[10px] text-gray-400 font-medium">{report.region}</span></td>
                       <td className="px-4 py-4 text-xs text-gray-700 align-top whitespace-normal break-words">
                         {report.offence && <div className="font-extrabold text-red-600 uppercase mb-1">{report.offence}</div>}
-                        {/* 🟢 RESTORED: Renders formatted HTML perfectly backwards-compatible! */}
                         <div className="ql-editor p-0 line-clamp-3 text-slate-600 [&_*]:!text-xs [&_*]:!bg-transparent" dangerouslySetInnerHTML={{ __html: report.narrative }} />
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-red-600 text-center align-top">{(report.suspectDetails || report.suspect_details || []).length}</td>
@@ -869,40 +899,101 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
 
       <div className="mt-8 space-y-6 animate-in fade-in duration-300 max-w-4xl mx-auto">
         
-        <div className="bg-amber-50 p-5 rounded-2xl border border-amber-200 shadow-md flex flex-col md:flex-row items-center gap-4">
-          <div className="flex-1">
+        {/* 🟢 FULL BREAKDOWN INPUTS FOR INDEPENDENT DAILY LOCK-UP */}
+        <div className="bg-amber-50 p-6 rounded-2xl border border-amber-200 shadow-md space-y-4">
+          <div>
             <h3 className="font-extrabold text-amber-900 uppercase tracking-wider text-sm flex items-center">
               <HardDrive className="w-5 h-5 mr-2 text-amber-600"/> Log Independent Daily Lock-Up
             </h3>
             <p className="text-[11px] font-bold text-amber-700/70 mt-1 leading-relaxed">
-              Use this independent module to push your station's total cell population directly to the daily Lock-Up Matrix without mixing it with crime case files.
+              Log your station's total cell population with the required Sex and Detention Duration breakdown directly into the independent Lock-Up Matrix.
             </p>
           </div>
-          <div className="flex flex-col gap-2 w-full md:w-auto items-end">
-            <div className="flex gap-2 w-full md:w-auto">
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
+            <div>
+              <label className="block text-[10px] font-extrabold text-amber-900 uppercase mb-1">Total Suspects *</label>
               <input 
                 type="number" 
-                value={standalonePopInput} 
-                onChange={(e) => setStandalonePopInput(e.target.value)} 
+                value={standalonePopInput.total} 
+                onChange={(e) => setStandalonePopInput(prev => ({ ...prev, total: e.target.value }))} 
                 min="0" 
-                className="w-24 text-lg border-amber-300 rounded-xl shadow-sm border p-3 bg-white focus:ring-amber-500 font-black text-amber-900 text-center outline-none" 
+                className="w-full text-base border-amber-300 rounded-lg shadow-sm border p-2.5 bg-white font-black text-amber-900 text-center outline-none focus:ring-2 focus:ring-amber-500" 
                 placeholder="0" 
               />
-              <button
-                type="button"
-                onClick={handleStandalonePopSubmit}
-                className={`flex-1 md:flex-none px-6 py-3 text-xs font-black text-white rounded-xl shadow-md transition-all whitespace-nowrap uppercase tracking-wider ${isEditingLockup ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-700 hover:bg-amber-800'}`}
-              >
-                {isEditingLockup ? <><Save className="inline w-4 h-4 mr-1"/> Update Entry</> : 'Push to Matrix'}
-              </button>
             </div>
-            
+            <div>
+              <label className="block text-[10px] font-extrabold text-blue-800 uppercase mb-1">Male Count *</label>
+              <input 
+                type="number" 
+                value={standalonePopInput.male} 
+                onChange={(e) => setStandalonePopInput(prev => ({ ...prev, male: e.target.value }))} 
+                min="0" 
+                className="w-full text-base border-blue-300 rounded-lg shadow-sm border p-2.5 bg-white font-black text-blue-900 text-center outline-none focus:ring-2 focus:ring-blue-500" 
+                placeholder="0" 
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-extrabold text-pink-800 uppercase mb-1">Female Count *</label>
+              <input 
+                type="number" 
+                value={standalonePopInput.female} 
+                onChange={(e) => setStandalonePopInput(prev => ({ ...prev, female: e.target.value }))} 
+                min="0" 
+                className="w-full text-base border-pink-300 rounded-lg shadow-sm border p-2.5 bg-white font-black text-pink-900 text-center outline-none focus:ring-2 focus:ring-pink-500" 
+                placeholder="0" 
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-extrabold text-slate-700 uppercase mb-1">1 Day *</label>
+              <input 
+                type="number" 
+                value={standalonePopInput.d1} 
+                onChange={(e) => setStandalonePopInput(prev => ({ ...prev, d1: e.target.value }))} 
+                min="0" 
+                className="w-full text-base border-slate-300 rounded-lg shadow-sm border p-2.5 bg-white font-black text-slate-900 text-center outline-none focus:ring-2 focus:ring-slate-500" 
+                placeholder="0" 
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-extrabold text-slate-700 uppercase mb-1">2 Days *</label>
+              <input 
+                type="number" 
+                value={standalonePopInput.d2} 
+                onChange={(e) => setStandalonePopInput(prev => ({ ...prev, d2: e.target.value }))} 
+                min="0" 
+                className="w-full text-base border-slate-300 rounded-lg shadow-sm border p-2.5 bg-white font-black text-slate-900 text-center outline-none focus:ring-2 focus:ring-slate-500" 
+                placeholder="0" 
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-extrabold text-slate-700 uppercase mb-1">3 Days & Over *</label>
+              <input 
+                type="number" 
+                value={standalonePopInput.d3} 
+                onChange={(e) => setStandalonePopInput(prev => ({ ...prev, d3: e.target.value }))} 
+                min="0" 
+                className="w-full text-base border-slate-300 rounded-lg shadow-sm border p-2.5 bg-white font-black text-slate-900 text-center outline-none focus:ring-2 focus:ring-slate-500" 
+                placeholder="0" 
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2">
             <button 
               type="button"
               onClick={handleEditLockupToggle}
-              className={`text-[10px] font-bold uppercase transition flex items-center ${isEditingLockup ? 'text-red-500 hover:text-red-700' : 'text-amber-600 hover:text-amber-800'}`}
+              className={`text-xs font-bold uppercase transition flex items-center ${isEditingLockup ? 'text-red-600 hover:text-red-800' : 'text-amber-700 hover:text-amber-900'}`}
             >
-              {isEditingLockup ? <><X className="w-3 h-3 mr-1"/> Cancel Update</> : <><Edit className="w-3 h-3 mr-1"/> Correct today's lockup entry</>}
+              {isEditingLockup ? <><X className="w-3.5 h-3.5 mr-1"/> Cancel Update</> : <><Edit className="w-3.5 h-3.5 mr-1"/> Correct today's lockup entry</>}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleStandalonePopSubmit}
+              className={`w-full sm:w-auto px-8 py-3 text-xs font-black text-white rounded-xl shadow-md transition-all uppercase tracking-wider ${isEditingLockup ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-700 hover:bg-amber-800'}`}
+            >
+              {isEditingLockup ? <><Save className="inline w-4 h-4 mr-1"/> Update Matrix Entry</> : 'Push to Matrix'}
             </button>
           </div>
         </div>
@@ -996,7 +1087,6 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                 </div>
                 <div>
                   <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 mb-3">Official Incident Narrative</div>
-                  {/* 🟢 RESTORED: Renders formatted HTML properly! */}
                   <div className="text-sm text-slate-800 leading-normal ql-editor whitespace-normal break-words p-0 min-h-[150px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
                 </div>
               </div>
@@ -1009,7 +1099,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                         <div className="shrink-0">{s.photo_url ? ( <img src={s.photo_url} alt={s.name} className="w-16 h-16 rounded object-cover border-2 border-red-300 shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} /> ) : ( <div className="w-16 h-16 rounded bg-red-100 text-red-400 flex items-center justify-center font-bold text-[10px] border-2 border-dashed border-red-200 text-center p-1">No Photo</div> )}</div>
                         <div className="flex-1 min-w-0">
                           <div className="font-extrabold uppercase text-slate-900 text-sm truncate">{idx + 1}. {s.name}</div>
-                          <div className="text-xs text-red-900 font-medium mt-1">{s.sex} • {s.age ? `${s.age} Yrs` : 'Age Unk'} • {s.tribe || 'Tribe Unk'}</div>
+                          <div className="text-xs text-red-900 font-medium mt-1">{s.sex} • {s.age ? `${s.age} Yrs` : 'Age Unk'} • Tribe: {s.tribe || 'N/A'} • Nat: {s.nationality || 'N/A'}</div>
                           <div className="text-xs text-slate-700 mt-1"><span className="font-bold">Res:</span> {s.residence || 'N/A'} <br/><span className="font-bold">Tel:</span> {s.contact || 'N/A'}</div>
                           {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( <div className="inline-block mt-2 text-[10px] bg-amber-100 text-amber-800 border border-amber-300 font-bold px-2 py-0.5 rounded-sm">Status: {s.mental_health_status}</div> )}
                         </div>
