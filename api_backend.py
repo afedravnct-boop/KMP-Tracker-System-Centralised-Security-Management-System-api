@@ -2919,10 +2919,9 @@ def apply_universal_forensic_stamp(file_bytes: bytes, filename: str, user) -> by
     elif ext in ['xlsx', 'xls']:
         wb = openpyxl.load_workbook(buffer)
         for ws in wb.worksheets:
-            # 🟢 Correct openpyxl footer assignment
             if hasattr(ws, 'sheet_footer'):
                 ws.sheet_footer.center.text = stamp_text
-            else:
+            elif hasattr(ws, 'odd_footer'):
                 ws.odd_footer.center.text = stamp_text
         
         out = io.BytesIO()
@@ -3081,10 +3080,10 @@ def download_archive_file(
         elif file_extension in ['xlsx', 'xls']:
             wb = openpyxl.load_workbook(io.BytesIO(raw_bytes))
             for ws in wb.worksheets:
-                # 🟢 Correct openpyxl footer assignment for receipts
+                # 🟢 Safely assign footer depending on openpyxl version attributes
                 if hasattr(ws, 'sheet_footer'):
                     ws.sheet_footer.center.text = receipt_text
-                else:
+                elif hasattr(ws, 'odd_footer'):
                     ws.odd_footer.center.text = receipt_text
             wb.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
