@@ -2919,10 +2919,11 @@ def apply_universal_forensic_stamp(file_bytes: bytes, filename: str, user) -> by
     elif ext in ['xlsx', 'xls']:
         wb = openpyxl.load_workbook(buffer)
         for ws in wb.worksheets:
-            # Inject into bottom center footer of every sheet
-            ws.odd_footer.center.text = stamp_text
-            ws.odd_footer.center.font_size = 8
-            ws.odd_footer.center.font_name = "Courier New"
+            # 🟢 Correct openpyxl footer assignment
+            if hasattr(ws, 'sheet_footer'):
+                ws.sheet_footer.center.text = stamp_text
+            else:
+                ws.odd_footer.center.text = stamp_text
         
         out = io.BytesIO()
         wb.save(out)
@@ -3077,12 +3078,14 @@ def download_archive_file(
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
-        elif file_extension in ['xlsx', 'xls']:
+         elif file_extension in ['xlsx', 'xls']:
             wb = openpyxl.load_workbook(io.BytesIO(raw_bytes))
             for ws in wb.worksheets:
-                ws.odd_footer.center.text = receipt_text
-                ws.odd_footer.center.font_size = 7.5
-                ws.odd_footer.center.font_name = "Courier New"
+                # 🟢 Correct openpyxl footer assignment for receipts
+                if hasattr(ws, 'sheet_footer'):
+                    ws.sheet_footer.center.text = receipt_text
+                else:
+                    ws.odd_footer.center.text = receipt_text
             wb.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
