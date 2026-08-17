@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  UploadCloud, FileText, Download, CheckCircle, AlertTriangle, 
+import {  
+  UploadCloud, FileText, Download, CheckCircle, AlertTriangle,  
   Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, Server, Trash2
 } from 'lucide-react';
 
-// 🟢 Available System Templates List
+// 🟢 Available System Templates List (Universal Support)
 const TEMPLATE_TYPES = {
-  nominal_roll: { id: 'nominal_roll', name: 'Nominal Roll Submission', desc: 'Official roster and personnel tracking template.', ext: '.DOCX' },
-  weekly_report: { id: 'weekly_report', name: 'Weekly Report Template', desc: 'Standard formatting for weekly situational returns.', ext: '.DOCX' },
-  custom_report: { id: 'custom_report', name: 'Custom Report Template', desc: 'Blank structured template for non-standard administrative reports.', ext: '.DOCX' },
-  opord: { id: 'opord', name: 'OPORD (Operational Order)', desc: 'Standard operational directive and tactical deployment framework.', ext: '.DOCX' },
-  pass_leave: { id: 'pass_leave', name: 'Pass / Leave Request', desc: 'Official authorization form for personnel absence requests.', ext: '.DOCX' },
-  op_stats: { id: 'op_stats', name: 'Operational Statistics Returns', desc: 'Metrics and statistical tracking template.', ext: '.XLSX' },
-  daily_sitrep: { id: 'daily_sitrep', name: 'Daily Sitrep', desc: 'Daily situational reporting framework.', ext: '.DOCX' },
-  others: { id: 'others', name: 'Others / Miscellaneous', desc: 'General purpose command template.', ext: '.DOCX' }
+  nominal_roll: { id: 'nominal_roll', name: 'Nominal Roll Submission', desc: 'Official roster and personnel tracking template.', ext: 'ANY FORMAT' },
+  weekly_report: { id: 'weekly_report', name: 'Weekly Report Template', desc: 'Standard formatting for weekly situational returns.', ext: 'ANY FORMAT' },
+  custom_report: { id: 'custom_report', name: 'Custom Report Template', desc: 'Blank structured template for non-standard administrative reports.', ext: 'ANY FORMAT' },
+  opord: { id: 'opord', name: 'OPORD (Operational Order)', desc: 'Standard operational directive and tactical deployment framework.', ext: 'ANY FORMAT' },
+  pass_leave: { id: 'pass_leave', name: 'Pass / Leave Request', desc: 'Official authorization form for personnel absence requests.', ext: 'ANY FORMAT' },
+  op_stats: { id: 'op_stats', name: 'Operational Statistics Returns', desc: 'Metrics and statistical tracking template.', ext: 'ANY FORMAT' },
+  daily_sitrep: { id: 'daily_sitrep', name: 'Daily Sitrep', desc: 'Daily situational reporting framework.', ext: 'ANY FORMAT' },
+  others: { id: 'others', name: 'Others / Miscellaneous', desc: 'General purpose command template.', ext: 'ANY FORMAT' }
 };
 
 const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
@@ -21,15 +21,13 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState(null);
   
-  // 🟢 UNIFIED VIEW STATES (No more separate master tabs)
   const [docCategory, setDocCategory] = useState('weekly_report'); 
-  const [ledgerViewCategory, setLedgerViewCategory] = useState('weekly_report'); // 'weekly_report' | 'general_doc' | 'templates'
+  const [ledgerViewCategory, setLedgerViewCategory] = useState('weekly_report'); 
 
   const [documents, setDocuments] = useState([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
 
-  // For when "Command Templates" is selected in the upload form
   const [selectedTemplateId, setSelectedTemplateId] = useState('weekly_report');
 
   const hasDownloadClearance = ['SUPER_ADMIN', 'ADMIN', 'RPC'].includes(currentUser?.role?.toUpperCase());
@@ -73,7 +71,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
     
     let endpoint = "";
 
-    // 🟢 DYNAMIC ROUTING: Route to templates endpoint if replacing a template, else normal report
     if (docCategory === 'templates') {
       endpoint = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api/v1/templates/upload/${selectedTemplateId}`;
     } else {
@@ -151,7 +148,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || "Failed to retrieve secure file.");
+        throw new Error(errorData.detail || "Requested template not found. Please upload it first.");
       }
       
       const contentType = response.headers.get("content-type");
@@ -189,7 +186,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
         if (action === 'download') {
           const link = document.createElement('a');
           link.href = blobUrl;
-          link.setAttribute('download', isTemplate ? `${docId}.docx` : 'document.docx');
+          link.setAttribute('download', isTemplate ? `${docId}_template` : 'document');
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
@@ -227,29 +224,27 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   return (
     <div className="max-w-[1600px] mx-auto space-y-6 font-sans mb-8">
       
-      {/* 🟢 HEADER */}
       <div className="bg-slate-900 text-white px-6 py-4 rounded-xl shadow-md flex items-center">
         <div>
           <h2 className="text-lg font-extrabold uppercase tracking-wider flex items-center">
             <Server className="w-5 h-5 mr-2 text-blue-400" />
-            Central Data Repository & Templates
+            Central Data Repository & Universal Templates
           </h2>
-          <p className="text-xs text-slate-400 mt-0.5">Secure upload point for structural command templates, sitreps, and general files.</p>
+          <p className="text-xs text-slate-400 mt-0.5">Universal secure intake hub supporting Word, Excel, PowerPoint, PDF, and all document formats.</p>
         </div>
       </div>
 
       <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
         
-        {/* 🟢 UPLOAD SECTION */}
+        {/* 🟢 UNIVERSAL UPLOAD SECTION */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="border-b border-slate-100 pb-4 mb-6">
-            <h3 className="font-extrabold text-sm text-slate-900 uppercase">Secure File Intake Hub</h3>
-            <p className="text-xs text-slate-500 mt-1">Select your document category below to route the file to the correct internal storage directory.</p>
+            <h3 className="font-extrabold text-sm text-slate-900 uppercase">Universal File Intake Hub</h3>
+            <p className="text-xs text-slate-500 mt-1">Upload any format (Word `.docx`, Excel `.xlsx`, PowerPoint `.pptx`, PDF, etc.) directly into command storage.</p>
           </div>
 
           <form onSubmit={handleUpload} className="max-w-3xl space-y-4">
             
-            {/* 🟢 THREE-WAY TOGGLE */}
             <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-200 flex flex-col sm:flex-row gap-1">
               <button
                 type="button"
@@ -283,32 +278,31 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
             ) : (
               <div className="space-y-4 mt-4 animate-in fade-in">
                 
-                {/* 🟢 TEMPLATE OVERWRITE SELECTOR */}
                 {docCategory === 'templates' && (
                   <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
-                    <label className="block text-xs font-bold text-amber-900 mb-2">Target Template to Overwrite *</label>
+                    <label className="block text-xs font-bold text-amber-900 mb-2">Target Template Slot *</label>
                     <select 
                       value={selectedTemplateId} 
                       onChange={(e) => setSelectedTemplateId(e.target.value)}
                       className="w-full border border-amber-300 rounded-lg p-2.5 text-sm font-bold text-slate-700 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200 bg-white cursor-pointer"
                     >
                       {Object.values(TEMPLATE_TYPES).map(tpl => (
-                        <option key={tpl.id} value={tpl.id}>{tpl.name} ({tpl.ext})</option>
+                        <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
                       ))}
                     </select>
-                    <p className="text-[10px] text-amber-700 mt-2 font-medium"><AlertTriangle className="w-3 h-3 inline mr-1" />Warning: Overwriting a template immediately updates it globally for all units.</p>
+                    <p className="text-[10px] text-amber-700 mt-2 font-medium"><AlertTriangle className="w-3 h-3 inline mr-1" />Any format can be attached here (Word, Excel, PowerPoint, PDF).</p>
                   </div>
                 )}
 
+                {/* 🟢 UNIVERSAL ACCEPTANCE: removed restrictive accept filter */}
                 <div className={`border-2 border-dashed rounded-xl p-6 text-center transition cursor-pointer relative ${docCategory === 'templates' ? 'border-amber-300 bg-amber-50/50 hover:bg-amber-100 hover:border-amber-400' : 'border-slate-300 bg-slate-50 hover:bg-blue-50 hover:border-blue-300'}`}>
                   <input 
                     type="file" 
-                    accept=".docx,.xlsx,.pdf" 
                     onChange={handleFileChange} 
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                   />
                   <UploadCloud className={`w-8 h-8 mx-auto mb-2 ${docCategory === 'templates' ? 'text-amber-500' : 'text-slate-400'}`} />
-                  <p className="text-sm font-bold text-slate-600">Click or drop your finalized {docCategory === 'templates' ? 'template' : 'document'} here</p>
+                  <p className="text-sm font-bold text-slate-600">Click or drop any file format (Word, Excel, PPT, PDF, etc.) here</p>
                 </div>
 
                 {file && (
@@ -330,20 +324,20 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                   disabled={!file || uploading}
                   className={`w-full py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition disabled:bg-slate-300 ${docCategory === 'templates' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-black'}`}
                 >
-                  {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</> : docCategory === 'templates' ? 'Confirm Template Overwrite' : 'Upload Document to Secure Storage'}
+                  {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</> : docCategory === 'templates' ? 'Confirm Universal Template Slot' : 'Upload Document to Secure Storage'}
                 </button>
               </div>
             )}
           </form>
         </div>
 
-        {/* 🟢 UNIFIED LEDGER SECTION */}
+        {/* 🟢 LEDGER SECTION */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="p-6 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-slate-50">
             <div>
               <h3 className="font-extrabold text-slate-900 uppercase flex items-center">
                 <FileArchive className="w-5 h-5 mr-2 text-emerald-600" /> 
-                System Records & Templates Ledger
+                System Records & Universal Templates Ledger
               </h3>
             </div>
 
@@ -378,14 +372,13 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Document Name</th>
                   <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">{ledgerViewCategory === 'templates' ? 'Description' : 'Type'}</th>
-                  <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">{ledgerViewCategory === 'templates' ? 'Format' : 'Date Logged'}</th>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">{ledgerViewCategory === 'templates' ? 'Format Support' : 'Date Logged'}</th>
                   {ledgerViewCategory !== 'templates' && <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Size</th>}
                   <th className="px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-100">
                 
-                {/* 🟢 TEMPLATES VIEW BLOCK */}
                 {ledgerViewCategory === 'templates' ? (
                   Object.values(TEMPLATE_TYPES).map((tpl) => (
                     <tr key={tpl.id} className="hover:bg-amber-50/30 transition-colors">
@@ -424,8 +417,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                     </tr>
                   ))
                 ) : (
-                  
-                  /* 🟢 GENERAL / WEEKLY REPORTS VIEW BLOCK */
                   loadingDocs ? (
                     <tr>
                       <td colSpan="5" className="px-6 py-10 text-center text-slate-500 text-sm font-medium">

@@ -6,30 +6,26 @@ const SessionExpiredModal = ({ onContinue }) => {
   const [phase, setPhase] = useState('WARNING'); 
 
   useEffect(() => {
-    let timer;
-    if (phase === 'WARNING') {
-      timer = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            handleAutomaticExpiration();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
+    if (phase !== 'WARNING') return;
+
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          handleAutomaticExpiration();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
   }, [phase]);
 
   const handleAutomaticExpiration = () => {
     localStorage.removeItem('kmp_authToken');
     localStorage.removeItem('kmp_currentUser');
     localStorage.removeItem('kmp_currentPage');
-    localStorage.clear();
-    sessionStorage.clear();
     setPhase('FINAL_LOGOUT');
   };
 
@@ -44,9 +40,9 @@ const SessionExpiredModal = ({ onContinue }) => {
   };
 
   return (
-    // 🟢 FIXED: Changed backdrop-blur to a solid, darker background to prevent browser text-rendering glitches
-    <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-slate-950/95">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 flex flex-col items-center text-center border border-slate-200 relative animate-in zoom-in-95 duration-300 transform-gpu">
+    // 🟢 DECOUPLED LAYER: Sits strictly above the curtain system with a solid mask to prevent bleeding
+    <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-slate-950/90 isolate">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 flex flex-col items-center text-center border border-slate-200 relative z-[1000000] transform-gpu">
         
         <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-6 shadow-inner border ${phase === 'WARNING' ? 'bg-amber-50 border-amber-100' : 'bg-red-50 border-red-100'}`}>
           <AlertTriangle className={`w-8 h-8 ${phase === 'WARNING' ? 'text-amber-500' : 'text-red-500'}`} />
@@ -76,8 +72,8 @@ const SessionExpiredModal = ({ onContinue }) => {
             </p>
             <button
               type="button"
-              onPointerDown={handleForceLogout}
-              className="w-full bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold py-4 px-6 rounded-xl transition-none shadow-lg uppercase tracking-wider text-sm cursor-pointer"
+              onClick={handleForceLogout}
+              className="w-full bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg uppercase tracking-wider text-sm cursor-pointer"
             >
               Acknowledge & Return to Login
             </button>

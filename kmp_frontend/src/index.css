@@ -106,8 +106,19 @@
 /* Sweep & Settle Title Animation for Login Curtain */
 .curtain-title-container {
   overflow: hidden;
-  max-width: 36rem;
+  max-width: 100%; /* 🟢 Responsive max-width to prevent mobile cutoff */
   padding: 0 1rem;
+  word-break: normal;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  .curtain-title-container h1, 
+  .curtain-title-container span {
+    font-size: clamp(1rem, 4.2vw, 1.6rem) !important;
+    letter-spacing: -0.02em;
+  }
 }
 
 @keyframes sweepLetter {

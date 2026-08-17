@@ -43,9 +43,9 @@ const POSITIONS = {
     "Director CID", "Director HRM & A", "Director logistics & engineering", 
     "KMP Commander", "Deputy KMP Commander", "KMP Staff Officer Admin",
     "KMP CID Commander", "KMP CI Commander", "KMP Operations Commander", 
-    "KMP Traffic & Road Safety Commander", "KMP 999 eru commander", 
-    "999 ERU Regional Data Officer", "Regional HR Officer", "KMP SFC Coordinator",
-    "Regional Data officer", "Divisional Data Officer", "Station Data Officer", "Regional Data Assistant Officer", "Division Data Assistant Officer", "Station Data Assistant Officer", "Regional Traffic Officer", "Divisional Traffic Officer", "Divisional CID Officer", "Divisional CI Officer", "Regional CFPU Officer", "Divisional CFPU Officer", "Regional Fire Officer", "Divisional Fire Officer", "Regional Logistics Officer", "Divisional Logistics Officer"
+    "KMP Traffic & Road Safety Commander", "KMP SOCO", "KMP 999 eru commander", 
+    "999 ERU Data Officer", "Regional HR Officer", "KMP SFC Coordinator",
+    "Regional Data officer", "Divisional Data Officer", "Station Data Officer", "Regional Data Assistant Officer", "Division Data Assistant Officer", "Station Data Assistant Officer", "Regional Traffic Officer", "Divisional Traffic Officer", "Divisional CID Officer", "Divisional CI Officer", "Regional CFPU Officer", "Divisional CFPU Officer", "Regional Fire Officer", "Divisional Fire Officer", "Regional Logistics Officer", "Divisional Logistics Officer", "Station SOCO", "Divisional SOCO", "Regional SOCO"
   ],
   RPC: [
     "KMP South Commander", "KMP North Commander", "KMP East Commander", "Deputy Commander KMP south", "Deputy Commander KMP North", "Deputy Commander KMP East"

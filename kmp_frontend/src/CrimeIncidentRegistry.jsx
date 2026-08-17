@@ -181,20 +181,26 @@ const filteredReports = useMemo(() => {
       if (activeRegion && dbRegion !== activeRegion) return false;
       if (activeStation && dbStation !== activeStation) return false;
 
-      // 🟢 SELECTIVE AGRICULTURAL & LIVESTOCK CRIME FILTERING
+      // 🟢 PRECISE AGRICULTURAL & LIVESTOCK CRIME FILTERING (Excluding Motorcycle Robberies)
       if (showAgriculturalOnly) {
         const offenceText = (r.offence || '').toLowerCase();
         const narrativeText = extractPlainText(r.narrative || '').toLowerCase();
         const combinedText = `${offenceText} ${narrativeText}`;
 
+        // 1. Explicitly filter out motorcycle/boda-boda transit crimes if accidentally flagged
+        const exclusionKeywords = ['motorcycle', 'motor cycle', 'boda', 'boda-boda', 'bodaboda', 'bajaj', 'tvs', 'super-sport', 'motor vehicle', 'car theft'];
+        const isExcluded = exclusionKeywords.some(ex => combinedText.includes(ex));
+        if (isExcluded) return false;
+
+        // 2. Strict Agricultural, Crop, and Livestock keywords
         const agriKeywords = [
-          'agriculture', 'agri', 'crop', 'crops', 'farm', 'farming', 'farmer', 'farmers', 'plant', 'plants', 
+          'agriculture', 'agri-crime', 'crop', 'crops', 'farm', 'farming', 'farmer', 'farmers', 'plant', 'plants', 
           'cattle', 'cow', 'cows', 'bull', 'bulls', 'calf', 'calves', 'ox', 'oxen',
           'goat', 'goats', 'kid', 'kids', 'sheep', 'ram', 'ewe', 'lamb', 'pig', 'pigs', 'swine',
           'chicken', 'chickens', 'poultry', 'duck', 'ducks', 'bird', 'birds', 'egg', 'eggs',
           'produce', 'harvest', 'milk', 'dairy', 'coffee', 'cocoa', 'matooke', 'banana', 'bananas',
           'sugarcane', 'vanilla', 'cassava', 'maize', 'bean', 'beans', 'grain', 'grains',
-          'theft of cattle', 'stock theft', 'livestock', 'stray animal', 'grazing'
+          'theft of cattle', 'stock theft', 'livestock', 'stray animal', 'grazing', 'orchard', 'garden produce'
         ];
 
         const isAgriMatch = agriKeywords.some(keyword => combinedText.includes(keyword));

@@ -46,6 +46,7 @@ from sqlalchemy import text
 from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import openpyxl
+from openpyxl.styles import Alignment  # 🟢 Added for Excel cell text wrapping & vertical top alignment
 from pptx import Presentation
 from pptx.util import Inches, Pt as PPTXPt
 from pptx.dml.color import RGBColor as PPTXRGBColor
@@ -329,11 +330,13 @@ def apply_custom_sheet_design(workbook, worksheet, df, sheet_title, user):
         'text_wrap': True
     })
     
+    # 🟢 EXCLUSIVE EXCEL TEXT-WRAPPING FORMAT FOR LONG COLUMNS
     data_format = workbook.add_format({
         'font_name': 'Tahoma',
         'font_size': 11,
         'border': 1,
-        'valign': 'vcenter'
+        'valign': 'top',
+        'text_wrap': True  # 🟢 Enforce text wrapping so long lines break downwards instead of stretching off-screen
     })
 
     for col_num, value in enumerate(df.columns.values):
@@ -345,6 +348,7 @@ def apply_custom_sheet_design(workbook, worksheet, df, sheet_title, user):
             if pd.isna(val): val = ""
             worksheet.write(row_num + 1, col_num, val, data_format)
 
+    # 🟢 ENFORCE CONTROLLED COLUMN WIDTHS TO MAKE TEXT WRAPPING EFFECTIVE
     if "OPS Statistics" in sheet_title:
         worksheet.fit_to_pages(1, 0)
         worksheet.set_column('A:A', 5)   
@@ -354,9 +358,9 @@ def apply_custom_sheet_design(workbook, worksheet, df, sheet_title, user):
     elif "(Print)" in sheet_title:        
         worksheet.fit_to_pages(1, 0)     
         worksheet.set_column('A:A', 5)   
-        worksheet.set_column('B:Z', 15)  
+        worksheet.set_column('B:Z', 25)  # Set wide default for text columns like narrative/details
     else:
-        worksheet.set_column('A:Z', 18) 
+        worksheet.set_column('A:Z', 22)  # Set standard width for wrapped fields
 
 async def send_command_briefing(email_to: List[str], subject: str, html_body: str):
     message = MessageSchema(

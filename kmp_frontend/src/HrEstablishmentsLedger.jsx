@@ -50,7 +50,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
     const isOfficer = (rankStr) => {
       if (!rankStr) return false;
       let cleanRank = String(rankStr).toUpperCase().replace(/[\.\/]/g, '').trim();
-      const officerKeywords = ['IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'ASP', 'IP', 'AIP', 'DAIP', 'DIP'];
+      const officerKeywords = ['IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'ASP', 'IP', 'AIP'];
       
       const words = cleanRank.split(/\s+/); 
       return words.some(word => officerKeywords.includes(word)) || 
