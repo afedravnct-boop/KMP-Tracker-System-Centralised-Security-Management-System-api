@@ -165,14 +165,29 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
           link.click();
           document.body.removeChild(link);
         } else if (action === 'read') {
-          // 🟢 FIX: Extract file extension and safely bypass Docs Viewer for incompatible formats
           const fileExtension = fileUrl.split('.').pop().split('?')[0].toLowerCase();
           
-          if (['xlsx', 'xls', 'pptx', 'ppt'].includes(fileExtension)) {
+          if (['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt'].includes(fileExtension)) {
+            // 🟢 Route Office files through Microsoft's Web Viewer to force a read-only browser preview
+            const officeViewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(fileUrl)}`;
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            
+            if (isMobile) {
+              window.location.href = officeViewerUrl;
+            } else {
+              const newWindow = window.open(officeViewerUrl, '_blank');
+              if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') { 
+                window.location.href = officeViewerUrl; 
+              }
+            }
+          } else if (fileExtension === 'pdf') {
+            // 🟢 Browsers can read PDFs natively, so open it directly
             window.open(fileUrl, '_blank');
           } else {
+            // 🟢 Fallback to Google Viewer for anything else
             const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            
             if (isMobile) {
               window.location.href = viewerUrl;
             } else {
