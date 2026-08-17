@@ -165,14 +165,21 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
           link.click();
           document.body.removeChild(link);
         } else if (action === 'read') {
-          const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
-          const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-          if (isMobile) {
-            window.location.href = viewerUrl;
+          // 🟢 FIX: Extract file extension and safely bypass Docs Viewer for incompatible formats
+          const fileExtension = fileUrl.split('.').pop().split('?')[0].toLowerCase();
+          
+          if (['xlsx', 'xls', 'pptx', 'ppt'].includes(fileExtension)) {
+            window.open(fileUrl, '_blank');
           } else {
-            const newWindow = window.open(viewerUrl, '_blank');
-            if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') { 
-              window.location.href = viewerUrl; 
+            const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            if (isMobile) {
+              window.location.href = viewerUrl;
+            } else {
+              const newWindow = window.open(viewerUrl, '_blank');
+              if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') { 
+                window.location.href = viewerUrl; 
+              }
             }
           }
         }
@@ -210,7 +217,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
     }
   };
 
-const filteredDocuments = documents.filter(doc => {
+  const filteredDocuments = documents.filter(doc => {
     const docType = (doc.type || '').trim().toLowerCase();
 
     if (ledgerViewCategory === 'weekly_report') {
