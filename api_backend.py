@@ -3078,7 +3078,7 @@ def download_archive_file(
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
-         elif file_extension in ['xlsx', 'xls']:
+        elif file_extension in ['xlsx', 'xls']:
             wb = openpyxl.load_workbook(io.BytesIO(raw_bytes))
             for ws in wb.worksheets:
                 # 🟢 Correct openpyxl footer assignment for receipts
