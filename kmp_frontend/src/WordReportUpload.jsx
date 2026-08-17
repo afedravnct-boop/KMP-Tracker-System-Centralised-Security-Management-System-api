@@ -4,23 +4,11 @@ import {
   Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, Server, Trash2
 } from 'lucide-react';
 
-// 🟢 Available System Templates List (Universal Support)
-const TEMPLATE_TYPES = {
-  nominal_roll: { id: 'nominal_roll', name: 'Nominal Roll Submission', desc: 'Official roster and personnel tracking template.', ext: 'ANY FORMAT' },
-  weekly_report: { id: 'weekly_report', name: 'Weekly Report Template', desc: 'Standard formatting for weekly situational returns.', ext: 'ANY FORMAT' },
-  custom_report: { id: 'custom_report', name: 'Custom Report Template', desc: 'Blank structured template for non-standard administrative reports.', ext: 'ANY FORMAT' },
-  opord: { id: 'opord', name: 'OPORD (Operational Order)', desc: 'Standard operational directive and tactical deployment framework.', ext: 'ANY FORMAT' },
-  pass_leave: { id: 'pass_leave', name: 'Pass / Leave Request', desc: 'Official authorization form for personnel absence requests.', ext: 'ANY FORMAT' },
-  op_stats: { id: 'op_stats', name: 'Operational Statistics Returns', desc: 'Metrics and statistical tracking template.', ext: 'ANY FORMAT' },
-  daily_sitrep: { id: 'daily_sitrep', name: 'Daily Sitrep', desc: 'Daily situational reporting framework.', ext: 'ANY FORMAT' },
-  others: { id: 'others', name: 'Others / Miscellaneous', desc: 'General purpose command template.', ext: 'ANY FORMAT' }
-};
-
 const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState(null);
-  
+
   const [docCategory, setDocCategory] = useState('weekly_report'); 
   const [ledgerViewCategory, setLedgerViewCategory] = useState('weekly_report'); 
 
@@ -28,7 +16,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
 
-  const [selectedTemplateId, setSelectedTemplateId] = useState('weekly_report');
+  // Custom name input for template uploads
+  const [templateCustomName, setTemplateCustomName] = useState('');
 
   const hasDownloadClearance = ['SUPER_ADMIN', 'ADMIN', 'RPC'].includes(currentUser?.role?.toUpperCase());
 
@@ -41,13 +30,13 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      
+
       const response = await fetch(`${API_URL}/api/v1/reports/archive`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
-      
+
       if (!response.ok) throw new Error("Failed to fetch documents");
-      
+
       const data = await response.json();
       setDocuments(data);
     } catch (err) {
@@ -58,7 +47,13 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   };
 
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    const selectedFile = e.target.files[0];
+    setFile(selectedFile);
+    if (selectedFile && !templateCustomName) {
+      // Pre-fill default template slot name from filename without extension
+      const baseName = selectedFile.name.substring(0, selectedFile.name.lastIndexOf('.')) || selectedFile.name;
+      setTemplateCustomName(baseName.replace(/[_]/g, ' ').toUpperCase());
+    }
     setFeedback(null);
   };
 
@@ -68,11 +63,13 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
 
     const formData = new FormData();
     formData.append("file", file);
-    
+
     let endpoint = "";
 
     if (docCategory === 'templates') {
-      endpoint = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api/v1/templates/upload/${selectedTemplateId}`;
+      const templateIdKey = templateCustomName ? templateCustomName.toLowerCase().replace(/[^a-z0-9]/g, '_') : 'custom_template';
+      endpoint = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api/v1/templates/upload/${templateIdKey}`;
+      formData.append("doc_type", "Command Template");
     } else {
       endpoint = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api/v1/reports/upload-word-report`;
       formData.append("doc_type", docCategory); 
@@ -94,6 +91,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
 
       setFeedback({ type: 'success', message: data.message || "File securely uploaded!" });
       setFile(null);
+      setTemplateCustomName('');
       fetchArchiveList(); 
     } catch (err) {
       setFeedback({ type: 'error', message: err.message });
@@ -105,22 +103,22 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
 
   const handleDeleteDoc = async (docId) => {
     if (!window.confirm("Are you sure you want to permanently delete this document? This action cannot be undone.")) return;
-    
+
     setActionLoading(`delete-${docId}`);
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      
+
       const response = await fetch(`${API_URL}/api/v1/reports/archive/${docId}`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${token}` }
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.detail || "Failed to delete document.");
       }
-      
+
       setFeedback({ type: 'success', message: "Document successfully deleted." });
       fetchArchiveList(); 
     } catch (err) {
@@ -136,7 +134,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      
+
       const endpoint = isTemplate 
         ? `${API_URL}/api/v1/templates/download/${docId}`
         : `${API_URL}/api/v1/reports/download/${docId}`;
@@ -145,20 +143,20 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
         method: "GET",
         headers: { "Authorization": `Bearer ${token}` }
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || "Requested template not found. Please upload it first.");
+        throw new Error(errorData.detail || "Requested document not found.");
       }
-      
+
       const contentType = response.headers.get("content-type");
-      
+
       if (contentType && contentType.includes("application/json")) {
         const data = await response.json();
         const fileUrl = data.download_url || data.file_url;
-        
+
         if (!fileUrl) throw new Error("No secure URL returned from the server.");
-        
+
         if (action === 'download') {
           const link = document.createElement('a');
           link.href = fileUrl;
@@ -178,15 +176,15 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
             }
           }
         }
-        
+
       } else {
         const blob = await response.blob();
         const blobUrl = window.URL.createObjectURL(blob);
-        
+
         if (action === 'download') {
           const link = document.createElement('a');
           link.href = blobUrl;
-          link.setAttribute('download', isTemplate ? `${docId}_template` : 'document');
+          link.setAttribute('download', 'document');
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
@@ -201,10 +199,10 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
             }
           }
         }
-        
+
         setTimeout(() => window.URL.revokeObjectURL(blobUrl), 10000);
       }
-      
+
     } catch (err) {
       alert(`Document Action Error: ${err.message}`);
     } finally {
@@ -213,10 +211,13 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   };
 
   const filteredDocuments = documents.filter(doc => {
+    const docTypeLower = (doc.type || '').toLowerCase();
     if (ledgerViewCategory === 'weekly_report') {
-      return doc.type === 'Formatted Weekly Report';
+      return docTypeLower.includes('weekly') || docTypeLower.includes('weekly report');
     } else if (ledgerViewCategory === 'general_doc') {
-      return doc.type !== 'Formatted Weekly Report'; 
+      return !docTypeLower.includes('weekly') && !docTypeLower.includes('template') && !docTypeLower.includes('command template');
+    } else if (ledgerViewCategory === 'templates') {
+      return docTypeLower.includes('template') || docTypeLower.includes('command template');
     }
     return false;
   });
@@ -244,7 +245,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
           </div>
 
           <form onSubmit={handleUpload} className="max-w-3xl space-y-4">
-            
+
             <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-200 flex flex-col sm:flex-row gap-1">
               <button
                 type="button"
@@ -273,28 +274,26 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                <div className="p-8 text-center bg-red-50 border border-red-200 rounded-xl mt-4">
                  <Lock className="w-8 h-8 text-red-500 mx-auto mb-2" />
                  <h3 className="text-red-800 font-bold">Admin Clearance Required</h3>
-                 <p className="text-xs text-red-600 mt-1">You do not have the required command clearance to overwrite system templates.</p>
+                 <p className="text-xs text-red-600 mt-1">You do not have the required command clearance to upload system templates.</p>
                </div>
             ) : (
               <div className="space-y-4 mt-4 animate-in fade-in">
-                
+
                 {docCategory === 'templates' && (
-                  <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
-                    <label className="block text-xs font-bold text-amber-900 mb-2">Target Template Slot *</label>
-                    <select 
-                      value={selectedTemplateId} 
-                      onChange={(e) => setSelectedTemplateId(e.target.value)}
-                      className="w-full border border-amber-300 rounded-lg p-2.5 text-sm font-bold text-slate-700 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200 bg-white cursor-pointer"
-                    >
-                      {Object.values(TEMPLATE_TYPES).map(tpl => (
-                        <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
-                      ))}
-                    </select>
-                    <p className="text-[10px] text-amber-700 mt-2 font-medium"><AlertTriangle className="w-3 h-3 inline mr-1" />Any format can be attached here (Word, Excel, PowerPoint, PDF).</p>
+                  <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 space-y-2">
+                    <label className="block text-xs font-bold text-amber-900">Custom Template Title / Designation *</label>
+                    <input 
+                      type="text" 
+                      value={templateCustomName} 
+                      onChange={(e) => setTemplateCustomName(e.target.value)}
+                      placeholder="e.g. NOMINAL ROLL SUBMISSION TEMPLATE"
+                      required
+                      className="w-full border border-amber-300 rounded-lg p-2.5 text-sm font-bold text-slate-800 outline-none focus:border-amber-500 bg-white uppercase"
+                    />
+                    <p className="text-[10px] text-amber-700 font-medium"><AlertTriangle className="w-3 h-3 inline mr-1" />Type the exact name you want to display in the ledger.</p>
                   </div>
                 )}
 
-                {/* 🟢 UNIVERSAL ACCEPTANCE: removed restrictive accept filter */}
                 <div className={`border-2 border-dashed rounded-xl p-6 text-center transition cursor-pointer relative ${docCategory === 'templates' ? 'border-amber-300 bg-amber-50/50 hover:bg-amber-100 hover:border-amber-400' : 'border-slate-300 bg-slate-50 hover:bg-blue-50 hover:border-blue-300'}`}>
                   <input 
                     type="file" 
@@ -324,14 +323,14 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                   disabled={!file || uploading}
                   className={`w-full py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition disabled:bg-slate-300 ${docCategory === 'templates' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-black'}`}
                 >
-                  {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</> : docCategory === 'templates' ? 'Confirm Universal Template Slot' : 'Upload Document to Secure Storage'}
+                  {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</> : docCategory === 'templates' ? 'Upload Template to Ledger' : 'Upload Document to Secure Storage'}
                 </button>
               </div>
             )}
           </form>
         </div>
 
-        {/* 🟢 LEDGER SECTION */}
+        {/* 🟢 DYNAMIC LEDGER SECTION */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="p-6 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-slate-50">
             <div>
@@ -371,123 +370,83 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
               <thead className="bg-slate-100">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Document Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">{ledgerViewCategory === 'templates' ? 'Description' : 'Type'}</th>
-                  <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">{ledgerViewCategory === 'templates' ? 'Format Support' : 'Date Logged'}</th>
-                  {ledgerViewCategory !== 'templates' && <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Size</th>}
+                  <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Type / Designation</th>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Date Logged</th>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 uppercase tracking-wider">Size</th>
                   <th className="px-6 py-3 text-right text-xs font-bold text-slate-600 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-100">
-                
-                {ledgerViewCategory === 'templates' ? (
-                  Object.values(TEMPLATE_TYPES).map((tpl) => (
-                    <tr key={tpl.id} className="hover:bg-amber-50/30 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-800 flex items-center">
-                        <FolderOpen className="w-4 h-4 mr-2 text-amber-500 shrink-0" />
-                        {tpl.name}
-                      </td>
-                      <td className="px-6 py-4 text-xs text-slate-500 max-w-xs truncate" title={tpl.desc}>
-                        {tpl.desc}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-xs font-mono font-bold text-amber-700">
-                        {tpl.ext}
-                      </td>
-                      
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex justify-end space-x-2">
-                          <button 
-                            onClick={() => handleFileAction(tpl.id, 'read', true)}
-                            disabled={actionLoading === `read-${tpl.id}`}
-                            className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
-                          >
-                            {actionLoading === `read-${tpl.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Eye className="w-3 h-3 mr-1" />}
-                            Read
-                          </button>
+                {loadingDocs ? (
+                  <tr>
+                    <td colSpan="5" className="px-6 py-10 text-center text-slate-500 text-sm font-medium">
+                      <Loader2 className="w-5 h-5 mx-auto animate-spin mb-2 text-blue-500" /> Fetching documents...
+                    </td>
+                  </tr>
+                ) : filteredDocuments.length === 0 ? (
+                  <tr>
+                    <td colSpan="5" className="px-6 py-10 text-center text-slate-500 text-sm font-medium">
+                      No documents found under this category.
+                    </td>
+                  </tr>
+                ) : filteredDocuments.map((doc) => (
+                  <tr key={doc.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-800 flex items-center">
+                      <FolderOpen className="w-4 h-4 mr-2 text-amber-500 shrink-0" />
+                      {doc.name}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs">
+                      <span className="px-2 py-1 rounded font-bold uppercase tracking-wide bg-slate-100 text-slate-700 border border-slate-200">
+                        {doc.type}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500 flex items-center">
+                      <Clock className="w-3 h-3 mr-1" /> {doc.date}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500 font-mono">
+                      {doc.size}
+                    </td>
+                    
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <div className="flex justify-end space-x-2">
+                        <button 
+                          onClick={() => handleFileAction(doc.id, 'read')}
+                          disabled={actionLoading === `read-${doc.id}`}
+                          className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
+                        >
+                          {actionLoading === `read-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Eye className="w-3 h-3 mr-1" />}
+                          Read
+                        </button>
 
-                          <button 
-                            onClick={() => handleFileAction(tpl.id, 'download', true)}
-                            disabled={actionLoading === `download-${tpl.id}` || !hasDownloadClearance}
-                            className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
-                          >
-                            {actionLoading === `download-${tpl.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
-                            Download
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  loadingDocs ? (
-                    <tr>
-                      <td colSpan="5" className="px-6 py-10 text-center text-slate-500 text-sm font-medium">
-                        <Loader2 className="w-5 h-5 mx-auto animate-spin mb-2 text-blue-500" /> Fetching documents...
-                      </td>
-                    </tr>
-                  ) : filteredDocuments.length === 0 ? (
-                    <tr>
-                      <td colSpan="5" className="px-6 py-10 text-center text-slate-500 text-sm font-medium">
-                        No documents found under this category.
-                      </td>
-                    </tr>
-                  ) : filteredDocuments.map((doc) => (
-                    <tr key={doc.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-blue-700 flex items-center">
-                        <FileText className="w-4 h-4 mr-2 text-slate-400" />
-                        {doc.name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-xs">
-                        <span className={`px-2 py-1 rounded font-bold uppercase tracking-wide ${doc.type === 'Formatted Weekly Report' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>
-                          {doc.type}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500 flex items-center">
-                        <Clock className="w-3 h-3 mr-1" /> {doc.date}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500 font-mono">
-                        {doc.size}
-                      </td>
-                      
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex justify-end space-x-2">
-                          <button 
-                            onClick={() => handleFileAction(doc.id, 'read')}
-                            disabled={actionLoading === `read-${doc.id}`}
-                            className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
-                          >
-                            {actionLoading === `read-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Eye className="w-3 h-3 mr-1" />}
-                            Read
-                          </button>
-
-                          {hasDownloadClearance ? (
-                            <>
-                              <button 
-                                onClick={() => handleFileAction(doc.id, 'download')}
-                                disabled={actionLoading === `download-${doc.id}`}
-                                className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
-                              >
-                                {actionLoading === `download-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
-                                Download
-                              </button>
-                              
-                              <button 
-                                onClick={() => handleDeleteDoc(doc.id)}
-                                disabled={actionLoading === `delete-${doc.id}`}
-                                className="text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
-                              >
-                                {actionLoading === `delete-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Trash2 className="w-3 h-3 mr-1" />}
-                                Delete
-                              </button>
-                            </>
-                          ) : (
-                            <button disabled className="text-slate-400 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded flex items-center text-xs font-bold cursor-not-allowed opacity-60" title="Command Clearance Required to Download">
-                              <Lock className="w-3 h-3 mr-1" /> Restricted
+                        {hasDownloadClearance ? (
+                          <>
+                            <button 
+                              onClick={() => handleFileAction(doc.id, 'download')}
+                              disabled={actionLoading === `download-${doc.id}`}
+                              className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
+                            >
+                              {actionLoading === `download-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
+                              Download
                             </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
+                            
+                            <button 
+                              onClick={() => handleDeleteDoc(doc.id)}
+                              disabled={actionLoading === `delete-${doc.id}`}
+                              className="text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
+                            >
+                              {actionLoading === `delete-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Trash2 className="w-3 h-3 mr-1" />}
+                              Delete
+                            </button>
+                          </>
+                        ) : (
+                          <button disabled className="text-slate-400 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded flex items-center text-xs font-bold cursor-not-allowed opacity-60" title="Command Clearance Required to Download">
+                            <Lock className="w-3 h-3 mr-1" /> Restricted
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
