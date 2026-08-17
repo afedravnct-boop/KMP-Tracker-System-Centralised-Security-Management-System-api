@@ -211,21 +211,14 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   };
 
 const filteredDocuments = documents.filter(doc => {
-    const docTypeLower = (doc.type || '').toLowerCase();
-    const docNameLower = (doc.name || '').toLowerCase();
+    const docType = (doc.type || '').trim().toLowerCase();
 
     if (ledgerViewCategory === 'weekly_report') {
-      return docTypeLower.includes('weekly') || docTypeLower.includes('weekly report');
+      return docType === 'formatted weekly report';
     } else if (ledgerViewCategory === 'general_doc') {
-      return !docTypeLower.includes('weekly') && 
-             !docTypeLower.includes('template') && 
-             !docTypeLower.includes('command template') &&
-             !docNameLower.includes('template');
+      return docType === 'general document';
     } else if (ledgerViewCategory === 'templates') {
-      // 🟢 Catch files categorized or named as templates universally
-      return docTypeLower.includes('template') || 
-             docTypeLower.includes('command template') || 
-             docNameLower.includes('template');
+      return docType === 'command template';
     }
     return false;
   });

@@ -3174,11 +3174,15 @@ async def upload_command_template(
     if current_user.role not in ['SUPER_ADMIN', 'ADMIN', 'RPC']:
         raise HTTPException(status_code=403, detail="Command clearance required to modify system templates.")
 
+    contents = await file.read()
+    file_size_kb = max(1, round(len(contents) / 1024))
+    file_size_str = f"{file_size_kb} KB" if file_size_kb < 1024 else f"{round(file_size_kb / 1024, 1)} MB"
+
     s3_key = f"command_templates/{template_id}_{file.filename}"
     
     try:
         s3_client.upload_fileobj(
-            file.file, 
+            io.BytesIO(contents), 
             BUCKET_NAME, 
             s3_key,
             ExtraArgs={"ContentType": file.content_type}
@@ -3189,24 +3193,20 @@ async def upload_command_template(
     aws_region = os.getenv("AWS_REGION", "eu-central-1")
     s3_url = f"https://{BUCKET_NAME}.s3.{aws_region}.amazonaws.com/{s3_key}"
 
-    template_record = db.query(models.CommandTemplate).filter(models.CommandTemplate.template_id == template_id).first()
-    
-    if template_record:
-        template_record.file_name = file.filename
-        template_record.s3_url = s3_url
-        template_record.updated_by = current_user.fnum
-    else:
-        template_record = models.CommandTemplate(
-            template_id=template_id,
-            file_name=file.filename,
-            s3_url=s3_url,
-            updated_by=current_user.fnum
-        )
-        db.add(template_record)
-        
+    # Save specifically as "Command Template" to group it cleanly in NeonDB
+    eat_time = datetime.utcnow() + timedelta(hours=3)
+    new_archive = models.DocumentArchive(
+        file_name=file.filename,
+        doc_type="Command Template",
+        file_size=file_size_str,
+        file_path=s3_url,
+        uploaded_by=current_user.fnum,
+        upload_date=eat_time
+    )
+    db.add(new_archive)
     db.commit()
     
-    return {"message": f"Template '{template_id}' successfully updated.", "url": s3_url}
+    return {"message": f"Template '{file.filename}' successfully uploaded.", "url": s3_url}
 
 
 @app.get("/api/v1/users/recipients-list")
