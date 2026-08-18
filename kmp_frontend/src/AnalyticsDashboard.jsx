@@ -38,23 +38,6 @@ const normalizeOffenceCategory = (rawOffence) => {
   return words.join(' ') || clean;
 };
 
-const classifySuccessStory = (story) => {
-  const text = `${story.title || ''} ${story.narrative || ''} ${story.category || ''} ${story.impact_type || ''}`.toUpperCase();
-  if (text.includes('MOTORCYCLE') || text.includes('BODA') || text.includes('MOTOR CYCLE') || text.includes('BAJAJ') || text.includes('TVS')) {
-    return 'MOTORCYCLE / ASSET RECOVERY';
-  }
-  if (text.includes('ROBBERY') || text.includes('FOIL') || text.includes('INTERCEPT') || text.includes('WAYLAY') || text.includes('HEIST')) {
-    return 'ROBBERY FOILED / ARMED ATTACK BLOCKED';
-  }
-  if (text.includes('ARREST') || text.includes('WANTED') || text.includes('ROUNDUP') || text.includes('SUSPECTS') || text.includes('APPREHEND')) {
-    return 'MASS ARRESTS / WANTED CRIMINALS CAPTURED';
-  }
-  if (text.includes('GUN') || text.includes('PISTOL') || text.includes('AMMO') || text.includes('WEAPON') || text.includes('RIFLE')) {
-    return 'WEAPON RECOVERY / BALLISTIC SEIZURE';
-  }
-  return 'GENERAL OPERATIONAL BREAKTHROUGH';
-};
-
 const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStories = [], operationalStats = [], currentUser }) => {
   const [activeDomain, setActiveDomain] = useState('CRIME');
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
@@ -63,8 +46,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
   
   const [selectedRegion, setSelectedRegion] = useState('ALL REGIONS');
   const [selectedStation, setSelectedStation] = useState('ALL STATIONS');
-  const [personnelViewMode, setPersonnelViewMode] = useState('RANKS');
-  const [operationsViewMode, setOperationsViewMode] = useState('HIERARCHICAL');
 
   const currentDataset = useMemo(() => {
     let baseData = [];
@@ -73,7 +54,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     else if (activeDomain === 'SUCCESS') baseData = successStories;
     else if (activeDomain === 'OPERATIONS') baseData = operationalStats;
 
-    if (activeDomain !== 'PERSONNEL' && dateFilter !== 'ALL') {
+    if (activeDomain !== 'PERSONNEL' && activeDomain !== 'RELATIONAL' && dateFilter !== 'ALL') {
       const now = new Date();
       baseData = baseData.filter(item => {
         const itemDateStr = item.date || item.createdAt || item.timestamp;
@@ -104,7 +85,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         else if (metricCategory === 'CASES') key = (item.status || 'PENDING').toUpperCase();
         else if (metricCategory === 'STATION') key = (item.station || 'UNKNOWN STATION').toUpperCase();
       } else if (activeDomain === 'SUCCESS') {
-        key = classifySuccessStory(item);
+        key = (item.impact_type || item.category || 'COMMUNITY RECOVERY').toUpperCase();
       } else if (activeDomain === 'OPERATIONS') {
         key = (item.operation_type || item.outcome || item.category || 'SNAP OPERATION / DISRUPTIVE SWEEP').toUpperCase();
       }
@@ -117,6 +98,24 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
   }, [currentDataset, activeDomain, metricCategory, sortOrder]);
 
   const totalRecords = useMemo(() => aggregatedData.reduce((acc, curr) => acc + curr.count, 0), [aggregatedData]);
+
+  const pieSlices = useMemo(() => {
+    if (totalRecords === 0) return [];
+    let cumulativePercent = 0;
+    return aggregatedData.map((item, index) => {
+      const percent = item.count / totalRecords;
+      const startAngle = cumulativePercent * 360;
+      cumulativePercent += percent;
+      const endAngle = cumulativePercent * 360;
+      const x1 = 50 + 40 * Math.cos((Math.PI * (startAngle - 90)) / 180);
+      const y1 = 50 + 40 * Math.sin((Math.PI * (startAngle - 90)) / 180);
+      const x2 = 50 + 40 * Math.cos((Math.PI * (endAngle - 90)) / 180);
+      const y2 = 50 + 40 * Math.sin((Math.PI * (endAngle - 90)) / 180);
+      const largeArcFlag = percent > 0.5 ? 1 : 0;
+      const pathData = totalRecords === 1 || percent === 1 ? "M 50 10 A 40 40 0 1 1 49.99 10 Z" : `M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArcFlag} 1 ${x2} ${y2} Z`;
+      return { label: item.label, count: item.count, percent: (percent * 100).toFixed(1), color: CHART_COLORS[index % CHART_COLORS.length], pathData };
+    });
+  }, [aggregatedData, totalRecords]);
 
   const getWeekIdentifier = (dateStr) => {
     if (!dateStr) return null;
@@ -138,7 +137,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
 
     const regionMap = {};
 
-    // Initialize regions from hierarchy
     Object.keys(REGIONAL_HIERARCHY).forEach(reg => {
       regionMap[reg] = { region: reg, stations: {}, totalArrests: 0, totalSuccesses: 0, crimeCount: 0 };
       REGIONAL_HIERARCHY[reg].forEach(stn => {
@@ -146,7 +144,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       });
     });
 
-    // Aggregate Operations (Arrests from Snap/Disruptive Ops)
     ops.forEach(o => {
       const reg = (o.region || '').trim().toUpperCase();
       const stn = (o.station || '').trim().toUpperCase();
@@ -158,7 +155,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       }
     });
 
-    // Aggregate Success Stories (Recoveries, Foiled Robberies)
     successes.forEach(s => {
       const reg = (s.region || '').trim().toUpperCase();
       const stn = (s.station || '').trim().toUpperCase();
@@ -168,7 +164,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       }
     });
 
-    // Aggregate Crimes (To show inverse dependency: higher arrests & breakthroughs -> lower crime volume)
     reports.forEach(r => {
       const reg = (r.region || '').trim().toUpperCase();
       const stn = (r.station || '').trim().toUpperCase();
@@ -180,7 +175,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
 
     const rows = [];
     Object.values(regionMap).forEach(regObj => {
-      // Region Summary Header
       rows.push({
         isRegionHeader: true,
         region: regObj.region,
@@ -191,7 +185,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         disruptionRating: regObj.totalArrests > 10 ? 'HIGH DISRUPTION' : regObj.totalArrests > 3 ? 'MODERATE' : 'LOW ACTIVITY'
       });
 
-      // Stations
       Object.values(regObj.stations).forEach(stnObj => {
         if (stnObj.arrests > 0 || stnObj.successes > 0 || stnObj.crimes > 0) {
           rows.push({
@@ -210,11 +203,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     return rows;
   }, [crimeRegistry, operationalStats, successStories]);
 
-  // 🟢 Week-to-Week Operations & Crime Comparison
   const operationsTrendsData = useMemo(() => {
     const ops = Array.isArray(operationalStats) ? operationalStats : [];
-    const reports = Array.isArray(crimeRegistry) ? crimeRegistry.filter(r => !isLockupLog(r)) : [];
-
     const stationWeeks = {};
     const allWeeksSet = new Set();
 
@@ -246,14 +236,12 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         station: item.station,
         currentArrests: cur.arrests,
         previousArrests: prev.arrests,
-        currentOps: cur.opsCount,
-        previousOps: prev.opsCount,
         diffArrests
       };
     });
 
     return { rows: rows.sort((a, b) => b.currentArrests - a.currentArrests), currentWeek, previousWeek };
-  }, [operationalStats, crimeRegistry]);
+  }, [operationalStats]);
 
   const handleExportExcel = async () => {
     try {
@@ -330,15 +318,13 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       </div>
 
       {activeDomain === 'RELATIONAL' ? (
-        /* 🟢 RELATIONAL DEPENDENCY MATRIX: SHOWING HOW ARRESTS REDUCE CRIME & UNLOCK PROPERTY */
         <div className="space-y-6 animate-in fade-in duration-200">
-          
           <div className="bg-[#3a3225] rounded-2xl p-6 text-[#f4eee2] shadow-xl border border-[#534735]">
             <h2 className="text-xl font-extrabold flex items-center tracking-wide text-[#f4eee2]">
               <Network className="mr-3 text-[#C5A880] w-6 h-6" /> Operations ➔ Intelligence ➔ Crime Suppression Dependency Matrix
             </h2>
             <p className="text-xs text-[#b8ab97] mt-1 leading-relaxed">
-              Demonstrating operational impact: Snap sweeps in crime hotspots generate arrests. Interrogations answer pending cases, recover stolen motorcycles/property from hideouts, and dismantle entire syndicates, driving crime down.
+              Demonstrating operational impact: Snap sweeps in crime hotspots generate arrests. Interrogations answer pending cases, recover stolen property from hideouts, and dismantle entire syndicates, driving crime down.
             </p>
           </div>
 
@@ -398,7 +384,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
           </div>
         </div>
       ) : activeDomain === 'TRENDS' ? (
-        /* 🟢 WEEK-TO-WEEK OPERATIONS TRENDS */
         <div className="space-y-6 animate-in fade-in duration-200">
           <div className="bg-[#3a3225] rounded-2xl p-6 text-[#f4eee2] shadow-xl flex justify-between items-center">
             <div>
@@ -435,7 +420,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
           </div>
         </div>
       ) : (
-        /* STANDARD DOMAIN VIEW */
         <div className="space-y-6 animate-in fade-in duration-200">
           <div className="bg-[#fbf8f3] p-4 rounded-xl shadow-sm border border-[#e2d6c3] flex justify-between items-center">
             <span className="text-xs font-extrabold text-[#596E47] bg-[#e9eedf] px-3 py-1.5 rounded-lg border border-[#cfe1b9]">
