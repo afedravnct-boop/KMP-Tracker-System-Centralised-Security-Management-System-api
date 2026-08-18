@@ -351,9 +351,13 @@ class DocumentArchive(Base):
     doc_type = Column(String, nullable=False)  
     file_size = Column(String)  
     file_path = Column(String, nullable=False) 
+    
+    # 🟢 ADD THIS LINE:
+    region = Column(String, nullable=True)
+    
+    station = Column(String)
     uploaded_by = Column(String)
     upload_date = Column(DateTime, default=datetime.utcnow)
-
 class CommandTemplate(Base):
     __tablename__ = "command_templates"
 
