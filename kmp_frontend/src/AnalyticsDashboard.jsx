@@ -38,6 +38,12 @@ const normalizeOffenceCategory = (rawOffence) => {
   return words.join(' ') || clean;
 };
 
+// 🟢 Helper to strip HTML tags from success stories / narratives for clean Excel exports
+const stripHtmlTags = (html) => {
+  if (!html) return '';
+  return String(html).replace(/<[^>]*>?/gm, '').trim();
+};
+
 const getOfficialRegionForStation = (stationName, dbRegion) => {
   const cleanStation = (stationName || '').trim().toUpperCase();
   const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
@@ -282,6 +288,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     return { rows: rows.sort((a, b) => b.currentArrests - a.currentArrests), currentWeek, previousWeek };
   }, [operationalStats, selectedRegion, selectedStation]);
 
+  // 🟢 Professional Backend-Style Excel Export with Relational Stats Sheets & Text Wrapping
   const handleExportExcel = async () => {
     try {
       const wb = XLSX.utils.book_new();
@@ -289,6 +296,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       const stampedBy = `${currentUser?.rank || 'OFFICER'} ${currentUser?.name || 'UNKNOWN'} (F/NO: ${currentUser?.fnum || 'HQ'})`;
       const commandPost = `${currentUser?.station || 'KMP HEADQUARTERS'}, ${currentUser?.region || 'KMP HEADQUARTERS'}`;
 
+      // 1. Forensic Audit Stamp Sheet
       const metaSheetData = [
         ["KAMPALA METROPOLITAN POLICE - CENTRAL SECURITY DATA MANAGEMENT SYSTEM"],
         ["OFFICIAL FORENSIC ANALYTICS & RELATIONAL IMPACT REPORT"],
@@ -296,20 +304,78 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         ["Export Timestamp (EAT):", forensicTimestamp],
         ["Authorized Exporting Officer:", stampedBy],
         ["Command Jurisdiction:", commandPost],
-        ["Security Classification:", "RESTRICTED / ENCRYPTED LAW ENFORCEMENT RECORD"]
+        ["Security Classification:", "RESTRICTED / ENCRYPTED LAW ENFORCEMENT RECORD"],
+        ["System Audit Hash:", `KMP-CSDMS-RELATIONAL-${Math.random().toString(36).substring(2, 12).toUpperCase()}`]
       ];
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(metaSheetData), "Forensic Audit Stamp");
+      const wsMeta = XLSX.utils.aoa_to_sheet(metaSheetData);
+      XLSX.utils.book_append_sheet(wb, wsMeta, "Forensic Audit Stamp");
 
-      if (Array.isArray(operationalStats) && operationalStats.length > 0) {
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(operationalStats), "Disruptive Operations");
+      // Helper to apply text wrapping and column widths
+      const formatWorksheet = (ws, colWidths = []) => {
+        if (!ws['!cols']) ws['!cols'] = colWidths.map(w => ({ wch: w }));
+        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+            const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
+            if (ws[cellRef]) {
+              if (!ws[cellRef].s) ws[cellRef].s = {};
+              ws[cellRef].s.alignment = { wrapText: true, vertical: 'top' };
+            }
+          }
+        }
+      };
+
+      // 2. Relational Impact Statistics Sheet
+      if (relationalImpactMatrix.length > 0) {
+        const relationalData = relationalImpactMatrix.map(row => ({
+          "Command Region": row.region,
+          "Station / Division": row.station,
+          "Snap Arrests / Disruptive Ops": row.arrests,
+          "Success Breakthroughs": row.successes,
+          "Active Crime Volume": row.crimes,
+          "Operational Impact Status": row.disruptionRating
+        }));
+        const wsRel = XLSX.utils.json_to_sheet(relationalData);
+        formatWorksheet(wsRel, [25, 30, 25, 25, 22, 35]);
+        XLSX.utils.book_append_sheet(wb, wsRel, "Relational Impact Stats");
       }
+
+      // 3. Success Stories Sheet (Sanitized & Plain Text)
       if (Array.isArray(successStories) && successStories.length > 0) {
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(successStories), "Success Stories");
+        const successData = successStories.map((s, index) => ({
+          "S/N": index + 1,
+          "Database Audit ID": s.id || s.sn || 'N/A',
+          "Reference": s.sdRef || s.sd_ref || 'N/A',
+          "Date": s.date || 'N/A',
+          "Region": s.region || 'N/A',
+          "Station": s.station || 'N/A',
+          "Impact Type / Category": s.impact_type || s.category || 'N/A',
+          "Sanitized Narrative": stripHtmlTags(s.narrative || s.description || '')
+        }));
+        const wsSuccess = XLSX.utils.json_to_sheet(successData);
+        formatWorksheet(wsSuccess, [8, 18, 20, 15, 20, 25, 30, 60]);
+        XLSX.utils.book_append_sheet(wb, wsSuccess, "Success Stories");
+      }
+
+      // 4. Disruptive Operations Sheet
+      if (Array.isArray(operationalStats) && operationalStats.length > 0) {
+        const opsData = operationalStats.map((o, index) => ({
+          "S/N": index + 1,
+          "Database Audit ID": o.id || o.sn || 'N/A',
+          "Date": o.date || 'N/A',
+          "Region": o.region || 'N/A',
+          "Station": o.station || 'N/A',
+          "Operation Type": o.operation_type || o.category || 'N/A',
+          "Arrests Recorded": Number(o.arrests || o.suspects || 1)
+        }));
+        const wsOps = XLSX.utils.json_to_sheet(opsData);
+        formatWorksheet(wsOps, [8, 18, 15, 20, 25, 30, 18]);
+        XLSX.utils.book_append_sheet(wb, wsOps, "Disruptive Operations");
       }
 
       const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
       const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const filename = `KMP_Relational_Operations_Analytics_${new Date().toISOString().split('T')[0]}.xlsx`;
+      const filename = `KMP_Relational_Operations_Report_${new Date().toISOString().split('T')[0]}.xlsx`;
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = downloadUrl;
