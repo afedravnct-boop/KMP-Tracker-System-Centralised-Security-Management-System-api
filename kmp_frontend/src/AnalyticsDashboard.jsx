@@ -203,15 +203,38 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     return rows;
   }, [crimeRegistry, operationalStats, successStories]);
 
-  const operationsTrendsData = useMemo(() => {
+const operationsTrendsData = useMemo(() => {
     const ops = Array.isArray(operationalStats) ? operationalStats : [];
     const stationWeeks = {};
     const allWeeksSet = new Set();
 
+    // 🟢 Helper to reliably find the correct region from station name using REGIONAL_HIERARCHY
+    const getOfficialRegionForStation = (stationName, dbRegion) => {
+      const cleanStation = (stationName || '').trim().toUpperCase();
+      const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
+
+      // Check if DB region is already valid and matches hierarchy
+      if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
+        return cleanDbRegion;
+      }
+
+      // Otherwise, scan the official hierarchy map to find which region owns this station
+      for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
+        if (stationsList.includes(cleanStation)) {
+          return regionName;
+        }
+      }
+
+      return cleanDbRegion || 'KMP GENERAL';
+    };
+
     ops.forEach(o => {
       const weekId = getWeekIdentifier(o.date || o.timestamp);
       const stn = (o.station || 'UNKNOWN').trim().toUpperCase();
-      const reg = (o.region || 'UNKNOWN').trim().toUpperCase();
+      
+      // Force correct regional assignment regardless of what database stored
+      const reg = getOfficialRegionForStation(stn, o.region);
+
       if (!weekId) return;
       allWeeksSet.add(weekId);
 
