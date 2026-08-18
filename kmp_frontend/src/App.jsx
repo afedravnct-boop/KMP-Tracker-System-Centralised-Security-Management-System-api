@@ -26,25 +26,37 @@ import AdminApprovals from "./AdminApprovals";
 import CrimeIncidentRegistry from './CrimeIncidentRegistry';
 import Statistics from './Statistics';
 
+// ====================================================================
+// 1. CONSTANTS & CONFIGURATION
+// ====================================================================
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "POLICE HEADQUARTERS": ["NAGURU", "KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"]
+  "POLICE HEADQUARTERS": ["NAGURU", "KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"]
 };
 
-const formatOfficerTitle = (officer) => {
-  if (!officer) return 'UNKNOWN OFFICER';
-  const fnum = (officer.fnum || officer.f_num || '').trim();
-  const rank = (officer.rank || '').trim();
-  const name = (officer.name || '').trim();
-  
-  // Formats strictly as: F/No Rank Name (e.g., A/2408 AIP AFEDRA VINCENT)
-  return [fnum, rank, name].filter(Boolean).join(' ').toUpperCase();
+const POSITIONS = {
+  ADMIN: [
+    "System Manager", "IGP", "DIGP", "Director OPS", "Director CT", "Director CI", 
+    "Director CID", "Director HRM & A", "Director logistics & engineering", 
+    "KMP Commander", "Deputy KMP Commander",
+    "KMP CID Commander", "KMP CI Commander", "KMP Operations Commander", 
+    "KMP Traffic & Road Safety Commander", "KMP SOCO", "KMP 999 eru commander", 
+    "999 ERU Data Officer", "Regional HR Officer", "KMP SFC Coordinator",
+    "Regional Data officer", "Divisional Data Officer", "Station Data Officer", "Regional Data Assistant Officer", "Division Data Assistant Officer", "Station Data Assistant Officer", "Regional Traffic Officer", "Divisional Traffic Officer", "Divisional CID Officer", "Divisional CI Officer", "Regional CFPU Officer", "Divisional CFPU Officer", "Regional Fire Officer", "Divisional Fire Officer", "Regional Logistics Officer", "Divisional Logistics Officer", "Station SOCO", "Divisional SOCO", "Regional SOCO"
+  ],
+  RPC: [
+    "KMP South Commander", "KMP North Commander", "KMP East Commander", "Deputy Commander KMP south", "Deputy Commander KMP North", "Deputy Commander KMP East"
+  ]
 };
+
+// ====================================================================
+// 2. CORE UTILITY FUNCTIONS & ENGINES
+// ====================================================================
 
 // 🟢 SUPER CONTROL PANEL OVERRIDE ENGINE
 export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = false) => {
@@ -59,7 +71,16 @@ export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = f
   return Boolean(defaultRoleAccess);
 };
 
-// 🟢 CALCULATE GRAND TOTALS UTILITY
+const formatOfficerTitle = (officer) => {
+  if (!officer) return 'UNKNOWN OFFICER';
+  const fnum = (officer.fnum || officer.f_num || '').trim();
+  const rank = (officer.rank || '').trim();
+  const name = (officer.name || '').trim();
+  
+  // Formats strictly as: F/No Rank Name (e.g., A/2408 AIP AFEDRA VINCENT)
+  return [fnum, rank, name].filter(Boolean).join(' ').toUpperCase();
+};
+
 export const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, filterStation) => {
   const scopedSubmissions = allSubmissions.filter(entry => {
     if (filterRegion && filterRegion !== 'ALL REGIONS' && entry.region !== filterRegion) return false;
@@ -80,6 +101,195 @@ export const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, 
     hqTotal: hqEnteredTotal,
     isReconciled: hqEnteredTotal === null || hqEnteredTotal === calculatedStationSum
   };
+};
+
+const autoCapitalize = (text) => {
+  if (!text) return text;
+  return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
+    return separator + letter.toUpperCase();
+  });
+};
+
+export const formatEATDateTime = (dateStr) => {
+  if (!dateStr) return 'N/A';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+
+  return d.toLocaleString('en-GB', {
+    timeZone: 'Africa/Nairobi', 
+    hour12: false,              
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+};
+
+const downloadWithAuth = async (url, filename) => {
+    try {
+      const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
+      
+      console.log("Starting secure download:", fullUrl);
+      const response = await fetch(fullUrl, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('kmp_authToken')}` }
+      });
+      
+      if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || `Server Error ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      console.log("Blob received. Size:", blob.size, "bytes");
+
+      if (blob.size === 0) {
+          throw new Error("Received empty file (0 bytes). Check the backend.");
+      }
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.style.display = 'none';
+      link.href = downloadUrl;
+      link.download = filename;
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      setTimeout(() => {
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(downloadUrl);
+      }, 2000);
+      
+    } catch (error) {
+      console.error("Download Error:", error);
+      alert(`Export Failed: ${error.message}`); 
+    }
+};
+
+// ====================================================================
+// 3. CUSTOM HOOKS
+// ====================================================================
+export function usePersistentState(key, initialValue) {
+  const [state, setState] = useState(() => {
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { return initialValue; }
+    }
+    return initialValue;
+  });
+
+  const setPersistentState = (newValue) => {
+    setState(prev => {
+      const valToSave = typeof newValue === 'function' ? newValue(prev) : newValue;
+      localStorage.setItem(key, JSON.stringify(valToSave));
+      return valToSave;
+    });
+  };
+
+  return [state, setPersistentState];
+}
+
+// ====================================================================
+// 4. SHARED UI COMPONENTS
+// ====================================================================
+const NetworkStatusBadge = () => {
+  const [queueCount, setQueueCount] = useState(0);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const updateStatus = () => {
+      setIsOnline(navigator.onLine);
+      setQueueCount(getOfflineQueueCount());
+    };
+
+    updateStatus();
+
+    window.addEventListener('online', updateStatus);
+    window.addEventListener('offline', updateStatus);
+    
+    const interval = setInterval(updateStatus, 5000);
+
+    return () => {
+      window.removeEventListener('online', updateStatus);
+      window.removeEventListener('offline', updateStatus);
+      clearInterval(interval);
+    };
+  }, []);
+
+  return (
+    <div className="flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-bold border shadow-sm">
+      {isOnline ? (
+        <span className="flex items-center text-green-600 bg-green-50 border-green-200 px-2.5 py-1 rounded-full">
+          <Wifi size={14} className="mr-1.5" /> Live Sync Active
+        </span>
+      ) : (
+        <span className="flex items-center text-amber-600 bg-amber-50 border-amber-200 px-2.5 py-1 rounded-full animate-pulse">
+          <WifiOff size={14} className="mr-1.5" /> Offline Mode
+        </span>
+      )}
+
+      {queueCount > 0 && (
+        <span className="bg-red-600 text-white px-2 py-0.5 rounded-full text-[10px] shadow">
+          {queueCount} Queued
+        </span>
+      )}
+    </div>
+  );
+};
+
+const MetricCard = ({ title, value, colorClass = "text-slate-800" }) => (
+  <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-center items-center text-center transition-transform hover:scale-105">
+    <span className="text-xs text-gray-500 font-bold mb-1 uppercase tracking-wide">{title}</span>
+    <span className={`text-3xl font-extrabold ${colorClass}`}>{value}</span>
+  </div>
+);
+
+const ExpandableTableCard = ({ title, children, onToggle }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const openFullScreen = () => {
+    setIsExpanded(true);
+    if (typeof onToggle === 'function') onToggle(true);
+  };
+
+  const closeFullScreen = () => {
+    setIsExpanded(false);
+    if (typeof onToggle === 'function') onToggle(false);
+  };
+
+  return (
+    <>
+      {isExpanded ? (
+        <div className="fixed inset-0 z-[100] bg-gray-100 flex flex-col p-4 sm:p-8 animate-in fade-in zoom-in duration-200">
+          <div className="bg-slate-900 text-white p-4 rounded-t-xl flex justify-between items-center shadow-lg">
+            <h3 className="font-bold text-lg flex items-center">
+               <Maximize2 className="mr-2 w-5 h-5 text-blue-400"/> {title} (Full Screen Mode)
+            </h3>
+            <button onClick={closeFullScreen} className="hover:bg-slate-700 p-2 rounded-lg transition-colors flex items-center bg-slate-800 border border-slate-600">
+              <Minimize2 size={18} className="mr-2"/> Close Expansion
+            </button>
+          </div>
+          <div className="bg-white flex-1 overflow-auto rounded-b-xl shadow-2xl p-4 border border-gray-300 custom-scrollbar">
+            {children}
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full relative z-10">
+          <div className="bg-slate-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+             <h3 className="text-gray-800 font-bold text-sm uppercase tracking-wider">{title}</h3>
+             <button onClick={openFullScreen} className="text-gray-500 hover:text-blue-700 hover:bg-blue-50 p-1.5 rounded transition-colors" title="Expand to Full Screen">
+               <Maximize2 size={18}/>
+             </button>
+          </div>
+          <div className="p-0 overflow-auto max-h-[500px] custom-scrollbar w-full">
+             {children}
+          </div>
+        </div>
+      )}
+    </>
+  );
 };
 
 const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], onMasterExport, onViewConsolidated, adminCommsData, onAcknowledgeComm, onOpenInbox }) => {
