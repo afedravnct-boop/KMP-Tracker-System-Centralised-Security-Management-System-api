@@ -3811,26 +3811,6 @@ const DashboardLayout = ({
   );
 };
 
-// 🟢 CUSTOM HOOK: Keeps state persistent across browser reloads
-export function usePersistentState(key, initialValue) {
-  const [state, setState] = useState(() => {
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) { return initialValue; }
-    }
-    return initialValue;
-  });
-
-  const setPersistentState = (newValue) => {
-    setState(prev => {
-      const valToSave = typeof newValue === 'function' ? newValue(prev) : newValue;
-      localStorage.setItem(key, JSON.stringify(valToSave));
-      return valToSave;
-    });
-  };
-
-  return [state, setPersistentState];
-}
 
 // ====================================================================
 // --- MAIN APP COMPONENT ---

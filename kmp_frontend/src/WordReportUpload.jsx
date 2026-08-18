@@ -73,6 +73,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
     } else {
       endpoint = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api/v1/reports/upload-word-report`;
       formData.append("doc_type", docCategory); 
+      
+      // 🟢 Ensuring both region and station overrides are sent properly
       if (overrideRegion) formData.append("target_region", overrideRegion);
       if (overrideStation) formData.append("target_station", overrideStation);
     }
@@ -168,7 +170,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
           const fileExtension = fileUrl.split('.').pop().split('?')[0].toLowerCase();
           
           if (['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt'].includes(fileExtension)) {
-            // 🟢 Route Office files through Microsoft's Web Viewer to force a read-only browser preview
             const officeViewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(fileUrl)}`;
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
             
@@ -181,10 +182,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
               }
             }
           } else if (fileExtension === 'pdf') {
-            // 🟢 Browsers can read PDFs natively, so open it directly
             window.open(fileUrl, '_blank');
           } else {
-            // 🟢 Fallback to Google Viewer for anything else
             const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
             
