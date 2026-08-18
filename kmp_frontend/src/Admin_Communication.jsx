@@ -13,6 +13,37 @@ const autoCapitalize = (text) => {
   });
 };
 
+// 🟢 TIME OFFSET FIX ENGINE
+// Intercepts timestamps and subtracts 3 hours to compensate for the backend timezone double-shift
+const adjustTimeOffset = (dateStr) => {
+  if (!dateStr || dateStr === "Unknown Time") return dateStr;
+  try {
+    const parts = dateStr.match(/(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (!parts) return dateStr;
+    
+    const year = parseInt(parts[1], 10);
+    const month = parseInt(parts[2], 10) - 1;
+    const day = parseInt(parts[3], 10);
+    const hour = parseInt(parts[4], 10);
+    const minute = parseInt(parts[5], 10);
+    const second = parts[6] ? parseInt(parts[6], 10) : 0;
+
+    const d = new Date(year, month, day, hour, minute, second);
+    d.setHours(d.getHours() - 3); // 🟢 Re-calibrate time back 3 hours
+    
+    const pad = (n) => n.toString().padStart(2, '0');
+    let adjusted = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    
+    if (parts[6]) {
+      adjusted += `:${pad(d.getSeconds())}`;
+    }
+    
+    return adjusted;
+  } catch (e) {
+    return dateStr;
+  }
+};
+
 const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm }) => {
   const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
   
@@ -189,7 +220,14 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       const response = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
 
       if (response.ok) {
-        const data = await response.json();
+        const rawData = await response.json();
+        
+        // 🟢 Apply Time Offset Fix to all incoming messages
+        const data = rawData.map(msg => ({
+            ...msg,
+            created_at: adjustTimeOffset(msg.created_at)
+        }));
+
         setInboxMessages(data.filter(msg => msg.sender_fnum !== currentUser.fnum || (msg.target_fnum && msg.target_fnum.includes(currentUser.fnum))));
         setOutboxMessages(data.filter(msg => msg.sender_fnum === currentUser.fnum));
       }
@@ -203,7 +241,16 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     try {
       const token = localStorage.getItem('kmp_authToken');
       const res = await fetch(`${API_URL}/api/v1/communications/${commId}/readers`, { headers: { 'Authorization': `Bearer ${token}` } });
-      if(res.ok) setReceiptsData(await res.json());
+      if(res.ok) {
+          const rawData = await res.json();
+          
+          // 🟢 Apply Time Offset Fix to all incoming Read Receipts
+          const correctedData = rawData.map(r => ({
+              ...r,
+              read_at: adjustTimeOffset(r.read_at)
+          }));
+          setReceiptsData(correctedData);
+      }
     } catch(e) { console.error(e); } finally { setLoadingReceipts(false); }
   };
 

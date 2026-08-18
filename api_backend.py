@@ -921,6 +921,7 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
         # 🟢 Global High Command / Super Admin / Top Leadership check
         is_global = (
             user_role == "SUPER_ADMIN" or 
+            perms.get("global_observer", False) == True or  # 🟢 THE BYPASS
             perms.get("view_global_roster", False) or
             "KMP COMMANDER" in user_position or
             "DEPUTY KMP COMMANDER" in user_position or
@@ -990,6 +991,7 @@ def get_online_users(db: Session = Depends(get_db), current_user: models.Users =
     perms = current_user.permissions or {}
     is_global = (
         current_user.role == "SUPER_ADMIN" or 
+        perms.get("global_observer", False) == True or  # 🟢 THE BYPASS
         perms.get("view_global_roster", False) or
         current_user.region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
         current_user.station in ["KMP HEADQUARTERS", "KMP Headquarters", "NAGURU"]
@@ -1233,8 +1235,10 @@ def get_lockup_entries(
     user_region = (current_user.region or "").strip().upper()
     user_station = (current_user.station or "").strip().upper()
     
+    perms = current_user.permissions or {}
     is_global = (
         role in ["SUPER_ADMIN", "ADMIN"] or
+        perms.get("global_observer", False) == True or  # 🟢 THE BYPASS
         "IGP" in position or 
         "DIRECTOR" in position or 
         "KMP COMMANDER" in position or
@@ -1285,8 +1289,10 @@ def update_lockup_entry(
     user_region = (current_user.region or "").strip().upper()
     user_station = (current_user.station or "").strip().upper()
     
+    perms = current_user.permissions or {}
     is_global = (
         role in ["SUPER_ADMIN", "ADMIN"] or
+        perms.get("global_observer", False) == True or  # 🟢 THE BYPASS
         "IGP" in position or 
         "DIRECTOR" in position or 
         "KMP COMMANDER" in position or
@@ -2784,9 +2790,6 @@ async def upload_word_report(
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    if not file.filename.endswith('.docx'):
-        raise HTTPException(status_code=400, detail="Only official .docx Word document formats are accepted.")
-    
     try:
         contents = await file.read()
         file_size_kb = max(1, round(len(contents) / 1024))
@@ -2800,8 +2803,6 @@ async def upload_word_report(
         if is_duplicate:
             raise HTTPException(status_code=400, detail="DUPLICATE DETECTED: This document has already been uploaded.")
 
-        doc = Document(io.BytesIO(contents))
-        
         effective_region = current_user.region or "KMP GENERAL"
         effective_station = current_user.station or "KMP HEADQUARTERS"
         
@@ -2811,16 +2812,22 @@ async def upload_word_report(
             if target_station:
                 effective_station = target_station.upper()
 
-        if doc_type == "weekly_report":
-            for para in doc.paragraphs:
-                para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                for run in para.runs:
-                    run.font.name = 'Arial'
-                    run.font.size = Pt(11)
+        # 🟢 Apply document formatting ONLY if it's a DOCX weekly report
+        # Bypasses this for Excel, PDF, Images, PPT, etc. to prevent crashing
+        if doc_type == "weekly_report" and file.filename.lower().endswith('.docx'):
+            try:
+                doc = Document(io.BytesIO(contents))
+                for para in doc.paragraphs:
+                    para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                    for run in para.runs:
+                        run.font.name = 'Arial'
+                        run.font.size = Pt(11)
 
-            formatted_io = io.BytesIO()
-            doc.save(formatted_io)
-            contents = formatted_io.getvalue()
+                formatted_io = io.BytesIO()
+                doc.save(formatted_io)
+                contents = formatted_io.getvalue()
+            except Exception as format_err:
+                print(f"Skipping formatting for {file.filename}: {format_err}")
         
         eat_time = datetime.utcnow() + timedelta(hours=3)
         timestamp = eat_time.strftime("%Y%m%d_%H%M%S")
@@ -2828,11 +2835,12 @@ async def upload_word_report(
         safe_filename = f"{timestamp}_{file.filename.replace(' ', '_')}"
         s3_key = f"reports_archive/{safe_filename}"
         
+        # 🟢 Upload dynamically using the exact mime type of the provided file
         s3_client.put_object(
             Bucket=BUCKET_NAME,
             Key=s3_key,
             Body=contents,
-            ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ContentType=file.content_type,
             ServerSideEncryption="AES256"
         )
         

@@ -14,6 +14,6 @@ export default defineConfig({
     }
   },
   build: {
-    chunkSizeWarningLimit: 1000, // Clears the 500kB bundle size warning from your build logs
+    chunkSizeWarningLimit: 2000, // Clears the 500kB bundle size warning from your build logs
   }
 })

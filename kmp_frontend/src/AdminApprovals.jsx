@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
-  Users, RefreshCw, KeyRound, UserCheck, FileText 
+  Users, RefreshCw, KeyRound, UserCheck, FileText, Globe
 } from 'lucide-react';
 
 // 🟢 REGIONAL HIERARCHY CONSTANTS
@@ -12,6 +12,28 @@ const REGIONAL_HIERARCHY = {
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "POLICE HEADQUARTERS": ["NAGURU", "KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"]
 };
+
+// 🟢 EXPANDED SUPER CONTROL PANEL MODULES
+const CLEARANCE_MATRIX_COLS = [
+  { key: 'global_observer', label: 'Global Observer (Read-Only)', color: 'fuchsia', bg: 'bg-fuchsia-50/50' }, // 🟢 NEW: Exploration Mode
+  { key: 'acc_home', label: 'Home Dash', color: 'slate', bg: 'bg-slate-100/50' },
+  { key: 'acc_profile', label: 'Profile', color: 'slate', bg: 'bg-slate-100/50' },
+  { key: 'acc_comms', label: 'Command Comms', color: 'blue', bg: 'bg-blue-50/50' },
+  { key: 'acc_crime', label: 'Crime Registry', color: 'blue', bg: 'bg-blue-50/50' },
+  { key: 'acc_ops', label: 'Disruptive Ops', color: 'blue', bg: 'bg-blue-50/50' },
+  { key: 'acc_stories', label: 'Success Stories', color: 'blue', bg: 'bg-blue-50/50' },
+  { key: 'acc_est', label: 'Establishments', color: 'indigo', bg: 'bg-indigo-50/50' },
+  { key: 'acc_hr', label: 'Nominal Roll', color: 'indigo', bg: 'bg-indigo-50/50' },
+  { key: 'acc_tripartite', label: 'Tripartite', color: 'indigo', bg: 'bg-indigo-50/50' },
+  { key: 'acc_ledgers', label: 'Reports & Ledgers', color: 'emerald', bg: 'bg-emerald-50/50' },
+  { key: 'acc_consolidated', label: 'Consolidated', color: 'emerald', bg: 'bg-emerald-50/50' },
+  { key: 'acc_analytics', label: 'Analytics & Reports', color: 'emerald', bg: 'bg-emerald-50/50' },
+  { key: 'acc_approvals', label: 'Access Approvals', color: 'red', bg: 'bg-red-50/50' },
+  { key: 'acc_roster', label: 'System Roster', color: 'red', bg: 'bg-red-50/50' },
+  { key: 'acc_online', label: 'Active Online', color: 'red', bg: 'bg-red-50/50' },
+  { key: 'export_data', label: 'Master Export', color: 'red', bg: 'bg-red-50/50' },
+  { key: 'export_logs', label: 'Export Logs', color: 'red', bg: 'bg-red-50/50' }
+];
 
 const autoCapitalize = (text) => {
   if (!text) return text;
@@ -37,21 +59,6 @@ const formatEATDateTime = (dateStr) => {
   });
 };
 
-const POSITIONS = {
-  ADMIN: [
-    "System Manager", "IGP", "DIGP", "Director OPS", "Director CT", "Director CI", 
-    "Director CID", "Director HRM & A", "Director logistics & engineering", 
-    "KMP Commander", "Deputy KMP Commander", "KMP Staff Officer Admin",
-    "KMP CID Commander", "KMP CI Commander", "KMP Operations Commander", 
-    "KMP Traffic & Road Safety Commander", "KMP SOCO", "KMP 999 eru commander", 
-    "999 ERU Data Officer", "Regional HR Officer", "KMP SFC Coordinator",
-    "Regional Data officer", "Divisional Data Officer", "Station Data Officer", "Regional Data Assistant Officer", "Division Data Assistant Officer", "Station Data Assistant Officer", "Regional Traffic Officer", "Divisional Traffic Officer", "Divisional CID Officer", "Divisional CI Officer", "Regional CFPU Officer", "Divisional CFPU Officer", "Regional Fire Officer", "Divisional Fire Officer", "Regional Logistics Officer", "Divisional Logistics Officer", "Station SOCO", "Divisional SOCO", "Regional SOCO"
-  ],
-  RPC: [
-    "KMP South Commander", "KMP North Commander", "KMP East Commander", "Deputy Commander KMP south", "Deputy Commander KMP North", "Deputy Commander KMP East"
-  ]
-};
-
 // 🟢 Helper to format officer string cleanly: FNUM RANK NAME
 const formatOfficerHeader = (user) => {
   const fnum = user.fnum || user.f_num || 'NO-FNUM';
@@ -61,7 +68,7 @@ const formatOfficerHeader = (user) => {
 };
 
 const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
-   
+    
   // 🟢 FALLBACK SAFETY NET
   const authFetch = propAuthFetch || (async (url, options = {}) => {
     const token = localStorage.getItem('kmp_authToken');
@@ -76,13 +83,13 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
   });
 
   const [activeTab, setActiveTab] = useState('approvals');
-   
+    
   const [modRequests, setModRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
-   
+    
   const [audit_logs, setaudit_logs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
-   
+    
   const [realPendingUsers, setRealPendingUsers] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
 
@@ -534,7 +541,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
   };
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
+    <div className="p-6 max-w-[1800px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
       <div className="text-center mb-6 flex flex-col items-center">
         <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => e.target.style.display = 'none'} />
         <h1 className="text-3xl font-black text-slate-900 tracking-tight">Access & Command Approvals</h1>
@@ -575,36 +582,48 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
         <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Password Resets ({filteredResets.length})</button>
       </div>
 
-      {/* ACTIVE ROSTER & GRANULAR MATRIX TAB */}
+      {/* ACTIVE ROSTER & EXPANDED GRANULAR MATRIX TAB */}
       {activeTab === 'matrix' && (
-        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden max-w-[1500px] mx-auto">
-          <div className="bg-slate-900 text-white p-4 text-xs font-extrabold uppercase tracking-wider flex items-center justify-between">
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden w-full">
+          <div className="bg-slate-900 text-white p-4 text-xs font-extrabold uppercase tracking-wider flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
             <span className="flex items-center">
-              <Shield className="w-4 h-4 mr-2 text-indigo-400" /> Active Roster & Clearance Matrix ({filterRegion} {filterStation !== 'ALL STATIONS' ? `/ ${filterStation}` : ''})
+              <Shield className="w-4 h-4 mr-2 text-indigo-400" /> Super Control Panel - Active Roster Matrix ({filterRegion} {filterStation !== 'ALL STATIONS' ? `/ ${filterStation}` : ''})
             </span>
-            <span className="text-[10px] text-slate-400 font-mono">
-              6-Tier Tiers: USER | ADMIN_USER | STATION_ADMIN | SYSTEM_ADMIN | SUPER_ADMIN_USER | SUPER_ADMIN | REVOKED
+            <span className="text-[10px] text-slate-400 font-mono text-right">
+              Tiers: USER | ADMIN_USER | STATION_ADMIN | SYSTEM_ADMIN | SUPER_ADMIN_USER | SUPER_ADMIN | REVOKED
             </span>
           </div>
+          
           {loadingUsers ? (
             <div className="p-12 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
           ) : filteredSystemUsers.length === 0 ? (
             <div className="p-12 text-center text-slate-400 text-xs font-medium">No registered system users found for this regional filter.</div>
           ) : (
-            <div className="overflow-x-auto w-full">
-              <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-50 text-slate-700 uppercase font-extrabold">
+            <div className="overflow-x-auto w-full custom-scrollbar">
+              <table className="min-w-max divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-50 text-slate-700 uppercase font-extrabold text-[10px]">
                   <tr>
-                    <th className="p-3 text-left">Officer Details</th>
-                    <th className="p-3 text-center">Administrative Tier</th>
-                    <th className="p-3 text-center">View Ledger</th>
-                    <th className="p-3 text-center">Register New</th>
-                    <th className="p-3 text-center">Update / Edit</th>
-                    <th className="p-3 text-center text-red-600 bg-red-50/50">Master Download</th>
-                    <th className="p-3 text-center text-emerald-700 bg-emerald-50/50">Analytics / Reports</th>
+                    <th className="p-3 text-left sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Officer Details</th>
+                    <th className="p-3 text-center sticky left-[240px] z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Administrative Tier</th>
+                    
+                    {CLEARANCE_MATRIX_COLS.map((col, idx) => {
+                      // 🟢 Hide Global Observer column completely if current user is not SUPER_ADMIN
+                      if (col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN') {
+                        return null;
+                      }
+
+                      return (
+                        <th key={idx} className={`p-2 text-center border-l border-white/50 ${col.bg || ''}`}>
+                          <div className="w-16 mx-auto whitespace-normal break-words leading-tight">
+                            {col.key === 'global_observer' && <Globe className="w-3 h-3 mx-auto text-fuchsia-600 mb-1" />}
+                            {col.label}
+                          </div>
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
-<tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                   {filteredSystemUsers.map(u => {
                     const p = u.permissions || {};
                     const isSuperAdmin = u.role === 'SUPER_ADMIN';
@@ -615,27 +634,32 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
 
                     return (
                       <tr key={u.fnum} className={`transition-colors ${isRevoked ? 'bg-red-50/40' : 'hover:bg-slate-50'}`}>
-                        <td className="p-3">
-                          <div className={`font-extrabold text-xs flex items-center ${isRevoked ? 'text-red-900' : 'text-slate-900'}`}>
+                        <td className="p-3 sticky left-0 z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[240px]">
+                          <div className={`font-extrabold text-[11px] flex items-center ${isRevoked ? 'text-red-900' : 'text-slate-900'}`}>
                             {formatOfficerHeader(u)}
                             {isSuperAdmin && (
-                              <span className="ml-2 px-2 py-0.5 text-[9px] bg-red-100 text-red-700 font-bold rounded-full border border-red-200">
+                              <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-red-100 text-red-700 font-bold rounded-full border border-red-200">
                                 GOD-MODE
+                              </span>
+                            )}
+                            {p.global_observer && !isSuperAdmin && (
+                              <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-fuchsia-100 text-fuchsia-700 font-bold rounded-full border border-fuchsia-200" title="Observer Mode Active">
+                                OBSERVER
                               </span>
                             )}
                             {p.revoked_by === 'SUPER_ADMIN' && <Lock size={12} className="ml-2 text-red-600" title="Revoked by Super Admin" />}
                           </div>
-                          <div className={`text-[11px] font-mono mt-0.5 ${isRevoked ? 'text-red-500' : 'text-slate-500'}`}>
+                          <div className={`text-[10px] font-mono mt-0.5 ${isRevoked ? 'text-red-500' : 'text-slate-500'}`}>
                             Station: <strong className={isRevoked ? 'text-red-700' : 'text-slate-700'}>{u.station}</strong> ({u.region})
                           </div>
                         </td>
 
-                        <td className="p-3 text-center">
+                        <td className="p-3 text-center sticky left-[240px] z-10 bg-white shadow-[1px_0_0_#e2e8f0]">
                           <select 
                             value={u.role || 'USER'}
                             onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)}
                             disabled={isRoleSelectDisabled}
-                            className={`border rounded-lg px-2.5 py-1 font-bold outline-none cursor-pointer text-[11px] ${
+                            className={`border rounded-md px-2 py-1 font-bold outline-none cursor-pointer text-[10px] uppercase w-full ${
                               u.role === 'SUPER_ADMIN' ? 'bg-red-50 text-red-700 border-red-300' :
                               u.role === 'ASSISTANT_SUPER_ADMIN' ? 'bg-rose-50 text-rose-700 border-rose-300' :
                               u.role === 'SYSTEM_ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-300' :
@@ -645,39 +669,42 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                               'bg-slate-100 text-slate-700 border-slate-300'
                             }`}
                           >
-                            <option value="USER">USER (Data Entrant)</option>
-                            <option value="ADMIN_USER">ADMIN-USER (Regional/Div/Station)</option>
-                            <option value="STATION_ADMIN">STATION ADMIN (Max 3 Users)</option>
-                            <option value="SYSTEM_ADMIN">SYSTEM ADMIN (Diagnostic Only)</option>
-                            <option value="ASSISTANT_SUPER_ADMIN">SUPER ADMIN USER (Assistant Global)</option>
-                            <option value="SUPER_ADMIN">SUPER ADMIN (Global)</option>
-                            <option value="REVOKED" className="text-red-600 font-extrabold bg-red-50">REVOKED (Suspend Access)</option>
+                            <option value="USER">USER</option>
+                            <option value="ADMIN_USER">ADMIN-USER</option>
+                            <option value="STATION_ADMIN">STN ADMIN</option>
+                            <option value="SYSTEM_ADMIN">SYS ADMIN</option>
+                            <option value="ASSISTANT_SUPER_ADMIN">ASST SUPER</option>
+                            <option value="SUPER_ADMIN">SUPER ADMIN</option>
+                            <option value="REVOKED" className="text-red-600 font-extrabold bg-red-50">REVOKED</option>
                           </select>
                         </td>
 
-                        {[
-                          { key: 'can_view', color: 'blue' },
-                          { key: 'can_register', color: 'blue' },
-                          { key: 'can_update', color: 'blue' },
-                          { key: 'export_data', color: 'red', bg: 'bg-red-50/20' },
-                          { key: 'can_view_analytics', color: 'emerald', bg: 'bg-emerald-50/20' }
-                        ].map((col, idx) => {
+                        {/* DYNAMIC EXPANDED MODULES MAPPING */}
+                        {CLEARANCE_MATRIX_COLS.map((col, idx) => {
+                          // 🟢 Hide Global Observer checkbox cell completely if current user is not SUPER_ADMIN
+                          if (col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN') {
+                            return null;
+                          }
+
                           const hasSuperAdminLock = Boolean(p.super_admin_locks?.[col.key]);
                           const isLockedVisually = hasSuperAdminLock && !isSuperAdminOrTopCommand;
 
-                          // 🟢 THE FIX: If target is Super Admin, permanently disable and lock the checkboxes
+                          // 🟢 Force disabling of Global Observer toggle for everyone EXCEPT Super Admin
+                          const isStrictSuperAdminOnly = col.key === 'global_observer';
+
                           const isDisabled = 
-                            isSuperAdmin || // <-- PROTECTS SUPER ADMINS FROM BEING UNCHECKED
+                            isSuperAdmin || 
                             isRevoked || 
                             currentUser?.role === 'SYSTEM_ADMIN' || 
-                            (!isSuperAdminOrTopCommand && hasSuperAdminLock);
+                            (!isSuperAdminOrTopCommand && hasSuperAdminLock) ||
+                            (isStrictSuperAdminOnly && currentUser?.role !== 'SUPER_ADMIN');
 
                           return (
-                            <td key={idx} className={`p-3 text-center ${col.bg || ''}`}>
+                            <td key={idx} className={`p-2 text-center border-l border-white/50 ${col.bg || ''}`}>
                               <div className="relative inline-flex items-center justify-center">
                                 <input 
                                   type="checkbox" 
-                                  checked={isSuperAdmin || Boolean(p[col.key])} // <-- Always force checked for Super Admins
+                                  checked={isSuperAdmin || Boolean(p[col.key])} 
                                   disabled={isDisabled}
                                   onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
                                   className={`w-4 h-4 rounded cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed accent-${col.color}-600`} 
@@ -687,6 +714,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                             </td>
                           );
                         })}
+
                       </tr>
                     );
                   })}

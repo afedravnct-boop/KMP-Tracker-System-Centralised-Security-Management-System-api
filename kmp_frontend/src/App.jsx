@@ -36,238 +36,17 @@ const formatOfficerTitle = (officer) => {
   return [fnum, rank, name].filter(Boolean).join(' ').toUpperCase();
 };
 
-// 🟢 Place this utility function right near the top of src/App.jsx (outside of App)
-const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, filterStation) => {
-  const scopedSubmissions = allSubmissions.filter(entry => {
-    if (filterRegion && filterRegion !== 'ALL REGIONS' && entry.region !== filterRegion) return false;
-    if (filterStation && filterStation !== 'ALL STATIONS' && entry.station !== filterStation) return false;
-    return true;
-  });
+// 🟢 SUPER CONTROL PANEL OVERRIDE ENGINE
+export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = false) => {
+  if (!currentUser) return false;
+  if (currentUser.role === 'SUPER_ADMIN') return true;
 
-  const calculatedStationSum = scopedSubmissions.reduce((sum, entry) => {
-    return sum + (Number(entry.total_value || entry.count || entry.amount) || 0);
-  }, 0);
+  const perms = currentUser.permissions || {};
+  if (typeof perms[permissionKey] === 'boolean') {
+    return perms[permissionKey];
+  }
 
-  const hqEntry = scopedSubmissions.find(entry => entry.is_hq_grand_total || entry.station === 'HQ GENERAL');
-  const hqEnteredTotal = hqEntry ? (Number(hqEntry.total_value || hqEntry.count || hqEntry.amount) || 0) : null;
-
-  return {
-    displayTotal: hqEnteredTotal !== null && currentUser?.role !== 'STATION_ADMIN' ? hqEnteredTotal : calculatedStationSum,
-    stationSum: calculatedStationSum,
-    hqTotal: hqEnteredTotal,
-    isReconciled: hqEnteredTotal === null || hqEnteredTotal === calculatedStationSum
-  };
-};
-
-
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-
-const REGIONAL_HIERARCHY = {
-  "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "POLICE HEADQUARTERS": ["NAGURU", "KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"]
-};
-
-const autoCapitalize = (text) => {
-  if (!text) return text;
-  return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
-    return separator + letter.toUpperCase();
-  });
-};
-
-export const formatEATDateTime = (dateStr) => {
-  if (!dateStr) return 'N/A';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-
-  return d.toLocaleString('en-GB', {
-    timeZone: 'Africa/Nairobi', 
-    hour12: false,              
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  });
-};
-
-const POSITIONS = {
-  ADMIN: [
-    "System Manager", "IGP", "DIGP", "Director OPS", "Director CT", "Director CI", 
-    "Director CID", "Director HRM & A", "Director logistics & engineering", 
-    "KMP Commander", "Deputy KMP Commander",
-    "KMP CID Commander", "KMP CI Commander", "KMP Operations Commander", 
-    "KMP Traffic & Road Safety Commander", "KMP SOCO", "KMP 999 eru commander", 
-    "999 ERU Data Officer", "Regional HR Officer", "KMP SFC Coordinator",
-    "Regional Data officer", "Divisional Data Officer", "Station Data Officer", "Regional Data Assistant Officer", "Division Data Assistant Officer", "Station Data Assistant Officer", "Regional Traffic Officer", "Divisional Traffic Officer", "Divisional CID Officer", "Divisional CI Officer", "Regional CFPU Officer", "Divisional CFPU Officer", "Regional Fire Officer", "Divisional Fire Officer", "Regional Logistics Officer", "Divisional Logistics Officer", "Station SOCO", "Divisional SOCO", "Regional SOCO"
-  ],
-  RPC: [
-    "KMP South Commander", "KMP North Commander", "KMP East Commander", "Deputy Commander KMP south", "Deputy Commander KMP North", "Deputy Commander KMP East"
-  ]
-};
-
-const NetworkStatusBadge = () => {
-  const [queueCount, setQueueCount] = useState(0);
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-
-  useEffect(() => {
-    const updateStatus = () => {
-      setIsOnline(navigator.onLine);
-      setQueueCount(getOfflineQueueCount());
-    };
-
-    updateStatus();
-
-    window.addEventListener('online', updateStatus);
-    window.addEventListener('offline', updateStatus);
-    
-    const interval = setInterval(updateStatus, 5000);
-
-    return () => {
-      window.removeEventListener('online', updateStatus);
-      window.removeEventListener('offline', updateStatus);
-      clearInterval(interval);
-    };
-  }, []);
-
-  return (
-    <div className="flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-bold border shadow-sm">
-      {isOnline ? (
-        <span className="flex items-center text-green-600 bg-green-50 border-green-200 px-2.5 py-1 rounded-full">
-          <Wifi size={14} className="mr-1.5" /> Live Sync Active
-        </span>
-      ) : (
-        <span className="flex items-center text-amber-600 bg-amber-50 border-amber-200 px-2.5 py-1 rounded-full animate-pulse">
-          <WifiOff size={14} className="mr-1.5" /> Offline Mode
-        </span>
-      )}
-
-      {queueCount > 0 && (
-        <span className="bg-red-600 text-white px-2 py-0.5 rounded-full text-[10px] shadow">
-          {queueCount} Queued
-        </span>
-      )}
-    </div>
-  );
-};
-
-
-function usePersistentState(key, initialValue) {
-  const [state, setState] = useState(() => {
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) { return initialValue; }
-    }
-    return initialValue;
-  });
-
-  const setPersistentState = (newValue) => {
-    setState(prev => {
-      const valToSave = typeof newValue === 'function' ? newValue(prev) : newValue;
-      localStorage.setItem(key, JSON.stringify(valToSave));
-      return valToSave;
-    });
-  };
-
-  return [state, setPersistentState];
-}
-
-const downloadWithAuth = async (url, filename) => {
-    try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
-      
-      console.log("Starting secure download:", fullUrl);
-      const response = await fetch(fullUrl, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('kmp_authToken')}` }
-      });
-      
-      if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.detail || `Server Error ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      console.log("Blob received. Size:", blob.size, "bytes");
-
-      if (blob.size === 0) {
-          throw new Error("Received empty file (0 bytes). Check the backend.");
-      }
-
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.style.display = 'none';
-      link.href = downloadUrl;
-      link.download = filename;
-      
-      document.body.appendChild(link);
-      link.click();
-      
-      setTimeout(() => {
-          document.body.removeChild(link);
-          window.URL.revokeObjectURL(downloadUrl);
-      }, 2000);
-      
-    } catch (error) {
-      console.error("Download Error:", error);
-      alert(`Export Failed: ${error.message}`); 
-    }
-};
-
-const MetricCard = ({ title, value, colorClass = "text-slate-800" }) => (
-  <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-center items-center text-center transition-transform hover:scale-105">
-    <span className="text-xs text-gray-500 font-bold mb-1 uppercase tracking-wide">{title}</span>
-    <span className={`text-3xl font-extrabold ${colorClass}`}>{value}</span>
-  </div>
-);
-
-const ExpandableTableCard = ({ title, children, onToggle }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  const openFullScreen = () => {
-    setIsExpanded(true);
-    if (typeof onToggle === 'function') onToggle(true);
-  };
-
-  const closeFullScreen = () => {
-    setIsExpanded(false);
-    if (typeof onToggle === 'function') onToggle(false);
-  };
-
-  return (
-    <>
-      {isExpanded ? (
-        <div className="fixed inset-0 z-[100] bg-gray-100 flex flex-col p-4 sm:p-8 animate-in fade-in zoom-in duration-200">
-          <div className="bg-slate-900 text-white p-4 rounded-t-xl flex justify-between items-center shadow-lg">
-            <h3 className="font-bold text-lg flex items-center">
-               <Maximize2 className="mr-2 w-5 h-5 text-blue-400"/> {title} (Full Screen Mode)
-            </h3>
-            <button onClick={closeFullScreen} className="hover:bg-slate-700 p-2 rounded-lg transition-colors flex items-center bg-slate-800 border border-slate-600">
-              <Minimize2 size={18} className="mr-2"/> Close Expansion
-            </button>
-          </div>
-          <div className="bg-white flex-1 overflow-auto rounded-b-xl shadow-2xl p-4 border border-gray-300 custom-scrollbar">
-            {children}
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full relative z-10">
-          <div className="bg-slate-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-             <h3 className="text-gray-800 font-bold text-sm uppercase tracking-wider">{title}</h3>
-             <button onClick={openFullScreen} className="text-gray-500 hover:text-blue-700 hover:bg-blue-50 p-1.5 rounded transition-colors" title="Expand to Full Screen">
-               <Maximize2 size={18}/>
-             </button>
-          </div>
-          <div className="p-0 overflow-auto max-h-[500px] custom-scrollbar w-full">
-             {children}
-          </div>
-        </div>
-      )}
-    </>
-  );
+  return Boolean(defaultRoleAccess);
 };
 
 const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], onMasterExport, onViewConsolidated, adminCommsData, onAcknowledgeComm, onOpenInbox }) => {
@@ -282,8 +61,16 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const rawComms = adminCommsData || [];
   const safeComms = Array.isArray(rawComms) ? rawComms : (rawComms.data || rawComms.items || []);
 
-  const canViewConsolidated = isAdmin || currentUser.permissions?.consolidated;
-  const canExportData = isRPC || currentUser.permissions?.export_data;
+  // 🟢 Role baseline + Super Control Panel Override checks
+  const canViewCrime = checkClearance(currentUser, 'acc_crime', true);
+  const canViewOps = checkClearance(currentUser, 'acc_ops', true);
+  const canViewStories = checkClearance(currentUser, 'acc_stories', true);
+  const canViewEst = checkClearance(currentUser, 'acc_est', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'STATION_ADMIN'].includes(currentUser?.role));
+  const canViewAnalytics = checkClearance(currentUser, 'acc_analytics', ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role));
+  const canViewHR = checkClearance(currentUser, 'acc_hr', hasNominalClearance);
+  const canViewApprovals = checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role));
+  const canViewConsolidated = checkClearance(currentUser, 'acc_consolidated', isAdmin || currentUser?.permissions?.consolidated);
+  const canExportData = checkClearance(currentUser, 'export_data', isRPC || currentUser?.permissions?.export_data);
 
   const today = new Date().getDay();
   const isEndOfWeek = today === 4 || today === 6 || today === 0;
@@ -301,7 +88,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 
   const isTargetOfficer = matchesFieldRole && !isPoliceHQ && !isSystemManager;
 
-  // 🟢 NORMALIZED WEEKLY COMPLIANCE CHECK
   const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
 
   const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => {
@@ -342,21 +128,16 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const hasUnread = safeComms.some(c => !c.acknowledged);
 
   return (
-    // 🟢 OPTIMIZATION: Expanded max-w to 1400px to use side space, reduced padding
     <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
       
-      {/* 🟢 FLOATING COMPLIANCE OVERDUE PILL BUTTON (Shrunk slightly) */}
       {showComplianceWarning && (
         <div className="fixed bottom-6 right-6 z-[9990]">
           <div
             onMouseEnter={() => setIsBannerFolded(false)}
             onMouseLeave={() => setIsBannerFolded(true)}
             onClick={() => {
-              if (isBannerFolded) {
-                setIsBannerFolded(false);
-              } else {
-                setCurrentPage('statistics');
-              }
+              if (isBannerFolded) setIsBannerFolded(false);
+              else setCurrentPage('statistics');
             }}
             className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-2xl rounded-full border ${
               !isBannerFolded ? 'px-3 py-2.5' : 'p-2'
@@ -403,7 +184,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
         </div>
       )}
 
-      {/* 🟢 HEADER (Shrunk sizes) */}
       <div className="text-center flex flex-col items-center mt-2">
         <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-1 object-contain drop-shadow-md contrast-200 brightness-75" />
         <h1 className="text-2xl font-extrabold text-gray-900 tracking-wide">UGANDA POLICE FORCE</h1>
@@ -417,7 +197,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
         </h3>   
       </div>
 
-      {/* 🟢 COMMS BANNER (Shrunk padding and height) */}
       <div onClick={onOpenInbox} className="min-h-[4.5rem] bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-green-400 group relative overflow-hidden mb-2">
         {hasUnread && (
           <><div className="absolute top-2 right-2 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping"></div>
@@ -434,42 +213,51 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
         </div>
       </div>
 
-      {/* 🟢 OPTIMIZED MODULE GRID (4 Columns on large screens, shrunk icons/padding) */}
+      {/* 🟢 OPTIMIZED MODULE GRID (Filtered with Override Engine) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full">
-          <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 group">
-            <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mr-3 group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0"><LayoutDashboard size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Crime Registry</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Log and track daily incidents.</p></div>
-          </div>
+          {canViewCrime && (
+            <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 group">
+              <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mr-3 group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0"><LayoutDashboard size={18} /></div>
+              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Crime Registry</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Log and track daily incidents.</p></div>
+            </div>
+          )}
           
-          <div onClick={() => setCurrentPage('statistics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 group">
-            <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mr-3 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0"><BarChart3 size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">OPS Statistics</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Weekly numerical aggregates.</p></div>
-          </div>
+          {canViewOps && (
+            <div onClick={() => setCurrentPage('statistics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 group">
+              <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mr-3 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0"><BarChart3 size={18} /></div>
+              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">OPS Statistics</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Weekly numerical aggregates.</p></div>
+            </div>
+          )}
 
-          <div onClick={() => setCurrentPage('success')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-yellow-400 group">
-            <div className="w-10 h-10 rounded-full bg-yellow-50 text-yellow-600 flex items-center justify-center mr-3 group-hover:bg-yellow-500 group-hover:text-white transition-colors shrink-0"><Trophy size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Success Stories</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Document tactical milestones.</p></div>
-          </div>
+          {canViewStories && (
+            <div onClick={() => setCurrentPage('success')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-yellow-400 group">
+              <div className="w-10 h-10 rounded-full bg-yellow-50 text-yellow-600 flex items-center justify-center mr-3 group-hover:bg-yellow-500 group-hover:text-white transition-colors shrink-0"><Trophy size={18} /></div>
+              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Success Stories</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Document tactical milestones.</p></div>
+            </div>
+          )}
 
-          <div onClick={() => setCurrentPage('establishments')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-emerald-300 group">
-            <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mr-3 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0"><Building size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Map divisions, stations, posts.</p></div>
-          </div>
+          {canViewEst && (
+            <div onClick={() => setCurrentPage('establishments')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-emerald-300 group">
+              <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mr-3 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0"><Building size={18} /></div>
+              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Map divisions, stations, posts.</p></div>
+            </div>
+          )}
 
-          <div onClick={() => setCurrentPage('analytics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-cyan-400 group">
-            <div className="w-10 h-10 rounded-full bg-cyan-50 text-cyan-600 flex items-center justify-center mr-3 group-hover:bg-cyan-600 group-hover:text-white transition-colors shrink-0"><PieChart size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Analytics Dashboard</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Graphs, cross-tabs & reports.</p></div>
-          </div>
+          {canViewAnalytics && (
+            <div onClick={() => setCurrentPage('analytics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-cyan-400 group">
+              <div className="w-10 h-10 rounded-full bg-cyan-50 text-cyan-600 flex items-center justify-center mr-3 group-hover:bg-cyan-600 group-hover:text-white transition-colors shrink-0"><PieChart size={18} /></div>
+              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Analytics Dashboard</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Graphs, cross-tabs & reports.</p></div>
+            </div>
+          )}
 
-          {hasNominalClearance && (
+          {canViewHR && (
             <div onClick={() => setCurrentPage('nominal-roll')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-purple-300 group">
               <div className="w-10 h-10 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mr-3 group-hover:bg-purple-600 group-hover:text-white transition-colors shrink-0"><Users size={18} /></div>
               <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Nominal Roll</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Personnel deployment registry.</p></div>
             </div>
           )}
 
-          {/* 🟢 "WIDE" BUTTONS: These span 2 columns on large screens to stretch cleanly */}
-          {isAdmin && (
+          {canViewApprovals && (
             <div onClick={() => setCurrentPage('approvals')} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-slate-500 group lg:col-span-2">
               <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-3 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0"><UserPlus size={18} /></div>
               <div><h3 className="text-sm font-extrabold text-white leading-tight">Access Approvals</h3><p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-snug">Review system logs and pending signups.</p></div>
@@ -493,9 +281,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
     </div>
   );
 };
-
-
-
 
 const SuccessStories = ({ currentUser, stories, setStories, setSidebarOpen, reports, setSelectedCase }) => {
   const [operation, setOperation] = useState('new');
@@ -3396,8 +3181,9 @@ const DashboardLayout = ({
                               currentUser?.permissions?.upload_hr || 
                               currentUser?.permissions?.system_admin;
 
+  // 🟢 SAFELY FILTERED NAV ITEMS using `.filter(Boolean)`
   const navItems = [
-    { 
+    checkClearance(currentUser, 'acc_home', true) ? { 
       name: 'Home Dashboard', 
       id: 'home', 
       icon: (
@@ -3407,16 +3193,16 @@ const DashboardLayout = ({
           {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full" />}
         </div>
       )
-    },
-    { name: 'Command Communications', id: 'Admin_Communication', icon: <Bell size={20} /> },
-    { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> },
-    { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> },
-    { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> },
-    { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> },
-    { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> },
-    ...(hasNominalClearance ? [{ name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> }] : []),
-    { name: 'Tripartite Reports', id: 'reports_hub', icon: <FileText size={20} /> }
-  ];
+    } : null,
+    checkClearance(currentUser, 'acc_comms', true) ? { name: 'Command Communications', id: 'Admin_Communication', icon: <Bell size={20} /> } : null,
+    checkClearance(currentUser, 'acc_crime', true) ? { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> } : null,
+    checkClearance(currentUser, 'acc_ops', true) ? { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> } : null,
+    checkClearance(currentUser, 'acc_stories', true) ? { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> } : null,
+    checkClearance(currentUser, 'acc_est', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'STATION_ADMIN'].includes(currentUser?.role)) ? { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> } : null,
+    checkClearance(currentUser, 'acc_analytics', ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role)) ? { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> } : null,
+    checkClearance(currentUser, 'acc_hr', hasNominalClearance) ? { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> } : null,
+    checkClearance(currentUser, 'acc_tripartite', true) ? { name: 'Tripartite Reports', id: 'reports_hub', icon: <FileText size={20} /> } : null
+  ].filter(Boolean);
 
   const handleExportLogs = async () => {
     try {
@@ -3509,45 +3295,46 @@ const DashboardLayout = ({
               ))}
             </nav>
 
-            {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.system_admin || ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'STAFF OFFICER ADMIN', 'SO ADMIN'].some(title => (currentUser?.position || '').toUpperCase().includes(title))) && (
-              <>
-                <div className="px-4 space-y-3 min-w-max">
-                  <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
-                    <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
-                    <button onClick={() => setCurrentPage('approvals')} className={`w-full text-xs py-4 rounded transition font-medium ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}>
-                      Manage Pending Users & Logs
-                    </button>
-                  </div>
-                </div>
-                <div className="rounded-lg p-4 bg-slate-800 mx-4 mt-3">
-                  <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
-                    <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Online ({realOnlineUsers?.length || 0})</span>
+            {sidebarOpen && checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.system_admin || ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'STAFF OFFICER ADMIN', 'SO ADMIN'].some(title => (currentUser?.position || '').toUpperCase().includes(title))) && (
+              <div className="px-4 space-y-3 min-w-max">
+                <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
+                  <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
+                  <button onClick={() => setCurrentPage('approvals')} className={`w-full text-xs py-4 rounded transition font-medium ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}>
+                    All Access Approvals & Logs
                   </button>
-                  {showOnline && (
-                    <div className="mt-4 space-y-2 border-t border-slate-700 pt-4 max-h-40 overflow-y-auto custom-scrollbar pr-1">
-                      {realOnlineUsers.map((user) => (
-                        <div key={user.fnum} onClick={() => { setSelectedUserDetail({ ...user, isSystemUser: true, isReadOnly: true }); setNewForcePassword(''); }} className="text-xs bg-slate-800 p-2 rounded-lg hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between group">
-                          <div className="flex items-center space-x-3">
-                            {user.profile_photo_path ? (
-                              <img src={user.profile_photo_path} alt="" className="w-7 h-7 rounded-full border border-green-400 object-cover shadow-sm group-hover:border-green-300 transition-colors" onError={(e) => { e.target.style.display='none'; }} />
-                            ) : (
-                              <div className="w-7 h-7 bg-green-600 rounded-full flex items-center justify-center text-white font-bold shadow-sm">{user.name?.charAt(0) || 'U'}</div>
-                            )}
-                            <div>
-                              <span className="font-bold text-white block truncate w-32">{user.name} {user.fnum === currentUser.fnum ? '(You)' : ''}</span>
-                              <span className="text-slate-400 text-[9px] uppercase tracking-wider">{user.station}</span>
-                            </div>
-                          </div>
-                          <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e] animate-pulse"></div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              </>
+              </div>
             )}
 
-            {sidebarOpen && (['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) && (
+            {sidebarOpen && checkClearance(currentUser, 'acc_online', ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role)) && (
+              <div className="rounded-lg p-4 bg-slate-800 mx-4 mt-3">
+                <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
+                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Online ({realOnlineUsers?.length || 0})</span>
+                </button>
+                {showOnline && (
+                  <div className="mt-4 space-y-2 border-t border-slate-700 pt-4 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                    {realOnlineUsers.map((user) => (
+                      <div key={user.fnum} onClick={() => { setSelectedUserDetail({ ...user, isSystemUser: true, isReadOnly: true }); setNewForcePassword(''); }} className="text-xs bg-slate-800 p-2 rounded-lg hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between group">
+                        <div className="flex items-center space-x-3">
+                          {user.profile_photo_path ? (
+                            <img src={user.profile_photo_path} alt="" className="w-7 h-7 rounded-full border border-green-400 object-cover shadow-sm group-hover:border-green-300 transition-colors" onError={(e) => { e.target.style.display='none'; }} />
+                          ) : (
+                            <div className="w-7 h-7 bg-green-600 rounded-full flex items-center justify-center text-white font-bold shadow-sm">{user.name?.charAt(0) || 'U'}</div>
+                          )}
+                          <div>
+                            <span className="font-bold text-white block truncate w-32">{user.name} {user.fnum === currentUser.fnum ? '(You)' : ''}</span>
+                            <span className="text-slate-400 text-[9px] uppercase tracking-wider">{user.station}</span>
+                          </div>
+                        </div>
+                        <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e] animate-pulse"></div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {sidebarOpen && checkClearance(currentUser, 'acc_roster', ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) && (
               <div className="px-4 mt-3 space-y-3 min-w-max">
                 <div className="rounded-lg p-3 bg-slate-800 border border-slate-700">
                   <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400">
@@ -3578,7 +3365,7 @@ const DashboardLayout = ({
               </div>
             )}
 
-            {sidebarOpen && (
+            {sidebarOpen && checkClearance(currentUser, 'acc_ledgers', true) && (
               <div className="px-4 mt-4 space-y-3 min-w-max pb-4">
                 <div className="bg-slate-800 rounded-lg p-3 border border-yellow-600/30">
                   <div className="text-sm font-bold text-yellow-500 mb-3 flex items-center"><Shield size={16} className="mr-2"/> ⚙️ Reports & Ledgers</div>
@@ -3589,19 +3376,19 @@ const DashboardLayout = ({
                         <button onClick={onViewHRReport} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center">
                           <Eye size={14} className="mr-1"/> View
                         </button>
-                        {(['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role) || currentUser?.permissions?.export_data) && (
+                        {checkClearance(currentUser, 'export_data', ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role) || currentUser?.permissions?.export_data) && (
                           <button onClick={onGenerateHRReport} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded transition flex items-center justify-center">
                             <Download size={14} className="mr-1"/> Export
                           </button>
                         )}
                       </div>
                     </div>
-                    {(['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.consolidated) && (
+                    {checkClearance(currentUser, 'acc_consolidated', ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.consolidated) && (
                       <button onClick={onViewConsolidated} className="w-full text-xs py-2 rounded transition flex items-center justify-center font-bold mt-3 bg-slate-900 hover:bg-slate-950 text-blue-400 border border-blue-900">
                         <Eye size={14} className="mr-2"/> Consolidated Entries
                       </button>
                     )}
-                    {(['SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.export_data) && (
+                    {checkClearance(currentUser, 'export_logs', ['SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.export_data) && (
                       <button onClick={handleExportLogs} className="w-full mt-2 text-xs py-2 rounded transition font-bold bg-slate-900 hover:bg-slate-950 text-slate-300 border border-slate-700 flex items-center justify-center">
                         <Download size={14} className="mr-2 text-blue-400"/> Export Audit Logs
                       </button>
@@ -3931,37 +3718,32 @@ const App = () => {
 
   const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
 
-  const renderPage = () => {
+const renderPage = () => {
     switch (currentPage) {
       case 'home': 
-        return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+        return checkClearance(currentUser, 'acc_home', true) ? <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} /> : null;
       case 'reports': 
-        return <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} />;
+        return checkClearance(currentUser, 'acc_crime', true) ? <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
       case 'statistics': 
-        return <Statistics currentUser={currentUser} stats={stats} setStats={setStats} />;
+        return checkClearance(currentUser, 'acc_ops', true) ? <Statistics currentUser={currentUser} stats={stats} setStats={setStats} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
       case 'success': 
-        return <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} />;
+        return checkClearance(currentUser, 'acc_stories', true) ? <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
       case 'establishments': 
-        return <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} />;
+        return checkClearance(currentUser, 'acc_est', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'STATION_ADMIN'].includes(currentUser?.role)) ? <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
       case 'analytics': 
-        return (
-        <AnalyticsDashboard 
-          nominalRolls={Nominal_Rolls} 
-          crimeRegistry={reports} 
-          successStories={stories} 
-          operationalStats={stats} 
-        />
-      );
+        return checkClearance(currentUser, 'acc_analytics', ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role)) ? (
+          <AnalyticsDashboard nominalRolls={Nominal_Rolls} crimeRegistry={reports} successStories={stories} operationalStats={stats} />
+        ) : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
       case 'nominal-roll': 
-        return <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} />;
+        return checkClearance(currentUser, 'acc_hr', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'Regional_HR_Officer'].includes(currentUser?.role) || (currentUser?.position || '').toUpperCase().includes('HR') || currentUser?.permissions?.view_nominal_roll || currentUser?.permissions?.upload_hr) ? <Nominal_Roll currentUser={currentUser} Nominal_Rolls={Nominal_Rolls} setNominal_Rolls={setNominal_Rolls} Nominal_Roll_archives={Nominal_Roll_archives} setNominal_Roll_archives={setNominal_Roll_archives} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
       case 'reports_hub': 
-        return <WordReportUpload currentUser={currentUser} />; 
+        return checkClearance(currentUser, 'acc_tripartite', true) ? <WordReportUpload currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />; 
       case 'approvals': 
-        return ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />; 
+        return checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role)) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />; 
       case 'profile': 
-        return <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} />;
+        return checkClearance(currentUser, 'acc_profile', true) ? <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
       case 'Admin_Communication': 
-        return <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} onAcknowledgeComm={handleAcknowledgeComm} initialTab={commDefaultTab} />;
+        return checkClearance(currentUser, 'acc_comms', true) ? <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} onAcknowledgeComm={handleAcknowledgeComm} initialTab={commDefaultTab} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
       default: 
         return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
     }
