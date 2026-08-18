@@ -181,30 +181,36 @@ const filteredReports = useMemo(() => {
       if (activeRegion && dbRegion !== activeRegion) return false;
       if (activeStation && dbStation !== activeStation) return false;
 
-      // 🟢 PRECISE AGRICULTURAL & LIVESTOCK CRIME FILTERING (Excluding Motorcycle Robberies)
+      // 🟢 DEFINITIVE AGRICULTURAL CRIME INDICATORS FILTER
       if (showAgriculturalOnly) {
         const offenceText = (r.offence || '').toLowerCase();
         const narrativeText = extractPlainText(r.narrative || '').toLowerCase();
         const combinedText = `${offenceText} ${narrativeText}`;
 
-        // 1. Explicitly filter out motorcycle/boda-boda transit crimes if accidentally flagged
-        const exclusionKeywords = ['motorcycle', 'motor cycle', 'boda', 'boda-boda', 'bodaboda', 'bajaj', 'tvs', 'super-sport', 'motor vehicle', 'car theft'];
-        const isExcluded = exclusionKeywords.some(ex => combinedText.includes(ex));
-        if (isExcluded) return false;
+        // Comprehensive keyword checklist based on your specified indicators
+        const agriCrimeIndicators = [
+          // Produce & Animals
+          'theft of produce', 'produce theft', 'animal theft', 'animals', 'cattle theft', 'cow', 'cows', 
+          'bull', 'bulls', 'calf', 'calves', 'ox', 'oxen', 'stole a goat', 'goats', 'sheep', 'ram', 
+          'ewe', 'lamb', 'pig', 'pigs', 'swine', 'poultry', 'chicken', 'chickens', 'duck', 
+          'ducks', 'bird', 'birds', 'egg', 'eggs', 'milk', 'dairy', 'stock theft', 'theft of livestock',
+          
+          // Granaries & Food Stores
+          'granary', 'granaries', 'broke into food store', 'food stores', 'storehouse', 'barn', 'silo', 'silos',
 
-        // 2. Strict Agricultural, Crop, and Livestock keywords
-        const agriKeywords = [
-          'agriculture', 'agri-crime', 'crop', 'crops', 'farm', 'farming', 'farmer', 'farmers', 'plant', 'plants', 
-          'cattle', 'cow', 'cows', 'bull', 'bulls', 'calf', 'calves', 'ox', 'oxen',
-          'goat', 'goats', 'kid', 'kids', 'sheep', 'ram', 'ewe', 'lamb', 'pig', 'pigs', 'swine',
-          'chicken', 'chickens', 'poultry', 'duck', 'ducks', 'bird', 'birds', 'egg', 'eggs',
-          'produce', 'harvest', 'milk', 'dairy', 'coffee', 'cocoa', 'matooke', 'banana', 'bananas',
-          'sugarcane', 'vanilla', 'cassava', 'maize', 'bean', 'beans', 'grain', 'grains',
-          'theft of cattle', 'stock theft', 'livestock', 'stray animal', 'grazing', 'orchard', 'garden produce'
+          // Crop Destruction & Arson Actions
+          'cutting down crops', 'cutting crops', 'slashing crops', 'slashing', 'burning crops', 
+          'burning produce', 'destroying crops', 'crop destruction', 'arson of crops', 'arson of produce',
+
+          // General Harvest & Crops
+          'harvest', 'crop', 'crops', 'farm', 'farming', 'farmer', 'farmers', 'plant', 'plants',
+          'coffee', 'cocoa', 'matooke', 'banana', 'bananas', 'sugarcane', 'vanilla', 'cassava', 
+          'maize', 'bean', 'beans', 'grain', 'grains', 'orchard', 'garden produce', 'agriculture', 'agri-crime'
         ];
 
-        const isAgriMatch = agriKeywords.some(keyword => combinedText.includes(keyword));
-        if (!isAgriMatch) return false;
+        // Must match at least one of the official agricultural crime indicators
+        const isAgriCrimeMatch = agriCrimeIndicators.some(indicator => combinedText.includes(indicator));
+        if (!isAgriCrimeMatch) return false;
       }
       
       if (searchQuery) {
