@@ -15,6 +15,24 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+// 🟢 Helper to dynamically resolve the authoritative jurisdiction from station name
+const getOfficialRegionForStation = (stationName, dbRegion) => {
+  const cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
+  const cleanDbRegion = stripHtmlTags(dbRegion || '').trim().toUpperCase();
+
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
+    return cleanDbRegion;
+  }
+
+  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
+    if (stationsList.includes(cleanStation)) {
+      return regionName;
+    }
+  }
+
+  return cleanDbRegion || 'KMP GENERAL';
+};
+
 // Auto-Capitalization (Ignores HTML tags during typing)
 const autoCapitalize = (text) => {
   if (!text) return '';
@@ -167,7 +185,7 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     });
   };
 
-const filteredReports = useMemo(() => {
+  const filteredReports = useMemo(() => {
     if (!Array.isArray(reports)) return [];
     const activeRegion = (filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion.trim().toUpperCase() : null;
     const activeStation = (filterStation && filterStation !== 'ALL STATIONS') ? filterStation.trim().toUpperCase() : null;
@@ -175,10 +193,12 @@ const filteredReports = useMemo(() => {
     const results = reports.filter(r => {
       if (r.is_hq_general_total || (r.offence || '').toUpperCase().includes("LOCK-UP TOTAL")) return false;
 
-      const dbRegion = stripHtmlTags(r.region || '').trim().toUpperCase();
-      const dbStation = stripHtmlTags(r.station || '').trim().toUpperCase();
+      // 🟢 Enforce Authoritative Regional Lookup (Resolves Mukono showing in KMP South)
+      const stn = stripHtmlTags(r.station || '').trim().toUpperCase();
+      const dbRegion = getOfficialRegionForStation(stn, r.region);
+
       if (activeRegion && dbRegion !== activeRegion) return false;
-      if (activeStation && dbStation !== activeStation) return false;
+      if (activeStation && stn !== activeStation) return false;
 
       // 🟢 DEFINITIVE AGRICULTURAL CRIME INDICATORS FILTER
       if (showAgriculturalOnly) {
@@ -186,28 +206,19 @@ const filteredReports = useMemo(() => {
         const narrativeText = extractPlainText(r.narrative || '').toLowerCase();
         const combinedText = `${offenceText} ${narrativeText}`;
 
-        // Comprehensive keyword checklist based on your specified indicators
         const agriCrimeIndicators = [
-          // Produce & Animals
           'theft of produce', 'produce theft', 'animal theft', 'animals', 'cattle theft', 'cow', 'cows', 
           'bull', 'bulls', 'calf', 'calves', 'ox', 'oxen', 'stole a goat', 'goats', 'sheep', 'ram', 
           'ewe', 'lamb', 'pig', 'pigs', 'swine', 'poultry', 'chicken', 'chickens', 'duck', 
           'ducks', 'bird', 'birds', 'egg', 'eggs', 'milk', 'dairy', 'stock theft', 'theft of livestock',
-          
-          // Granaries & Food Stores
           'granary', 'granaries', 'broke into food store', 'food stores', 'storehouse', 'barn', 'silo', 'silos',
-
-          // Crop Destruction & Arson Actions
           'cutting down crops', 'cutting crops', 'slashing crops', 'slashing', 'burning crops', 
           'burning produce', 'destroying crops', 'crop destruction', 'arson of crops', 'arson of produce',
-
-          // General Harvest & Crops
           'harvest', 'crop', 'crops', 'farm', 'farming', 'farmer', 'farmers', 'plant', 'plants',
           'coffee', 'cocoa', 'matooke', 'banana', 'bananas', 'sugarcane', 'vanilla', 'cassava', 
           'maize', 'bean', 'beans', 'grain', 'grains', 'orchard', 'garden produce', 'agriculture', 'agri-crime'
         ];
 
-        // Must match at least one of the official agricultural crime indicators
         const isAgriCrimeMatch = agriCrimeIndicators.some(indicator => combinedText.includes(indicator));
         if (!isAgriCrimeMatch) return false;
       }
@@ -242,7 +253,8 @@ const filteredReports = useMemo(() => {
   const availableUpdateCases = useMemo(() => {
     const currentUserRegion = stripHtmlTags(currentUser?.region || '');
     return filteredReports.filter(r => {
-      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && stripHtmlTags(r.region || '') !== currentUserRegion) return false;
+      const rRegion = getOfficialRegionForStation(r.station, r.region);
+      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && rRegion !== currentUserRegion) return false;
       if (updateSearch) {
         const query = stripHtmlTags(updateSearch).toLowerCase();
         return stripHtmlTags(r.sdRef || r.sd_ref || '').toLowerCase().includes(query) || (r.id || r.sn || '').toString().includes(query) || extractPlainText(r.narrative).toLowerCase().includes(query);
@@ -261,7 +273,7 @@ const filteredReports = useMemo(() => {
     
     lockupData.forEach(l => {
       const lStation = stripHtmlTags(l.station || '');
-      const lRegion = stripHtmlTags(l.region || '');
+      const lRegion = getOfficialRegionForStation(lStation, l.region);
       const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' || lRegion === 'KMP HEADQUARTERS';
       if (isHQTotal) {
         if (l.date === todayStr && l.suspects > 0) hqGrandTotalToday = l.suspects;
@@ -460,7 +472,7 @@ const filteredReports = useMemo(() => {
         const popRef = `POP-${cleanStationSub}-${Date.now().toString().slice(-6)}`;
         const apiPayload = {
           sd_ref: popRef, 
-          region: stripHtmlTags(formData.region), 
+          region: getOfficialRegionForStation(formData.station, formData.region), 
           station: stripHtmlTags(formData.station),
           date: getTodayString(), 
           time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
@@ -537,7 +549,7 @@ const filteredReports = useMemo(() => {
     let formattedTime = stripHtmlTags(formData.time || '');
     if (formattedTime && !/hrs$/i.test(formattedTime.trim())) formattedTime = `${formattedTime.trim()}Hrs`;
 
-    const plainNarrative = formData.narrative; // Can contain quill HTML, but we check duplicate against text or clean it
+    const plainNarrative = formData.narrative;
     const plainTextForDuplicate = extractPlainText(formData.narrative);
     const plainUpdateText = formData.updateText;
 
@@ -551,7 +563,7 @@ const filteredReports = useMemo(() => {
 
       const apiPayload = {
         sd_ref: final_reference, 
-        region: stripHtmlTags(formData.region), 
+        region: getOfficialRegionForStation(formData.station, formData.region), 
         station: stripHtmlTags(formData.station),
         date: stripHtmlTags(formData.date), 
         time: formattedTime, 
@@ -584,6 +596,7 @@ const filteredReports = useMemo(() => {
         
       const updatedRecord = { 
         ...formData, 
+        region: getOfficialRegionForStation(formData.station, formData.region),
         time: formattedTime, 
         narrative: updatedNarrative, 
         suspects: (formData.suspects || 0) + formData.suspectDetails.length,
@@ -941,22 +954,25 @@ const filteredReports = useMemo(() => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredReports.map((report, index) => (
-                    <tr key={report.id || report.sn || index} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer group" onClick={() => { if (operation === 'update') { populateUpdateCrimeForm(report); } else { setSelectedCase(report); } }}>
-                      <td className="px-4 py-4 whitespace-nowrap text-[13px] font-black text-gray-900 align-top group-hover:text-blue-700 transition-colors">{isStationSpecific ? (index + 1) : (report.id || report.sn || '—')}</td>
-                      <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-blue-700 align-top break-words">{stripHtmlTags(report.sdRef || report.sd_ref)}</td>
-                      <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-500 align-top">{stripHtmlTags(report.date)}<br/><span className="text-[10px] text-gray-400">{stripHtmlTags(report.time)}</span></td>
-                      <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-700 align-top font-bold">{stripHtmlTags(report.station)} <br/><span className="text-[10px] text-gray-400 font-medium">{stripHtmlTags(report.region)}</span></td>
-                      <td className="px-4 py-4 text-xs text-gray-700 align-top whitespace-normal break-words">
-                        {report.offence && <div className="font-extrabold text-red-600 uppercase mb-1">{stripHtmlTags(report.offence)}</div>}
-                        <div className="ql-editor p-0 line-clamp-3 text-slate-600 [&_*]:!text-xs [&_*]:!bg-transparent" dangerouslySetInnerHTML={{ __html: report.narrative }} />
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-red-600 text-center align-top">{(report.suspectDetails || report.suspect_details || []).length}</td>
-                      <td className="px-4 py-4 whitespace-normal break-words align-top">
-                        <span className={`px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' : ''} ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800 border border-purple-200' : ''} ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800 border border-green-200' : ''} ${report.status.includes('ADR') ? 'bg-orange-100 text-orange-800 border border-orange-200' : ''}`}>{stripHtmlTags(report.status)}</span>
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredReports.map((report, index) => {
+                    const rRegion = getOfficialRegionForStation(report.station, report.region);
+                    return (
+                      <tr key={report.id || report.sn || index} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer group" onClick={() => { if (operation === 'update') { populateUpdateCrimeForm(report); } else { setSelectedCase(report); } }}>
+                        <td className="px-4 py-4 whitespace-nowrap text-[13px] font-black text-gray-900 align-top group-hover:text-blue-700 transition-colors">{isStationSpecific ? (index + 1) : (report.id || report.sn || '—')}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-blue-700 align-top break-words">{stripHtmlTags(report.sdRef || report.sd_ref)}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-500 align-top">{stripHtmlTags(report.date)}<br/><span className="text-[10px] text-gray-400">{stripHtmlTags(report.time)}</span></td>
+                        <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-700 align-top font-bold">{stripHtmlTags(report.station)} <br/><span className="text-[10px] text-gray-400 font-medium">{rRegion}</span></td>
+                        <td className="px-4 py-4 text-xs text-gray-700 align-top whitespace-normal break-words">
+                          {report.offence && <div className="font-extrabold text-red-600 uppercase mb-1">{stripHtmlTags(report.offence)}</div>}
+                          <div className="ql-editor p-0 line-clamp-3 text-slate-600 [&_*]:!text-xs [&_*]:!bg-transparent" dangerouslySetInnerHTML={{ __html: report.narrative }} />
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-red-600 text-center align-top">{(report.suspectDetails || report.suspect_details || []).length}</td>
+                        <td className="px-4 py-4 whitespace-normal break-words align-top">
+                          <span className={`px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' : ''} ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800 border border-purple-200' : ''} ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800 border border-green-200' : ''} ${report.status.includes('ADR') ? 'bg-orange-100 text-orange-800 border border-orange-200' : ''}`}>{stripHtmlTags(report.status)}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {filteredReports.length === 0 && <tr><td colSpan="7" className="text-center py-8 text-gray-500 font-medium text-sm border-b-0">No records found for this jurisdiction.</td></tr>}
                 </tbody>
               </table>
@@ -1049,8 +1065,8 @@ const filteredReports = useMemo(() => {
 
           <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2">
             <button 
-              type="button"
-              onClick={handleEditLockupToggle}
+              type="button" 
+              onClick={handleEditLockupToggle} 
               className={`text-xs font-bold uppercase transition flex items-center ${isEditingLockup ? 'text-red-600 hover:text-red-800' : 'text-amber-700 hover:text-amber-900'}`}
             >
               {isEditingLockup ? <><X className="w-3.5 h-3.5 mr-1"/> Cancel Update</> : <><Edit className="w-3.5 h-3.5 mr-1"/> Correct today's lockup entry</>}
@@ -1063,64 +1079,64 @@ const filteredReports = useMemo(() => {
             >
               {isEditingLockup ? <><Save className="inline w-4 h-4 mr-1"/> Update Matrix Entry</> : 'Push to Matrix'}
             </button>
-        </div>
-      </div>
-
-      <button 
-        onClick={() => setShowLockupMatrixModal(true)}
-        className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center border border-slate-700 group mb-6"
-      >
-        <Filter className="w-5 h-5 mr-3 text-amber-400 group-hover:scale-110 transition-transform" />
-        VIEW INDEPENDENT DAILY SUSPECT LOCK-UP MATRIX
-      </button>
-
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-        <div className="bg-slate-900 px-4 py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-          <h3 className="text-xs font-extrabold text-white tracking-wider uppercase">General Crime Summary (Excluding Lock-Ups)</h3>
-          <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700 overflow-x-auto w-full sm:w-auto">
-            {['TODAY', 'WEEK', 'MONTH', 'YEAR', 'ALL'].map(period => (
-              <button key={period} onClick={() => setSummaryTimeFilter(stripHtmlTags(period))} className={`flex-1 sm:flex-none px-3 py-1 text-[10px] font-bold rounded shadow-sm transition-colors ${summaryTimeFilter === period ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>
-                {period}
-              </button>
-            ))}
           </div>
         </div>
-        
-        <div className="overflow-y-auto max-h-96 custom-scrollbar">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 shadow-sm z-10">
-              <tr>
-                <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase">S/N</th>
-                <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase">Offence / Incident</th>
-                <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase text-center">Number of Cases</th>
-                <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase text-center">Suspects in Custody</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {generalCrimes.length > 0 ? (
-                generalCrimes.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 text-xs font-bold text-slate-400">{idx + 1}</td>
-                    <td className="px-4 py-3 text-xs font-bold text-slate-800 uppercase">{stripHtmlTags(item.offence)}</td>
-                    <td className="px-4 py-3 text-xs font-black text-blue-600 text-center">{item.cases}</td>
-                    <td className="px-4 py-3 text-xs font-black text-slate-600 text-center">{item.suspects}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr><td colSpan="4" className="px-4 py-8 text-center text-xs text-slate-500 font-bold">No crimes recorded for the selected duration.</td></tr>
-              )}
-            </tbody>
-            <tfoot className="bg-emerald-800 sticky bottom-0">
-              <tr>
-                <td colSpan="2" className="px-4 py-3 text-right text-xs font-black text-white uppercase tracking-wider">Crime Grand Total:</td>
-                <td className="px-4 py-3 text-center text-sm font-black text-white">{crimeGrandTotal}</td>
-                <td className="px-4 py-3 text-center text-sm font-black text-white">{suspectGrandTotal}</td>
-              </tr>
-            </tfoot>
-          </table>
+
+        <button 
+          onClick={() => setShowLockupMatrixModal(true)}
+          className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center border border-slate-700 group mb-6"
+        >
+          <Filter className="w-5 h-5 mr-3 text-amber-400 group-hover:scale-110 transition-transform" />
+          VIEW INDEPENDENT DAILY SUSPECT LOCK-UP MATRIX
+        </button>
+
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+          <div className="bg-slate-900 px-4 py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <h3 className="text-xs font-extrabold text-white tracking-wider uppercase">General Crime Summary (Excluding Lock-Ups)</h3>
+            <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700 overflow-x-auto w-full sm:w-auto">
+              {['TODAY', 'WEEK', 'MONTH', 'YEAR', 'ALL'].map(period => (
+                <button key={period} onClick={() => setSummaryTimeFilter(stripHtmlTags(period))} className={`flex-1 sm:flex-none px-3 py-1 text-[10px] font-bold rounded shadow-sm transition-colors ${summaryTimeFilter === period ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>
+                  {period}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          <div className="overflow-y-auto max-h-96 custom-scrollbar">
+            <table className="w-full text-left">
+              <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 shadow-sm z-10">
+                <tr>
+                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase">S/N</th>
+                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase">Offence / Incident</th>
+                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase text-center">Number of Cases</th>
+                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 uppercase text-center">Suspects in Custody</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {generalCrimes.length > 0 ? (
+                  generalCrimes.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-3 text-xs font-bold text-slate-400">{idx + 1}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-slate-800 uppercase">{stripHtmlTags(item.offence)}</td>
+                      <td className="px-4 py-3 text-xs font-black text-blue-600 text-center">{item.cases}</td>
+                      <td className="px-4 py-3 text-xs font-black text-slate-600 text-center">{item.suspects}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr><td colSpan="4" className="px-4 py-8 text-center text-xs text-slate-500 font-bold">No crimes recorded for the selected duration.</td></tr>
+                )}
+              </tbody>
+              <tfoot className="bg-emerald-800 sticky bottom-0">
+                <tr>
+                  <td colSpan="2" className="px-4 py-3 text-right text-xs font-black text-white uppercase tracking-wider">Crime Grand Total:</td>
+                  <td className="px-4 py-3 text-center text-sm font-black text-white">{crimeGrandTotal}</td>
+                  <td className="px-4 py-3 text-center text-sm font-black text-white">{suspectGrandTotal}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
 
       {showLockupMatrixModal && (
         <LockupMatrixLedger lockupEntries={processedLockups} allTimeLockupTotal={allTimeLockupTotal} onClose={() => setShowLockupMatrixModal(false)} />
@@ -1142,7 +1158,7 @@ const filteredReports = useMemo(() => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 bg-white p-6 border border-slate-200 shadow-sm rounded-lg">
                 <div className="border-l-4 border-blue-600 pl-3"><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Database SN (ID)</div><div className="text-sm font-black text-slate-900">{selectedCase.id || selectedCase.sn}</div></div>
                 <div className="border-l-4 border-slate-600 pl-3"><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Time & Date Logged</div><div className="text-sm font-bold text-slate-900">{stripHtmlTags(selectedCase.date)} <span className="text-slate-500 font-medium">@ {stripHtmlTags(selectedCase.time)}</span></div></div>
-                <div className="border-l-4 border-slate-600 pl-3"><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Command Jurisdiction</div><div className="text-sm font-bold text-slate-900">{stripHtmlTags(selectedCase.station)}</div><div className="text-xs text-slate-500 font-medium">{stripHtmlTags(selectedCase.region)}</div></div>
+                <div className="border-l-4 border-slate-600 pl-3"><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Command Jurisdiction</div><div className="text-sm font-bold text-slate-900">{stripHtmlTags(selectedCase.station)}</div><div className="text-xs text-slate-500 font-medium">{getOfficialRegionForStation(selectedCase.station, selectedCase.region)}</div></div>
                 <div className="border-l-4 border-slate-600 pl-3"><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Investigation Status</div><div className="text-sm font-extrabold text-blue-700 uppercase">{stripHtmlTags(selectedCase.status)}</div></div>
               </div>
               <div className="bg-white p-8 border border-slate-200 shadow-sm rounded-lg">
