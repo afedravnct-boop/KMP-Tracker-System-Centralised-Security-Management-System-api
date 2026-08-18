@@ -9,8 +9,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
-  const [docCategory, setDocCategory] = useState('weekly_report'); 
-  const [ledgerViewCategory, setLedgerViewCategory] = useState('weekly_report'); 
+  // 🟢 Single active view category that drives BOTH the upload form and the ledger below
+  const [activeCategory, setActiveCategory] = useState('weekly_report'); 
 
   const [documents, setDocuments] = useState([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
@@ -50,7 +50,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
     const selectedFile = e.target.files[0];
     setFile(selectedFile);
     if (selectedFile && !templateCustomName) {
-      // Pre-fill default template slot name from filename without extension
       const baseName = selectedFile.name.substring(0, selectedFile.name.lastIndexOf('.')) || selectedFile.name;
       setTemplateCustomName(baseName.replace(/[_]/g, ' ').toUpperCase());
     }
@@ -66,15 +65,14 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
 
     let endpoint = "";
 
-    if (docCategory === 'templates') {
+    if (activeCategory === 'templates') {
       const templateIdKey = templateCustomName ? templateCustomName.toLowerCase().replace(/[^a-z0-9]/g, '_') : 'custom_template';
       endpoint = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api/v1/templates/upload/${templateIdKey}`;
       formData.append("doc_type", "Command Template");
     } else {
       endpoint = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api/v1/reports/upload-word-report`;
-      formData.append("doc_type", docCategory); 
+      formData.append("doc_type", activeCategory); 
       
-      // 🟢 Ensuring both region and station overrides are sent properly
       if (overrideRegion) formData.append("target_region", overrideRegion);
       if (overrideStation) formData.append("target_station", overrideStation);
     }
@@ -231,15 +229,16 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
     }
   };
 
+  // 🟢 Filter documents dynamically according to the active category tab
   const filteredDocuments = documents.filter(doc => {
     const docType = (doc.type || '').trim().toLowerCase();
 
-    if (ledgerViewCategory === 'weekly_report') {
-      return docType === 'formatted weekly report';
-    } else if (ledgerViewCategory === 'general_doc') {
-      return docType === 'general document';
-    } else if (ledgerViewCategory === 'templates') {
-      return docType === 'command template';
+    if (activeCategory === 'weekly_report') {
+      return docType.includes('weekly report');
+    } else if (activeCategory === 'general_doc') {
+      return docType.includes('general document') || docType.includes('statement');
+    } else if (activeCategory === 'templates') {
+      return docType.includes('template') || docType.includes('command template');
     }
     return false;
   });
@@ -268,31 +267,32 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
 
           <form onSubmit={handleUpload} className="max-w-3xl space-y-4">
 
+            {/* Unified category tabs controlling both upload mode & ledger view */}
             <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-200 flex flex-col sm:flex-row gap-1">
               <button
                 type="button"
-                onClick={() => setDocCategory('weekly_report')}
-                className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${docCategory === 'weekly_report' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+                onClick={() => setActiveCategory('weekly_report')}
+                className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${activeCategory === 'weekly_report' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
               >
                 Weekly Reports
               </button>
               <button
                 type="button"
-                onClick={() => setDocCategory('general_doc')}
-                className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${docCategory === 'general_doc' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+                onClick={() => setActiveCategory('general_doc')}
+                className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${activeCategory === 'general_doc' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
               >
                 General Docs / Statements
               </button>
               <button
                 type="button"
-                onClick={() => setDocCategory('templates')}
-                className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${docCategory === 'templates' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+                onClick={() => setActiveCategory('templates')}
+                className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${activeCategory === 'templates' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
               >
                 Command Templates
               </button>
             </div>
 
-            {docCategory === 'templates' && !hasDownloadClearance ? (
+            {activeCategory === 'templates' && !hasDownloadClearance ? (
                <div className="p-8 text-center bg-red-50 border border-red-200 rounded-xl mt-4">
                  <Lock className="w-8 h-8 text-red-500 mx-auto mb-2" />
                  <h3 className="text-red-800 font-bold">Admin Clearance Required</h3>
@@ -301,7 +301,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
             ) : (
               <div className="space-y-4 mt-4 animate-in fade-in">
 
-                {docCategory === 'templates' && (
+                {activeCategory === 'templates' && (
                   <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 space-y-2">
                     <label className="block text-xs font-bold text-amber-900">Custom Template Title / Designation *</label>
                     <input 
@@ -316,13 +316,13 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                   </div>
                 )}
 
-                <div className={`border-2 border-dashed rounded-xl p-6 text-center transition cursor-pointer relative ${docCategory === 'templates' ? 'border-amber-300 bg-amber-50/50 hover:bg-amber-100 hover:border-amber-400' : 'border-slate-300 bg-slate-50 hover:bg-blue-50 hover:border-blue-300'}`}>
+                <div className={`border-2 border-dashed rounded-xl p-6 text-center transition cursor-pointer relative ${activeCategory === 'templates' ? 'border-amber-300 bg-amber-50/50 hover:bg-amber-100 hover:border-amber-400' : 'border-slate-300 bg-slate-50 hover:bg-blue-50 hover:border-blue-300'}`}>
                   <input 
                     type="file" 
                     onChange={handleFileChange} 
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                   />
-                  <UploadCloud className={`w-8 h-8 mx-auto mb-2 ${docCategory === 'templates' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <UploadCloud className={`w-8 h-8 mx-auto mb-2 ${activeCategory === 'templates' ? 'text-amber-500' : 'text-slate-400'}`} />
                   <p className="text-sm font-bold text-slate-600">Click or drop any file format (Word, Excel, PPT, PDF, etc.) here</p>
                 </div>
 
@@ -343,44 +343,45 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                 <button 
                   type="submit" 
                   disabled={!file || uploading}
-                  className={`w-full py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition disabled:bg-slate-300 ${docCategory === 'templates' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-black'}`}
+                  className={`w-full py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition disabled:bg-slate-300 ${activeCategory === 'templates' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-black'}`}
                 >
-                  {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</> : docCategory === 'templates' ? 'Upload Template to Ledger' : 'Upload Document to Secure Storage'}
+                  {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</> : activeCategory === 'templates' ? 'Upload Template to Ledger' : 'Upload Document to Secure Storage'}
                 </button>
               </div>
             )}
           </form>
         </div>
 
-        {/* 🟢 DYNAMIC LEDGER SECTION */}
+        {/* 🟢 SYNCHRONIZED DYNAMIC LEDGER SECTION */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="p-6 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-slate-50">
             <div>
               <h3 className="font-extrabold text-slate-900 uppercase flex items-center">
                 <FileArchive className="w-5 h-5 mr-2 text-emerald-600" /> 
-                System Records & Universal Templates Ledger
+                System Records & Universal Templates Ledger ({activeCategory.replace('_', ' ').toUpperCase()})
               </h3>
             </div>
 
+            {/* Connected secondary toggle mirroring the active selection */}
             <div className="flex flex-wrap bg-slate-200 p-1 rounded-lg border border-slate-300 w-full lg:w-auto">
               <button
                 type="button"
-                onClick={() => setLedgerViewCategory('weekly_report')}
-                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${ledgerViewCategory === 'weekly_report' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
+                onClick={() => setActiveCategory('weekly_report')}
+                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${activeCategory === 'weekly_report' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
               >
                 Weekly Reports
               </button>
               <button
                 type="button"
-                onClick={() => setLedgerViewCategory('general_doc')}
-                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${ledgerViewCategory === 'general_doc' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
+                onClick={() => setActiveCategory('general_doc')}
+                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${activeCategory === 'general_doc' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
               >
                 General Docs
               </button>
               <button
                 type="button"
-                onClick={() => setLedgerViewCategory('templates')}
-                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${ledgerViewCategory === 'templates' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
+                onClick={() => setActiveCategory('templates')}
+                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${activeCategory === 'templates' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
               >
                 Templates
               </button>
