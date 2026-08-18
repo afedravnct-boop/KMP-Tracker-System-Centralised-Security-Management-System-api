@@ -105,19 +105,26 @@
 
 /* Sweep & Settle Title Animation for Login Curtain */
 .curtain-title-container {
-  overflow: hidden;
+  overflow: visible;
   max-width: 100%; /* 🟢 Responsive max-width to prevent mobile cutoff */
   padding: 0 1rem;
   word-break: normal;
   overflow-wrap: break-word;
   box-sizing: border-box;
+  text-align: center;
+}
+
+.curtain-title-container h1, 
+.curtain-title-container span {
+  font-size: clamp(0.9rem, 2.2vw, 1.5rem) !important;
+  white-space: normal;
+  letter-spacing: -0.01em;
 }
 
 @media (max-width: 640px) {
   .curtain-title-container h1, 
   .curtain-title-container span {
-    font-size: clamp(1rem, 4.2vw, 1.6rem) !important;
-    letter-spacing: -0.02em;
+    font-size: clamp(0.85rem, 3.8vw, 1.25rem) !important;
   }
 }
 
@@ -206,9 +213,9 @@
 /* Central Map Surface */
 .spinning-map-globe {
   position: absolute;
-  inset: 0;              
-  margin: auto;        
-  width: 55%;          
+  inset: 0;               
+  margin: auto;         
+  width: 55%;           
   height: 55%;
   border-radius: 50%;
   
