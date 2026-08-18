@@ -112,6 +112,7 @@ def get_officer_signature(user):
 # 1. MIDDLEWARE & STARTUP
 # ==========================================
 @app.get("/")
+@app.head("/")
 def health_check():
     return {
         "status": "online", 
