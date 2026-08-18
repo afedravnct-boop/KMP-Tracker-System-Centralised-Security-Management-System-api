@@ -292,51 +292,6 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const ExpandableTableCard = ({ title, children, onToggle }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  const openFullScreen = () => {
-    setIsExpanded(true);
-    if (typeof onToggle === 'function') onToggle(true);
-  };
-
-  const closeFullScreen = () => {
-    setIsExpanded(false);
-    if (typeof onToggle === 'function') onToggle(false);
-  };
-
-  return (
-    <>
-      {isExpanded ? (
-        <div className="fixed inset-0 z-[100] bg-gray-100 flex flex-col p-4 sm:p-8 animate-in fade-in zoom-in duration-200">
-          <div className="bg-slate-900 text-white p-4 rounded-t-xl flex justify-between items-center shadow-lg">
-            <h3 className="font-bold text-lg flex items-center">
-              <Maximize2 className="mr-2 w-5 h-5 text-blue-400" /> {title} (Full Screen Mode)
-            </h3>
-            <button onClick={closeFullScreen} className="hover:bg-slate-700 p-2 rounded-lg transition-colors flex items-center bg-slate-800 border border-slate-600">
-              <Minimize2 size={18} className="mr-2" /> Close Expansion
-            </button>
-          </div>
-          <div className="bg-white flex-1 overflow-auto rounded-b-xl shadow-2xl p-4 border border-gray-300 custom-scrollbar">
-            {children}
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full relative z-10">
-          <div className="bg-slate-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-            <h3 className="text-gray-800 font-bold text-sm uppercase tracking-wider">{title}</h3>
-            <button onClick={openFullScreen} className="text-gray-500 hover:text-blue-700 hover:bg-blue-50 p-1.5 rounded transition-colors" title="Expand to Full Screen">
-              <Maximize2 size={18} />
-            </button>
-          </div>
-          <div className="p-0 overflow-auto max-h-[500px] custom-scrollbar w-full">
-            {children}
-          </div>
-        </div>
-      )}
-    </>
-  );
-};
 
 const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], onMasterExport, onViewConsolidated, adminCommsData, onAcknowledgeComm, onOpenInbox }) => {
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
