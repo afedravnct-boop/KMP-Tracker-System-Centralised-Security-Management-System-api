@@ -49,6 +49,29 @@ export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = f
   return Boolean(defaultRoleAccess);
 };
 
+// 🟢 CALCULATE GRAND TOTALS UTILITY
+export const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, filterStation) => {
+  const scopedSubmissions = allSubmissions.filter(entry => {
+    if (filterRegion && filterRegion !== 'ALL REGIONS' && entry.region !== filterRegion) return false;
+    if (filterStation && filterStation !== 'ALL STATIONS' && entry.station !== filterStation) return false;
+    return true;
+  });
+
+  const calculatedStationSum = scopedSubmissions.reduce((sum, entry) => {
+    return sum + (Number(entry.total_value || entry.count || entry.amount) || 0);
+  }, 0);
+
+  const hqEntry = scopedSubmissions.find(entry => entry.is_hq_grand_total || entry.station === 'HQ GENERAL');
+  const hqEnteredTotal = hqEntry ? (Number(hqEntry.total_value || hqEntry.count || hqEntry.amount) || 0) : null;
+
+  return {
+    displayTotal: hqEnteredTotal !== null && currentUser?.role !== 'STATION_ADMIN' ? hqEnteredTotal : calculatedStationSum,
+    stationSum: calculatedStationSum,
+    hqTotal: hqEnteredTotal,
+    isReconciled: hqEnteredTotal === null || hqEnteredTotal === calculatedStationSum
+  };
+};
+
 const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], onMasterExport, onViewConsolidated, adminCommsData, onAcknowledgeComm, onOpenInbox }) => {
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
   const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role);
