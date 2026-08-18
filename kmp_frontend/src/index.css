@@ -106,25 +106,28 @@
 /* Sweep & Settle Title Animation for Login Curtain */
 .curtain-title-container {
   overflow: visible;
-  max-width: 100%; /* 🟢 Responsive max-width to prevent mobile cutoff */
+  max-width: none; /* Let text flex freely beyond imaginary box constraints */
+  width: max-content; /* Size dynamically to the content length */
+  margin: 0 auto;
   padding: 0 1rem;
-  word-break: normal;
-  overflow-wrap: break-word;
   box-sizing: border-box;
   text-align: center;
 }
 
 .curtain-title-container h1, 
 .curtain-title-container span {
-  font-size: clamp(0.9rem, 2.2vw, 1.5rem) !important;
-  white-space: normal;
+  /* 🟢 Force single-line display so words never wrap or cut awkwardly */
+  white-space: nowrap !important;
+  word-break: keep-all !important;
+  overflow-wrap: normal !important;
+  font-size: clamp(0.85rem, 1.7vw, 1.3rem) !important;
   letter-spacing: -0.01em;
 }
 
 @media (max-width: 640px) {
   .curtain-title-container h1, 
   .curtain-title-container span {
-    font-size: clamp(0.85rem, 3.8vw, 1.25rem) !important;
+    font-size: clamp(0.6rem, 2.9vw, 1rem) !important;
   }
 }
 
