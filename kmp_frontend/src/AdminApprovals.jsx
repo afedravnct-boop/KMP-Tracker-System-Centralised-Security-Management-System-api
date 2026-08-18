@@ -3,6 +3,7 @@ import {
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe
 } from 'lucide-react';
+import { stripHtmlTags, formatWorksheetAutoFit } from './App';
 
 // 🟢 REGIONAL HIERARCHY CONSTANTS
 const REGIONAL_HIERARCHY = {
@@ -37,15 +38,16 @@ const CLEARANCE_MATRIX_COLS = [
 
 const autoCapitalize = (text) => {
   if (!text) return text;
-  return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
+  return stripHtmlTags(text).replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
     return separator + letter.toUpperCase();
   });
 };
 
 const formatEATDateTime = (dateStr) => {
   if (!dateStr) return 'N/A';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
+  const cleanDateStr = stripHtmlTags(dateStr);
+  const d = new Date(cleanDateStr);
+  if (isNaN(d.getTime())) return cleanDateStr;
 
   return d.toLocaleString('en-GB', {
     timeZone: 'Africa/Nairobi', 
@@ -61,9 +63,9 @@ const formatEATDateTime = (dateStr) => {
 
 // 🟢 Helper to format officer string cleanly: FNUM RANK NAME
 const formatOfficerHeader = (user) => {
-  const fnum = user.fnum || user.f_num || 'NO-FNUM';
-  const rank = user.rank || 'OFFICER';
-  const name = user.name || 'UNKNOWN';
+  const fnum = stripHtmlTags(user.fnum || user.f_num || 'NO-FNUM');
+  const rank = stripHtmlTags(user.rank || 'OFFICER');
+  const name = stripHtmlTags(user.name || 'UNKNOWN');
   return `${fnum} ${rank} ${name}`;
 };
 
@@ -111,8 +113,8 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
   });
 
   // Global Filter States for Super Admin / RPC capabilities
-  const userRoleClean = (currentUser?.role || '').toUpperCase();
-  const userPosClean = (currentUser?.position || '').toUpperCase();
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const isSuperAdminOrTopCommand = (
     userRoleClean === 'SUPER_ADMIN' ||
     userPosClean.includes('KMP COMMANDER') ||
@@ -121,8 +123,8 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     userPosClean.includes('SO ADMIN')
   );
 
-  const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || isSuperAdminOrTopCommand) ? 'ALL STATIONS' : currentUser?.station || '');
+  const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
+  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || isSuperAdminOrTopCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
 
   const isRPC = currentUser && ['RPC', 'Deputy Commander'].includes(currentUser.role);
   const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role);
@@ -201,24 +203,30 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
 
   const filteredPending = useMemo(() => {
     return realPendingUsers.filter(u => {
-      if (filterRegion !== 'ALL REGIONS' && u.region !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && u.station !== filterStation) return false;
+      const uRegion = stripHtmlTags(u.region || '');
+      const uStation = stripHtmlTags(u.station || '');
+      if (filterRegion !== 'ALL REGIONS' && uRegion !== filterRegion) return false;
+      if (filterStation !== 'ALL STATIONS' && uStation !== filterStation) return false;
       return true;
     });
   }, [realPendingUsers, filterRegion, filterStation]);
 
   const filteredRequests = useMemo(() => {
     return modRequests.filter(r => {
-      if (filterRegion !== 'ALL REGIONS' && r.current_region !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && r.current_station !== filterStation) return false;
+      const rRegion = stripHtmlTags(r.current_region || '');
+      const rStation = stripHtmlTags(r.current_station || '');
+      if (filterRegion !== 'ALL REGIONS' && rRegion !== filterRegion) return false;
+      if (filterStation !== 'ALL STATIONS' && rStation !== filterStation) return false;
       return true;
     });
   }, [modRequests, filterRegion, filterStation]);
 
   const filteredResets = useMemo(() => {
     return resetRequests.filter(r => {
-      if (filterRegion !== 'ALL REGIONS' && r.region !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && r.station !== filterStation) return false;
+      const rRegion = stripHtmlTags(r.region || '');
+      const rStation = stripHtmlTags(r.station || '');
+      if (filterRegion !== 'ALL REGIONS' && rRegion !== filterRegion) return false;
+      if (filterStation !== 'ALL STATIONS' && rStation !== filterStation) return false;
       return true;
     });
   }, [resetRequests, filterRegion, filterStation]);
@@ -226,11 +234,11 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
   // 🟢 FILTERED SYSTEM USERS BASED ON REGION & STATION FOR THE MATRIX TAB
   const filteredSystemUsers = useMemo(() => {
     return allSystemUsers.filter(u => {
-      const uReg = (u.region || '').trim().toUpperCase();
-      const uStat = (u.station || '').trim().toUpperCase();
-      
-      const activeReg = (filterRegion || '').trim().toUpperCase();
-      const activeStat = (filterStation || '').trim().toUpperCase();
+      const uReg = stripHtmlTags(u.region || '').trim().toUpperCase();
+      const uStat = stripHtmlTags(u.station || '').trim().toUpperCase();
+       
+      const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
+      const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
       if (activeReg && activeReg !== 'ALL REGIONS' && uReg !== activeReg) {
         return false;
@@ -246,8 +254,8 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
   const filteredLogs = useMemo(() => {
     return audit_logs.filter(log => {
       const logUser = allSystemUsers.find(u => u.fnum === log.user_fnum);
-      const logRegion = log.region || logUser?.region || '';
-      const logStation = log.station || logUser?.station || '';
+      const logRegion = stripHtmlTags(log.region || logUser?.region || '');
+      const logStation = stripHtmlTags(log.station || logUser?.station || '');
 
       if (filterRegion !== 'ALL REGIONS' && logRegion && logRegion !== filterRegion) return false;
       if (filterStation !== 'ALL STATIONS' && logStation && logStation !== filterStation) return false;
@@ -257,7 +265,8 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
 
   // 🟢 EXECUTION ENGINES WITH STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT
   const executePermissionChange = async (fnum, permissionKey, value, reason = '') => {
-    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
+    const cleanFnum = stripHtmlTags(fnum);
+    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser) return;
 
     let locks = targetUser.permissions?.super_admin_locks || {};
@@ -272,57 +281,58 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
       ...(targetUser.permissions || {}),
       [permissionKey]: value,
       super_admin_locks: locks,
-      [`${permissionKey}_revoke_reason`]: reason || targetUser.permissions?.[`${permissionKey}_revoke_reason`]
+      [`${permissionKey}_revoke_reason`]: stripHtmlTags(reason || targetUser.permissions?.[`${permissionKey}_revoke_reason`])
     };
 
-    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, permissions: updatedPermissions } : u));
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
 
     try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum.trim())}/access`, {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
       });
-      
+       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `HTTP Error ${response.status}`);
+        throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
       }
     } catch (err) {
-      alert(`Permission Update Failed:\n${err.message}`);
+      alert(`Permission Update Failed:\n${stripHtmlTags(err.message)}`);
       fetchAllSystemUsers();
     }
   };
 
   const executeRoleChange = async (fnum, newRole, reason = '') => {
-    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
+    const cleanFnum = stripHtmlTags(fnum);
+    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser) return;
 
     let updatedPermissions = { ...(targetUser.permissions || {}) };
 
     if (newRole === 'REVOKED') {
-      updatedPermissions.revoke_reason = reason;
-      updatedPermissions.revoked_by = isSuperAdminOrTopCommand ? 'SUPER_ADMIN' : currentUser?.role;
+      updatedPermissions.revoke_reason = stripHtmlTags(reason);
+      updatedPermissions.revoked_by = isSuperAdminOrTopCommand ? 'SUPER_ADMIN' : stripHtmlTags(currentUser?.role);
     } else if (isSuperAdminOrTopCommand) {
       delete updatedPermissions.revoked_by;
       delete updatedPermissions.revoke_reason;
     }
 
-    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
     try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum.trim())}/access`, {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
-      
+       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `HTTP Error ${response.status}`);
+        throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
       }
     } catch (err) {
-      alert(`Role Update Failed:\n${err.message}`);
+      alert(`Role Update Failed:\n${stripHtmlTags(err.message)}`);
       fetchAllSystemUsers();
     }
   };
@@ -334,7 +344,8 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     return;
   }
 
-  const targetUser = allSystemUsers.find(u => u.fnum === fnum);
+  const cleanFnum = stripHtmlTags(fnum);
+  const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
   if (!targetUser) return;
 
   // STRICT TOP COMMAND REINSTATEMENT LOCK (Blocks standard users/RPCs from unlocking Super Admin locks)
@@ -347,7 +358,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
   if (value === false && !isSuperAdminOrTopCommand) {
     setRevokePrompt({
       isOpen: true,
-      fnum,
+      fnum: cleanFnum,
       actionType: 'PERMISSION',
       targetValue: value,
       permissionKey,
@@ -372,21 +383,21 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     super_admin_locks: locks
   };
 
-  setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, permissions: updatedPermissions } : u));
+  setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
 
   try {
-    const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum.trim())}/access`, {
+    const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
     });
-      
+       
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || `HTTP Error ${response.status}`);
+      throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
     }
   } catch (err) {
-    alert(`Permission Update Failed:\n${err.message}`);
+    alert(`Permission Update Failed:\n${stripHtmlTags(err.message)}`);
     fetchAllSystemUsers();
   }
 };
@@ -398,7 +409,8 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
       return;
     }
 
-    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
+    const cleanFnum = stripHtmlTags(fnum);
+    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser) return;
 
     // STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT LOCK (Blocks non-Super Admins)
@@ -409,7 +421,8 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
 
     // STATION ADMIN validation: Max 3 users per station rule check
     if (currentUser?.role === 'STATION_ADMIN') {
-      const stationUsersCount = allSystemUsers.filter(u => u.station === currentUser.station).length;
+      const currentUserStation = stripHtmlTags(currentUser.station || '');
+      const stationUsersCount = allSystemUsers.filter(u => stripHtmlTags(u.station || '') === currentUserStation).length;
       if (stationUsersCount >= 3 && newRole !== 'USER' && newRole !== 'REVOKED') {
         alert("Station Admin Limit: You are restricted to managing a maximum of 3 users per station.");
         return;
@@ -420,7 +433,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     if (newRole === 'REVOKED' && !isSuperAdminOrTopCommand) {
       setRevokePrompt({
         isOpen: true,
-        fnum,
+        fnum: cleanFnum,
         actionType: 'ROLE',
         targetValue: newRole,
         permissionKey: null,
@@ -435,21 +448,21 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
       delete updatedPermissions.revoke_reason;
     }
 
-    setAllSystemUsers(allSystemUsers.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
     try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(fnum.trim())}/access`, {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
-        
+       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `HTTP Error ${response.status}`);
+        throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
       }
     } catch (err) {
-      alert(`Role Update Failed:\n${err.message}`);
+      alert(`Role Update Failed:\n${stripHtmlTags(err.message)}`);
       fetchAllSystemUsers();
     }
   };
@@ -458,7 +471,8 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const safeFnum = encodeURIComponent(fnum.trim());
+      const cleanFnum = stripHtmlTags(fnum);
+      const safeFnum = encodeURIComponent(cleanFnum.trim());
 
       const response = await fetch(`${API_URL}/api/v1/admin/approve-user/${safeFnum}`, {
         method: "PATCH",
@@ -469,13 +483,13 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Failed to approve user.");
+      if (!response.ok) throw new Error(stripHtmlTags(data.detail) || "Failed to approve user.");
 
-      alert(`Success: ${data.message}`);
+      alert(`Success: ${stripHtmlTags(data.message)}`);
       fetchPendingUsers();
       fetchAllSystemUsers();
     } catch (err) {
-      alert(`Approval Error: ${err.message}`);
+      alert(`Approval Error: ${stripHtmlTags(err.message)}`);
     }
   };
 
@@ -484,15 +498,15 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
 
     let payload = { status: actionStatus };
     if (actionStatus === "REJECTED") {
-      const reason = window.prompt("State the reason for rejecting this HR request:");
-      if (reason === null) return; 
-      payload.reason = reason;
+      const rawReason = window.prompt("State the reason for rejecting this HR request:");
+      if (rawReason === null) return; 
+      payload.reason = stripHtmlTags(rawReason);
     }
 
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        
+       
       const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
         method: "PATCH", 
         headers: { 
@@ -501,16 +515,16 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
         }, 
         body: JSON.stringify(payload)
       });
-        
+       
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `Server Error: ${response.status}`);
+        throw new Error(stripHtmlTags(errData.detail) || `Server Error: ${response.status}`);
       }
-        
+       
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId));
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
-      alert(`Error processing request: ${err.message}`);
+      alert(`Error processing request: ${stripHtmlTags(err.message)}`);
     }
   };
 
@@ -518,25 +532,25 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     try {
       const formData = new URLSearchParams();
       formData.append('action', actionStr);
-        
+       
       const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
         method: "POST", 
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, 
         body: formData
       });
-        
+       
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail);
-        
+      if (!response.ok) throw new Error(stripHtmlTags(data.detail));
+       
       setResetRequests(resetRequests.filter(r => r.id !== reqId));
-        
+       
       if (actionStr === "APPROVE") {
-        alert(`Password successfully reset! Temporary key: ${data.new_password}`);
+        alert(`Password successfully reset! Temporary key: ${stripHtmlTags(data.new_password)}`);
       } else {
         alert("Request rejected.");
       }
     } catch (err) { 
-      alert(`Error: ${err.message}`); 
+      alert(`Error: ${stripHtmlTags(err.message)}`); 
     }
   };
 
@@ -552,24 +566,24 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
       <div className="flex flex-col sm:flex-row justify-center gap-3 mb-4">
         <select 
           value={filterRegion} 
-          onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
+          onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} 
           disabled={!isSuperAdminOrTopCommand} 
           className="border border-slate-300 rounded-xl px-4 py-2 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
         >
           {isSuperAdminOrTopCommand ? (
             <><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY || {}).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-          ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+          ) : <option value={currentUser?.region}>{stripHtmlTags(currentUser?.region)}</option>}
         </select>
 
         <select 
           value={filterStation} 
-          onChange={(e) => setFilterStation(e.target.value)} 
+          onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} 
           disabled={!isSuperAdminOrTopCommand && !['RPC', 'Deputy Commander'].includes(currentUser?.role)} 
           className="border border-slate-300 rounded-xl px-4 py-2 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
         >
           {isSuperAdminOrTopCommand || ['RPC', 'Deputy Commander'].includes(currentUser?.role) ? (
             <><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
-          ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+          ) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
         </select>
       </div>
 
@@ -587,13 +601,13 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
         <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden w-full">
           <div className="bg-slate-900 text-white p-4 text-xs font-extrabold uppercase tracking-wider flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
             <span className="flex items-center">
-              <Shield className="w-4 h-4 mr-2 text-indigo-400" /> Super Control Panel - Active Roster Matrix ({filterRegion} {filterStation !== 'ALL STATIONS' ? `/ ${filterStation}` : ''})
+              <Shield className="w-4 h-4 mr-2 text-indigo-400" /> Super Control Panel - Active Roster Matrix ({stripHtmlTags(filterRegion)} {filterStation !== 'ALL STATIONS' ? `/ ${stripHtmlTags(filterStation)}` : ''})
             </span>
             <span className="text-[10px] text-slate-400 font-mono text-right">
               Tiers: USER | ADMIN_USER | STATION_ADMIN | SYSTEM_ADMIN | SUPER_ADMIN_USER | SUPER_ADMIN | REVOKED
             </span>
           </div>
-          
+           
           {loadingUsers ? (
             <div className="p-12 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
           ) : filteredSystemUsers.length === 0 ? (
@@ -605,7 +619,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                   <tr>
                     <th className="p-3 text-left sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Officer Details</th>
                     <th className="p-3 text-center sticky left-[240px] z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Administrative Tier</th>
-                    
+                     
                     {CLEARANCE_MATRIX_COLS.map((col, idx) => {
                       // 🟢 Hide Global Observer column completely if current user is not SUPER_ADMIN
                       if (col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN') {
@@ -616,7 +630,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                         <th key={idx} className={`p-2 text-center border-l border-white/50 ${col.bg || ''}`}>
                           <div className="w-16 mx-auto whitespace-normal break-words leading-tight">
                             {col.key === 'global_observer' && <Globe className="w-3 h-3 mx-auto text-fuchsia-600 mb-1" />}
-                            {col.label}
+                            {stripHtmlTags(col.label)}
                           </div>
                         </th>
                       );
@@ -628,7 +642,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                     const p = u.permissions || {};
                     const isSuperAdmin = u.role === 'SUPER_ADMIN';
                     const isRevoked = u.role === 'REVOKED';
-                    
+                     
                     // 🟢 PREVENT LOWER ADMINS FROM DEMOTING A SUPER ADMIN
                     const isRoleSelectDisabled = isSuperAdmin && currentUser?.role !== 'SUPER_ADMIN';
 
@@ -650,14 +664,14 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                             {p.revoked_by === 'SUPER_ADMIN' && <Lock size={12} className="ml-2 text-red-600" title="Revoked by Super Admin" />}
                           </div>
                           <div className={`text-[10px] font-mono mt-0.5 ${isRevoked ? 'text-red-500' : 'text-slate-500'}`}>
-                            Station: <strong className={isRevoked ? 'text-red-700' : 'text-slate-700'}>{u.station}</strong> ({u.region})
+                            Station: <strong className={isRevoked ? 'text-red-700' : 'text-slate-700'}>{stripHtmlTags(u.station)}</strong> ({stripHtmlTags(u.region)})
                           </div>
                         </td>
 
                         <td className="p-3 text-center sticky left-[240px] z-10 bg-white shadow-[1px_0_0_#e2e8f0]">
                           <select 
                             value={u.role || 'USER'}
-                            onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)}
+                            onChange={(e) => handleRoleTierChange(u.fnum, stripHtmlTags(e.target.value))}
                             disabled={isRoleSelectDisabled}
                             className={`border rounded-md px-2 py-1 font-bold outline-none cursor-pointer text-[10px] uppercase w-full ${
                               u.role === 'SUPER_ADMIN' ? 'bg-red-50 text-red-700 border-red-300' :
@@ -748,16 +762,16 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                     <tr key={user.fnum} className="hover:bg-blue-50/50">
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="font-bold text-slate-900">{formatOfficerHeader(user)}</div>
-                        <div className="text-[11px] text-slate-400">{user.phone}</div>
+                        <div className="text-[11px] text-slate-400">{stripHtmlTags(user.phone)}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-bold text-blue-700">{user.station}</div>
-                        <div className="text-[11px] text-slate-500">{user.region}</div>
-                        <div className="text-[10px] bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block border font-bold text-slate-600">{user.position}</div>
+                        <div className="font-bold text-blue-700">{stripHtmlTags(user.station)}</div>
+                        <div className="text-[11px] text-slate-500">{stripHtmlTags(user.region)}</div>
+                        <div className="text-[10px] bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block border font-bold text-slate-600">{stripHtmlTags(user.position)}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span className={`px-2 inline-flex text-[11px] font-bold rounded-full border ${user.role?.includes('ADMIN') ? 'bg-purple-100 text-purple-800 border-purple-200' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>
-                          {user.role}
+                          {stripHtmlTags(user.role)}
                         </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
@@ -803,9 +817,9 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-700">
-                        {req.requested_name && req.requested_name !== req.current_name && <div className="text-xs"><span className="font-bold text-slate-400">Name:</span> <span className="text-red-500 line-through mr-1">{req.current_name}</span> ➡️ <span className="text-emerald-600 font-bold">{req.requested_name}</span></div>}
-                        {req.requested_rank && req.requested_rank !== req.current_rank && <div className="text-xs"><span className="font-bold text-slate-400">Rank:</span> <span className="text-red-500 line-through mr-1">{req.current_rank}</span> ➡️ <span className="text-emerald-600 font-bold">{req.requested_rank}</span></div>}
-                        {req.requested_station && req.requested_station !== req.current_station && <div className="text-xs"><span className="font-bold text-slate-400">Station:</span> <span className="text-red-500 line-through mr-1">{req.current_station}</span> ➡️ <span className="text-emerald-600 font-bold">{req.requested_station}</span></div>}
+                        {req.requested_name && req.requested_name !== req.current_name && <div className="text-xs"><span className="font-bold text-slate-400">Name:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_name)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_name)}</span></div>}
+                        {req.requested_rank && req.requested_rank !== req.current_rank && <div className="text-xs"><span className="font-bold text-slate-400">Rank:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_rank)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_rank)}</span></div>}
+                        {req.requested_station && req.requested_station !== req.current_station && <div className="text-xs"><span className="font-bold text-slate-400">Station:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_station)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_station)}</span></div>}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex space-x-2">
@@ -827,7 +841,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
           <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center justify-between text-white font-semibold text-xs uppercase tracking-wider">
             <span className="flex items-center">
-              <Shield className="w-4 h-4 mr-2 text-blue-400" /> System Audit Logs ({filterRegion} {filterStation !== 'ALL STATIONS' ? `/ ${filterStation}` : ''})
+              <Shield className="w-4 h-4 mr-2 text-blue-400" /> System Audit Logs ({stripHtmlTags(filterRegion)} {filterStation !== 'ALL STATIONS' ? `/ ${stripHtmlTags(filterStation)}` : ''})
             </span>
           </div>
           <div className="overflow-x-auto">
@@ -850,12 +864,12 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                   filteredLogs.map((log) => (
                     <tr key={log.id} className="hover:bg-slate-50">
                       <td className="px-4 py-3 whitespace-nowrap text-slate-500 font-mono text-[11px]">
-                        {log.created_at || 'Unknown Time'}
+                        {stripHtmlTags(log.created_at || 'Unknown Time')}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap font-extrabold text-blue-700">{log.user_fnum}</td>
-                      <td className="px-4 py-3 whitespace-nowrap"><span className="font-extrabold text-slate-800 uppercase text-[11px]">{log.event_type}</span></td>
-                      <td className="px-4 py-3 text-slate-600 font-medium">{log.target_user || 'N/A'}</td>
-                      <td className="px-4 py-3 text-slate-600">{log.details}</td>
+                      <td className="px-4 py-3 whitespace-nowrap font-extrabold text-blue-700">{stripHtmlTags(log.user_fnum)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap"><span className="font-extrabold text-slate-800 uppercase text-[11px]">{stripHtmlTags(log.event_type)}</span></td>
+                      <td className="px-4 py-3 text-slate-600 font-medium">{stripHtmlTags(log.target_user || 'N/A')}</td>
+                      <td className="px-4 py-3 text-slate-600">{stripHtmlTags(log.details)}</td>
                     </tr>
                   ))
                 )}
@@ -889,15 +903,15 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                 <tbody className="bg-white divide-y divide-slate-200">
                   {filteredResets.map((req) => (
                     <tr key={req.id} className="hover:bg-red-50/50">
-                      <td className="px-4 py-3 whitespace-nowrap font-bold text-slate-500 text-[11px]">{req.request_date}</td>
+                      <td className="px-4 py-3 whitespace-nowrap font-bold text-slate-500 text-[11px]">{stripHtmlTags(req.request_date)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="font-extrabold text-blue-700">
                           {formatOfficerHeader({ fnum: req.fnum, rank: req.rank, name: req.name })}
                         </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-slate-700">
-                        <div className="font-bold">{req.station}</div>
-                        <div className="text-[11px] text-slate-500">{req.region}</div>
+                        <div className="font-bold">{stripHtmlTags(req.station)}</div>
+                        <div className="text-[11px] text-slate-500">{stripHtmlTags(req.region)}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex space-x-2">
@@ -922,19 +936,19 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                     <AlertTriangle className="text-white mr-3 animate-pulse" size={24} />
                     <h3 className="text-white font-extrabold text-sm uppercase tracking-wider">Mandatory Justification Required</h3>
                 </div>
-                
+                 
                 <div className="p-6 space-y-4">
                     <p className="text-sm font-bold text-slate-700 leading-relaxed">
-                        You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${revokePrompt.permissionKey}" clearance`}</span> for this officer. By command directive, you must state an official operational reason to proceed.
+                        You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${stripHtmlTags(revokePrompt.permissionKey)}" clearance`}</span> for this officer. By command directive, you must state an official operational reason to proceed.
                     </p>
                     <textarea 
                         value={revokePrompt.reason}
-                        onChange={(e) => setRevokePrompt({...revokePrompt, reason: e.target.value})}
+                        onChange={(e) => setRevokePrompt({...revokePrompt, reason: stripHtmlTags(e.target.value)})}
                         placeholder="Type official reason for revocation here..."
                         className="w-full border border-slate-300 rounded-xl p-3 text-sm font-medium outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 resize-none h-32"
                     />
                 </div>
-                
+                 
                 <div className="bg-slate-50 px-6 py-4 flex justify-end space-x-3 border-t border-slate-200 shrink-0">
                     <button 
                         onClick={() => setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' })}

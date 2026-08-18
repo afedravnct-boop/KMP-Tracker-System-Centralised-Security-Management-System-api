@@ -3811,6 +3811,41 @@ const DashboardLayout = ({
   );
 };
 
+export const stripHtmlTags = (html) => {
+  if (!html) return '';
+  return String(html).replace(/<[^>]*>?/gm, '').trim();
+};
+
+export const formatWorksheetAutoFit = (ws, maxLongColWidth = 55) => {
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+  const colWidths = [];
+
+  for (let C = range.s.c; C <= range.e.c; ++C) {
+    let maxLength = 10;
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+      const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
+      if (ws[cellRef] && ws[cellRef].v !== undefined) {
+        const valStr = String(ws[cellRef].v);
+        if (valStr.length > maxLength) {
+          maxLength = valStr.length;
+        }
+      }
+    }
+    colWidths.push({ wch: Math.min(maxLength + 4, maxLongColWidth) });
+  }
+
+  ws['!cols'] = colWidths;
+
+  for (let R = range.s.r; R <= range.e.r; ++R) {
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+      const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
+      if (ws[cellRef]) {
+        if (!ws[cellRef].s) ws[cellRef].s = {};
+        ws[cellRef].s.alignment = { wrapText: true, vertical: 'top' };
+      }
+    }
+  }
+};
 
 // ====================================================================
 // --- MAIN APP COMPONENT ---
