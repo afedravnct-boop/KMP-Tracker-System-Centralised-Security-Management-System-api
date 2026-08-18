@@ -35,7 +35,6 @@ const normalizeOffenceCategory = (rawOffence) => {
   
   let clean = String(rawOffence).trim().toUpperCase();
 
-  // 1. Resolve known structural synonyms explicitly
   if (clean.includes("FATAL") && (clean.includes("TRAFFIC") || clean.includes("ACCIDENT"))) {
     return "TRAFFIC ACCIDENT (FATAL)";
   }
@@ -46,7 +45,6 @@ const normalizeOffenceCategory = (rawOffence) => {
     return "DEFILEMENT / RAPE";
   }
 
-  // 2. Fallback: Alphabetize keywords to make order irrelevant
   const words = clean.replace(/[^A-Z0-9\s]/g, '').split(/\s+/).filter(Boolean);
   words.sort();
   
@@ -296,9 +294,11 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     return `${target.getFullYear()}-W${String(weekNr).padStart(2, '0')}`;
   };
 
+  // 🟢 Hierarchical Week Comparison: Region -> Stations -> Region-by-Region Breakdown
   const weekComparisonData = useMemo(() => {
     const reports = Array.isArray(crimeRegistry) ? crimeRegistry : [];
 
+    // Filter by selected region/station filter inputs if any
     const filtered = reports.filter(r => {
       if (isLockupLog(r)) return false; 
 
@@ -309,7 +309,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       return true;
     });
 
-    const stationWeekMap = {};
+    const regionMap = {};
     const allWeeksSet = new Set();
 
     filtered.forEach(r => {
@@ -320,34 +320,68 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       if (!weekId) return;
       allWeeksSet.add(weekId);
 
-      if (!stationWeekMap[station]) {
-        stationWeekMap[station] = { region, station, weeks: {} };
+      if (!regionMap[region]) {
+        regionMap[region] = { regionName: region, stations: {}, currentWeekTotal: 0, previousWeekTotal: 0 };
       }
-      stationWeekMap[station].weeks[weekId] = (stationWeekMap[station].weeks[weekId] || 0) + 1;
+      if (!regionMap[region].stations[station]) {
+        regionMap[region].stations[station] = { station, weeks: {} };
+      }
+      regionMap[region].stations[station].weeks[weekId] = (regionMap[region].stations[station].weeks[weekId] || 0) + 1;
     });
 
     const sortedWeeks = Array.from(allWeeksSet).sort();
     const currentWeek = sortedWeeks[sortedWeeks.length - 1] || 'N/A';
     const previousWeek = sortedWeeks[sortedWeeks.length - 2] || 'N/A';
 
-    const rows = Object.values(stationWeekMap).map(item => {
-      const currentCount = item.weeks[currentWeek] || 0;
-      const previousCount = item.weeks[previousWeek] || 0;
-      const diff = currentCount - previousCount;
-      const pctChange = previousCount === 0 ? (currentCount > 0 ? 100 : 0) : Math.round((diff / previousCount) * 100);
+    // Build hierarchical flat rows or structured groups: Region -> Stations, then Region by Region
+    const hierarchicalRows = [];
 
-      return {
-        region: item.region,
-        station: item.station,
-        currentWeekCount: currentCount,
-        previousWeekCount: previousCount,
-        diff,
-        pctChange
-      };
+    Object.values(regionMap).forEach(regObj => {
+      let regCur = 0;
+      let regPrev = 0;
+
+      const stationRows = Object.values(regObj.stations).map(stnObj => {
+        const cur = stnObj.weeks[currentWeek] || 0;
+        const prev = stnObj.weeks[previousWeek] || 0;
+        regCur += cur;
+        regPrev += prev;
+        const diff = cur - prev;
+        const pctChange = prev === 0 ? (cur > 0 ? 100 : 0) : Math.round((diff / prev) * 100);
+
+        return {
+          isRegionHeader: false,
+          region: regObj.regionName,
+          station: stnObj.station,
+          currentWeekCount: cur,
+          previousWeekCount: prev,
+          diff,
+          pctChange
+        };
+      });
+
+      // Sort stations inside this region highest volume first
+      stationRows.sort((a, b) => b.currentWeekCount - a.currentWeekCount);
+
+      const regDiff = regCur - regPrev;
+      const regPct = regPrev === 0 ? (regCur > 0 ? 100 : 0) : Math.round((regDiff / regPrev) * 100);
+
+      // Push Region Summary Header Row
+      hierarchicalRows.push({
+        isRegionHeader: true,
+        region: regObj.regionName,
+        station: `${regObj.regionName} (REGIONAL TOTAL)`,
+        currentWeekCount: regCur,
+        previousWeekCount: regPrev,
+        diff: regDiff,
+        pctChange: regPct
+      });
+
+      // Push its constituent stations/establishments/divisions underneath
+      hierarchicalRows.push(...stationRows);
     });
 
     return {
-      rows: rows.sort((a, b) => b.currentWeekCount - a.currentWeekCount),
+      rows: hierarchicalRows,
       currentWeek,
       previousWeek
     };
@@ -454,7 +488,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
   };
 
   return (
-    // 🟢 DESERT GRASS BACKGROUND CONTAINER (#f4eee2) WITH WARM NATURAL ACCENTS
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 animate-in fade-in duration-300 font-sans min-h-screen" style={{ backgroundColor: '#f4eee2' }}>
       
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#fbf8f3] p-6 rounded-2xl shadow-sm border border-[#e2d6c3] gap-4">
@@ -498,10 +531,10 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
           <div className="bg-[#3a3225] rounded-2xl p-6 text-[#f4eee2] shadow-xl flex flex-col md:flex-row justify-between items-center gap-4 border border-[#534735]">
             <div>
               <h2 className="text-xl font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-                <TrendingUp className="mr-3 text-[#C5A880] w-6 h-6" /> Week-to-Week Comparative Crime Volume
+                <TrendingUp className="mr-3 text-[#C5A880] w-6 h-6" /> Hierarchical Region & Station Crime Volume Trends
               </h2>
               <p className="text-xs text-[#b8ab97] mt-1 uppercase tracking-wider">
-                Analyzing trends across regions and stations ({weekComparisonData.previousWeek} vs {weekComparisonData.currentWeek})
+                Comparing Regional Totals down to Divisional & Station Establishments ({weekComparisonData.previousWeek} vs {weekComparisonData.currentWeek})
               </p>
             </div>
 
@@ -537,7 +570,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
               <div>
                 <span className="text-xs font-bold text-[#736450] uppercase tracking-wider">Current Period ({weekComparisonData.currentWeek})</span>
                 <div className="text-3xl font-extrabold text-[#596E47] mt-1">
-                  {weekComparisonData.rows.reduce((sum, r) => sum + r.currentWeekCount, 0)} <span className="text-sm font-medium text-[#736450]">Cases</span>
+                  {weekComparisonData.rows.filter(r => r.isRegionHeader).reduce((sum, r) => sum + r.currentWeekCount, 0)} <span className="text-sm font-medium text-[#736450]">Cases</span>
                 </div>
               </div>
               <div className="w-12 h-12 bg-[#e9eedf] rounded-xl flex items-center justify-center text-[#596E47]">
@@ -549,7 +582,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
               <div>
                 <span className="text-xs font-bold text-[#736450] uppercase tracking-wider">Previous Period ({weekComparisonData.previousWeek})</span>
                 <div className="text-3xl font-extrabold text-[#594d3c] mt-1">
-                  {weekComparisonData.rows.reduce((sum, r) => sum + r.previousWeekCount, 0)} <span className="text-sm font-medium text-[#736450]">Cases</span>
+                  {weekComparisonData.rows.filter(r => r.isRegionHeader).reduce((sum, r) => sum + r.previousWeekCount, 0)} <span className="text-sm font-medium text-[#736450]">Cases</span>
                 </div>
               </div>
               <div className="w-12 h-12 bg-[#efece6] rounded-xl flex items-center justify-center text-[#736450]">
@@ -561,8 +594,9 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
               <div>
                 <span className="text-xs font-bold text-[#736450] uppercase tracking-wider">Net Trend Shift</span>
                 {(() => {
-                  const curTotal = weekComparisonData.rows.reduce((sum, r) => sum + r.currentWeekCount, 0);
-                  const prevTotal = weekComparisonData.rows.reduce((sum, r) => sum + r.previousWeekCount, 0);
+                  const regHeaders = weekComparisonData.rows.filter(r => r.isRegionHeader);
+                  const curTotal = regHeaders.reduce((sum, r) => sum + r.currentWeekCount, 0);
+                  const prevTotal = regHeaders.reduce((sum, r) => sum + r.previousWeekCount, 0);
                   const diff = curTotal - prevTotal;
                   return (
                     <div className={`text-3xl font-extrabold mt-1 flex items-center ${diff <= 0 ? 'text-[#596E47]' : 'text-amber-800'}`}>
@@ -581,10 +615,10 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
           <div className="bg-[#fbf8f3] rounded-xl shadow-sm border border-[#e2d6c3] overflow-hidden">
             <div className="bg-[#f4eee2] px-6 py-4 border-b border-[#e2d6c3] flex justify-between items-center">
               <h3 className="font-extrabold text-[#3a3225] text-sm uppercase tracking-wider flex items-center">
-                <Filter size={16} className="mr-2 text-[#596E47]" /> Week-to-Week Crime Volume Breakdown by Station
+                <Filter size={16} className="mr-2 text-[#596E47]" /> Hierarchical Breakdown: Region ➔ Divisions & Stations
               </h3>
               <span className="text-xs font-bold text-[#736450] bg-[#fbf8f3] px-3 py-1 rounded-full border border-[#e2d6c3] shadow-xs">
-                {weekComparisonData.rows.length} Stations Monitored
+                Region-by-Region Progression
               </span>
             </div>
 
@@ -592,8 +626,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
               <table className="min-w-full divide-y divide-[#e2d6c3]">
                 <thead className="bg-[#efece6]">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase tracking-wider">Region</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase tracking-wider">Station / Division</th>
+                    <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase tracking-wider">Command Region</th>
+                    <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase tracking-wider">Establishment / Division / Station</th>
                     <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase tracking-wider">Previous Week ({weekComparisonData.previousWeek})</th>
                     <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase tracking-wider">Current Week ({weekComparisonData.currentWeek})</th>
                     <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase tracking-wider">Variance (Cases)</th>
@@ -604,28 +638,57 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
                   {weekComparisonData.rows.map((row, index) => {
                     const diff = row.currentWeekCount - row.previousWeekCount;
                     const pctChange = row.previousWeekCount === 0 ? (row.currentWeekCount > 0 ? 100 : 0) : Math.round((diff / row.previousWeekCount) * 100);
+                    
+                    if (row.isRegionHeader) {
+                      return (
+                        <tr key={`reg-${index}`} className="bg-[#efece6] font-extrabold text-[#3a3225] border-t-2 border-[#d3c2a8]">
+                          <td className="px-6 py-3.5 whitespace-nowrap text-xs text-[#3a3225] uppercase tracking-wider" colSpan="2">
+                            🛡️ {row.station}
+                          </td>
+                          <td className="px-6 py-3.5 whitespace-nowrap text-sm text-center font-extrabold">{row.previousWeekCount}</td>
+                          <td className="px-6 py-3.5 whitespace-nowrap text-sm text-center font-black">{row.currentWeekCount}</td>
+                          <td className={`px-6 py-3.5 whitespace-nowrap text-sm text-center font-black ${diff > 0 ? 'text-amber-900' : diff < 0 ? 'text-[#3b4c2e]' : 'text-[#736450]'}`}>
+                            {diff > 0 ? `+${diff}` : diff}
+                          </td>
+                          <td className="px-6 py-3.5 whitespace-nowrap text-center">
+                            {diff > 0 ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded text-[11px] font-extrabold bg-amber-200 text-amber-900">
+                                <TrendingUp size={12} className="mr-1" /> +{pctChange}% (Up)
+                              </span>
+                            ) : diff < 0 ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded text-[11px] font-extrabold bg-[#d5e2c5] text-[#2c3822]">
+                                <TrendingDown size={12} className="mr-1" /> {pctChange}% (Down)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded text-[11px] font-bold bg-[#e2d6c3] text-[#594d3c]">
+                                Stable (0%)
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    }
+
                     return (
-                      <tr key={index} className="even:bg-[#f4eee2]/50 hover:bg-[#e9eedf]/30 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap text-xs font-bold text-[#736450] uppercase">{row.region}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-extrabold text-[#3a3225]">{row.station}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-bold text-[#736450]">{row.previousWeekCount}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-extrabold text-[#3a3225]">{row.currentWeekCount}</td>
-                        <td className={`px-6 py-4 whitespace-nowrap text-sm text-center font-extrabold ${diff > 0 ? 'text-amber-800' : diff < 0 ? 'text-[#596E47]' : 'text-[#736450]'}`}>
+                      <tr key={`stn-${index}`} className="hover:bg-[#e9eedf]/30 transition-colors">
+                        <td className="px-6 py-3 pl-10 whitespace-nowrap text-xs font-bold text-[#736450] uppercase">{row.region}</td>
+                        <td className="px-6 py-3 whitespace-nowrap text-xs font-bold text-[#594d3c]">— {row.station}</td>
+                        <td className="px-6 py-3 whitespace-nowrap text-xs text-center font-medium text-[#736450]">{row.previousWeekCount}</td>
+                        <td className="px-6 py-3 whitespace-nowrap text-xs text-center font-bold text-[#3a3225]">{row.currentWeekCount}</td>
+                        <td className={`px-6 py-3 whitespace-nowrap text-xs text-center font-bold ${diff > 0 ? 'text-amber-800' : diff < 0 ? 'text-[#596E47]' : 'text-[#736450]'}`}>
                           {diff > 0 ? `+${diff}` : diff}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                        <td className="px-6 py-3 whitespace-nowrap text-center">
                           {diff > 0 ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900">
-                              <TrendingUp size={14} className="mr-1" /> +{pctChange}% (Up)
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900">
+                              +{pctChange}%
                             </span>
                           ) : diff < 0 ? (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-[#e9eedf] text-[#3b4c2e]">
-                              <TrendingDown size={14} className="mr-1" /> {pctChange}% (Down)
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e9eedf] text-[#3b4c2e]">
+                              {pctChange}%
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-[#efece6] text-[#736450]">
-                              Stable (0%)
-                            </span>
+                            <span className="text-[10px] text-[#736450] font-medium">—</span>
                           )}
                         </td>
                       </tr>
