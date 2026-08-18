@@ -38,6 +38,23 @@ const normalizeOffenceCategory = (rawOffence) => {
   return words.join(' ') || clean;
 };
 
+const getOfficialRegionForStation = (stationName, dbRegion) => {
+  const cleanStation = (stationName || '').trim().toUpperCase();
+  const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
+
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
+    return cleanDbRegion;
+  }
+
+  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
+    if (stationsList.includes(cleanStation)) {
+      return regionName;
+    }
+  }
+
+  return cleanDbRegion || 'KMP GENERAL';
+};
+
 const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStories = [], operationalStats = [], currentUser }) => {
   const [activeDomain, setActiveDomain] = useState('CRIME');
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
@@ -53,6 +70,15 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     else if (activeDomain === 'PERSONNEL') baseData = nominalRolls;
     else if (activeDomain === 'SUCCESS') baseData = successStories;
     else if (activeDomain === 'OPERATIONS') baseData = operationalStats;
+
+    baseData = baseData.filter(item => {
+      const stn = (item.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, item.region);
+
+      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
+      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation.toUpperCase()) return false;
+      return true;
+    });
 
     if (activeDomain !== 'PERSONNEL' && activeDomain !== 'RELATIONAL' && dateFilter !== 'ALL') {
       const now = new Date();
@@ -74,7 +100,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       });
     }
     return baseData;
-  }, [activeDomain, crimeRegistry, nominalRolls, successStories, operationalStats, dateFilter]);
+  }, [activeDomain, crimeRegistry, nominalRolls, successStories, operationalStats, dateFilter, selectedRegion, selectedStation]);
 
   const aggregatedData = useMemo(() => {
     const grouped = {};
@@ -129,7 +155,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     return `${target.getFullYear()}-W${String(weekNr).padStart(2, '0')}`;
   };
 
-  // 🟢 RELATIONAL IMPACT MATRIX: Links Operations (Arrests/Snaps) -> Success Stories -> Crime Reductions
   const relationalImpactMatrix = useMemo(() => {
     const reports = Array.isArray(crimeRegistry) ? crimeRegistry.filter(r => !isLockupLog(r)) : [];
     const ops = Array.isArray(operationalStats) ? operationalStats : [];
@@ -145,8 +170,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     });
 
     ops.forEach(o => {
-      const reg = (o.region || '').trim().toUpperCase();
       const stn = (o.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, o.region);
       const arrestsCount = Number(o.arrests || o.suspects || o.suspects_arrested || 1);
       
       if (regionMap[reg] && regionMap[reg].stations[stn]) {
@@ -156,8 +181,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     });
 
     successes.forEach(s => {
-      const reg = (s.region || '').trim().toUpperCase();
       const stn = (s.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, s.region);
       if (regionMap[reg] && regionMap[reg].stations[stn]) {
         regionMap[reg].stations[stn].successes += 1;
         regionMap[reg].totalSuccesses += 1;
@@ -165,8 +190,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     });
 
     reports.forEach(r => {
-      const reg = (r.region || '').trim().toUpperCase();
       const stn = (r.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, r.region);
       if (regionMap[reg] && regionMap[reg].stations[stn]) {
         regionMap[reg].stations[stn].crimes += 1;
         regionMap[reg].crimeCount += 1;
@@ -175,19 +200,16 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
 
     const rows = [];
     Object.values(regionMap).forEach(regObj => {
-      rows.push({
-        isRegionHeader: true,
-        region: regObj.region,
-        station: `${regObj.region} (REGIONAL COMMAND)`,
-        arrests: regObj.totalArrests,
-        successes: regObj.totalSuccesses,
-        crimes: regObj.crimeCount,
-        disruptionRating: regObj.totalArrests > 10 ? 'HIGH DISRUPTION' : regObj.totalArrests > 3 ? 'MODERATE' : 'LOW ACTIVITY'
-      });
+      if (selectedRegion !== 'ALL REGIONS' && regObj.region !== selectedRegion) return;
+
+      let hasMatchingStation = false;
+      const stationRows = [];
 
       Object.values(regObj.stations).forEach(stnObj => {
+        if (selectedStation !== 'ALL STATIONS' && stnObj.station !== selectedStation) return;
         if (stnObj.arrests > 0 || stnObj.successes > 0 || stnObj.crimes > 0) {
-          rows.push({
+          hasMatchingStation = true;
+          stationRows.push({
             isRegionHeader: false,
             region: regObj.region,
             station: stnObj.station,
@@ -198,43 +220,37 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
           });
         }
       });
+
+      if (hasMatchingStation || selectedStation === 'ALL STATIONS') {
+        rows.push({
+          isRegionHeader: true,
+          region: regObj.region,
+          station: `${regObj.region} (REGIONAL COMMAND)`,
+          arrests: regObj.totalArrests,
+          successes: regObj.totalSuccesses,
+          crimes: regObj.crimeCount,
+          disruptionRating: regObj.totalArrests > 10 ? 'HIGH DISRUPTION' : 'MODERATE'
+        });
+        rows.push(...stationRows);
+      }
     });
 
     return rows;
-  }, [crimeRegistry, operationalStats, successStories]);
+  }, [crimeRegistry, operationalStats, successStories, selectedRegion, selectedStation]);
 
-const operationsTrendsData = useMemo(() => {
+  const operationsTrendsData = useMemo(() => {
     const ops = Array.isArray(operationalStats) ? operationalStats : [];
     const stationWeeks = {};
     const allWeeksSet = new Set();
 
-    // 🟢 Helper to reliably find the correct region from station name using REGIONAL_HIERARCHY
-    const getOfficialRegionForStation = (stationName, dbRegion) => {
-      const cleanStation = (stationName || '').trim().toUpperCase();
-      const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
-
-      // Check if DB region is already valid and matches hierarchy
-      if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
-        return cleanDbRegion;
-      }
-
-      // Otherwise, scan the official hierarchy map to find which region owns this station
-      for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
-        if (stationsList.includes(cleanStation)) {
-          return regionName;
-        }
-      }
-
-      return cleanDbRegion || 'KMP GENERAL';
-    };
-
     ops.forEach(o => {
-      const weekId = getWeekIdentifier(o.date || o.timestamp);
       const stn = (o.station || 'UNKNOWN').trim().toUpperCase();
-      
-      // Force correct regional assignment regardless of what database stored
       const reg = getOfficialRegionForStation(stn, o.region);
 
+      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion) return;
+      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation) return;
+
+      const weekId = getWeekIdentifier(o.date || o.timestamp);
       if (!weekId) return;
       allWeeksSet.add(weekId);
 
@@ -264,7 +280,7 @@ const operationsTrendsData = useMemo(() => {
     });
 
     return { rows: rows.sort((a, b) => b.currentArrests - a.currentArrests), currentWeek, previousWeek };
-  }, [operationalStats]);
+  }, [operationalStats, selectedRegion, selectedStation]);
 
   const handleExportExcel = async () => {
     try {
@@ -338,6 +354,55 @@ const operationsTrendsData = useMemo(() => {
             {tab.label}
           </button>
         ))}
+      </div>
+
+      {/* 🟢 RESTORED REGION & STATION FILTER BAR */}
+      <div className="bg-[#fbf8f3] p-4 rounded-xl shadow-sm border border-[#e2d6c3] flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <span className="text-xs font-bold text-[#736450] uppercase flex items-center">
+            <Filter size={14} className="mr-1 text-[#596E47]" /> Jurisdiction Filters:
+          </span>
+
+          <select 
+            value={selectedRegion} 
+            onChange={(e) => { setSelectedRegion(e.target.value); setSelectedStation('ALL STATIONS'); }}
+            className="border border-[#e2d6c3] rounded-lg p-2 text-xs font-bold text-[#3a3225] bg-white outline-none cursor-pointer"
+          >
+            <option value="ALL REGIONS">ALL REGIONS</option>
+            {Object.keys(REGIONAL_HIERARCHY).map(reg => (
+              <option key={reg} value={reg}>{reg}</option>
+            ))}
+          </select>
+
+          <select 
+            value={selectedStation} 
+            onChange={(e) => setSelectedStation(e.target.value)}
+            className="border border-[#e2d6c3] rounded-lg p-2 text-xs font-bold text-[#3a3225] bg-white outline-none cursor-pointer"
+          >
+            <option value="ALL STATIONS">ALL STATIONS</option>
+            {selectedRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[selectedRegion] || []).map(stn => (
+              <option key={stn} value={stn}>{stn}</option>
+            ))}
+          </select>
+
+          {activeDomain !== 'RELATIONAL' && (
+            <select 
+              value={dateFilter} 
+              onChange={(e) => setDateFilter(e.target.value)}
+              className="border border-[#e2d6c3] rounded-lg p-2 text-xs font-bold text-[#3a3225] bg-white outline-none cursor-pointer"
+            >
+              <option value="ALL">All Time</option>
+              <option value="TODAY">Today Only</option>
+              <option value="WEEK">This Week (Last 7 Days)</option>
+              <option value="MONTH">This Month</option>
+              <option value="YEAR">This Year</option>
+            </select>
+          )}
+        </div>
+
+        <span className="text-xs font-extrabold text-[#596E47] bg-[#e9eedf] px-3 py-1.5 rounded-lg border border-[#cfe1b9]">
+          Total Analyzed Entries: {activeDomain === 'RELATIONAL' ? relationalImpactMatrix.length : totalRecords}
+        </span>
       </div>
 
       {activeDomain === 'RELATIONAL' ? (
@@ -443,42 +508,67 @@ const operationsTrendsData = useMemo(() => {
           </div>
         </div>
       ) : (
+        /* 🟢 STANDARD DOMAIN VIEW WITH PIE CHART & FULL LEGEND/DESCRIPTION LINES */
         <div className="space-y-6 animate-in fade-in duration-200">
-          <div className="bg-[#fbf8f3] p-4 rounded-xl shadow-sm border border-[#e2d6c3] flex justify-between items-center">
-            <span className="text-xs font-extrabold text-[#596E47] bg-[#e9eedf] px-3 py-1.5 rounded-lg border border-[#cfe1b9]">
-              Total Analyzed Entries ({activeDomain}): {totalRecords}
-            </span>
-          </div>
-
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
             <div className="bg-[#fbf8f3] p-6 rounded-2xl shadow-sm border border-[#e2d6c3] flex flex-col items-center justify-between">
-              <h3 className="text-sm font-bold text-[#3a3225] uppercase tracking-wide w-full text-left mb-4">Proportional Share</h3>
+              <h3 className="text-sm font-bold text-[#3a3225] uppercase tracking-wide w-full text-left mb-4 flex items-center">
+                <PieChart size={16} className="mr-2 text-[#596E47]" /> Proportional Share (Proportions & Legend)
+              </h3>
+              
               <div className="relative w-48 h-48 my-2">
-                <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
-                  {pieSlices.map((slice, idx) => <path key={idx} d={slice.pathData} fill={slice.color} />)}
-                </svg>
+                {totalRecords > 0 ? (
+                  <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90 drop-shadow-sm">
+                    {pieSlices.map((slice, idx) => (
+                      <path key={idx} d={slice.pathData} fill={slice.color} className="transition-all duration-300 hover:opacity-80 cursor-pointer" />
+                    ))}
+                  </svg>
+                ) : (
+                  <div className="w-full h-full rounded-full border-4 border-dashed border-[#e2d6c3] flex items-center justify-center text-xs text-[#736450] font-bold">No Data</div>
+                )}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-xs text-[#736450] font-bold uppercase">Total</span>
+                  <span className="text-lg font-extrabold text-[#3a3225]">{totalRecords}</span>
+                </div>
+              </div>
+
+              {/* 🟢 Descriptive Legend / Description Lines */}
+              <div className="w-full mt-4 max-h-36 overflow-y-auto custom-scrollbar space-y-1.5 pr-1 border-t border-[#e2d6c3] pt-3">
+                {pieSlices.map((slice, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-xs font-bold text-[#594d3c] px-2 py-1.5 bg-[#f4eee2] rounded border border-[#e2d6c3]/50">
+                    <div className="flex items-center space-x-2 truncate">
+                      <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: slice.color }}></span>
+                      <span className="truncate uppercase">{slice.label}</span>
+                    </div>
+                    <span className="text-[#736450] font-mono shrink-0 ml-2">{slice.count} entries ({slice.percent}%)</span>
+                  </div>
+                ))}
               </div>
             </div>
 
             <div className="bg-[#fbf8f3] p-6 rounded-2xl shadow-sm border border-[#e2d6c3] space-y-4">
-              <h3 className="text-sm font-bold text-[#3a3225] uppercase tracking-wide">Comparative Distribution</h3>
-              <div className="space-y-3 max-h-[340px] overflow-y-auto pr-2 custom-scrollbar">
+              <h3 className="text-sm font-bold text-[#3a3225] uppercase tracking-wide flex items-center">
+                <BarChart3 size={16} className="mr-2 text-[#596E47]" /> Comparative Distribution & Volume
+              </h3>
+              <div className="space-y-3 max-h-[380px] overflow-y-auto pr-2 custom-scrollbar">
                 {aggregatedData.map((item, idx) => {
                   const percentage = totalRecords > 0 ? (item.count / totalRecords) * 100 : 0;
                   return (
                     <div key={idx} className="space-y-1">
                       <div className="flex justify-between text-xs font-bold text-[#594d3c]">
                         <span className="truncate pr-2 uppercase">{item.label}</span>
-                        <span className="text-[#596E47]">{item.count} ({percentage.toFixed(1)}%)</span>
+                        <span className="text-[#596E47] shrink-0">{item.count} ({percentage.toFixed(1)}%)</span>
                       </div>
-                      <div className="w-full bg-[#efece6] h-3 rounded-full overflow-hidden">
-                        <div className="bg-[#596E47] h-full rounded-full" style={{ width: `${Math.max(percentage, 2)}%` }}></div>
+                      <div className="w-full bg-[#efece6] h-3 rounded-full overflow-hidden shadow-inner">
+                        <div className="bg-[#596E47] h-full rounded-full transition-all duration-500" style={{ width: `${Math.max(percentage, 2)}%` }}></div>
                       </div>
                     </div>
                   );
                 })}
               </div>
             </div>
+
           </div>
         </div>
       )}
