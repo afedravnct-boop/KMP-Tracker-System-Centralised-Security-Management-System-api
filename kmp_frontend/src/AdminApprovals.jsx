@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
-  Users, RefreshCw, KeyRound, UserCheck, FileText, Globe
+  Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square
 } from 'lucide-react';
 import { stripHtmlTags, formatWorksheetAutoFit } from './App';
 
@@ -236,7 +236,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     return allSystemUsers.filter(u => {
       const uReg = stripHtmlTags(u.region || '').trim().toUpperCase();
       const uStat = stripHtmlTags(u.station || '').trim().toUpperCase();
-       
+        
       const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
       const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
@@ -262,6 +262,39 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
       return true;
     });
   }, [audit_logs, allSystemUsers, filterRegion, filterStation]);
+
+  // 🟢 MASTER BULK PERMISSION HANDLER (CHECK ALL / UNCHECK ALL)
+  const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
+    if (currentUser?.role === 'SYSTEM_ADMIN') {
+      alert("Security Restriction: SYSTEM ADMIN is restricted from modifying user permissions.");
+      return;
+    }
+
+    const cleanFnum = stripHtmlTags(fnum);
+    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    if (!targetUser) return;
+
+    const newPermissions = { ...(targetUser.permissions || {}) };
+    const colsToProcess = CLEARANCE_MATRIX_COLS.filter(col => !(col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN'));
+
+    colsToProcess.forEach(col => {
+      newPermissions[col.key] = setAllToTrue;
+    });
+
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: newPermissions } : u));
+
+    try {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
+      });
+      if (!response.ok) throw new Error("Failed to update bulk permissions.");
+    } catch (err) {
+      alert(`Bulk Update Failed: ${err.message}`);
+      fetchAllSystemUsers();
+    }
+  };
 
   // 🟢 EXECUTION ENGINES WITH STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT
   const executePermissionChange = async (fnum, permissionKey, value, reason = '') => {
@@ -292,7 +325,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
       });
-       
+        
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
@@ -326,7 +359,7 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
-       
+        
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
@@ -391,7 +424,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
     });
-       
+        
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
@@ -456,7 +489,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
-       
+        
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
@@ -506,7 +539,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-       
+        
       const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
         method: "PATCH", 
         headers: { 
@@ -515,12 +548,12 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
         }, 
         body: JSON.stringify(payload)
       });
-       
+        
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errData.detail) || `Server Error: ${response.status}`);
       }
-       
+        
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId));
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
@@ -532,18 +565,18 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     try {
       const formData = new URLSearchParams();
       formData.append('action', actionStr);
-       
+        
       const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
         method: "POST", 
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, 
         body: formData
       });
-       
+        
       const data = await response.json();
       if (!response.ok) throw new Error(stripHtmlTags(data.detail));
-       
+        
       setResetRequests(resetRequests.filter(r => r.id !== reqId));
-       
+        
       if (actionStr === "APPROVE") {
         alert(`Password successfully reset! Temporary key: ${stripHtmlTags(data.new_password)}`);
       } else {
@@ -607,7 +640,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
               Tiers: USER | ADMIN_USER | STATION_ADMIN | SYSTEM_ADMIN | SUPER_ADMIN_USER | SUPER_ADMIN | REVOKED
             </span>
           </div>
-           
+            
           {loadingUsers ? (
             <div className="p-12 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
           ) : filteredSystemUsers.length === 0 ? (
@@ -619,7 +652,10 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                   <tr>
                     <th className="p-3 text-left sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Officer Details</th>
                     <th className="p-3 text-center sticky left-[240px] z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Administrative Tier</th>
-                     
+                    
+                    {/* 🟢 CHECK ALL / UNCHECK ALL QUICK BUTTONS HEADER */}
+                    <th className="p-3 text-center sticky left-[360px] z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Quick Actions</th>
+
                     {CLEARANCE_MATRIX_COLS.map((col, idx) => {
                       // 🟢 Hide Global Observer column completely if current user is not SUPER_ADMIN
                       if (col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN') {
@@ -642,7 +678,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                     const p = u.permissions || {};
                     const isSuperAdmin = u.role === 'SUPER_ADMIN';
                     const isRevoked = u.role === 'REVOKED';
-                     
+                      
                     // 🟢 PREVENT LOWER ADMINS FROM DEMOTING A SUPER ADMIN
                     const isRoleSelectDisabled = isSuperAdmin && currentUser?.role !== 'SUPER_ADMIN';
 
@@ -668,7 +704,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                           </div>
                         </td>
 
-                        <td className="p-3 text-center sticky left-[240px] z-10 bg-white shadow-[1px_0_0_#e2e8f0]">
+                        <td className="p-3 text-center sticky left-[240px] z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[120px]">
                           <select 
                             value={u.role || 'USER'}
                             onChange={(e) => handleRoleTierChange(u.fnum, stripHtmlTags(e.target.value))}
@@ -691,6 +727,26 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                             <option value="SUPER_ADMIN">SUPER ADMIN</option>
                             <option value="REVOKED" className="text-red-600 font-extrabold bg-red-50">REVOKED</option>
                           </select>
+                        </td>
+
+                        {/* 🟢 CHECK ALL / UNCHECK ALL ROW */}
+                        <td className="p-3 text-center sticky left-[360px] z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[90px]">
+                          <div className="flex items-center justify-center space-x-1.5">
+                            <button 
+                              onClick={() => handleBulkMatrixAction(u.fnum, true)}
+                              title="Check All Modules"
+                              className="p-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded border border-emerald-300 transition shadow-sm"
+                            >
+                              <CheckSquare size={14} />
+                            </button>
+                            <button 
+                              onClick={() => handleBulkMatrixAction(u.fnum, false)}
+                              title="Uncheck All Modules (Deny Access)"
+                              className="p-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded border border-red-300 transition shadow-sm"
+                            >
+                              <Square size={14} />
+                            </button>
+                          </div>
                         </td>
 
                         {/* DYNAMIC EXPANDED MODULES MAPPING */}

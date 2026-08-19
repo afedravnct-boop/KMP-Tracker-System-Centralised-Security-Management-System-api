@@ -335,7 +335,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
                          
                          <td className="p-3 text-center text-sm font-black text-blue-800 bg-blue-50 border-r border-blue-100 shadow-inner">{row.totalOff}</td>
                          <td className="p-3 text-center text-sm font-black text-emerald-800 bg-emerald-50 border-r border-emerald-100 shadow-inner">{row.totalNco}</td>
-                         <td className="p-3 text-center text-base font-black text-slate-900 bg-slate-100 shadow-inner">{row.regionTotal}</td>
+                         <td className="p-3 text-center text-base font-yellow text-slate-900 bg-slate-100 shadow-inner">{row.regionTotal}</td>
                       </tr>
                    ))}
                    {/* KMP MASTER TOTALS ROW */}

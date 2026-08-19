@@ -59,27 +59,22 @@ const POSITIONS = {
 // 2. CORE UTILITY FUNCTIONS & ENGINES
 // ====================================================================
 
-// 🟢 SUPER CONTROL PANEL OVERRIDE ENGINE
+// 🟢 SOVEREIGN OVERRIDE & ENFORCEMENT ENGINE
 export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = false) => {
   if (!currentUser) return false;
+  
+  // Super Admin absolute god-mode override
   if (currentUser.role === 'SUPER_ADMIN') return true;
 
   const perms = currentUser.permissions || {};
+
+  // 1. SOVEREIGN DENIAL OVERRIDE: If explicitly set to false in matrix, deny instantly
   if (typeof perms[permissionKey] === 'boolean') {
     return perms[permissionKey];
   }
 
+  // 2. Fall back to standard baseline role/position clearance
   return Boolean(defaultRoleAccess);
-};
-
-const formatOfficerTitle = (officer) => {
-  if (!officer) return 'UNKNOWN OFFICER';
-  const fnum = (officer.fnum || officer.f_num || '').trim();
-  const rank = (officer.rank || '').trim();
-  const name = (officer.name || '').trim();
-  
-  // Formats strictly as: F/No Rank Name (e.g., A/2408 AIP AFEDRA VINCENT)
-  return [fnum, rank, name].filter(Boolean).join(' ').toUpperCase();
 };
 
 export const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, filterStation) => {
