@@ -14,24 +14,33 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// Helper rank weights for sorting
+// Helper rank weights for sorting (Uganda Police Force Rank Hierarchy)
 const getRankWeight = (rank) => {
   if (!rank) return 99;
   const r = rank.toUpperCase().trim();
-  if (r.includes('IGP')) return 1;
-  if (r.includes('DIGP')) return 2;
-  if (r.includes('AIGP')) return 3;
-  if (r.includes('SCP')) return 4;
-  if (r.includes('CP')) return 5;
-  if (r.includes('ACP')) return 6;
-  if (r.includes('SSP')) return 7;
-  if (r.includes('SP')) return 8;
-  if (r.includes('ASP')) return 9;
-  if (r.includes('IP')) return 10;
-  if (r.includes('AIP')) return 11;
-  if (r.includes('SGT')) return 12;
-  if (r.includes('CPL')) return 13;
-  if (r.includes('PC')) return 14;
+  
+  if (r === 'IGP') return 1;
+  if (r === 'DIGP') return 2;
+  if (r === 'AIGP') return 3;
+  if (r === 'SCP') return 4;
+  if (r === 'CP') return 5;
+  if (r === 'ACP') return 6;
+  if (r === 'SSP') return 7;
+  if (r === 'SP') return 8;
+  if (r === 'SASP') return 9;
+  if (r === 'ASP') return 10;
+  if (r === 'IP') return 11;
+  if (r === 'AIP') return 12;
+  if (r === 'HCM') return 13;
+  if (r === 'HC') return 14;
+  if (r === 'S/SGT' || r === 'SSGT') return 15;
+  if (r === 'SGT') return 16;
+  if (r === 'CPL') return 17;
+  if (r === 'L/CPL' || r === 'LCPL') return 18;
+  if (r === 'PC') return 19;
+  if (r === 'PPC') return 20;
+  if (r === 'SPC') return 21;
+  
   return 50;
 };
 
@@ -91,6 +100,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   
   // 🟢 Master Global View syncs with App.jsx prop or evaluates user permissions directly
   const canViewGlobal = propCanViewGlobal !== undefined ? propCanViewGlobal : (currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true);
+  const [updateSearch, setUpdateSearch] = useState('');
 
   // 🟢 NEW RE-INTEGRATION STATES
   const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
