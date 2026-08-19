@@ -3062,14 +3062,15 @@ const App = () => {
     checkClearance();
   }, [setCurrentUser]);
 
+// 🟢 REAL-TIME LISTENER & SYNC: Polls server every 5 seconds to sync AdminApprovals matrix changes live
   useEffect(() => {
     if (!currentUser?.fnum) return; 
     const controller = new AbortController();
+    
     const fetchAllData = async () => {
       const token = localStorage.getItem('kmp_authToken');
       if (!token) return;
       try {
-        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives, resUsers] = await Promise.all([
           authFetch(`${API_URL}/api/v1/reports`, { signal: controller.signal }), 
           authFetch(`${API_URL}/api/v1/stats`, { signal: controller.signal }),
@@ -3087,10 +3088,7 @@ const App = () => {
              return;
           }
 
-          if (!resReports.ok) {
-             const errorText = await resReports.text();
-             console.error("🚨 COMMAND BACKEND ERROR:", resReports.status, errorText);
-          } else {
+          if (resReports.ok) {
              setReports(await resReports.json());
           }
 
@@ -3106,7 +3104,10 @@ const App = () => {
             setUsers(allUsers);
             const me = allUsers.find(u => u.fnum === currentUser.fnum);
             if (me && (JSON.stringify(me.permissions) !== JSON.stringify(currentUser.permissions) || me.role !== currentUser.role)) {
-                setCurrentUser(prev => ({ ...prev, permissions: me.permissions, role: me.role }));
+                const updatedUser = { ...currentUser, permissions: me.permissions, role: me.role };
+                setCurrentUser(updatedUser);
+                localStorage.setItem('kmp_currentUser', JSON.stringify(updatedUser));
+                console.log("🛡️ Sovereign permissions synchronized live from AdminApprovals matrix.");
             }
           }
         }
@@ -3116,8 +3117,16 @@ const App = () => {
         }
       } 
     };    
+
     fetchAllData();
-    return () => controller.abort();
+    
+    // 🟢 Background Polling Interval (Every 5 seconds for real-time UI response)
+    const pollingInterval = setInterval(fetchAllData, 5000);
+
+    return () => {
+      controller.abort();
+      clearInterval(pollingInterval);
+    };
   }, [currentUser?.fnum]); 
 
   const handleMasterExport = async (scope, value) => {
