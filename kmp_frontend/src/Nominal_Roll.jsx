@@ -316,6 +316,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
+  const [updateSearch, setUpdateSearch] = useState('');
+
   const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const statusStr = (n.status || '').trim().toUpperCase();
