@@ -114,7 +114,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [bulkArchiveReason, setBulkArchiveReason] = useState('TRANSFERRED');
   const [isBulkArchiving, setIsBulkArchiving] = useState(false);
 
-// 🟢 Update these lines at the top of your Nominal_Roll component:
   const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobal ? 'ALL STATIONS' : ((isCommandOrHR) ? 'ALL STATIONS' : currentUser?.station || ''));
 
@@ -325,8 +324,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       } catch (err) { setNotification("Error: Could not update the record."); }
     }
   };
-
-  const [updateSearch, setUpdateSearch] = useState('');
 
   const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
@@ -547,7 +544,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                     <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">dir</span>
                     <span className="bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-sm font-bold">status</span>
                   </div>
-                  {/* 🟢 Enabled multiple file uploads support within the upload module */}
                   <BulkNominalRollUpload multiple onUploadSuccess={() => window.location.reload()} />
                 </div>
 
@@ -748,7 +744,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
               </select>
               <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(isCommandOrHR || canViewGlobal)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
                 {(isCommandOrHR || canViewGlobal) ? (
-                  <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(Nominal_Rolls || []).filter(n => n.region === filterRegion).map(n => n.station).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
+                  <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(Nominal_Rolls || []).filter(n => filterRegion === 'ALL REGIONS' || n.region === filterRegion).map(n => n.station).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
                 ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
               </select>
             </div>
@@ -950,4 +946,5 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
     </div>
   );
 };
+
 export default Nominal_Roll;
