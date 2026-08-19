@@ -924,4 +924,18 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   );
 };
 
+const ExpandableTableCard = ({ title, children, onToggle }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  return (
+    <div className={isExpanded ? "fixed inset-4 z-[9999] bg-white rounded-xl shadow-2xl p-6 overflow-auto flex flex-col" : "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col"}>
+      <div className="bg-slate-50 px-4 py-3 border-b flex justify-between items-center">
+        <h3 className="text-gray-800 font-bold text-sm uppercase tracking-wider">{title}</h3>
+        <button onClick={() => { const next = !isExpanded; setIsExpanded(next); if (onToggle) onToggle(next); }} className="text-xs font-bold text-blue-600 hover:underline cursor-pointer">
+          {isExpanded ? 'Collapse ↙' : 'Expand ↗'}
+        </button>
+      </div>
+      <div className="p-0 overflow-auto flex-1">{children}</div>
+    </div>
+  );
+};
 export default Nominal_Roll;
