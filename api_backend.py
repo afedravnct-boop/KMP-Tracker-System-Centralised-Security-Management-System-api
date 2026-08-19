@@ -32,6 +32,7 @@ from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
+from ai_router import router as ai_router
 
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from jose import jwt, JWTError
@@ -147,6 +148,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router, prefix="/api/auth")
+app.include_router(ai_router)
 
 # ==========================================
 # 2. PYDANTIC SCHEMAS
@@ -362,6 +364,87 @@ def apply_custom_sheet_design(workbook, worksheet, df, sheet_title, user):
         worksheet.set_column('B:Z', 25)  # Set wide default for text columns like narrative/details
     else:
         worksheet.set_column('A:Z', 22)  # Set standard width for wrapped fields
+
+
+def apply_universal_forensic_stamp(file_bytes: bytes, filename: str, user) -> bytes:
+    """
+    Universally inspects and applies an official UPF forensic watermark/stamp 
+    to Word (.docx), Excel (.xlsx / .xls), PowerPoint (.pptx), and PDF (.pdf) documents.
+    """
+    ext = filename.lower().split('.')[-1]
+    fnum = getattr(user, 'fnum', 'UNKNOWN')
+    rank = getattr(user, 'rank', '')
+    name = getattr(user, 'name', 'OFFICER')
+    station = getattr(user, 'station', 'KMP HQ')
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S EAT")
+    
+    stamp_text = (
+        f"RESTRICTED | ACCESSED BY: {fnum} {rank} {name} | STATION: {station} | {timestamp}"
+    )
+
+    buffer = io.BytesIO(file_bytes)
+
+    # 1. WORD DOCUMENTS (.docx)
+    if ext == 'docx':
+        doc = Document(buffer)
+        for section in doc.sections:
+            footer = section.footer
+            footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+            footer_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            run = footer_p.add_run(f"\n{stamp_text}")
+            run.font.name = 'Courier New'
+            run.font.size = Pt(7.5)
+            run.font.bold = True
+            run.font.color.rgb = RGBColor(139, 0, 0)
+        out = io.BytesIO()
+        doc.save(out)
+        return out.getvalue()
+
+    # 2. EXCEL SPREADSHEETS (.xlsx / .xls)
+    elif ext in ['xlsx', 'xls']:
+        wb = openpyxl.load_workbook(buffer)
+        for ws in wb.worksheets:
+            if hasattr(ws, 'sheet_footer'):
+                ws.sheet_footer.center.text = stamp_text
+            elif hasattr(ws, 'odd_footer'):
+                ws.odd_footer.center.text = stamp_text
+        out = io.BytesIO()
+        wb.save(out)
+        return out.getvalue()
+
+    # 3. POWERPOINT PRESENTATIONS (.pptx)
+    elif ext in ['pptx', 'ppt']:
+        prs = Presentation(buffer)
+        for slide in prs.slides:
+            left = Inches(0.5)
+            top = Inches(7.1)
+            width = Inches(9.0)
+            height = Inches(0.3)
+            txBox = slide.shapes.add_textbox(left, top, width, height)
+            tf = txBox.text_frame
+            p = tf.paragraphs[0]
+            p.text = stamp_text
+            p.font.size = PPTXPt(8)
+            p.font.name = 'Courier New'
+            p.font.color.rgb = PPTXRGBColor(139, 0, 0)
+        out = io.BytesIO()
+        prs.save(out)
+        return out.getvalue()
+
+    # 4. PORTABLE DOCUMENT FORMAT (.pdf)
+    elif ext == 'pdf':
+        pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
+        for page in pdf_document:
+            rect = page.rect
+            point = fitz.Point(36, rect.height - 20)
+            page.insert_text(point, stamp_text, fontsize=8, fontname="Courier", color=(0.55, 0, 0))
+        out = io.BytesIO()
+        pdf_document.save(out)
+        pdf_document.close()
+        return out.getvalue()
+
+    return file_bytes
+
 
 async def send_command_briefing(email_to: List[str], subject: str, html_body: str):
     message = MessageSchema(

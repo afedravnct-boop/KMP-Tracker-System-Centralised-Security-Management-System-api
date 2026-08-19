@@ -62,7 +62,7 @@ const POSITIONS = {
 // ====================================================================
 
 // 🟢 SOVEREIGN OVERRIDE & ENFORCEMENT ENGINE
-export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = false) => {
+export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = true) => {
   if (!currentUser) return false;
   
   // Super Admin absolute god-mode override
@@ -75,7 +75,7 @@ export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = f
     return perms[permissionKey];
   }
 
-  // 2. Fall back to standard baseline role/position clearance
+  // 2. Default standard baseline access (Open by default unless explicitly revoked)
   return Boolean(defaultRoleAccess);
 };
 
@@ -310,14 +310,14 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const rawComms = adminCommsData || [];
   const safeComms = Array.isArray(rawComms) ? rawComms : (rawComms.data || rawComms.items || []);
 
-  // 🟢 Role baseline + Super Control Panel Override checks
+  // 🟢 Baseline open access controls
   const canViewCrime = checkClearance(currentUser, 'acc_crime', true);
   const canViewOps = checkClearance(currentUser, 'acc_ops', true);
   const canViewStories = checkClearance(currentUser, 'acc_stories', true);
-  const canViewEst = checkClearance(currentUser, 'acc_est', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'STATION_ADMIN'].includes(currentUser?.role));
-  const canViewAnalytics = checkClearance(currentUser, 'acc_analytics', ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role));
-  const canViewHR = checkClearance(currentUser, 'acc_hr', hasNominalClearance);
-  const canViewApprovals = checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role));
+  const canViewEst = checkClearance(currentUser, 'acc_est', true);
+  const canViewAnalytics = checkClearance(currentUser, 'acc_analytics', true);
+  const canViewHR = checkClearance(currentUser, 'acc_hr', true);
+  const canViewApprovals = checkClearance(currentUser, 'acc_approvals', isAdmin || ['RPC', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role));
   const canViewConsolidated = checkClearance(currentUser, 'acc_consolidated', isAdmin || currentUser?.permissions?.consolidated);
   const canExportData = checkClearance(currentUser, 'export_data', isRPC || currentUser?.permissions?.export_data);
 
@@ -462,7 +462,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
         </div>
       </div>
 
-      {/* 🟢 OPTIMIZED MODULE GRID (Filtered with Override Engine) */}
+      {/* 🟢 OPTIMIZED MODULE GRID (Open by Default) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full">
           {canViewCrime && (
             <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 group">
@@ -1752,7 +1752,7 @@ const DashboardLayout = ({
     };
 
     syncHeartbeat();
-    const heartbeatInterval = setInterval(syncHeartbeat, 240000);
+    const heartbeatInterval = setInterval(syncHeartbeat, 15000); // 15-second live online polling
     return () => clearInterval(heartbeatInterval);
   }, []);
 
@@ -1880,7 +1880,7 @@ const DashboardLayout = ({
                               currentUser?.permissions?.upload_hr || 
                               currentUser?.permissions?.system_admin;
 
-  // 🟢 SAFELY FILTERED NAV ITEMS using `.filter(Boolean)`
+  // 🟢 SAFELY ACCESSIBLE NAV ITEMS (Open by default)
   const navItems = [
     checkClearance(currentUser, 'acc_home', true) ? { 
       name: 'Home Dashboard', 
@@ -1897,9 +1897,9 @@ const DashboardLayout = ({
     checkClearance(currentUser, 'acc_crime', true) ? { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> } : null,
     checkClearance(currentUser, 'acc_ops', true) ? { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> } : null,
     checkClearance(currentUser, 'acc_stories', true) ? { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> } : null,
-    checkClearance(currentUser, 'acc_est', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'STATION_ADMIN'].includes(currentUser?.role)) ? { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> } : null,
-    checkClearance(currentUser, 'acc_analytics', ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role)) ? { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> } : null,
-    checkClearance(currentUser, 'acc_hr', hasNominalClearance) ? { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> } : null,
+    checkClearance(currentUser, 'acc_est', true) ? { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> } : null,
+    checkClearance(currentUser, 'acc_analytics', true) ? { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> } : null,
+    checkClearance(currentUser, 'acc_hr', true) ? { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> } : null,
     checkClearance(currentUser, 'acc_tripartite', true) ? { name: 'Tripartite Reports', id: 'reports_hub', icon: <FileText size={20} /> } : null
   ].filter(Boolean);
 
@@ -1994,7 +1994,7 @@ const DashboardLayout = ({
               ))}
             </nav>
 
-            {sidebarOpen && checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.system_admin || ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'STAFF OFFICER ADMIN', 'SO ADMIN'].some(title => (currentUser?.position || '').toUpperCase().includes(title))) && (
+            {sidebarOpen && checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.system_admin) && (
               <div className="px-4 space-y-3 min-w-max">
                 <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
                   <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
@@ -2005,7 +2005,7 @@ const DashboardLayout = ({
               </div>
             )}
 
-            {sidebarOpen && checkClearance(currentUser, 'acc_online', ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role)) && (
+            {sidebarOpen && checkClearance(currentUser, 'acc_online', true) && (
               <div className="rounded-lg p-4 bg-slate-800 mx-4 mt-3">
                 <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
                   <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Online ({realOnlineUsers?.length || 0})</span>
@@ -2033,7 +2033,7 @@ const DashboardLayout = ({
               </div>
             )}
 
-            {sidebarOpen && checkClearance(currentUser, 'acc_roster', ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) && (
+            {sidebarOpen && checkClearance(currentUser, 'acc_roster', true) && (
               <div className="px-4 mt-3 space-y-3 min-w-max">
                 <div className="rounded-lg p-3 bg-slate-800 border border-slate-700">
                   <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400">
@@ -2075,19 +2075,19 @@ const DashboardLayout = ({
                         <button onClick={onViewHRReport} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center">
                           <Eye size={14} className="mr-1"/> View
                         </button>
-                        {checkClearance(currentUser, 'export_data', ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role) || currentUser?.permissions?.export_data) && (
+                        {checkClearance(currentUser, 'export_data', true) && (
                           <button onClick={onGenerateHRReport} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded transition flex items-center justify-center">
                             <Download size={14} className="mr-1"/> Export
                           </button>
                         )}
                       </div>
                     </div>
-                    {checkClearance(currentUser, 'acc_consolidated', ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.consolidated) && (
+                    {checkClearance(currentUser, 'acc_consolidated', true) && (
                       <button onClick={onViewConsolidated} className="w-full text-xs py-2 rounded transition flex items-center justify-center font-bold mt-3 bg-slate-900 hover:bg-slate-950 text-blue-400 border border-blue-900">
                         <Eye size={14} className="mr-2"/> Consolidated Entries
                       </button>
                     )}
-                    {checkClearance(currentUser, 'export_logs', ['SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.export_data) && (
+                    {checkClearance(currentUser, 'export_logs', ['SUPER_ADMIN'].includes(currentUser?.role)) && (
                       <button onClick={handleExportLogs} className="w-full mt-2 text-xs py-2 rounded transition font-bold bg-slate-900 hover:bg-slate-950 text-slate-300 border border-slate-700 flex items-center justify-center">
                         <Download size={14} className="mr-2 text-blue-400"/> Export Audit Logs
                       </button>
@@ -2479,11 +2479,7 @@ const renderPage = () => {
       case 'success':  
         return checkClearance(currentUser, 'acc_stories', true) ? <SuccessStories currentUser={currentUser} canViewGlobal={canViewGlobal} stories={stories} setStories={setStories} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
       case 'establishments':  
-        return checkClearance(
-          currentUser, 
-          'acc_est', 
-          ['ADMIN', 'SUPER_ADMIN', 'RPC', 'STATION_ADMIN'].includes(currentUser?.role)
-        ) ? (
+        return checkClearance(currentUser, 'acc_est', true) ? (
           <Establishments 
             currentUser={currentUser} 
             canViewGlobal={canViewGlobal}
@@ -2492,19 +2488,11 @@ const renderPage = () => {
           />
         ) : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
       case 'analytics':  
-        return checkClearance(currentUser, 'acc_analytics', ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role)) ? (
+        return checkClearance(currentUser, 'acc_analytics', true) ? (
           <AnalyticsDashboard nominalRolls={Nominal_Rolls} crimeRegistry={reports} successStories={stories} operationalStats={stats} />
         ) : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
       case 'nominal-roll':  
-        return checkClearance(
-          currentUser, 
-          'view_nominal_roll', 
-          ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'Regional_HR_Officer'].includes(currentUser?.role) || 
-          (currentUser?.position || '').toUpperCase().includes('HR') || 
-          currentUser?.permissions?.acc_hr === true || 
-          currentUser?.permissions?.view_nominal_roll === true || 
-          currentUser?.permissions?.upload_hr === true
-        ) ? (
+        return checkClearance(currentUser, 'acc_hr', true) ? (
           <Nominal_Roll 
             currentUser={currentUser} 
             canViewGlobal={canViewGlobal}

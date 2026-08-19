@@ -3,7 +3,7 @@ import {
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square
 } from 'lucide-react';
-import { stripHtmlTags, formatWorksheetAutoFit } from './App';
+import { stripHtmlTags } from './App';
 
 // 🟢 REGIONAL HIERARCHY CONSTANTS
 const REGIONAL_HIERARCHY = {
@@ -16,7 +16,7 @@ const REGIONAL_HIERARCHY = {
 
 // 🟢 EXPANDED SUPER CONTROL PANEL MODULES
 const CLEARANCE_MATRIX_COLS = [
-  { key: 'global_observer', label: 'Global Observer (Read-Only)', color: 'fuchsia', bg: 'bg-fuchsia-50/50' }, // 🟢 NEW: Exploration Mode
+  { key: 'global_observer', label: 'Global Observer (Read-Only)', color: 'fuchsia', bg: 'bg-fuchsia-50/50' },
   { key: 'acc_home', label: 'Home Dash', color: 'slate', bg: 'bg-slate-100/50' },
   { key: 'acc_profile', label: 'Profile', color: 'slate', bg: 'bg-slate-100/50' },
   { key: 'acc_comms', label: 'Command Comms', color: 'blue', bg: 'bg-blue-50/50' },
@@ -34,8 +34,7 @@ const CLEARANCE_MATRIX_COLS = [
   { key: 'acc_online', label: 'Active Online', color: 'red', bg: 'bg-red-50/50' },
   { key: 'export_data', label: 'Master Export', color: 'red', bg: 'bg-red-50/50' },
   { key: 'export_logs', label: 'Export Logs', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'acc_tripartite', label: 'Tripartite / Templates', color: 'indigo', bg: 'bg-indigo-50/50' },
-{ key: 'acc_tripartite_download', label: 'Tripartite Download', color: 'indigo', bg: 'bg-indigo-50/50' }
+  { key: 'acc_tripartite_download', label: 'Tripartite Download', color: 'indigo', bg: 'bg-indigo-50/50' }
 ];
 
 const autoCapitalize = (text) => {
@@ -63,7 +62,6 @@ const formatEATDateTime = (dateStr) => {
   });
 };
 
-// 🟢 Helper to format officer string cleanly: FNUM RANK NAME
 const formatOfficerHeader = (user) => {
   const fnum = stripHtmlTags(user.fnum || user.f_num || 'NO-FNUM');
   const rank = stripHtmlTags(user.rank || 'OFFICER');
@@ -71,9 +69,8 @@ const formatOfficerHeader = (user) => {
   return `${fnum} ${rank} ${name}`;
 };
 
-const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
+const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAuthFetch }) => {
     
-  // 🟢 FALLBACK SAFETY NET
   const authFetch = propAuthFetch || (async (url, options = {}) => {
     const token = localStorage.getItem('kmp_authToken');
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -100,24 +97,25 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
   const [resetRequests, setResetRequests] = useState([]);
   const [loadingResets, setLoadingResets] = useState(false);
 
-  // Active System Roster & Granular Matrix management
   const [allSystemUsers, setAllSystemUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
-  // 🟢 REVOKE MODAL STATE FOR COMPELLED JUSTIFICATION
   const [revokePrompt, setRevokePrompt] = useState({
     isOpen: false,
     fnum: null,
-    actionType: null, // 'ROLE' or 'PERMISSION'
+    actionType: null,
     targetValue: null,
     permissionKey: null,
     reason: ''
   });
 
-  // Global Filter States for Super Admin / RPC capabilities
+  // 🟢 Safely resolve global view active state matching other modules
+  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
+
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const isSuperAdminOrTopCommand = (
+    canViewGlobalActive ||
     userRoleClean === 'SUPER_ADMIN' ||
     userPosClean.includes('KMP COMMANDER') ||
     userPosClean.includes('DEPUTY KMP COMMANDER') ||
@@ -126,12 +124,8 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
   );
 
   const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || isSuperAdminOrTopCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
+  const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
 
-  const isRPC = currentUser && ['RPC', 'Deputy Commander'].includes(currentUser.role);
-  const isSystemAdmin = currentUser && ['ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role);
-
-  // Component-level fetchers
   const fetchPendingUsers = async () => {
     setLoadingPending(true);
     try {
@@ -207,33 +201,35 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     return realPendingUsers.filter(u => {
       const uRegion = stripHtmlTags(u.region || '');
       const uStation = stripHtmlTags(u.station || '');
+      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
       if (filterRegion !== 'ALL REGIONS' && uRegion !== filterRegion) return false;
       if (filterStation !== 'ALL STATIONS' && uStation !== filterStation) return false;
       return true;
     });
-  }, [realPendingUsers, filterRegion, filterStation]);
+  }, [realPendingUsers, filterRegion, filterStation, canViewGlobalActive]);
 
   const filteredRequests = useMemo(() => {
     return modRequests.filter(r => {
       const rRegion = stripHtmlTags(r.current_region || '');
       const rStation = stripHtmlTags(r.current_station || '');
+      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
       if (filterRegion !== 'ALL REGIONS' && rRegion !== filterRegion) return false;
       if (filterStation !== 'ALL STATIONS' && rStation !== filterStation) return false;
       return true;
     });
-  }, [modRequests, filterRegion, filterStation]);
+  }, [modRequests, filterRegion, filterStation, canViewGlobalActive]);
 
   const filteredResets = useMemo(() => {
     return resetRequests.filter(r => {
       const rRegion = stripHtmlTags(r.region || '');
       const rStation = stripHtmlTags(r.station || '');
+      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
       if (filterRegion !== 'ALL REGIONS' && rRegion !== filterRegion) return false;
       if (filterStation !== 'ALL STATIONS' && rStation !== filterStation) return false;
       return true;
     });
-  }, [resetRequests, filterRegion, filterStation]);
+  }, [resetRequests, filterRegion, filterStation, canViewGlobalActive]);
 
-  // 🟢 FILTERED SYSTEM USERS BASED ON REGION & STATION FOR THE MATRIX TAB
   const filteredSystemUsers = useMemo(() => {
     return allSystemUsers.filter(u => {
       const uReg = stripHtmlTags(u.region || '').trim().toUpperCase();
@@ -242,6 +238,9 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
       const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
       const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
+      if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') {
+        return true;
+      }
       if (activeReg && activeReg !== 'ALL REGIONS' && uReg !== activeReg) {
         return false;
       }
@@ -250,22 +249,21 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
       }
       return true;
     });
-  }, [allSystemUsers, filterRegion, filterStation]);
+  }, [allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
 
-  // 🟢 FILTERED AUDIT LOGS BASED ON REGION & STATION
   const filteredLogs = useMemo(() => {
     return audit_logs.filter(log => {
       const logUser = allSystemUsers.find(u => u.fnum === log.user_fnum);
       const logRegion = stripHtmlTags(log.region || logUser?.region || '');
       const logStation = stripHtmlTags(log.station || logUser?.station || '');
 
+      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
       if (filterRegion !== 'ALL REGIONS' && logRegion && logRegion !== filterRegion) return false;
       if (filterStation !== 'ALL STATIONS' && logStation && logStation !== filterStation) return false;
       return true;
     });
-  }, [audit_logs, allSystemUsers, filterRegion, filterStation]);
+  }, [audit_logs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
 
-  // 🟢 MASTER BULK PERMISSION HANDLER (CHECK ALL / UNCHECK ALL)
   const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
     if (currentUser?.role === 'SYSTEM_ADMIN') {
       alert("Security Restriction: SYSTEM ADMIN is restricted from modifying user permissions.");
@@ -298,7 +296,6 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     }
   };
 
-  // 🟢 EXECUTION ENGINES WITH STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT
   const executePermissionChange = async (fnum, permissionKey, value, reason = '') => {
     const cleanFnum = stripHtmlTags(fnum);
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
@@ -372,72 +369,67 @@ const AdminApprovals = ({ currentUser, authFetch: propAuthFetch }) => {
     }
   };
 
-// 🟢 Granular Matrix Toggle Handler with Proper Super Admin Lock Release
-const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
-  if (currentUser?.role === 'SYSTEM_ADMIN') {
-    alert("Security Restriction: SYSTEM ADMIN has viewing and diagnostic access only and is strictly barred from modifying user permissions or access levels.");
-    return;
-  }
-
-  const cleanFnum = stripHtmlTags(fnum);
-  const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
-  if (!targetUser) return;
-
-  // STRICT TOP COMMAND REINSTATEMENT LOCK (Blocks standard users/RPCs from unlocking Super Admin locks)
-  if (value === true && !isSuperAdminOrTopCommand && targetUser.permissions?.super_admin_locks?.[permissionKey]) {
-    alert("SECURITY OVERRIDE DENIED: This clearance was explicitly locked. Only High Command or Super Admin has the authority to reinstate it.");
-    return;
-  }
-
-  // COMPELLED REASON FOR REMOVING CLEARANCE (For non-Super Admins)
-  if (value === false && !isSuperAdminOrTopCommand) {
-    setRevokePrompt({
-      isOpen: true,
-      fnum: cleanFnum,
-      actionType: 'PERMISSION',
-      targetValue: value,
-      permissionKey,
-      reason: ''
-    });
-    return;
-  }
-
-  // 🟢 Cleanly manage locks: Set lock to true if disabling, clear/false if enabling
-  let locks = { ...(targetUser.permissions?.super_admin_locks || {}) };
-  if (isSuperAdminOrTopCommand) {
-    if (value === false) {
-      locks[permissionKey] = true; // Lock down
-    } else {
-      locks[permissionKey] = false; // Release lock so it can be toggled freely
+  const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
+    if (currentUser?.role === 'SYSTEM_ADMIN') {
+      alert("Security Restriction: SYSTEM ADMIN has viewing and diagnostic access only and is strictly barred from modifying user permissions or access levels.");
+      return;
     }
-  }
 
-  const updatedPermissions = {
-    ...(targetUser.permissions || {}),
-    [permissionKey]: value,
-    super_admin_locks: locks
+    const cleanFnum = stripHtmlTags(fnum);
+    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    if (!targetUser) return;
+
+    if (value === true && !isSuperAdminOrTopCommand && targetUser.permissions?.super_admin_locks?.[permissionKey]) {
+      alert("SECURITY OVERRIDE DENIED: This clearance was explicitly locked. Only High Command or Super Admin has the authority to reinstate it.");
+      return;
+    }
+
+    if (value === false && !isSuperAdminOrTopCommand) {
+      setRevokePrompt({
+        isOpen: true,
+        fnum: cleanFnum,
+        actionType: 'PERMISSION',
+        targetValue: value,
+        permissionKey,
+        reason: ''
+      });
+      return;
+    }
+
+    let locks = { ...(targetUser.permissions?.super_admin_locks || {}) };
+    if (isSuperAdminOrTopCommand) {
+      if (value === false) {
+        locks[permissionKey] = true;
+      } else {
+        locks[permissionKey] = false;
+      }
+    }
+
+    const updatedPermissions = {
+      ...(targetUser.permissions || {}),
+      [permissionKey]: value,
+      super_admin_locks: locks
+    };
+
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
+
+    try {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
+      });
+        
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
+      }
+    } catch (err) {
+      alert(`Permission Update Failed:\n${stripHtmlTags(err.message)}`);
+      fetchAllSystemUsers();
+    }
   };
 
-  setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
-
-  try {
-    const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
-    });
-        
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
-    }
-  } catch (err) {
-    alert(`Permission Update Failed:\n${stripHtmlTags(err.message)}`);
-    fetchAllSystemUsers();
-  }
-};
-
-  // Role Tier Update Handler with Super Admin Exclusive Reinstatement Unlocking
   const handleRoleTierChange = async (fnum, newRole) => {
     if (currentUser?.role === 'SYSTEM_ADMIN') {
       alert("Security Restriction: SYSTEM ADMIN cannot manage or modify access clearance tiers.");
@@ -448,13 +440,11 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser) return;
 
-    // STRICT SUPER ADMIN EXCLUSIVE REINSTATEMENT LOCK (Blocks non-Super Admins)
     if (newRole !== 'REVOKED' && targetUser.role === 'REVOKED' && !isSuperAdminOrTopCommand && targetUser.permissions?.revoked_by === 'SUPER_ADMIN') {
       alert("SECURITY OVERRIDE DENIED: This officer's access was revoked by a Global Super Admin. Only the Super Admin has the exclusive authority to reinstate them.");
       return;
     }
 
-    // STATION ADMIN validation: Max 3 users per station rule check
     if (currentUser?.role === 'STATION_ADMIN') {
       const currentUserStation = stripHtmlTags(currentUser.station || '');
       const stationUsersCount = allSystemUsers.filter(u => stripHtmlTags(u.station || '') === currentUserStation).length;
@@ -464,7 +454,6 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
       }
     }
 
-    // COMPELLED REASON FOR SUSPENDING ACCOUNT
     if (newRole === 'REVOKED' && !isSuperAdminOrTopCommand) {
       setRevokePrompt({
         isOpen: true,
@@ -602,10 +591,10 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
         <select 
           value={filterRegion} 
           onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} 
-          disabled={!isSuperAdminOrTopCommand} 
+          disabled={!canViewGlobalActive} 
           className="border border-slate-300 rounded-xl px-4 py-2 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
         >
-          {isSuperAdminOrTopCommand ? (
+          {canViewGlobalActive ? (
             <><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY || {}).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
           ) : <option value={currentUser?.region}>{stripHtmlTags(currentUser?.region)}</option>}
         </select>
@@ -613,10 +602,10 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
         <select 
           value={filterStation} 
           onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} 
-          disabled={!isSuperAdminOrTopCommand && !['RPC', 'Deputy Commander'].includes(currentUser?.role)} 
+          disabled={!canViewGlobalActive && !['RPC', 'Deputy Commander'].includes(currentUser?.role)} 
           className="border border-slate-300 rounded-xl px-4 py-2 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
         >
-          {isSuperAdminOrTopCommand || ['RPC', 'Deputy Commander'].includes(currentUser?.role) ? (
+          {canViewGlobalActive || ['RPC', 'Deputy Commander'].includes(currentUser?.role) ? (
             <><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
           ) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
         </select>
@@ -655,11 +644,9 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                     <th className="p-3 text-left sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Officer Details</th>
                     <th className="p-3 text-center sticky left-[240px] z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Administrative Tier</th>
                     
-                    {/* 🟢 CHECK ALL / UNCHECK ALL QUICK BUTTONS HEADER */}
                     <th className="p-3 text-center sticky left-[360px] z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Quick Actions</th>
 
                     {CLEARANCE_MATRIX_COLS.map((col, idx) => {
-                      // 🟢 Hide Global Observer column completely if current user is not SUPER_ADMIN
                       if (col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN') {
                         return null;
                       }
@@ -681,7 +668,6 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                     const isSuperAdmin = u.role === 'SUPER_ADMIN';
                     const isRevoked = u.role === 'REVOKED';
                       
-                    // 🟢 PREVENT LOWER ADMINS FROM DEMOTING A SUPER ADMIN
                     const isRoleSelectDisabled = isSuperAdmin && currentUser?.role !== 'SUPER_ADMIN';
 
                     return (
@@ -731,7 +717,6 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                           </select>
                         </td>
 
-                        {/* 🟢 CHECK ALL / UNCHECK ALL ROW */}
                         <td className="p-3 text-center sticky left-[360px] z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[90px]">
                           <div className="flex items-center justify-center space-x-1.5">
                             <button 
@@ -751,9 +736,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                           </div>
                         </td>
 
-                        {/* DYNAMIC EXPANDED MODULES MAPPING */}
                         {CLEARANCE_MATRIX_COLS.map((col, idx) => {
-                          // 🟢 Hide Global Observer checkbox cell completely if current user is not SUPER_ADMIN
                           if (col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN') {
                             return null;
                           }
@@ -761,7 +744,6 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
                           const hasSuperAdminLock = Boolean(p.super_admin_locks?.[col.key]);
                           const isLockedVisually = hasSuperAdminLock && !isSuperAdminOrTopCommand;
 
-                          // 🟢 Force disabling of Global Observer toggle for everyone EXCEPT Super Admin
                           const isStrictSuperAdminOnly = col.key === 'global_observer';
 
                           const isDisabled = 
@@ -894,7 +876,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
         </div>
       )}
 
-      {/* AUDIT LOGS TAB (SORTED/FILTERED BY REGION & STATION) */}
+      {/* AUDIT LOGS TAB */}
       {activeTab === 'logs' && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
           <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center justify-between text-white font-semibold text-xs uppercase tracking-wider">
@@ -986,7 +968,7 @@ const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
         </div>
       )}
 
-      {/* 🔴 MANDATORY JUSTIFICATION MODAL FOR REVOKING ACCESS */}
+      {/* MANDATORY JUSTIFICATION MODAL FOR REVOKING ACCESS */}
       {revokePrompt.isOpen && (
         <div className="fixed inset-0 z-[99999] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-300 overflow-hidden flex flex-col">

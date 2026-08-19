@@ -1,10 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {  
   UploadCloud, FileText, Download, CheckCircle, AlertTriangle,  
-  Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, Server, Trash2
+  Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, Server, Trash2, Filter
 } from 'lucide-react';
 
-const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
+const REGIONAL_HIERARCHY = {
+  "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU"]
+};
+
+const getOfficialRegionForStation = (stationName, dbRegion) => {
+  const cleanStation = (stationName || '').trim().toUpperCase();
+  const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
+
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
+    return cleanDbRegion;
+  }
+
+  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
+    if (stationsList.includes(cleanStation)) {
+      return regionName;
+    }
+  }
+
+  return cleanDbRegion || 'KMP GENERAL';
+};
+
+const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canViewGlobal = false }) => {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -17,13 +42,19 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
 
   const [templateCustomName, setTemplateCustomName] = useState('');
 
+  // 🟢 Safely resolve global view active state matching other modules
+  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+
   // 🟢 SOVEREIGN CLEARANCE DERIVATION FOR UPLOADS & DOWNLOADS
   const canUploadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN'].includes(currentUser?.role?.toUpperCase());
   const canDownloadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN', 'USER'].includes(currentUser?.role?.toUpperCase());
 
-  // Checks matrix keys or role baseline
-  const hasUploadClearance = currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_tripartite_upload !== false && (canUploadByRole || currentUser?.permissions?.acc_tripartite_upload === true));
-  const hasDownloadClearance = currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_tripartite_download !== false && (canDownloadByRole || currentUser?.permissions?.acc_tripartite_download === true));
+  // Checks matrix keys or role baseline, including Super Admin override
+  const hasUploadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_tripartite_upload !== false && (canUploadByRole || currentUser?.permissions?.acc_tripartite_upload === true));
+  const hasDownloadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_tripartite_download !== false && (canDownloadByRole || currentUser?.permissions?.acc_tripartite_download === true));
 
   useEffect(() => {
     fetchArchiveList();
@@ -77,6 +108,10 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
 
     let endpoint = "";
 
+    // Respect active toggle region/station if global view is active
+    const targetRegionToSubmit = overrideRegion || (canViewGlobalActive && filterRegion !== 'ALL REGIONS' ? filterRegion : currentUser?.region);
+    const targetStationToSubmit = overrideStation || (canViewGlobalActive && filterStation !== 'ALL STATIONS' ? filterStation : currentUser?.station);
+
     if (activeCategory === 'templates') {
       const templateIdKey = templateCustomName ? templateCustomName.toLowerCase().replace(/[^a-z0-9]/g, '_') : 'custom_template';
       endpoint = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api/v1/templates/upload/${templateIdKey}`;
@@ -85,8 +120,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
       endpoint = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api/v1/reports/upload-word-report`;
       formData.append("doc_type", activeCategory); 
       
-      if (overrideRegion) formData.append("target_region", overrideRegion);
-      if (overrideStation) formData.append("target_station", overrideStation);
+      if (targetRegionToSubmit) formData.append("target_region", targetRegionToSubmit);
+      if (targetStationToSubmit) formData.append("target_station", targetStationToSubmit);
     }
 
     setUploading(true);
@@ -246,18 +281,32 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
     }
   };
 
-  const filteredDocuments = documents.filter(doc => {
-    const docType = (doc.type || '').trim().toLowerCase();
+  // 🟢 Filter documents respecting global view & selected jurisdiction
+  const filteredDocuments = useMemo(() => {
+    return documents.filter(doc => {
+      const docType = (doc.type || '').trim().toLowerCase();
 
-    if (activeCategory === 'weekly_report') {
-      return docType.includes('weekly report');
-    } else if (activeCategory === 'general_doc') {
-      return docType.includes('general document') || docType.includes('statement');
-    } else if (activeCategory === 'templates') {
-      return docType.includes('template') || docType.includes('command template');
-    }
-    return false;
-  });
+      if (activeCategory === 'weekly_report') {
+        if (!docType.includes('weekly report')) return false;
+      } else if (activeCategory === 'general_doc') {
+        if (!docType.includes('general document') && !docType.includes('statement')) return false;
+      } else if (activeCategory === 'templates') {
+        if (!docType.includes('template') && !docType.includes('command template')) return false;
+      }
+
+      // Region & station filtering
+      const stn = (doc.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, doc.region);
+
+      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
+        return true;
+      }
+      if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return false;
+      if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return false;
+
+      return true;
+    });
+  }, [documents, activeCategory, filterRegion, filterStation, canViewGlobalActive]);
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-6 font-sans mb-8">
@@ -270,6 +319,55 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">Universal secure intake hub supporting Word, Excel, PowerPoint, PDF, and multiple file uploads simultaneously.</p>
         </div>
+      </div>
+
+      {/* 🟢 SECURED REGION & STATION FILTER BAR */}
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs font-bold text-slate-500 uppercase flex items-center">
+            <Filter size={14} className="mr-1 text-blue-600" /> Jurisdiction Filters:
+          </span>
+
+          <select 
+            value={filterRegion} 
+            onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }}
+            disabled={!canViewGlobalActive}
+            className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
+          >
+            {canViewGlobalActive ? (
+              <>
+                <option value="ALL REGIONS">ALL REGIONS</option>
+                {Object.keys(REGIONAL_HIERARCHY).map(reg => (
+                  <option key={reg} value={reg}>{reg}</option>
+                ))}
+              </>
+            ) : (
+              <option value={currentUser?.region || ''}>{currentUser?.region || 'UNKNOWN'}</option>
+            )}
+          </select>
+
+          <select 
+            value={filterStation} 
+            onChange={(e) => setFilterStation(e.target.value)}
+            disabled={!canViewGlobalActive}
+            className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
+          >
+            {canViewGlobalActive ? (
+              <>
+                <option value="ALL STATIONS">ALL STATIONS</option>
+                {filterRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[filterRegion] || []).map(stn => (
+                  <option key={stn} value={stn}>{stn}</option>
+                ))}
+              </>
+            ) : (
+              <option value={currentUser?.station || ''}>{currentUser?.station || 'UNKNOWN'}</option>
+            )}
+          </select>
+        </div>
+
+        <span className="text-xs font-extrabold text-blue-800 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
+          Showing: {filterRegion} {filterStation !== 'ALL STATIONS' ? `➔ ${filterStation}` : ''}
+        </span>
       </div>
 
       <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
@@ -427,7 +525,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                 ) : filteredDocuments.length === 0 ? (
                   <tr>
                     <td colSpan="5" className="px-6 py-10 text-center text-slate-500 text-sm font-medium">
-                      No documents found under this category.
+                      No documents found under this category for the selected jurisdiction.
                     </td>
                   </tr>
                 ) : filteredDocuments.map((doc) => (

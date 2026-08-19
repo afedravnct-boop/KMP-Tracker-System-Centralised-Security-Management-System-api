@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Upload, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 
-const BulkNominalRollUpload = ({ onUploadSuccess }) => {
+const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState(null);
@@ -86,13 +86,14 @@ const BulkNominalRollUpload = ({ onUploadSuccess }) => {
           accept=".xlsx, .xls, .csv" 
           onChange={handleFileChange}
           disabled={uploading}
+          multiple={multiple}
           className="text-xs w-full file:mr-4 file:py-2.5 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 border border-slate-300 rounded-md p-1 shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
         />
         
         <button
           onClick={handleUpload}
           disabled={!file || uploading}
-          className={`flex items-center justify-center px-6 py-3 text-xs font-bold text-white rounded-md shadow-sm transition-all whitespace-nowrap w-full sm:w-auto ${
+          className={`flex items-center justify-center px-6 py-3 text-xs font-bold text-white rounded-md shadow-sm transition-all whitespace-nowrap w-full sm:w-auto cursor-pointer ${
             !file || uploading 
               ? 'bg-slate-400 cursor-not-allowed' 
               : 'bg-blue-700 hover:bg-blue-800 hover:shadow-md'

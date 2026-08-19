@@ -78,7 +78,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   const [activeFilter, setActiveFilter] = useState('all');
 
   const [viewingReceiptsFor, setViewingReceiptsFor] = useState(null);
-  const [receiptsData, setReceiptsData] = useState([]);
+  const [receiptsData, setReceiptsData] = useState({ readers: [], pending: [] });
   const [loadingReceipts, setLoadingReceipts] = useState(false);
 
   const [expandedMsgs, setExpandedMsgs] = useState({});
@@ -235,21 +235,48 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     finally { setIsLoadingInbox(false); }
   };
 
-  const fetchReceipts = async (commId) => {
-    setViewingReceiptsFor(commId);
+  // 🟢 ENHANCED: Fetch read receipts and calculate pending recipients for the group/category
+  const fetchReceipts = async (msg) => {
+    setViewingReceiptsFor(msg.id);
     setLoadingReceipts(true);
     try {
       const token = localStorage.getItem('kmp_authToken');
-      const res = await fetch(`${API_URL}/api/v1/communications/${commId}/readers`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${API_URL}/api/v1/communications/${msg.id}/readers`, { headers: { 'Authorization': `Bearer ${token}` } });
       if(res.ok) {
           const rawData = await res.json();
           
-          // 🟢 Apply Time Offset Fix to all incoming Read Receipts
-          const correctedData = rawData.map(r => ({
+          // 🟢 Apply Time Offset Fix to read timestamps
+          const readers = rawData.map(r => ({
               ...r,
               read_at: adjustTimeOffset(r.read_at)
           }));
-          setReceiptsData(correctedData);
+
+          // Determine targeted pool of users based on msg.target_audience and msg.target_region
+          const allSystemUsers = filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || []);
+          let targetPool = [];
+
+          const audience = msg.target_audience;
+          const region = msg.target_region;
+
+          if (audience === 'ALL_USERS' || audience === 'ALL') {
+              targetPool = allSystemUsers;
+          } else if (audience === 'ADMINS_ONLY') {
+              targetPool = allSystemUsers.filter(u => ['ADMIN', 'SUPER_ADMIN'].includes(u.role));
+          } else if (audience === 'RPC_ONLY') {
+              targetPool = allSystemUsers.filter(u => ['RPC', 'ADMIN', 'SUPER_ADMIN'].includes(u.role) || (u.position || '').toUpperCase().includes('RPC'));
+          } else if (audience === 'DEPUTY RPC_ONLY') {
+              targetPool = allSystemUsers.filter(u => (u.position || '').toUpperCase().includes('DEPUTY'));
+          } else if (audience === 'SPECIFIC_REGION') {
+              targetPool = allSystemUsers.filter(u => (u.region || '').toUpperCase() === (region || '').toUpperCase());
+          } else if (audience === 'SPECIFIC_USER' && msg.target_fnum) {
+              targetPool = allSystemUsers.filter(u => msg.target_fnum.includes(u.fnum));
+          }
+
+          // Exclude sender from pending count if applicable
+          const readerFnums = new Set(readers.map(r => r.fnum));
+          const pending = targetPool.filter(u => !readerFnums.has(u.fnum) && u.fnum !== msg.sender_fnum);
+
+          setReceiptsData({ readers, pending });
       }
     } catch(e) { console.error(e); } finally { setLoadingReceipts(false); }
   };
@@ -308,25 +335,54 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       
       {viewingReceiptsFor && (
         <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4">
-            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-300">
+            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-300">
                 <div className="bg-slate-900 text-white p-4 flex justify-between items-center">
-                   <h3 className="font-bold flex items-center text-sm"><Eye size={16} className="mr-2 text-blue-400"/> Read Receipts Tracker</h3>
-                   <button onClick={() => setViewingReceiptsFor(null)} className="hover:bg-slate-700 p-1 rounded"><X size={18}/></button>
+                   <h3 className="font-bold flex items-center text-sm"><Eye size={16} className="mr-2 text-blue-400"/> Read Receipts & Group Tracker</h3>
+                   <button onClick={() => setViewingReceiptsFor(null)} className="hover:bg-slate-700 p-1 rounded cursor-pointer"><X size={18}/></button>
                 </div>
-                <div className="p-4 max-h-[60vh] overflow-y-auto custom-scrollbar bg-slate-50">
+                <div className="p-4 max-h-[65vh] overflow-y-auto custom-scrollbar bg-slate-50 space-y-4">
                    {loadingReceipts ? (
                      <p className="text-xs text-center text-gray-500 font-bold animate-pulse py-4">Fetching ledgers...</p>
-                   ) : receiptsData.length === 0 ? (
-                     <p className="text-xs text-center text-gray-500 font-medium py-4">No officers have acknowledged this dispatch yet.</p>
                    ) : (
-                       <div className="space-y-2">
-                          {receiptsData.map((r, i) => (
-                             <div key={i} className="flex justify-between items-center text-xs p-3 bg-white rounded shadow-sm border border-gray-100">
-                                <div><span className="font-extrabold text-slate-800 block">{r.name}</span><span className="font-mono text-[9px] text-gray-400">{r.fnum}</span></div>
-                                <span className="text-xs text-green-600 font-bold bg-green-50 px-2 py-1 rounded border border-green-200">Read: {r.read_at}</span>
-                             </div>
-                          ))}
+                     <>
+                       {/* Readers List */}
+                       <div>
+                         <h4 className="text-xs font-extrabold text-green-700 uppercase tracking-wider mb-2 flex items-center">
+                           <CheckCircle size={14} className="mr-1.5"/> Read & Acknowledged ({receiptsData.readers.length})
+                         </h4>
+                         {receiptsData.readers.length === 0 ? (
+                           <p className="text-xs text-gray-400 italic bg-white p-2.5 rounded border border-slate-200">No officers have acknowledged this message yet.</p>
+                         ) : (
+                           <div className="space-y-1.5">
+                              {receiptsData.readers.map((r, i) => (
+                                 <div key={i} className="flex justify-between items-center text-xs p-2.5 bg-white rounded shadow-sm border border-green-100">
+                                    <div><span className="font-extrabold text-slate-800 block">{r.name}</span><span className="font-mono text-[9px] text-gray-400">{r.fnum}</span></div>
+                                    <span className="text-[11px] text-green-700 font-bold bg-green-50 px-2 py-0.5 rounded border border-green-200">{r.read_at}</span>
+                                 </div>
+                              ))}
+                           </div>
+                         )}
                        </div>
+
+                       {/* Pending List */}
+                       <div className="pt-2 border-t border-slate-200">
+                         <h4 className="text-xs font-extrabold text-amber-700 uppercase tracking-wider mb-2 flex items-center">
+                           <Clock size={14} className="mr-1.5"/> Pending Acknowledgment ({receiptsData.pending.length})
+                         </h4>
+                         {receiptsData.pending.length === 0 ? (
+                           <p className="text-xs text-gray-400 italic bg-white p-2.5 rounded border border-slate-200">All targeted users have read this message!</p>
+                         ) : (
+                           <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                              {receiptsData.pending.map((p, i) => (
+                                 <div key={i} className="flex justify-between items-center text-xs p-2.5 bg-white rounded shadow-sm border border-amber-100">
+                                    <div><span className="font-bold text-slate-700 block">{p.rank} {p.name}</span><span className="font-mono text-[9px] text-gray-400">{p.fnum} • {p.station}</span></div>
+                                    <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">Unread</span>
+                                 </div>
+                              ))}
+                           </div>
+                         )}
+                       </div>
+                     </>
                    )}
                 </div>
             </div>
@@ -737,7 +793,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                                   </button>
                                 )}
                                 <button 
-                                  onClick={(e) => { e.stopPropagation(); fetchReceipts(msg.id); }} 
+                                  onClick={(e) => { e.stopPropagation(); fetchReceipts(msg); }} 
                                   className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-1.5 px-3 rounded transition-colors flex items-center border border-blue-200 shrink-0 cursor-pointer"
                                 >
                                   <Eye size={14} className="mr-1" /> View Read Receipts

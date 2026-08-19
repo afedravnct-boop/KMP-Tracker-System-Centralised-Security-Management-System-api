@@ -1,9 +1,40 @@
-import React, { useMemo } from 'react';
-import { X, Shield, FileText, Users, Building } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { X, Shield, FileText, Users, Building, Filter } from 'lucide-react';
 import { stripHtmlTags } from './App';
 
-const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
+const REGIONAL_HIERARCHY = {
+  "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU"]
+};
+
+const getOfficialRegionForStation = (stationName, dbRegion) => {
+  const cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
+  const cleanDbRegion = stripHtmlTags(dbRegion || '').trim().toUpperCase();
+
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
+    return cleanDbRegion;
+  }
+
+  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
+    if (stationsList.includes(cleanStation)) {
+      return regionName;
+    }
+  }
+
+  return cleanDbRegion || 'KMP GENERAL';
+};
+
+const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = false }) => {
   
+  // 🟢 Safely resolve global view active state matching other modules
+  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
+
+  const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
+  const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+
   // 🟢 1. AGGRESSIVE DATA HUNTER: Finds the array no matter how the parent named it
   const getRawRoll = () => {
     if (Array.isArray(data)) {
@@ -20,24 +51,48 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
   };
 
   const getEstData = () => {
+    let rawEst = [];
     if (Array.isArray(data)) {
-        if (data.length > 0 && (data[0].personnel_in_station !== undefined || data[0].pers_stn !== undefined)) return data;
-        return [];
-    }
-    if (data && typeof data === 'object') {
+        if (data.length > 0 && (data[0].personnel_in_station !== undefined || data[0].pers_stn !== undefined)) rawEst = data;
+    } else if (data && typeof data === 'object') {
         const keys = ['establishments', 'Establishments', 'estData', 'establishmentsData'];
         for (let key of keys) {
-            if (Array.isArray(data[key])) return data[key];
+            if (Array.isArray(data[key])) {
+              rawEst = data[key];
+              break;
+            }
         }
     }
-    return [];
+
+    // Filter establishments by selected jurisdiction
+    return rawEst.filter(e => {
+      const stn = stripHtmlTags(e.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, e.region);
+
+      if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
+        return true;
+      }
+      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
+      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation.toUpperCase()) return false;
+      return true;
+    });
   };
 
   // 🟢 2. ROBUST PARSING LOGIC FOR NOMINAL ROLL AGGREGATES
   const nominalAggregates = useMemo(() => {
     const rawRoll = getRawRoll().filter(p => {
         const statusStr = stripHtmlTags(String(p.status || '')).trim().toUpperCase();
-        return statusStr !== 'ARCHIVED' && p.is_archived !== true;
+        if (statusStr === 'ARCHIVED' || p.is_archived === true) return false;
+
+        const stn = stripHtmlTags(p.station || '').trim().toUpperCase();
+        const reg = getOfficialRegionForStation(stn, p.region);
+
+        if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
+          return true;
+        }
+        if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
+        if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation.toUpperCase()) return false;
+        return true;
     });
     
     const regions = [
@@ -173,7 +228,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
     }
 
     return aggregatedRegions;
-  }, [data]);
+  }, [data, selectedRegion, selectedStation, canViewGlobalActive]);
 
   const masterTotals = useMemo(() => {
     return nominalAggregates.reduce((acc, curr) => {
@@ -270,6 +325,55 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
         </button>
       </div>
 
+      {/* 🟢 SECURED JURISDICTION FILTER BAR */}
+      <div className="bg-white px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4 shrink-0 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs font-bold text-slate-500 uppercase flex items-center">
+            <Filter size={14} className="mr-1 text-blue-600" /> Jurisdiction Filters:
+          </span>
+
+          <select 
+            value={selectedRegion} 
+            onChange={(e) => { setSelectedRegion(e.target.value); setSelectedStation('ALL STATIONS'); }}
+            disabled={!canViewGlobalActive}
+            className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
+          >
+            {canViewGlobalActive ? (
+              <>
+                <option value="ALL REGIONS">ALL REGIONS</option>
+                {Object.keys(REGIONAL_HIERARCHY).map(reg => (
+                  <option key={reg} value={reg}>{reg}</option>
+                ))}
+              </>
+            ) : (
+              <option value={currentUser?.region || ''}>{currentUser?.region || 'UNKNOWN'}</option>
+            )}
+          </select>
+
+          <select 
+            value={selectedStation} 
+            onChange={(e) => setSelectedStation(e.target.value)}
+            disabled={!canViewGlobalActive}
+            className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
+          >
+            {canViewGlobalActive ? (
+              <>
+                <option value="ALL STATIONS">ALL STATIONS</option>
+                {selectedRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[selectedRegion] || []).map(stn => (
+                  <option key={stn} value={stn}>{stn}</option>
+                ))}
+              </>
+            ) : (
+              <option value={currentUser?.station || ''}>{currentUser?.station || 'UNKNOWN'}</option>
+            )}
+          </select>
+        </div>
+
+        <span className="text-xs font-extrabold text-blue-800 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
+          Active Filter: {selectedRegion} {selectedStation !== 'ALL STATIONS' ? `➔ ${selectedStation}` : ''}
+        </span>
+      </div>
+
       <div className="flex-1 overflow-y-auto p-4 sm:p-8 custom-scrollbar space-y-8 bg-slate-50">
         
         {/* NOMINAL ROLL AGGREGATES MATRIX */}
@@ -341,7 +445,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
                    {/* KMP MASTER TOTALS ROW */}
                    <tr className="bg-slate-800 border-t-[3px] border-slate-900 text-white">
                       <td colSpan="2" className="p-4 text-center text-[11px] font-yellow uppercase tracking-widest border-r border-slate-700 shadow-inner">
-                         KMP MASTER TOTALS:
+                          KMP MASTER TOTALS:
                       </td>
                       <td className="p-4 text-center text-base font-black text-blue-300 border-r border-slate-700">{masterTotals.totalOff}</td>
                       <td className="p-4 text-center text-base font-yellow text-green-400 border-r border-slate-700">{masterTotals.totalNco}</td>
@@ -436,7 +540,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
                    
                    <tr className="bg-slate-800 border-t-4 border-slate-900">
                       <td colSpan="4" className="p-4 text-right text-[11px] font-black text-white uppercase tracking-widest shadow-inner border-r border-slate-700">
-                         TOTALS:
+                          TOTALS:
                       </td>
                       <td className="p-4 text-center text-base font-black text-green-400 border-r border-slate-700">{estTotals.station > 0 ? estTotals.station : '-'}</td>
                       <td colSpan="2" className="p-4 text-center border-r border-slate-700 bg-slate-900/50"></td>

@@ -15,12 +15,6 @@ const CHART_COLORS = [
   '#4A5D4E', '#B38B59', '#6B5837', '#9E7B54', '#3E4D3E'
 ];
 
-const RANK_HIERARCHY = [
-  "IGP", "DIGP", "AIGP", "SCP", "CP", "ACP", "SSP", "SP", 
-  "SASP", "ASP", "IP", "AIP", "HCM", "HC", "S/SGT", "SGT", 
-  "CPL", "L/CPL", "PC", "SPC"
-];
-
 const isLockupLog = (item) => {
   return item.is_hq_general_total || 
          (item.station || '').includes('HEADQUARTERS GENERAL TOTAL') || 
@@ -64,18 +58,17 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
 const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStories = [], operationalStats = [], currentUser, canViewGlobal = false }) => {
   const [activeDomain, setActiveDomain] = useState('CRIME');
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
-  const [sortOrder, setSortOrder] = useState('DEFAULT');
   const [dateFilter, setDateFilter] = useState('ALL'); 
   
-  // 🟢 Safely resolve global view active state
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
+  // 🟢 Safely resolve global view active state matching other modules
+  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
 
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
 
   const currentDataset = useMemo(() => {
     let baseData = [];
-    if (activeDomain === 'CRIME') baseData = crimeRegistry.filter(r => !isLockupLog(r)); 
+    if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') baseData = crimeRegistry.filter(r => !isLockupLog(r)); 
     else if (activeDomain === 'PERSONNEL') baseData = nominalRolls;
     else if (activeDomain === 'SUCCESS') baseData = successStories;
     else if (activeDomain === 'OPERATIONS') baseData = operationalStats;
@@ -83,6 +76,11 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     baseData = baseData.filter(item => {
       const stn = (item.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, item.region);
+
+      // 🟢 Bypass regional/station filtering if global view is active and 'ALL' options are selected
+      if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
+        return true;
+      }
 
       if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
       if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation.toUpperCase()) return false;
@@ -97,8 +95,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         const itemDate = new Date(itemDateStr);
         if (isNaN(itemDate)) return true;
 
-        if (dateFilter === 'TODAY') return itemDate.toDateString() === now.toDateString();
-        if (dateFilter === 'WEEK') {
+        if (dateFilter === 'TODAY' || dateFilter === 'today') return itemDate.toDateString() === now.toDateString();
+        if (dateFilter === 'WEEK' || dateFilter === 'week') {
           const weekAgo = new Date();
           weekAgo.setDate(now.getDate() - 7);
           return itemDate >= weekAgo && itemDate <= now;
@@ -109,7 +107,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       });
     }
     return baseData;
-  }, [activeDomain, crimeRegistry, nominalRolls, successStories, operationalStats, dateFilter, selectedRegion, selectedStation]);
+  }, [activeDomain, crimeRegistry, nominalRolls, successStories, operationalStats, dateFilter, selectedRegion, selectedStation, canViewGlobalActive]);
 
   const aggregatedData = useMemo(() => {
     const grouped = {};
@@ -130,9 +128,29 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     });
 
     return Object.values(grouped).sort((a, b) => b.count - a.count);
-  }, [currentDataset, activeDomain, metricCategory, sortOrder]);
+  }, [currentDataset, activeDomain, metricCategory]);
+
+  // 🟢 Standalone Crime Summary Data Table computation
+  const crimeSummaryData = useMemo(() => {
+    const crimeCounts = {};
+    currentDataset.forEach(report => {
+      const crimeName = report.offence || report.crime_category || "Unspecified";
+      if (crimeCounts[crimeName]) {
+        crimeCounts[crimeName] += 1;
+      } else {
+        crimeCounts[crimeName] = 1;
+      }
+    });
+
+    return Object.keys(crimeCounts).map((crimeName, index) => ({
+      sn: index + 1,
+      incident: crimeName,
+      total: crimeCounts[crimeName]
+    })).sort((a, b) => b.total - a.total);
+  }, [currentDataset]);
 
   const totalRecords = useMemo(() => aggregatedData.reduce((acc, curr) => acc + curr.count, 0), [aggregatedData]);
+  const crimeSummaryGrandTotal = useMemo(() => crimeSummaryData.reduce((sum, item) => sum + item.total, 0), [crimeSummaryData]);
 
   const pieSlices = useMemo(() => {
     if (totalRecords === 0) return [];
@@ -405,12 +423,13 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         {[
           { id: 'OPERATIONS', label: '⚡ Disruptive Operations' },
           { id: 'RELATIONAL', label: '🔗 Relational Impact Matrix' },
           { id: 'SUCCESS', label: '🌟 Success Stories' },
-          { id: 'CRIME', label: '📊 Crime Registry' },
+          { id: 'CRIME', label: '📊 Crime Categories' },
+          { id: 'CRIME_SUMMARY', label: '📋 Crime Summary Table' },
           { id: 'TRENDS', label: '📈 Week-to-Week Ops Trends' }
         ].map(tab => (
           <button
@@ -484,7 +503,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         </div>
 
         <span className="text-xs font-extrabold text-[#596E47] bg-[#e9eedf] px-3 py-1.5 rounded-lg border border-[#cfe1b9]">
-          Total Analyzed Entries: {activeDomain === 'RELATIONAL' ? relationalImpactMatrix.length : totalRecords}
+          Total Analyzed Entries: {activeDomain === 'RELATIONAL' ? relationalImpactMatrix.length : activeDomain === 'CRIME_SUMMARY' ? crimeSummaryGrandTotal : totalRecords}
         </span>
       </div>
 
@@ -587,6 +606,59 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
                   </tr>
                 ))}
               </tbody>
+            </table>
+          </div>
+        </div>
+      ) : activeDomain === 'CRIME_SUMMARY' ? (
+        /* 🟢 EMBEDDED CRIME SUMMARY TABLE VIEW */
+        <div className="space-y-6 animate-in fade-in duration-200">
+          <div className="bg-[#3a3225] rounded-2xl p-6 text-[#f4eee2] shadow-xl border border-[#534735]">
+            <h2 className="text-xl font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <BarChart3 className="mr-3 text-[#C5A880] w-6 h-6" /> Standalone Crime Incident Summary Table
+            </h2>
+            <p className="text-xs text-[#b8ab97] mt-1 leading-relaxed">
+              Consolidated frequency count of crime incidents recorded across selected jurisdictions and timeframes.
+            </p>
+          </div>
+
+          <div className="bg-[#fbf8f3] rounded-xl shadow-sm border border-[#e2d6c3] overflow-hidden">
+            <table className="min-w-full divide-y divide-[#e2d6c3]">
+              <thead className="bg-[#3a3225]">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-[#f4eee2] uppercase tracking-wider w-16">SN</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold text-[#f4eee2] uppercase tracking-wider">Incident / Offence</th>
+                  <th className="px-4 py-3 text-right text-xs font-bold text-[#f4eee2] uppercase tracking-wider">Total Reported</th>
+                </tr>
+              </thead>
+              <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
+                {crimeSummaryData.length > 0 ? (
+                  crimeSummaryData.map((row) => (
+                    <tr key={row.sn} className="hover:bg-[#e9eedf]/40 transition-colors">
+                      <td className="px-4 py-3 text-sm font-bold text-[#736450]">{row.sn}</td>
+                      <td className="px-4 py-3 text-sm font-bold text-[#3a3225] uppercase">{row.incident}</td>
+                      <td className="px-4 py-3 text-sm font-extrabold text-[#596E47] text-right">{row.total}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="3" className="px-4 py-8 text-center text-sm text-[#736450] font-medium">
+                      No crimes reported for these specific filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              {crimeSummaryData.length > 0 && (
+                <tfoot className="bg-[#efece6] border-t-2 border-[#d3c2a8]">
+                  <tr>
+                    <td colSpan="2" className="px-4 py-3 text-right text-sm font-extrabold text-[#3a3225] uppercase">
+                      Grand Total
+                    </td>
+                    <td className="px-4 py-3 text-right text-base font-extrabold text-amber-800">
+                      {crimeSummaryGrandTotal}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </div>

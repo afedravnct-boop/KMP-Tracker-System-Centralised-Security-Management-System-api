@@ -32,7 +32,7 @@ class Crime_Reports(Base):
     status = Column(String, default="ACTIVE INVESTIGATION")
     suspects = Column(Integer, default=0)
     
-    # 🟢 Daily lock-up population column
+    # Daily lock-up population column
     daily_lock_up = Column(Integer, default=0) 
     
     last_updated_by = Column(String)
@@ -60,11 +60,10 @@ class Suspect_Lockup(Base):
     
     created_at = Column(DateTime, default=get_eat_time)
 
-    # This connects back to the crime_report relationship
     crime_report = relationship("Crime_Reports", back_populates="suspect_details")
 
 # ==========================================
-# 2. DISRUPTIVE OPS STATISTICS
+# 2. DISRUPTIVE & AGRICULTURAL STATISTICS
 # ==========================================
 class Operational_Statistics(Base):
     __tablename__ = "operational_statistics"
@@ -182,7 +181,6 @@ class NominalRoll(Base):
     status = Column(String)
     last_updated_by = Column(String)
     created_at = Column(DateTime, server_default=func.now())
-
 
 # ==========================================
 # 6. NOMINAL ROLL ARCHIVE
@@ -311,7 +309,7 @@ class Admin_Communication(Base):
     created_at = Column(DateTime, default=get_eat_time)
 
 # ==========================================
-# 10. COMMUNICATION READ RECEIPTS & PASSWORD RESETS
+# 10. COMMUNICATION READ RECEIPTS & SYSTEM CONFIG
 # ==========================================
 class Communication_Reads(Base):
     __tablename__ = "communication_reads"
@@ -351,50 +349,41 @@ class DocumentArchive(Base):
     doc_type = Column(String, nullable=False)  
     file_size = Column(String)  
     file_path = Column(String, nullable=False) 
-    
-    # 🟢 ADD THIS LINE:
     region = Column(String, nullable=True)
-    
     station = Column(String)
     uploaded_by = Column(String)
     upload_date = Column(DateTime, default=datetime.utcnow)
+
 class CommandTemplate(Base):
     __tablename__ = "command_templates"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
-    
-    # This will match the dropdown IDs from the frontend (e.g., 'weekly_report', 'opord')
     template_id = Column(String, unique=True, index=True, nullable=False) 
-    
     file_name = Column(String, nullable=False)
-    
-    # The AWS S3 URL where the blank template is stored
     s3_url = Column(String, nullable=False)
-    
-    # Track which Admin/Super Admin last updated it
     updated_by = Column(String, nullable=True) 
-    
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class LockupMatrix(Base):
     __tablename__ = "lockup_matrix"
+    __table_args__ = {'extend_existing': True}
 
     sn = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    sd_ref = Column(String, unique=True, index=True, nullable=False) # e.g., POP-KMP-123456
-    date = Column(String, index=True, nullable=False)               # YYYY-MM-DD format
-    time = Column(String, nullable=True)                             # e.g., 0830Hrs
-    region = Column(String, index=True, nullable=False)              # e.g., KMP EAST
-    station = Column(String, index=True, nullable=False)             # e.g., KIRA DIVISION
-    suspects = Column(Integer, default=0, nullable=False)            # Total count
+    sd_ref = Column(String, unique=True, index=True, nullable=False) 
+    date = Column(String, index=True, nullable=False)              
+    time = Column(String, nullable=True)                             
+    region = Column(String, index=True, nullable=False)              
+    station = Column(String, index=True, nullable=False)             
+    suspects = Column(Integer, default=0, nullable=False)             
     
-    # 🟢 NEW SEQUENTIAL BREAKDOWN COLUMNS
-    male_count = Column(Integer, default=0, nullable=False)          # Male breakdown under Sex
+    male_count = Column(Integer, default=0, nullable=False)          
     male_juvenile_count = Column(Integer, default=0, nullable=False)
-    female_count = Column(Integer, default=0, nullable=False)        # Female breakdown under Sex
+    female_count = Column(Integer, default=0, nullable=False)         
     female_juvenile_count = Column(Integer, default=0, nullable=False)
-    detention_1day = Column(Integer, default=0, nullable=False)      # Spent 1 day in detention
-    detention_2days = Column(Integer, default=0, nullable=False)     # Spent 2 days in detention
-    detention_3days_over = Column(Integer, default=0, nullable=False)# Spent 3 days & over in detention
+    detention_1day = Column(Integer, default=0, nullable=False)      
+    detention_2days = Column(Integer, default=0, nullable=False)     
+    detention_3days_over = Column(Integer, default=0, nullable=False)
 
-    last_updated_by = Column(String, nullable=True)                  # User info who logged it
+    last_updated_by = Column(String, nullable=True)                  
     created_at = Column(DateTime(timezone=True), server_default=func.now())

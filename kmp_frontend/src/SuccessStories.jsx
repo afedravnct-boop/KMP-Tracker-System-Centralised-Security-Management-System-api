@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X } from 'lucide-react';
+import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X, Filter } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -11,13 +11,30 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+const getOfficialRegionForStation = (stationName, dbRegion) => {
+  const cleanStation = (stationName || '').trim().toUpperCase();
+  const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
+
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
+    return cleanDbRegion;
+  }
+
+  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
+    if (stationsList.includes(cleanStation)) {
+      return regionName;
+    }
+  }
+
+  return cleanDbRegion || 'KMP GENERAL';
+};
+
 const ExpandableTableCard = ({ title, children, onToggle }) => {
   const [expanded, setExpanded] = useState(false);
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
       <div className="bg-slate-900 px-4 py-3 flex justify-between items-center">
         <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{title}</h3>
-        <button onClick={() => { const nextState = !expanded; setExpanded(nextState); if (onToggle) onToggle(nextState); }} className="text-xs text-blue-400 hover:text-white font-bold">
+        <button onClick={() => { const nextState = !expanded; setExpanded(nextState); if (onToggle) onToggle(nextState); }} className="text-xs text-blue-400 hover:text-white font-bold cursor-pointer">
           {expanded ? 'Collapse ↙' : 'Expand ↗'}
         </button>
       </div>
@@ -39,20 +56,14 @@ const autoCapitalize = (text) => {
   });
 };
 
-const stripHtmlTags = (html) => {
-  if (!html) return '';
-  return String(html).replace(/<[^>]*>?/gm, '').trim();
-};
-
 const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStories, setSidebarOpen, reports, setSelectedCase }) => {
   const [operation, setOperation] = useState('new');
   
-  // 🟢 Safely resolve global view active state
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
+  // 🟢 Safely resolve global view active state matching other modules
+  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
 
-  // 🟢 Use the resolved boolean for initial state filters
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');   
+  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
   
   const [notification, setNotification] = useState(null);
   const [updateSearch, setUpdateSearch] = useState('');
@@ -72,7 +83,6 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
   const findLinkedCrimeCase = (successStoryNarrative, allReports) => {
     if (!successStoryNarrative || !Array.isArray(allReports)) return null;
     
-    // Matches variations like "SD Ref:", "sd ref", "CRB:", "crb", etc. followed by the reference number
     const refRegex = /(sd\s*ref|crb|def|gef|tar|cid)\s*:?\s*([A-Z0-9/\-]+)/gi;
     const matches = [...successStoryNarrative.matchAll(refRegex)];
     
@@ -92,8 +102,16 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
   const filteredStories = useMemo(() => {
     return (Array.isArray(stories) ? stories : []).filter(s => {
-      if (filterRegion !== 'ALL REGIONS' && s.region !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && s.station !== filterStation) return false;
+      const stn = (s.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, s.region);
+
+      // 🟢 Bypass regional/station filtering if global view is active and 'ALL' options are selected
+      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
+        // Fall through to date check
+      } else {
+        if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return false;
+        if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return false;
+      }
 
       if (dateFilter === 'TODAY') {
         const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
@@ -109,19 +127,21 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       }
       return true;
     });
-  }, [stories, filterRegion, filterStation, dateFilter]);
+  }, [stories, filterRegion, filterStation, dateFilter, canViewGlobalActive]);
 
   const availableUpdateStories = useMemo(() => {
     return (Array.isArray(stories) ? stories : []).filter(s => {
-      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && s.region !== currentUser.region) return false;
+      const stn = (s.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, s.region);
+
+      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && !canViewGlobalActive && reg !== currentUser.region) return false;
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
         return s.sn.toString().includes(query) || s.narrative.toLowerCase().includes(query);
       }
       return true;
     });
-  }, [stories, currentUser, updateSearch]);
-
+  }, [stories, currentUser, updateSearch, canViewGlobalActive]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -173,14 +193,20 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
   const handleFormSubmit = (e) => {
     e.preventDefault();
 
+    // Respect active toggle region/station if global view is active
+    const activeRegion = (canViewGlobalActive && filterRegion !== 'ALL REGIONS') ? filterRegion : formData.region;
+    const activeStation = (canViewGlobalActive && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
+
+    const submissionData = { ...formData, region: activeRegion, station: activeStation };
+
     if (operation === 'new') {
-      const cleanNewText = formData.narrative.replace(/<[^>]*>?/gm, '').trim().toLowerCase();
+      const cleanNewText = submissionData.narrative.replace(/<[^>]*>?/gm, '').trim().toLowerCase();
       const isDuplicate = stories.some(s => s.narrative.replace(/<[^>]*>?/gm, '').trim().toLowerCase() === cleanNewText);
 
       if (isDuplicate) return setNotification("Error: This exact success story has already been submitted to the ledger.");
 
       const exactNextSN = (stories && stories.length > 0) ? Math.max(...stories.map(s => s.sn)) + 1 : 1;
-      const newStory = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
+      const newStory = { ...submissionData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       delete newStory.updateText;
       
       authFetch("/api/v1/stories", {
@@ -191,21 +217,21 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       setNotification(`Success story SN ${newStory.sn} logged successfully!`);
       
     } else if (operation === 'update') {
-      if (!formData.sn) return setNotification("Error: Please select a story from the list to update first.");
+      if (!submissionData.sn) return setNotification("Error: Please select a story from the list to update first.");
 
-      const updatedNarrative = formData.updateText 
-        ? `${formData.narrative}\n<br/><br/><strong>[UPDATE ${new Date().toISOString().slice(0,16).replace('T', ' ')}]:</strong><br/>${formData.updateText}` 
-        : formData.narrative;
+      const updatedNarrative = submissionData.updateText 
+        ? `${submissionData.narrative}\n<br/><br/><strong>[UPDATE ${new Date().toISOString().slice(0,16).replace('T', ' ')}]:</strong><br/>${submissionData.updateText}` 
+        : submissionData.narrative;
         
-      const updatedRecord = { ...formData, narrative: updatedNarrative, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
+      const updatedRecord = { ...submissionData, narrative: updatedNarrative, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       delete updatedRecord.updateText;
 
-      authFetch(`/api/v1/stories/${formData.sn}`, {
+      authFetch(`/api/v1/stories/${submissionData.sn}`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord)
       }).catch(err => console.error("Cloud sync failed:", err));
 
-      setStories((stories || []).map(s => s.sn === formData.sn ? updatedRecord : s));
-      setNotification(`Success story SN ${formData.sn} successfully updated!`);
+      setStories((stories || []).map(s => s.sn === submissionData.sn ? updatedRecord : s));
+      setNotification(`Success story SN ${submissionData.sn} successfully updated!`);
     }
 
     setTimeout(() => setNotification(null), 4000);
@@ -251,14 +277,14 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
-                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                      {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
+                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                      {canViewGlobalActive ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
                     </select>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange}disabled={!(['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                      {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{currentUser.station}</option>}
+                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                      {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : canViewGlobalActive ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{currentUser.station}</option>}
                     </select>
                   </div>
                 </div>
@@ -283,7 +309,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                   <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                     <label className="block text-xs font-bold text-gray-700 mb-2 flex items-center"><Image size={14} className="mr-1"/> Attach Exhibit / Scene Photo (Optional)</label>
                     <div className="flex items-center space-x-4">
-                      <input type="file" accept="image/*" onChange={handleExhibitUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100" />
+                      <input type="file" accept="image/*" onChange={handleExhibitUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100 cursor-pointer" />
                     </div>
                     {formData.photo_url && (
                       <div className="mt-3">
@@ -307,7 +333,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                   </select>
                 </div>
 
-                <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center">
+                <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center cursor-pointer">
                    {operation === 'new' ? 'Submit Achievement' : '💾 Save Achievement Updates'}
                 </button>
               </form>
@@ -317,23 +343,23 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
               {canViewGlobalActive ? (
                 <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
               ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
             </select>
-            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!canViewGlobalActive} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!canViewGlobalActive} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
               {canViewGlobalActive ? (
                 <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
               ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
             </select>
-            <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white outline-none w-full sm:w-auto">
+            <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white outline-none w-full sm:w-auto cursor-pointer">
               <option value="ALL TIME">ALL TIME</option><option value="TODAY">TODAY ONLY</option><option value="LAST 7 DAYS">LAST 7 DAYS</option>
               <option value="LAST 30 DAYS">LAST 30 DAYS</option><option value="LAST 90 DAYS">LAST 90 DAYS</option><option value="LAST 120 DAYS">LAST 120 DAYS</option>
             </select>
           </div>
           
-<ExpandableTableCard title="Achievements Overview Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+          <ExpandableTableCard title="Achievements Overview Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
             <div className="overflow-x-auto w-full">
               <table className="w-full divide-y divide-gray-200 min-w-[950px]">
                 <thead className="bg-gray-50 sticky top-0 z-10">
@@ -357,7 +383,6 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                         <td className="px-4 py-4 text-sm text-gray-600 align-top whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
                           <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: story.narrative }} />
                           
-                          {/* 🟢 Render Linked Crime Case Banner if found */}
                           {linkedCase && (
                             <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
                               <div>
@@ -366,7 +391,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                               </div>
                               <button 
                                 onClick={() => setSelectedCase(linkedCase)}
-                                className="px-3 py-1 bg-blue-700 hover:bg-blue-800 text-white rounded font-bold text-xs shadow-xs transition"
+                                className="px-3 py-1 bg-blue-700 hover:bg-blue-800 text-white rounded font-bold text-xs shadow-xs transition cursor-pointer"
                               >
                                 View Dossier
                               </button>

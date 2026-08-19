@@ -340,3 +340,14 @@ class LockupMatrixResponse(LockupMatrixBase):
 
     class Config:
         from_attributes = True
+
+class AIQueryRequest(BaseModel):
+    prompt: str
+    target_region: Optional[str] = "ALL REGIONS"
+    target_station: Optional[str] = "ALL STATIONS"
+
+class AIQueryResponse(BaseModel):
+    status: str
+    jurisdiction: str
+    response: str
+    metadata: Optional[Dict[str, Any]] = None

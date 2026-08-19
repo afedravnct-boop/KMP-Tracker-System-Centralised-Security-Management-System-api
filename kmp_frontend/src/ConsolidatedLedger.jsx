@@ -1,13 +1,44 @@
 import React, { useState, useMemo } from 'react';
-import { Eye } from 'lucide-react';
+import { Eye, Filter } from 'lucide-react';
 
-const ConsolidatedLedger = ({ reports, stats, stories, onClose }) => {
+const REGIONAL_HIERARCHY = {
+  "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU"]
+};
+
+const getOfficialRegionForStation = (stationName, dbRegion) => {
+  const cleanStation = (stationName || '').trim().toUpperCase();
+  const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
+
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
+    return cleanDbRegion;
+  }
+
+  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
+    if (stationsList.includes(cleanStation)) {
+      return regionName;
+    }
+  }
+
+  return cleanDbRegion || 'KMP GENERAL';
+};
+
+const ConsolidatedLedger = ({ reports, stats, stories, onClose, currentUser, canViewGlobal = false }) => {
   const today = new Date();
   const lastWeek = new Date(today);
   lastWeek.setDate(today.getDate() - 6);
 
   const [startDate, setStartDate] = useState(lastWeek.toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
+
+  // 🟢 Safely resolve global view active state matching other modules
+  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
 
   const getRoman = (num) => {
     const romans = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi', 'xvii', 'xviii', 'xix', 'xx'];
@@ -56,7 +87,15 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose }) => {
       // 🟢 Intercept and completely ignore Lock-up Administrative Logs
       if (isLockupLog(r)) return;
 
-      const reg = r.region ? r.region.toUpperCase() : 'UNSPECIFIED REGION';
+      const stn = (r.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, r.region);
+
+      // Jurisdiction filtering check
+      if (!(canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS')) {
+        if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return;
+        if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return;
+      }
+
       const off = r.offence ? r.offence.toUpperCase() : 'UNSPECIFIED INCIDENT';
       const suspects = parseInt(r.suspects) || 0;
 
@@ -76,7 +115,14 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose }) => {
 
     // --- Process Operational Statistics ---
     (stats || []).filter(s => isWithinWeek(s.date)).forEach(s => {
-      const reg = s.region ? s.region.toUpperCase() : 'UNSPECIFIED REGION';
+      const stn = (s.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, s.region);
+
+      // Jurisdiction filtering check
+      if (!(canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS')) {
+        if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return;
+        if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return;
+      }
       
       if (!opsRegional[reg]) {
         opsRegional[reg] = { arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0 };
@@ -92,7 +138,15 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose }) => {
 
     // --- Process Success Stories ---
     (stories || []).filter(s => isWithinWeek(s.date)).forEach(s => {
-      const reg = s.region ? s.region.toUpperCase() : 'UNSPECIFIED REGION';
+      const stn = (s.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, s.region);
+
+      // Jurisdiction filtering check
+      if (!(canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS')) {
+        if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return;
+        if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return;
+      }
+
       if (!storyRegional[reg]) storyRegional[reg] = 0;
       
       storyRegional[reg] += 1;
@@ -117,17 +171,59 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose }) => {
       opsRegional, opsGeneral, sortedOpsRegions,
       storyRegional, sortedStoryRegions, grandStories
     };
-  }, [reports, stats, stories, startDate, endDate]);
+  }, [reports, stats, stories, startDate, endDate, filterRegion, filterStation, canViewGlobalActive]);
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto space-y-10 relative z-10 animate-in fade-in duration-300">
       
       {/* FILTER BAR */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col lg:flex-row justify-between items-center gap-4">
         <div>
           <h2 className="text-xl font-extrabold text-slate-800 flex items-center"><Eye size={20} className="mr-2 text-blue-600"/> Command Master Ledger</h2>
         </div>
-        <div className="flex items-center space-x-3 bg-slate-50 p-2 rounded-lg border border-slate-200">
+
+        {/* 🟢 JURISDICTION & DATE FILTER CONTROLS */}
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs font-bold text-slate-500 uppercase flex items-center">
+            <Filter size={14} className="mr-1 text-blue-600" /> Jurisdiction:
+          </span>
+
+          <select 
+            value={filterRegion} 
+            onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }}
+            disabled={!canViewGlobalActive}
+            className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
+          >
+            {canViewGlobalActive ? (
+              <>
+                <option value="ALL REGIONS">ALL REGIONS</option>
+                {Object.keys(REGIONAL_HIERARCHY).map(reg => (
+                  <option key={reg} value={reg}>{reg}</option>
+                ))}
+              </>
+            ) : (
+              <option value={currentUser?.region || ''}>{currentUser?.region || 'UNKNOWN'}</option>
+            )}
+          </select>
+
+          <select 
+            value={filterStation} 
+            onChange={(e) => setFilterStation(e.target.value)}
+            disabled={!canViewGlobalActive}
+            className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
+          >
+            {canViewGlobalActive ? (
+              <>
+                <option value="ALL STATIONS">ALL STATIONS</option>
+                {filterRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[filterRegion] || []).map(stn => (
+                  <option key={stn} value={stn}>{stn}</option>
+                ))}
+              </>
+            ) : (
+              <option value={currentUser?.station || ''}>{currentUser?.station || 'UNKNOWN'}</option>
+            )}
+          </select>
+
           <div>
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">From Date</label>
             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="text-sm font-bold text-slate-800 bg-white border border-slate-300 rounded px-2 py-1 outline-none" />
@@ -137,7 +233,7 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose }) => {
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">To Date</label>
             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="text-sm font-bold text-slate-800 bg-white border border-slate-300 rounded px-2 py-1 outline-none" />
           </div>
-          <button onClick={onClose} className="mt-4 ml-2 bg-slate-800 text-white px-3 py-1.5 rounded font-bold text-xs hover:bg-slate-700 shadow-sm transition-colors">Close Ledger</button>
+          <button onClick={onClose} className="mt-4 ml-2 bg-slate-800 text-white px-3 py-1.5 rounded font-bold text-xs hover:bg-slate-700 shadow-sm transition-colors cursor-pointer">Close Ledger</button>
         </div>
       </div>
 
@@ -308,7 +404,7 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose }) => {
               </thead>
               <tbody>
                 <tr className="bg-[#e2efda] font-extrabold text-slate-900 border-2 border-slate-400">
-                  <td className="px-2 py-3 border border-slate-400 text-center uppercase tracking-wide text-xs">ALL KMP REGIONS</td>
+                  <td className="px-2 py-3 border border-slate-400 text-center uppercase tracking-wide text-xs">SELECTED JURISDICTION</td>
                   <td className="px-2 py-3 border border-slate-400 text-center text-sm">{dataMapping.opsGeneral.arrested}</td>
                   <td className="px-2 py-3 border border-slate-400 text-center text-sm">{dataMapping.opsGeneral.given_bond}</td>
                   <td className="px-2 py-3 border border-slate-400 text-center text-sm">{dataMapping.opsGeneral.cautioned}</td>

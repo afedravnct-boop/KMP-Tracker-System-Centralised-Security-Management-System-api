@@ -98,9 +98,14 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
   const canEditRecords = isCommandOrHR || currentUser?.permissions?.upload_hr === true;
   
-  // 🟢 Master Global View syncs with App.jsx prop or evaluates user permissions directly
-  const canViewGlobal = propCanViewGlobal !== undefined ? propCanViewGlobal : (currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true);
-  const [updateSearch, setUpdateSearch] = useState('');
+  // Resolve global view permissions
+  const canViewGlobal = propCanViewGlobal !== undefined 
+    ? propCanViewGlobal 
+    : (currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true);
+
+  // Initialize region/station filters based on global access (Unified Single Declaration)
+  const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState(canViewGlobal ? 'ALL STATIONS' : ((isCommandOrHR) ? 'ALL STATIONS' : currentUser?.station || ''));
 
   // 🟢 NEW RE-INTEGRATION STATES
   const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
@@ -113,9 +118,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [selectedOfficers, setSelectedOfficers] = useState([]);
   const [bulkArchiveReason, setBulkArchiveReason] = useState('TRANSFERRED');
   const [isBulkArchiving, setIsBulkArchiving] = useState(false);
-
-  const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState(canViewGlobal ? 'ALL STATIONS' : ((isCommandOrHR) ? 'ALL STATIONS' : currentUser?.station || ''));
 
   const [viewMode, setViewMode] = useState('active'); // 'active' | 'archive'
   const [showAnalytics, setShowAnalytics] = useState(false); // true | false
@@ -325,6 +327,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
+  // 🟢 FIXED: Filter logic now fully respects `canViewGlobal` and `ALL REGIONS` / `ALL STATIONS`
   const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const statusStr = (n.status || '').trim().toUpperCase();
@@ -335,8 +338,20 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const selRegion = (filterRegion || '').trim().toUpperCase();
       const selStation = (filterStation || '').trim().toUpperCase();
 
-      if (selRegion !== 'ALL REGIONS' && selRegion !== '' && dbRegion !== selRegion) return false;
-      if (selStation !== 'ALL STATIONS' && selStation !== '' && dbStation !== selStation) return false;
+      if (canViewGlobal && selRegion === 'ALL REGIONS') {
+        // Bypass regional restriction entirely
+      } else if (selRegion !== 'ALL REGIONS' && selRegion !== '' && dbRegion !== selRegion) {
+        return false;
+      }
+
+      if (canViewGlobal && selRegion === 'ALL REGIONS' && selStation === 'ALL STATIONS') {
+        return true;
+      }
+
+      if (selStation !== 'ALL STATIONS' && selStation !== '' && dbStation !== selStation) {
+        return false;
+      }
+
       return true;
     }).sort((a, b) => {
       const weightA = getRankWeight(a.rank);
@@ -346,20 +361,31 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return (a.name || '').localeCompare(b.name || '');
     });
-  }, [Nominal_Rolls, filterRegion, filterStation]);
+  }, [Nominal_Rolls, filterRegion, filterStation, canViewGlobal]);
 
   const filteredNominal_Roll_archives = useMemo(() => {
     if (!Array.isArray(Nominal_Roll_archives)) return [];
 
     return Nominal_Roll_archives.filter(n => {
-      if (canViewGlobal) return true;
       const dbRegion = (n.region || '').trim().toUpperCase();
       const dbStation = (n.station || '').trim().toUpperCase();
-      const selRegion = (filterRegion !== 'ALL REGIONS' ? filterRegion : currentUser.region || '').trim().toUpperCase();
-      const selStation = (filterStation !== 'ALL STATIONS' ? filterStation : currentUser.station || '').trim().toUpperCase();
+      const selRegion = (filterRegion || '').trim().toUpperCase();
+      const selStation = (filterStation || '').trim().toUpperCase();
 
-      if (dbRegion !== selRegion) return false;
-      if (dbStation !== selStation) return false;
+      if (canViewGlobal && selRegion === 'ALL REGIONS') {
+        // Bypass regional restriction
+      } else if (selRegion !== 'ALL REGIONS' && selRegion !== '' && dbRegion !== selRegion) {
+        return false;
+      }
+
+      if (canViewGlobal && selRegion === 'ALL REGIONS' && selStation === 'ALL STATIONS') {
+        return true;
+      }
+
+      if (selStation !== 'ALL STATIONS' && selStation !== '' && dbStation !== selStation) {
+        return false;
+      }
+
       return true;
     }).sort((a, b) => {
       const weightA = getRankWeight(a.rank);
@@ -369,7 +395,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return (a.name || '').localeCompare(b.name || '');
     });
-  }, [Nominal_Roll_archives, filterRegion, filterStation, currentUser, canViewGlobal]);
+  }, [Nominal_Roll_archives, filterRegion, filterStation, canViewGlobal]);
 
   const currentRollDataset = useMemo(() => {
     return viewMode === 'archive' ? filteredNominal_Roll_archives : filteredRolls;
@@ -378,7 +404,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const availableUpdateRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const fNumVal = n.fnum || n.f_num || '';
-      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && n.region !== currentUser.region) return false;
+      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && !canViewGlobal && n.region !== currentUser.region) return false;
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
         return (fNumVal && fNumVal.toLowerCase().includes(query)) || 
@@ -387,7 +413,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return true;
     });
-  }, [Nominal_Rolls, currentUser, updateSearch]);
+  }, [Nominal_Rolls, currentUser, updateSearch, canViewGlobal]);
 
   const calculatedMetrics = useMemo(() => {
       if (!showAnalytics) return [];

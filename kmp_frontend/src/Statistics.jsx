@@ -64,10 +64,19 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0
   });
 
-  const filteredStats = useMemo(() => {
+const filteredStats = useMemo(() => {
     return (Array.isArray(currentDomainStats) ? currentDomainStats : []).filter(s => {
-      if (filterRegion !== 'ALL REGIONS' && s.region !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && s.station !== filterStation) return false;
+      // 🟢 Global view bypass check
+      const isAllRegions = filterRegion === 'ALL REGIONS';
+      const isAllStations = filterStation === 'ALL STATIONS';
+
+      if (!(canViewGlobalActive && isAllRegions)) {
+        if (filterRegion !== 'ALL REGIONS' && s.region !== filterRegion) return false;
+      }
+
+      if (!(canViewGlobalActive && isAllRegions && isAllStations)) {
+        if (filterStation !== 'ALL STATIONS' && s.station !== filterStation) return false;
+      }
 
       if (dateFilter === 'TODAY') {
         const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
@@ -83,7 +92,7 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
       }
       return true;
     });
-  }, [currentDomainStats, filterRegion, filterStation, dateFilter]);
+  }, [currentDomainStats, filterRegion, filterStation, dateFilter, canViewGlobalActive]);
 
   const availableUpdateStats = useMemo(() => {
     return (Array.isArray(currentDomainStats) ? currentDomainStats : []).filter(s => {
@@ -132,7 +141,7 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     setFormData({ ...statData, sn: recordIdentifier, id: recordIdentifier });
   };
 
-  const handleFormSubmit = async (e) => { 
+const handleFormSubmit = async (e) => { 
     e.preventDefault();
     const token = localStorage.getItem('kmp_authToken');
     if (!token) return setNotification("Error: Security token missing.");
@@ -140,18 +149,29 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     // 🟢 Dynamic endpoint routing based on active domain
     const targetEndpoint = statsDomain === 'AGRICULTURAL' ? '/api/v1/agric-stats' : '/api/v1/stats';
 
+    // 🟢 Resolve active region/station based on Super Admin toggle state or fallback to form data
+    const activeRegion = (canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion : formData.region;
+    const activeStation = (canViewGlobalActive && filterStation && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
+
     if (operation === 'new') {
       const isDuplicate = currentDomainStats.some(s => 
-        String(s.station || '').trim().toUpperCase() === String(formData.station || '').trim().toUpperCase() && 
+        String(s.station || '').trim().toUpperCase() === String(activeStation || '').trim().toUpperCase() && 
         String(s.date) === String(formData.date)
       );
       
       if (isDuplicate) {
-        return setNotification(`❌ Error: Statistics for station '${formData.station}' on date '${formData.date}' have already been logged.`);
+        return setNotification(`❌ Error: Statistics for station '${activeStation}' on date '${formData.date}' have already been logged.`);
       }
 
       const exactNextSN = currentDomainStats.length > 0 ? Math.max(...currentDomainStats.map(s => s.sn || s.id || 0)) + 1 : 1;
-      const newStat = { ...formData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
+      
+      const newStat = { 
+        ...formData, 
+        region: activeRegion, 
+        station: activeStation, 
+        sn: exactNextSN, 
+        last_updated_by: `${currentUser.name} (${currentUser.fnum})` 
+      };
       
       try {
         const response = await authFetch(targetEndpoint, {
@@ -165,7 +185,7 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
         
         const savedData = await response.json().catch(() => newStat);
         activeSetter([savedData, ...currentDomainStats]); 
-        setNotification(`✅ Statistics recorded successfully for ${formData.station}!`);
+        setNotification(`✅ Statistics recorded successfully for ${activeStation}!`);
         setFormData({ 
           ...formData, arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, 
           taken_to_court: 0, released: 0, remanded: 0, convicted: 0, sn: null, id: null 
@@ -179,16 +199,21 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
       if (!recordKey) return setNotification("Error: Please select a record from the list to update first.");
 
       const isDuplicateConflict = currentDomainStats.some(s => 
-        (String(s.station || '').trim().toUpperCase() === String(formData.station || '').trim().toUpperCase() && 
+        (String(s.station || '').trim().toUpperCase() === String(activeStation || '').trim().toUpperCase() && 
          String(s.date) === String(formData.date)) && 
         (s.id !== recordKey && s.sn !== recordKey)
       );
       
       if (isDuplicateConflict) {
-        return setNotification(`❌ Error: Another record for station '${formData.station}' on date '${formData.date}' already exists.`);
+        return setNotification(`❌ Error: Another record for station '${activeStation}' on date '${formData.date}' already exists.`);
       }
 
-      const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
+      const updatedRecord = { 
+        ...formData, 
+        region: activeRegion, 
+        station: activeStation, 
+        last_updated_by: `${currentUser.name} (${currentUser.fnum})` 
+      };
 
       try {
         const response = await fetch(`${API_URL}${targetEndpoint}/${recordKey}`, {

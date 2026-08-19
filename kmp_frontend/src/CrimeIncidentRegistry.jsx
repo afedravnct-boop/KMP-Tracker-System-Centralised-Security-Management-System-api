@@ -127,8 +127,8 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
   const [hqGrandTotalInput, setHqGrandTotalInput] = useState('');
   const [showLockupMatrixModal, setShowLockupMatrixModal] = useState(false);  
 
-  // 🟢 Safely resolve global view active state
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
+  // 🟢 Safely resolve global view active state matching App.jsx logic
+  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
@@ -188,8 +188,10 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
     });
   };
 
+  // 🟢 FIXED: Filter logic now fully respects `canViewGlobalActive` and `ALL REGIONS` / `ALL STATIONS`
   const filteredReports = useMemo(() => {
     if (!Array.isArray(reports)) return [];
+    
     const activeRegion = (filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion.trim().toUpperCase() : null;
     const activeStation = (filterStation && filterStation !== 'ALL STATIONS') ? filterStation.trim().toUpperCase() : null;
 
@@ -199,8 +201,17 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       const stn = stripHtmlTags(r.station || '').trim().toUpperCase();
       const dbRegion = getOfficialRegionForStation(stn, r.region);
 
-      if (activeRegion && dbRegion !== activeRegion) return false;
-      if (activeStation && stn !== activeStation) return false;
+      if (canViewGlobalActive && activeRegion === null) {
+        // Bypass regional restriction entirely when global view is active and 'ALL REGIONS' is selected
+      } else if (activeRegion && dbRegion !== activeRegion) {
+        return false;
+      }
+
+      if (canViewGlobalActive && activeRegion === null && activeStation === null) {
+        // Bypass station restriction entirely
+      } else if (activeStation && stn !== activeStation) {
+        return false;
+      }
 
       // 🟢 PRECISION AGRICULTURAL CRIME FILTER (Explicitly excludes traffic/road accidents)
       if (showAgriculturalOnly) {
@@ -254,7 +265,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       return true;
     });
     return results.sort((a, b) => (b.id || b.sn || 0) - (a.id || a.sn || 0));
-  }, [reports, filterRegion, filterStation, searchQuery, dateFilter, showAgriculturalOnly]);
+  }, [reports, filterRegion, filterStation, searchQuery, dateFilter, showAgriculturalOnly, canViewGlobalActive]);
 
   const isStationSpecific = filterStation && filterStation !== 'ALL STATIONS';
 
@@ -262,14 +273,14 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
     const currentUserRegion = stripHtmlTags(currentUser?.region || '');
     return filteredReports.filter(r => {
       const rRegion = getOfficialRegionForStation(r.station, r.region);
-      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && rRegion !== currentUserRegion) return false;
+      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && !canViewGlobalActive && rRegion !== currentUserRegion) return false;
       if (updateSearch) {
         const query = stripHtmlTags(updateSearch).toLowerCase();
         return stripHtmlTags(r.sdRef || r.sd_ref || '').toLowerCase().includes(query) || (r.id || r.sn || '').toString().includes(query) || extractPlainText(r.narrative).toLowerCase().includes(query);
       }
       return true;
     });
-  }, [filteredReports, currentUser, updateSearch]);
+  }, [filteredReports, currentUser, updateSearch, canViewGlobalActive]);
 
   const metrics = useMemo(() => {
     const stationCellPop = {};
@@ -415,7 +426,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
     if (isEditingLockup) {
       setIsEditingLockup(false);
       setEditLockupTarget(null);
-      setStandalonePopInput({ total: '', male: '', male_juvenile: '', female: '', female_juvenile: '', d1: '', d2: '', d3: '' });
+      setStandalonePopInput({ total: '', male: '', female: '', d1: '', d2: '', d3: '' });
     } else {
       const todayStr = getTodayString();
       const existingEntry = lockupData.find(l => stripHtmlTags(l.station) === formData.station && l.date === todayStr);
@@ -478,9 +489,15 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       } else {
         const cleanStationSub = stripHtmlTags(formData.station).substring(0,3).toUpperCase();
         const popRef = `POP-${cleanStationSub}-${Date.now().toString().slice(-6)}`;
+        
+        // 🟢 FIXED: Respect Super Admin active region toggle when posting cell populations
+        const activeSubmissionRegion = (currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster)
+          ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
+          : getOfficialRegionForStation(formData.station, formData.region);
+
         const apiPayload = {
           sd_ref: popRef, 
-          region: getOfficialRegionForStation(formData.station, formData.region), 
+          region: activeSubmissionRegion, 
           station: stripHtmlTags(formData.station),
           date: getTodayString(), 
           time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
@@ -569,9 +586,14 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       const isDuplicate = reports.some(r => stripHtmlTags(r.station) === stripHtmlTags(formData.station) && ((stripHtmlTags(r.sdRef || r.sd_ref || '')).trim().toLowerCase() === final_reference.toLowerCase() || extractPlainText(r.narrative || '').trim().toLowerCase() === plainTextForDuplicate.toLowerCase()));
       if (isDuplicate) return setNotification(`Error: This specific ${cleanRefType} entry or identical narrative already exists.`);
 
+      // 🟢 FIXED: Respect Super Admin active region toggle when posting new reports
+      const activeSubmissionRegion = (currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster)
+        ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
+        : getOfficialRegionForStation(formData.station, formData.region);
+
       const apiPayload = {
         sd_ref: final_reference, 
-        region: getOfficialRegionForStation(formData.station, formData.region), 
+        region: activeSubmissionRegion, 
         station: stripHtmlTags(formData.station),
         date: stripHtmlTags(formData.date), 
         time: formattedTime, 
@@ -1146,10 +1168,15 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         </div>
       </div>
 
-      {showLockupMatrixModal && (
-        <LockupMatrixLedger lockupEntries={processedLockups} allTimeLockupTotal={allTimeLockupTotal} onClose={() => setShowLockupMatrixModal(false)} />
-      )}
-
+{showLockupMatrixModal && (
+  <LockupMatrixLedger 
+    lockupEntries={lockupData} 
+    allTimeLockupTotal={allTimeLockupTotal} 
+    onClose={() => setShowLockupMatrixModal(false)} 
+    selectedRegion={filterRegion}      // 🟢 Pass the filters down
+    selectedStation={filterStation}    // 🟢 Pass the filters down
+  />
+)}
       {selectedCase && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 sm:p-6 animate-in fade-in zoom-in-95 duration-200">
           <div className="bg-white shadow-2xl max-w-4xl w-full flex flex-col max-h-[95vh] rounded-xl overflow-hidden border border-slate-300">
