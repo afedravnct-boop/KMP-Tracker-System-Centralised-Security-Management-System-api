@@ -48,8 +48,9 @@ const Statistics = ({ currentUser, stats = [], agricStats = [], setStats, setAgr
   const currentDomainStats = statsDomain === 'AGRICULTURAL' ? agricStats : stats;
   const activeSetter = statsDomain === 'AGRICULTURAL' ? setAgricStats : setStats;
 
-  const [filterRegion, setFilterRegion] = useState(currentUser?.role === 'SUPER_ADMIN' ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState((['SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster) ? 'ALL STATIONS' : currentUser?.station || '');
+// 🟢 Replace local region/station state initialization in Crime, Stats, and Stories with:
+  const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState(canViewGlobal ? 'ALL STATIONS' : currentUser?.station || '');
   const [updateSearch, setUpdateSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   

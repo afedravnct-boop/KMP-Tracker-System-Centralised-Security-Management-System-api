@@ -127,8 +127,9 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [hqGrandTotalInput, setHqGrandTotalInput] = useState('');
   const [showLockupMatrixModal, setShowLockupMatrixModal] = useState(false);  
 
-  const [filterRegion, setFilterRegion] = useState(isGlobalCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
-  const [filterStation, setFilterStation] = useState(isRegionalCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
+// 🟢 Replace local region/station state initialization in Crime, Stats, and Stories with:
+  const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState(canViewGlobal ? 'ALL STATIONS' : currentUser?.station || '');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');

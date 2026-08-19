@@ -104,9 +104,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [bulkArchiveReason, setBulkArchiveReason] = useState('TRANSFERRED');
   const [isBulkArchiving, setIsBulkArchiving] = useState(false);
 
+// 🟢 Update these lines at the top of your Nominal_Roll component:
   const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState((isCommandOrHR || canViewGlobal) ? 'ALL STATIONS' : currentUser?.station || '');  
-  const [updateSearch, setUpdateSearch] = useState('');
+  const [filterStation, setFilterStation] = useState(canViewGlobal ? 'ALL STATIONS' : ((isCommandOrHR) ? 'ALL STATIONS' : currentUser?.station || ''));
 
   const [viewMode, setViewMode] = useState('active'); // 'active' | 'archive'
   const [showAnalytics, setShowAnalytics] = useState(false); // true | false
