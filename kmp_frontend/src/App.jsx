@@ -99,6 +99,13 @@ export const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, 
   };
 };
 
+// 🟢 MASTER GLOBAL VIEW HELPER (Centralized Control for All Modules)
+export const canViewGlobalJurisdiction = (user) => {
+  if (!user) return false;
+  if (['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(user.role)) return true;
+  return user.permissions?.view_global_roster === true || user.permissions?.global_observer === true;
+};
+
 const autoCapitalize = (text) => {
   if (!text) return text;
   return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
@@ -3147,22 +3154,25 @@ const App = () => {
   const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
 
 const renderPage = () => {
+    // 🟢 Master Global View helper evaluation
+    const canViewGlobal = currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
+
     switch (currentPage) {
-      case 'home': 
+      case 'home':  
         return checkClearance(currentUser, 'acc_home', true) ? <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} /> : null;
-      case 'reports': 
-        return checkClearance(currentUser, 'acc_crime', true) ? <CrimeIncidentRegistry currentUser={currentUser} reports={reports} setReports={setReports} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
-      case 'statistics': 
-        return checkClearance(currentUser, 'acc_ops', true) ? <Statistics currentUser={currentUser} stats={stats} setStats={setStats} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
-      case 'success': 
-        return checkClearance(currentUser, 'acc_stories', true) ? <SuccessStories currentUser={currentUser} stories={stories} setStories={setStories} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
-      case 'establishments': 
-        return checkClearance(currentUser, 'acc_est', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'STATION_ADMIN'].includes(currentUser?.role)) ? <Establishments currentUser={currentUser} establishments={establishments} setEstablishments={setEstablishments} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
-      case 'analytics': 
+      case 'reports':  
+        return checkClearance(currentUser, 'acc_crime', true) ? <CrimeIncidentRegistry currentUser={currentUser} canViewGlobal={canViewGlobal} reports={reports} setReports={setReports} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+      case 'statistics':  
+        return checkClearance(currentUser, 'acc_ops', true) ? <Statistics currentUser={currentUser} canViewGlobal={canViewGlobal} stats={stats} setStats={setStats} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+      case 'success':  
+        return checkClearance(currentUser, 'acc_stories', true) ? <SuccessStories currentUser={currentUser} canViewGlobal={canViewGlobal} stories={stories} setStories={setStories} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+      case 'establishments':  
+        return checkClearance(currentUser, 'acc_est', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'STATION_ADMIN'].includes(currentUser?.role)) ? <Establishments currentUser={currentUser} canViewGlobal={canViewGlobal} establishments={establishments} setEstablishments={setEstablishments} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+      case 'analytics':  
         return checkClearance(currentUser, 'acc_analytics', ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role)) ? (
           <AnalyticsDashboard nominalRolls={Nominal_Rolls} crimeRegistry={reports} successStories={stories} operationalStats={stats} />
         ) : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
-      case 'nominal-roll': 
+      case 'nominal-roll':  
         return checkClearance(
           currentUser, 
           'view_nominal_roll', 
@@ -3174,6 +3184,7 @@ const renderPage = () => {
         ) ? (
           <Nominal_Roll 
             currentUser={currentUser} 
+            canViewGlobal={canViewGlobal}
             Nominal_Rolls={Nominal_Rolls} 
             setNominal_Rolls={setNominal_Rolls} 
             Nominal_Roll_archives={Nominal_Roll_archives} 
@@ -3190,15 +3201,15 @@ const renderPage = () => {
             onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
           />
         );
-      case 'reports_hub': 
+      case 'reports_hub':  
         return checkClearance(currentUser, 'acc_tripartite', true) ? <WordReportUpload currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />; 
-      case 'approvals': 
+      case 'approvals':  
         return checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role)) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />; 
-      case 'profile': 
+      case 'profile':  
         return checkClearance(currentUser, 'acc_profile', true) ? <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
-      case 'Admin_Communication': 
+      case 'Admin_Communication':  
         return checkClearance(currentUser, 'acc_comms', true) ? <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} onAcknowledgeComm={handleAcknowledgeComm} initialTab={commDefaultTab} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
-      default: 
+      default:  
         return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
     }
   };
