@@ -28,6 +28,7 @@ import Statistics from './Statistics';
 import Nominal_Roll from './Nominal_Roll';
 import Establishments from './Establishments';
 import SuccessStories from './SuccessStories';
+import SystemAssistant from './SystemAssistant';
 
 // ====================================================================
 // 1. CONSTANTS & CONFIGURATION
@@ -2465,8 +2466,7 @@ const App = () => {
 
   const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
 
-const renderPage = () => {
-    // 🟢 Master Global View helper evaluation
+  const renderPage = () => {
     const canViewGlobal = currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
 
     switch (currentPage) {
@@ -2548,9 +2548,8 @@ const renderPage = () => {
       } catch (err) { alert("Failed to load Consolidated Ledger. Check Python terminal for errors."); }
   };
 
-if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
+  if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
 
-  // 🟢 1. PROPERLY CLOSED GHOST SESSION CHECK
   if (currentUser && !currentUser.region) {
     localStorage.removeItem('kmp_currentUser'); 
     localStorage.removeItem('kmp_authToken');
@@ -2563,7 +2562,6 @@ if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }
     );
   }
 
-  // 🟢 2. RESTORED LOGIN SCREEN
   if (!currentUser) return <LoginScreen 
     onLogin={(user) => {
       localStorage.removeItem('kmp_currentPage'); setCurrentPage('home'); setCurrentUser(user);
@@ -2573,7 +2571,6 @@ if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }
     onForgot={() => {}} onSignup={(u) => setPendingUsers([...pendingUsers, u])} pendingUsers={pendingUsers} activeUsers={users} 
   />;
 
-  // 🟢 3. RESTORED USER MANAGEMENT HANDLERS
   const handleGenerateHRReport = () => downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
 
   const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
@@ -2601,7 +2598,6 @@ if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }
     } catch (err) { console.error("Failed to revoke user:", err); }
   };
 
-// 🟢 4. MAIN APPLICATION RETURN
   return (
     <>
       <DashboardLayout 
@@ -2644,6 +2640,13 @@ if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }
         <div className={(isViewingConsolidated || isViewingHR) ? 'hidden' : 'block w-full h-full'}>
           {renderPage()}
         </div>
+
+        {/* 🟢 FLOATING AI INTELLIGENCE ASSISTANT */}
+        <SystemAssistant 
+          currentUser={currentUser} 
+          canViewGlobal={currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true} 
+          onClose={() => {}} 
+        />
       </DashboardLayout>
 
       <WorkspaceSecurityCurtain />

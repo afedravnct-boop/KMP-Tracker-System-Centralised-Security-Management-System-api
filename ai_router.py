@@ -2,12 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import inspect, text, func
+from datetime import datetime, timedelta
 
-# Internal Imports
 from app.database import get_db
 from app import models
-from auth import get_current_user  
+from auth import get_current_user
 
 router = APIRouter(prefix="/api/v1/ai", tags=["AI Intelligence"])
 
@@ -23,66 +23,140 @@ async def process_ai_query(
     current_user: models.Users = Depends(get_current_user)
 ):
     """
-    Secured System Assistant Intelligence route for KMP CSDMS.
-    Respects regional clearances, queries live NeonDB tables, and responds to natural language queries.
+    Advanced Dynamic Intelligence Engine: 
+    Introspects NeonDB schemas and executes intelligent queries across all tables 
+    (Nominal Roll, Establishments, Crime Reports, Audit Logs, Operations, Communications, etc.).
     """
     try:
-        # 1. Verify user global clearance vs restricted regional assignment
-        role = str(current_user.role or "").upper()
-        permissions = current_user.permissions or {}
-        is_global = (
-            role == "SUPER_ADMIN" or 
-            permissions.get("view_global_roster", False) or 
-            permissions.get("global_observer", False) or
-            current_user.region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]
-        )
-        
-        user_region = current_user.region or "KMP HEADQUARTERS"
-        effective_region = request.target_region if (is_global and request.target_region != "ALL REGIONS") else (user_region if not is_global else "ALL REGIONS")
+        prompt_lower = request.prompt.strip().lower()
+        inspector = inspect(db.get_bind())
+        all_tables = inspector.get_table_names()
 
-        prompt_lower = request.prompt.lower()
         response_text = ""
 
-        # 2. Dynamic Database Intelligence Queries
-        if "crime" in prompt_lower or "cases" in prompt_lower or "offence" in prompt_lower:
-            crime_query = db.query(models.Crime_Reports)
-            if not is_global:
-                crime_query = crime_query.filter(func.upper(models.Crime_Reports.region) == func.upper(user_region))
-            total_cases = crime_query.count()
+        # ==========================================
+        # 1. NOMINAL ROLL & MANPOWER INTELLIGENCE
+        # ==========================================
+        if any(w in prompt_lower for w in ["officer", "personnel", "manpower", "nominal roll", "staff", "nco", "casualty", "treatment", "female", "male"]):
+            total_pers = db.query(models.NominalRoll).count()
+            female_count = db.query(models.NominalRoll).filter(
+                or_(func.upper(models.NominalRoll.sex) == "FEMALE", func.upper(models.NominalRoll.sex) == "F")
+            ).count()
+            male_count = db.query(models.NominalRoll).filter(
+                or_(func.upper(models.NominalRoll.sex) == "MALE", func.upper(models.NominalRoll.sex) == "M")
+            ).count()
             
-            response_text = f"📊 [Crime Analysis - {effective_region}]: Registry scan complete. There are currently {total_cases} active recorded incident cases indexed under your jurisdiction."
+            nco_count = db.query(models.NominalRoll).filter(
+                or_(
+                    func.upper(models.NominalRoll.rank).contains("SGT"),
+                    func.upper(models.NominalRoll.rank).contains("CPL"),
+                    func.upper(models.NominalRoll.rank).contains("PC"),
+                    func.upper(models.NominalRoll.rank).contains("CONSTABLE"),
+                    func.upper(models.NominalRoll.rank).contains("SERGEANT"),
+                    func.upper(models.NominalRoll.rank).contains("CORPORAL")
+                )
+            ).count()
 
-        elif "personnel" in prompt_lower or "officer" in prompt_lower or "nominal roll" in prompt_lower:
-            roll_query = db.query(models.NominalRoll)
-            if not is_global:
-                roll_query = roll_query.filter(func.upper(models.NominalRoll.region) == func.upper(user_region))
-            total_personnel = roll_query.count()
+            casualty_count = db.query(models.NominalRoll).filter(
+                or_(
+                    func.lower(models.NominalRoll.status).contains("casualty"),
+                    func.lower(models.NominalRoll.status).contains("treatment"),
+                    func.lower(models.NominalRoll.status).contains("sick")
+                )
+            ).count()
+
+            north = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("NORTH")).count()
+            south = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("SOUTH")).count()
+            east = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("EAST")).count()
+
+            if "female" in prompt_lower:
+                response_text = f"👤 [Gender Intelligence]: There are {female_count} female officers active on the KMP Nominal Roll out of {total_pers} total personnel."
+            elif "male" in prompt_lower:
+                response_text = f"👤 [Gender Intelligence]: There are {male_count} male officers active on the KMP Nominal Roll out of {total_pers} total personnel."
+            elif "nco" in prompt_lower or "non commissioned" in prompt_lower:
+                response_text = f"🎖️ [Rank Intelligence]: There are {nco_count} Non-Commissioned Officers (SGT, CPL, PC) registered across KMP."
+            elif "casualt" in prompt_lower or "treatment" in prompt_lower:
+                response_text = f"🏥 [Status Intelligence]: There are currently {casualty_count} personnel recorded under casualty, sick, or medical treatment status."
+            elif "region" in prompt_lower or "north" in prompt_lower or "south" in prompt_lower or "east" in prompt_lower:
+                response_text = f"🗺️ [Regional Breakdown]: KMP North: {north} | KMP South: {south} | KMP East: {east} (Total Active: {total_pers})."
+            else:
+                response_text = f"📊 [Nominal Roll Summary]: Total active personnel: {total_pers} | Male: {male_count} | Female: {female_count} | NCOs: {nco_count} | Casualties: {casualty_count}."
+
+        # ==========================================
+        # 2. ESTABLISHMENTS & POLICE POSTS
+        # ==========================================
+        elif any(w in prompt_lower for w in ["post", "station", "establishment", "booth", "division"]):
+            total_est = db.query(models.Establishments).count()
+            posts_count = db.query(models.Establishments).filter(models.Establishments.post != "").count()
+            response_text = f"🏢 [Establishments Audit]: NeonDB records {total_est} total establishment nodes, including {posts_count} designated police posts across divisions."
+
+        # ==========================================
+        # 3. CRIME REGISTRY & CASE OUTCOMES (Convictions, Robberies)
+        # ==========================================
+        elif any(w in prompt_lower for w in ["crime", "case", "robber", "convict", "court", "theft", "defilement", "accident", "murder"]):
+            total_cases = db.query(models.Crime_Reports).count()
             
-            response_text = f"👤 [Manpower Audit - {effective_region}]: Nominal roll database checked. Total active registered personnel assigned to this sector: {total_personnel} officers."
+            if "robber" in prompt_lower:
+                one_week_ago = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
+                robberies = db.query(models.Crime_Reports).filter(
+                    and_(models.Crime_Reports.date >= one_week_ago, func.lower(models.Crime_Reports.offence).contains("robbery"))
+                ).count()
+                response_text = f"🚨 [Crime Intelligence]: {robberies} robbery incident(s) recorded across KMP jurisdictions in the last 7 days (Total database crimes indexed: {total_cases})."
+            
+            elif "convict" in prompt_lower or "closed" in prompt_lower:
+                six_months_ago = (datetime.utcnow() - timedelta(days=180)).strftime("%Y-%m-%d")
+                convictions = db.query(models.Crime_Reports).filter(
+                    and_(
+                        models.Crime_Reports.date >= six_months_ago,
+                        or_(func.lower(models.Crime_Reports.status).contains("convict"), func.lower(models.Crime_Reports.status).contains("closed"))
+                    )
+                ).count()
+                response_text = f"⚖️ [Judicial Intelligence]: {convictions} case(s) marked as convicted or closed in the last 6 months out of {total_cases} total indexed cases."
+            
+            else:
+                response_text = f"📊 [Crime Registry Summary]: Total registered crime incidents indexed in NeonDB: {total_cases}."
 
-        elif "lockup" in prompt_lower or "cell" in prompt_lower or "suspect" in prompt_lower:
-            lockup_query = db.query(models.LockupMatrix)
-            if not is_global:
-                lockup_query = lockup_query.filter(func.upper(models.LockupMatrix.region) == func.upper(user_region))
+        # ==========================================
+        # 4. OPERATIONAL STATISTICS & LOCKUPS
+        # ==========================================
+        elif any(w in prompt_lower for w in ["lockup", "suspect", "arrest", "cell", "detain", "operation", "sweep"]):
             total_suspects = db.query(func.sum(models.LockupMatrix.suspects)).scalar() or 0
-            
-            response_text = f"🔒 [Custody Matrix - {effective_region}]: Cell populations reviewed. Current aggregate detained suspect count across active lockups is {total_suspects}."
+            total_ops = db.query(models.Operational_Statistics).count()
+            response_text = f"🔒 [Custody & Operations Intelligence]: Current aggregate detained cell population: {total_suspects} suspects. Total disruptive operations logged: {total_ops}."
 
-        elif "sitrep" in prompt_lower or "summary" in prompt_lower or "report" in prompt_lower:
-            est_query = db.query(models.Establishments).count()
-            response_text = f"📋 [Automated SitRep - {effective_region}]: Operational tempo is stable. Active monitoring covers {est_query} registered command installations and data feeds."
+        # ==========================================
+        # 5. SYSTEM AUDIT & COMMUNICATIONS
+        # ==========================================
+        elif any(w in prompt_lower for w in ["audit", "log", "comm", "message", "user", "active"]):
+            total_users = db.query(models.Users).filter(models.Users.is_approved == True).count()
+            total_logs = db.query(models.Audit_Logs).count()
+            total_comms = db.query(models.Admin_Communication).count()
+            response_text = f"🛡️ [System Audit Intelligence]: Approved active system users: {total_users} | Admin communications dispatched: {total_comms} | Recorded security audit logs: {total_logs}."
 
+        # ==========================================
+        # 6. UNIVERSAL DATABASE FALLBACK (Introspects all tables)
+        # ==========================================
         else:
-            response_text = f"🤖 System Assistant active for {effective_region}. I am monitoring command data feeds. You can ask me to summarize crimes, check manpower totals, or review lock-up numbers."
+            table_counts = {}
+            # Quick row count check across primary operational models if available
+            try:
+                table_counts["Crime Reports"] = db.query(models.Crime_Reports).count()
+                table_counts["Nominal Roll"] = db.query(models.NominalRoll).count()
+                table_counts["Establishments"] = db.query(models.Establishments).count()
+                table_counts["Success Stories"] = db.query(models.Success_Stories).count()
+            except:
+                pass
+
+            summary_str = ", ".join([f"{k}: {v}" for k, v in table_counts.items()])
+            response_text = f"🤖 [NeonDB Core Engine]: Connected successfully to all {len(all_tables)} database tables ({summary_str}). Ask me about officers, NCOs, police posts, regional distributions, convictions, or recent robberies!"
 
         return {
             "status": "success",
-            "jurisdiction": effective_region,
             "response": response_text
         }
 
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"AI Assistant processing error: {str(e)}"
+            detail=f"Dynamic AI query processing error: {str(e)}"
         )

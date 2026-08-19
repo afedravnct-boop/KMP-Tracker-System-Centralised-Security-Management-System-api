@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Sparkles, Send, X, Bot, User, Loader2 } from 'lucide-react';
+import { Sparkles, Send, X, Bot, User, Loader2, MessageSquare } from 'lucide-react';
 
-const SystemAssistant = ({ currentUser, canViewGlobal, onClose }) => {
+const SystemAssistant = ({ currentUser, canViewGlobal }) => {
+  const [isOpen, setIsOpen] = useState(false); // 🟢 Toggle state for opening/closing
   const [messages, setMessages] = useState([
     { sender: 'ai', text: `Hello ${currentUser?.rank || 'Officer'} ${currentUser?.name || ''}. I am your KMP CSDMS Intelligence Assistant. How can I assist with your operational analysis or data queries today?` }
   ]);
@@ -41,6 +42,20 @@ const SystemAssistant = ({ currentUser, canViewGlobal, onClose }) => {
     }
   };
 
+  // If closed, render a floating trigger button at the bottom-right corner
+  if (!isOpen) {
+    return (
+      <button 
+        onClick={() => setIsOpen(true)}
+        className="fixed bottom-6 right-6 z-[99999] bg-slate-900 hover:bg-black text-amber-400 p-4 rounded-full shadow-2xl transition flex items-center space-x-2 cursor-pointer border border-slate-700"
+        title="Open KMP Intelligence Assistant"
+      >
+        <Sparkles size={20} className="animate-pulse" />
+        <span className="text-xs font-extrabold uppercase tracking-wider text-white">AI Assistant</span>
+      </button>
+    );
+  }
+
   return (
     <div className="fixed bottom-6 right-6 z-[99999] w-96 max-w-[90vw] bg-white rounded-2xl shadow-2xl border border-slate-300 overflow-hidden flex flex-col h-[500px] animate-in slide-in-from-bottom-5">
       {/* Header */}
@@ -49,7 +64,7 @@ const SystemAssistant = ({ currentUser, canViewGlobal, onClose }) => {
           <Sparkles className="w-4 h-4 text-amber-400" />
           <h3 className="font-extrabold text-xs uppercase tracking-wider">KMP Intelligence Assistant</h3>
         </div>
-        <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded transition cursor-pointer">
+        <button onClick={() => setIsOpen(false)} className="text-slate-400 hover:text-white p-1 rounded transition cursor-pointer">
           <X size={18} />
         </button>
       </div>
