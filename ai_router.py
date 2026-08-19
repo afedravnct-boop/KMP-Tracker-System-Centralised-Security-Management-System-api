@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import inspect, text, func
+from sqlalchemy import inspect, text, func, or_, and_
 from datetime import datetime, timedelta
 
 from app.database import get_db
@@ -23,8 +23,8 @@ async def process_ai_query(
     current_user: models.Users = Depends(get_current_user)
 ):
     """
-    Advanced Dynamic Intelligence Engine: 
-    Introspects NeonDB schemas and executes intelligent queries across all tables 
+    Comprehensive Dynamic Intelligence Engine: 
+    Introspects NeonDB schemas and executes targeted queries across all tables 
     (Nominal Roll, Establishments, Crime Reports, Audit Logs, Operations, Communications, etc.).
     """
     try:
@@ -35,17 +35,46 @@ async def process_ai_query(
         response_text = ""
 
         # ==========================================
-        # 1. NOMINAL ROLL & MANPOWER INTELLIGENCE
+        # 1. POLICE OFFICERS / KMP MANPOWER TOTALS
         # ==========================================
-        if any(w in prompt_lower for w in ["officer", "personnel", "manpower", "nominal roll", "staff", "nco", "casualty", "treatment", "female", "male"]):
+        if "kampala" in prompt_lower or ("officer" in prompt_lower and "kampala" in prompt_lower) or ("police men" in prompt_lower):
             total_pers = db.query(models.NominalRoll).count()
+            response_text = f"📊 [Manpower Audit - Kampala Metropolitan Area]: There are currently a total of {total_pers} active police officers registered in the KMP Nominal Roll."
+
+        # ==========================================
+        # 2. POLICE POSTS (Establishments Table)
+        # ==========================================
+        elif "police post" in prompt_lower or "posts in kmp" in prompt_lower:
+            posts_count = db.query(models.Establishments).filter(
+                and_(models.Establishments.post.isnot(None), models.Establishments.post != "")
+            ).count()
+            total_est = db.query(models.Establishments).count()
+            response_text = f"🏢 [Establishments Audit]: NeonDB records {total_est} total establishment entries, featuring {posts_count} designated police posts across KMP divisions."
+
+        # ==========================================
+        # 3. FEMALE OFFICERS (Nominal Roll - Sex Column)
+        # ==========================================
+        elif "female officer" in prompt_lower or "female" in prompt_lower:
             female_count = db.query(models.NominalRoll).filter(
                 or_(func.upper(models.NominalRoll.sex) == "FEMALE", func.upper(models.NominalRoll.sex) == "F")
             ).count()
+            total_pers = db.query(models.NominalRoll).count()
+            response_text = f"👤 [Gender Intelligence]: There are {female_count} female officers active on the KMP Nominal Roll out of {total_pers} total personnel."
+
+        # ==========================================
+        # 4. TOTAL MALE OFFICERS (Nominal Roll Total)
+        # ==========================================
+        elif "male officer" in prompt_lower or "male" in prompt_lower:
             male_count = db.query(models.NominalRoll).filter(
                 or_(func.upper(models.NominalRoll.sex) == "MALE", func.upper(models.NominalRoll.sex) == "M")
             ).count()
-            
+            total_pers = db.query(models.NominalRoll).count()
+            response_text = f"👤 [Gender Intelligence]: There are {male_count} male officers active on the KMP Nominal Roll out of {total_pers} total personnel."
+
+        # ==========================================
+        # 5. NCOs (Ranks below Assistant Inspector of Police - AIP)
+        # ==========================================
+        elif "nco" in prompt_lower or "non commissioned" in prompt_lower:
             nco_count = db.query(models.NominalRoll).filter(
                 or_(
                     func.upper(models.NominalRoll.rank).contains("SGT"),
@@ -53,10 +82,16 @@ async def process_ai_query(
                     func.upper(models.NominalRoll.rank).contains("PC"),
                     func.upper(models.NominalRoll.rank).contains("CONSTABLE"),
                     func.upper(models.NominalRoll.rank).contains("SERGEANT"),
-                    func.upper(models.NominalRoll.rank).contains("CORPORAL")
+                    func.upper(models.NominalRoll.rank).contains("CORPORAL"),
+                    func.upper(models.NominalRoll.rank).contains("DC")
                 )
             ).count()
+            response_text = f"🎖️ [Rank Structure Intelligence]: There are {nco_count} Non-Commissioned Officers (ranks below AIP, such as Sergeants, Corporals, and Constables) registered in the KMP Nominal Roll."
 
+        # ==========================================
+        # 6. CASUALTIES / MEDICAL TREATMENT STATUS
+        # ==========================================
+        elif "casualt" in prompt_lower or "treatment" in prompt_lower or "sick" in prompt_lower:
             casualty_count = db.query(models.NominalRoll).filter(
                 or_(
                     func.lower(models.NominalRoll.status).contains("casualty"),
@@ -64,81 +99,61 @@ async def process_ai_query(
                     func.lower(models.NominalRoll.status).contains("sick")
                 )
             ).count()
-
-            north = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("NORTH")).count()
-            south = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("SOUTH")).count()
-            east = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("EAST")).count()
-
-            if "female" in prompt_lower:
-                response_text = f"👤 [Gender Intelligence]: There are {female_count} female officers active on the KMP Nominal Roll out of {total_pers} total personnel."
-            elif "male" in prompt_lower:
-                response_text = f"👤 [Gender Intelligence]: There are {male_count} male officers active on the KMP Nominal Roll out of {total_pers} total personnel."
-            elif "nco" in prompt_lower or "non commissioned" in prompt_lower:
-                response_text = f"🎖️ [Rank Intelligence]: There are {nco_count} Non-Commissioned Officers (SGT, CPL, PC) registered across KMP."
-            elif "casualt" in prompt_lower or "treatment" in prompt_lower:
-                response_text = f"🏥 [Status Intelligence]: There are currently {casualty_count} personnel recorded under casualty, sick, or medical treatment status."
-            elif "region" in prompt_lower or "north" in prompt_lower or "south" in prompt_lower or "east" in prompt_lower:
-                response_text = f"🗺️ [Regional Breakdown]: KMP North: {north} | KMP South: {south} | KMP East: {east} (Total Active: {total_pers})."
-            else:
-                response_text = f"📊 [Nominal Roll Summary]: Total active personnel: {total_pers} | Male: {male_count} | Female: {female_count} | NCOs: {nco_count} | Casualties: {casualty_count}."
+            response_text = f"🏥 [Personnel Status Intelligence]: There are currently {casualty_count} personnel recorded under casualty or medical treatment status in the nominal roll."
 
         # ==========================================
-        # 2. ESTABLISHMENTS & POLICE POSTS
+        # 7. REGIONAL BREAKDOWN (North, South, East Independently)
         # ==========================================
-        elif any(w in prompt_lower for w in ["post", "station", "establishment", "booth", "division"]):
-            total_est = db.query(models.Establishments).count()
-            posts_count = db.query(models.Establishments).filter(models.Establishments.post != "").count()
-            response_text = f"🏢 [Establishments Audit]: NeonDB records {total_est} total establishment nodes, including {posts_count} designated police posts across divisions."
+        elif "region" in prompt_lower or "north" in prompt_lower or "south" in prompt_lower or "east" in prompt_lower:
+            north_count = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("NORTH")).count()
+            south_count = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("SOUTH")).count()
+            east_count = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("EAST")).count()
+            total_pers = db.query(models.NominalRoll).count()
+
+            response_text = (
+                f"🗺️ [Regional Manpower Breakdown - NeonDB]:\n"
+                f"• KMP North: {north_count} personnel\n"
+                f"• KMP South: {south_count} personnel\n"
+                f"• KMP East: {east_count} personnel\n"
+                f"• Total Active Strength: {total_pers} officers"
+            )
 
         # ==========================================
-        # 3. CRIME REGISTRY & CASE OUTCOMES (Convictions, Robberies)
+        # 8. CONVICTED / CLOSED CASES IN THE LAST 6 MONTHS
         # ==========================================
-        elif any(w in prompt_lower for w in ["crime", "case", "robber", "convict", "court", "theft", "defilement", "accident", "murder"]):
-            total_cases = db.query(models.Crime_Reports).count()
-            
-            if "robber" in prompt_lower:
-                one_week_ago = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
-                robberies = db.query(models.Crime_Reports).filter(
-                    and_(models.Crime_Reports.date >= one_week_ago, func.lower(models.Crime_Reports.offence).contains("robbery"))
-                ).count()
-                response_text = f"🚨 [Crime Intelligence]: {robberies} robbery incident(s) recorded across KMP jurisdictions in the last 7 days (Total database crimes indexed: {total_cases})."
-            
-            elif "convict" in prompt_lower or "closed" in prompt_lower:
-                six_months_ago = (datetime.utcnow() - timedelta(days=180)).strftime("%Y-%m-%d")
-                convictions = db.query(models.Crime_Reports).filter(
-                    and_(
-                        models.Crime_Reports.date >= six_months_ago,
-                        or_(func.lower(models.Crime_Reports.status).contains("convict"), func.lower(models.Crime_Reports.status).contains("closed"))
+        elif "convict" in prompt_lower or ("closed" in prompt_lower and "month" in prompt_lower):
+            six_months_ago = (datetime.utcnow() - timedelta(days=180)).strftime("%Y-%m-%d")
+            convictions = db.query(models.Crime_Reports).filter(
+                and_(
+                    models.Crime_Reports.date >= six_months_ago,
+                    or_(
+                        func.lower(models.Crime_Reports.status).contains("convict"),
+                        func.lower(models.Crime_Reports.status).contains("closed"),
+                        func.lower(models.Crime_Reports.status).contains("court")
                     )
-                ).count()
-                response_text = f"⚖️ [Judicial Intelligence]: {convictions} case(s) marked as convicted or closed in the last 6 months out of {total_cases} total indexed cases."
-            
-            else:
-                response_text = f"📊 [Crime Registry Summary]: Total registered crime incidents indexed in NeonDB: {total_cases}."
+                )
+            ).count()
+            total_cases = db.query(models.Crime_Reports).count()
+            response_text = f"⚖️ [Judicial Intelligence]: {convictions} case(s) marked as convicted or closed in the last 6 months out of {total_cases} total indexed cases."
 
         # ==========================================
-        # 4. OPERATIONAL STATISTICS & LOCKUPS
+        # 9. ROBBERIES COMMITTED IN THE LAST ONE WEEK
         # ==========================================
-        elif any(w in prompt_lower for w in ["lockup", "suspect", "arrest", "cell", "detain", "operation", "sweep"]):
-            total_suspects = db.query(func.sum(models.LockupMatrix.suspects)).scalar() or 0
-            total_ops = db.query(models.Operational_Statistics).count()
-            response_text = f"🔒 [Custody & Operations Intelligence]: Current aggregate detained cell population: {total_suspects} suspects. Total disruptive operations logged: {total_ops}."
+        elif "robber" in prompt_lower or ("week" in prompt_lower and "robbery" in prompt_lower):
+            one_week_ago = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
+            robberies = db.query(models.Crime_Reports).filter(
+                and_(
+                    models.Crime_Reports.date >= one_week_ago,
+                    func.lower(models.Crime_Reports.offence).contains("robbery")
+                )
+            ).count()
+            response_text = f"🚨 [Crime Trend Intelligence]: There have been {robberies} robbery incident(s) recorded across KMP jurisdictions in the last 7 days."
 
         # ==========================================
-        # 5. SYSTEM AUDIT & COMMUNICATIONS
-        # ==========================================
-        elif any(w in prompt_lower for w in ["audit", "log", "comm", "message", "user", "active"]):
-            total_users = db.query(models.Users).filter(models.Users.is_approved == True).count()
-            total_logs = db.query(models.Audit_Logs).count()
-            total_comms = db.query(models.Admin_Communication).count()
-            response_text = f"🛡️ [System Audit Intelligence]: Approved active system users: {total_users} | Admin communications dispatched: {total_comms} | Recorded security audit logs: {total_logs}."
-
-        # ==========================================
-        # 6. UNIVERSAL DATABASE FALLBACK (Introspects all tables)
+        # 10. UNIVERSAL DATABASE FALLBACK
         # ==========================================
         else:
             table_counts = {}
-            # Quick row count check across primary operational models if available
             try:
                 table_counts["Crime Reports"] = db.query(models.Crime_Reports).count()
                 table_counts["Nominal Roll"] = db.query(models.NominalRoll).count()
@@ -148,7 +163,7 @@ async def process_ai_query(
                 pass
 
             summary_str = ", ".join([f"{k}: {v}" for k, v in table_counts.items()])
-            response_text = f"🤖 [NeonDB Core Engine]: Connected successfully to all {len(all_tables)} database tables ({summary_str}). Ask me about officers, NCOs, police posts, regional distributions, convictions, or recent robberies!"
+            response_text = f"🤖 [NeonDB Core Engine]: Connected to all {len(all_tables)} database tables ({summary_str}). Ask me about police officers in Kampala, police posts, female/male officers, NCOs, casualties, regional breakdowns, 6-month convictions, or recent robberies!"
 
         return {
             "status": "success",

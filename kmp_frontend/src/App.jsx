@@ -1575,9 +1575,9 @@ const WorkspaceSecurityCurtain = () => {
     );
   }
 
-  return (
+return (
     <div 
-      className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
+      className="idle-curtain-bg fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
       style={{
         position: 'fixed',
         top: 0, left: 0, right: 0, bottom: 0,
@@ -1596,9 +1596,9 @@ const WorkspaceSecurityCurtain = () => {
 
         <div className="idle-center-container relative z-20 flex items-center justify-center mx-auto my-auto" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
           <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
-          
+           
           <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
-            {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
+            {"KAMPALA METROPOLITAN POLICE TRACKER SYSTEM • CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
               <span 
                 key={i} 
                 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-xs sm:text-sm tracking-widest drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]"
