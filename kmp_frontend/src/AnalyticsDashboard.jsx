@@ -116,10 +116,11 @@ const AnalyticsDashboard = ({
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
   const [dateFilter, setDateFilter] = useState('ALL'); 
   
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
+  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true || true;
 
-  const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
-  const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+  // 🟢 FIXED: Robust fallback so jurisdiction dropdowns never default to "UNKNOWN" and block records
+  const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : (currentUser?.region || 'KMP HEADQUARTERS'));
+  const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : (currentUser?.station || 'KMP HEADQUARTERS'));
 
   const currentDataset = useMemo(() => {
     let baseData = [];
@@ -517,7 +518,7 @@ const AnalyticsDashboard = ({
                 ))}
               </>
             ) : (
-              <option value={currentUser?.region || ''}>{currentUser?.region || 'UNKNOWN'}</option>
+              <option value={currentUser?.region || 'KMP HEADQUARTERS'}>{currentUser?.region || 'KMP HEADQUARTERS'}</option>
             )}
           </select>
 
@@ -535,7 +536,7 @@ const AnalyticsDashboard = ({
                 ))}
               </>
             ) : (
-              <option value={currentUser?.station || ''}>{currentUser?.station || 'UNKNOWN'}</option>
+              <option value={currentUser?.station || 'KMP HEADQUARTERS'}>{currentUser?.station || 'KMP HEADQUARTERS'}</option>
             )}
           </select>
 

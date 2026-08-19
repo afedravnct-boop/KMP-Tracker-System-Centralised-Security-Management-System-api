@@ -90,13 +90,13 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     return filtered;
   }, [lockupEntries, lockupFilter, selectedRegion, selectedStation]);
 
-  // Calculations for filtered totals
+  // Calculations for filtered totals including explicit juvenile splits
   const totals = useMemo(() => {
     return filteredLockupEntries.reduce((acc, row) => {
       acc.suspects += Number(row.suspects || 0);
-      acc.male += Number(row.male_count || 0);
+      acc.male += Number(row.male_count || row.male || 0);
       acc.male_juvenile += Number(row.male_juvenile_count || row.male_juvenile || 0);
-      acc.female += Number(row.female_count || 0);
+      acc.female += Number(row.female_count || row.female || 0);
       acc.female_juvenile += Number(row.female_juvenile_count || row.female_juvenile || 0);
       acc.d1 += Number(row.detention_1day || 0);
       acc.d2 += Number(row.detention_2days || 0);
@@ -154,7 +154,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200">Station / Origin</th>
                 <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-white uppercase bg-amber-900 border-r border-amber-800 text-center">Total Suspects</th>
                 
-                {/* SUBDIVIDED SEX & JUVENILE COLUMNS */}
+                {/* 🟢 SUBDIVIDED SEX & JUVENILE COLUMNS */}
                 <th colSpan="4" className="px-2 py-2 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200 text-center bg-amber-200/50">SEX & AGE CATEGORY</th>
                 
                 {/* SUBDIVIDED DURATION IN DETENTION COLUMN */}
@@ -165,9 +165,9 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
               </tr>
               <tr className="bg-amber-50 border-b-2 border-amber-200">
                 <th className="px-2 py-2 text-[9px] font-extrabold text-blue-800 uppercase border-r border-amber-200 text-center bg-blue-50/50">Male Adults</th>
-                <th className="px-2 py-2 text-[9px] font-extrabold text-indigo-800 uppercase border-r border-amber-200 text-center bg-indigo-50/50">Male Juv</th>
+                <th className="px-2 py-2 text-[9px] font-extrabold text-indigo-800 uppercase border-r border-amber-200 text-center bg-indigo-50/50">Male Juveniles</th>
                 <th className="px-2 py-2 text-[9px] font-extrabold text-pink-800 uppercase border-r border-amber-200 text-center bg-pink-50/50">Female Adults</th>
-                <th className="px-2 py-2 text-[9px] font-extrabold text-purple-800 uppercase border-r border-amber-200 text-center bg-purple-50/50">Female Juv</th>
+                <th className="px-2 py-2 text-[9px] font-extrabold text-purple-800 uppercase border-r border-amber-200 text-center bg-purple-50/50">Female Juveniles</th>
                 
                 <th className="px-2 py-2 text-[9px] font-extrabold text-slate-700 uppercase border-r border-amber-200 text-center">1 Day</th>
                 <th className="px-2 py-2 text-[9px] font-extrabold text-slate-700 uppercase border-r border-amber-200 text-center">2 Days</th>
@@ -183,10 +183,10 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                     <td className="px-3 py-3 text-xs font-bold text-slate-600 uppercase border-r border-slate-100">{row.station}</td>
                     <td className="px-3 py-3 text-sm font-black text-amber-900 text-center bg-amber-50/30 border-r border-slate-100">{row.suspects}</td>
                     
-                    {/* Sex & Juvenile Breakdown Values */}
-                    <td className="px-2 py-3 text-xs font-bold text-blue-700 text-center border-r border-slate-100 bg-blue-50/20">{row.male_count || 0}</td>
+                    {/* 🟢 Explicit Sex & Juvenile Breakdown Data Cells */}
+                    <td className="px-2 py-3 text-xs font-bold text-blue-700 text-center border-r border-slate-100 bg-blue-50/20">{row.male_count || row.male || 0}</td>
                     <td className="px-2 py-3 text-xs font-bold text-indigo-700 text-center border-r border-slate-100 bg-indigo-50/20">{row.male_juvenile_count || row.male_juvenile || 0}</td>
-                    <td className="px-2 py-3 text-xs font-bold text-pink-700 text-center border-r border-slate-100 bg-pink-50/20">{row.female_count || 0}</td>
+                    <td className="px-2 py-3 text-xs font-bold text-pink-700 text-center border-r border-slate-100 bg-pink-50/20">{row.female_count || row.female || 0}</td>
                     <td className="px-2 py-3 text-xs font-bold text-purple-700 text-center border-r border-slate-100 bg-purple-50/20">{row.female_juvenile_count || row.female_juvenile || 0}</td>
 
                     {/* Detention Duration Breakdown Values */}

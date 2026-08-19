@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square
@@ -126,7 +126,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
   const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
   const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
 
-  const fetchPendingUsers = async () => {
+  const fetchPendingUsers = useCallback(async () => {
     setLoadingPending(true);
     try {
       let res = await authFetch("/api/v1/admin/pending-users");
@@ -143,9 +143,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     } finally { 
       setLoadingPending(false); 
     }
-  };
+  }, [authFetch]);
 
-  const fetchResets = async () => {
+  const fetchResets = useCallback(async () => {
     setLoadingResets(true);
     try {
       let res = await authFetch("/api/v1/admin/reset-requests");
@@ -160,9 +160,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     } finally { 
       setLoadingResets(false); 
     }
-  };
+  }, [authFetch]);
 
-  const fetchAllSystemUsers = async () => {
+  const fetchAllSystemUsers = useCallback(async () => {
     setLoadingUsers(true);
     try {
       const res = await authFetch("/api/v1/users");
@@ -175,7 +175,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     } finally { 
       setLoadingUsers(false); 
     }
-  };
+  }, [authFetch]);
 
   useEffect(() => {
     setLoadingRequests(true);
@@ -195,7 +195,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
         .then(data => { setAuditLogs(Array.isArray(data) ? data : []); setLoadingLogs(false); })
         .catch(err => { console.error(err); setLoadingLogs(false); });
     }
-  }, [activeTab]);
+  }, [activeTab, authFetch, fetchPendingUsers, fetchResets, fetchAllSystemUsers]);
 
   const filteredPending = useMemo(() => {
     return realPendingUsers.filter(u => {
