@@ -77,18 +77,20 @@ const authFetch = async (url, options = {}) => {
   return response;
 };
 
-const Nominal_Roll = ({ currentUser, Nominal_Rolls, setNominal_Rolls, Nominal_Roll_archives, setNominal_Roll_archives, setSidebarOpen }) => {
+const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_Rolls, setNominal_Rolls, Nominal_Roll_archives, setNominal_Roll_archives, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   const [selectedOfficer, setSelectedOfficer] = useState(null);
 
   // 🟢 STRICT INTERNAL CLEARANCES
-  const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
+  const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||                        
                         (currentUser?.position || '').toUpperCase().includes('HR') ||
                         currentUser?.permissions?.system_admin === true;
 
   const canEditRecords = isCommandOrHR || currentUser?.permissions?.upload_hr === true;
-  const canViewGlobal = currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
+  
+  // 🟢 Master Global View syncs with App.jsx prop or evaluates user permissions directly
+  const canViewGlobal = propCanViewGlobal !== undefined ? propCanViewGlobal : (currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true);
 
   // 🟢 NEW RE-INTEGRATION STATES
   const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
