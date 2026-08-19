@@ -108,7 +108,7 @@ const authFetch = async (url, options = {}) => {
   return response;
 };
 
-const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpen }) => {
+const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, setReports, setSidebarOpen }) => {
   const [lockupData, setLockupData] = useState([]);
   const [standalonePopInput, setStandalonePopInput] = useState({ total: '', male: '', female: '', d1: '', d2: '', d3: '' });
   const [isEditingLockup, setIsEditingLockup] = useState(false);
@@ -127,9 +127,11 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
   const [hqGrandTotalInput, setHqGrandTotalInput] = useState('');
   const [showLockupMatrixModal, setShowLockupMatrixModal] = useState(false);  
 
-// 🟢 Replace local region/station state initialization in Crime, Stats, and Stories with:
-  const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState(canViewGlobal ? 'ALL STATIONS' : currentUser?.station || '');
+  // 🟢 Safely resolve global view active state
+  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
@@ -824,14 +826,14 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
-                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!isGlobalCommand || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                      {isGlobalCommand ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{stripHtmlTags(currentUser.region)}</option>}
+                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                      {canViewGlobalActive ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{stripHtmlTags(currentUser.region)}</option>}
                     </select>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!isRegionalCommand || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                      {operation === 'update' ? <option value={formData.station}>{stripHtmlTags(formData.station)}</option> : isRegionalCommand ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{stripHtmlTags(currentUser.station)}</option>}
+                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                      {operation === 'update' ? <option value={formData.station}>{stripHtmlTags(formData.station)}</option> : canViewGlobalActive ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{stripHtmlTags(currentUser.station)}</option>}
                     </select>
                   </div>
                 </div>
@@ -937,11 +939,11 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
                {showAgriculturalOnly ? 'Agri-Crimes Filter: ON' : 'Filter Agri-Crimes'}
              </button>
 
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!isGlobalCommand} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-              {isGlobalCommand ? <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</> : <option value={currentUser?.region}>{stripHtmlTags(currentUser?.region)}</option>}
+            <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+              {canViewGlobalActive ? <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</> : <option value={currentUser?.region}>{stripHtmlTags(currentUser?.region)}</option>}
             </select>
-            <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!isRegionalCommand} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-              {isRegionalCommand ? <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</> : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
+            <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+              {canViewGlobalActive ? <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</> : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
             </select>   
           </div>
 

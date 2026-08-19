@@ -61,14 +61,17 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   return cleanDbRegion || 'KMP GENERAL';
 };
 
-const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStories = [], operationalStats = [], currentUser }) => {
+const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStories = [], operationalStats = [], currentUser, canViewGlobal = false }) => {
   const [activeDomain, setActiveDomain] = useState('CRIME');
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
   const [sortOrder, setSortOrder] = useState('DEFAULT');
   const [dateFilter, setDateFilter] = useState('ALL'); 
   
-  const [selectedRegion, setSelectedRegion] = useState('ALL REGIONS');
-  const [selectedStation, setSelectedStation] = useState('ALL STATIONS');
+  // 🟢 Safely resolve global view active state
+  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
+
+  const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
+  const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
 
   const currentDataset = useMemo(() => {
     let baseData = [];
@@ -422,7 +425,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         ))}
       </div>
 
-      {/* 🟢 RESTORED REGION & STATION FILTER BAR */}
+      {/* 🟢 SECURED REGION & STATION FILTER BAR */}
       <div className="bg-[#fbf8f3] p-4 rounded-xl shadow-sm border border-[#e2d6c3] flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           <span className="text-xs font-bold text-[#736450] uppercase flex items-center">
@@ -432,23 +435,37 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
           <select 
             value={selectedRegion} 
             onChange={(e) => { setSelectedRegion(e.target.value); setSelectedStation('ALL STATIONS'); }}
-            className="border border-[#e2d6c3] rounded-lg p-2 text-xs font-bold text-[#3a3225] bg-white outline-none cursor-pointer"
+            disabled={!canViewGlobalActive}
+            className="border border-[#e2d6c3] rounded-lg p-2 text-xs font-bold text-[#3a3225] bg-white outline-none cursor-pointer disabled:bg-[#f4eee2] disabled:text-[#736450]"
           >
-            <option value="ALL REGIONS">ALL REGIONS</option>
-            {Object.keys(REGIONAL_HIERARCHY).map(reg => (
-              <option key={reg} value={reg}>{reg}</option>
-            ))}
+            {canViewGlobalActive ? (
+              <>
+                <option value="ALL REGIONS">ALL REGIONS</option>
+                {Object.keys(REGIONAL_HIERARCHY).map(reg => (
+                  <option key={reg} value={reg}>{reg}</option>
+                ))}
+              </>
+            ) : (
+              <option value={currentUser?.region || ''}>{currentUser?.region || 'UNKNOWN'}</option>
+            )}
           </select>
 
           <select 
             value={selectedStation} 
             onChange={(e) => setSelectedStation(e.target.value)}
-            className="border border-[#e2d6c3] rounded-lg p-2 text-xs font-bold text-[#3a3225] bg-white outline-none cursor-pointer"
+            disabled={!canViewGlobalActive}
+            className="border border-[#e2d6c3] rounded-lg p-2 text-xs font-bold text-[#3a3225] bg-white outline-none cursor-pointer disabled:bg-[#f4eee2] disabled:text-[#736450]"
           >
-            <option value="ALL STATIONS">ALL STATIONS</option>
-            {selectedRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[selectedRegion] || []).map(stn => (
-              <option key={stn} value={stn}>{stn}</option>
-            ))}
+            {canViewGlobalActive ? (
+              <>
+                <option value="ALL STATIONS">ALL STATIONS</option>
+                {selectedRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[selectedRegion] || []).map(stn => (
+                  <option key={stn} value={stn}>{stn}</option>
+                ))}
+              </>
+            ) : (
+              <option value={currentUser?.station || ''}>{currentUser?.station || 'UNKNOWN'}</option>
+            )}
           </select>
 
           {activeDomain !== 'RELATIONAL' && (

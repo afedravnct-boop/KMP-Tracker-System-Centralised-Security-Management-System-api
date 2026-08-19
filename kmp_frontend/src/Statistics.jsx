@@ -37,7 +37,7 @@ const authFetch = async (url, options = {}) => {
   return fetch(`${API_URL}${url}`, { ...options, headers: { ...options.headers, "Authorization": `Bearer ${token}` } });
 };
 
-const Statistics = ({ currentUser, stats = [], agricStats = [], setStats, setAgricStats, setSidebarOpen }) => {
+const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats = [], setStats, setAgricStats, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
@@ -48,9 +48,11 @@ const Statistics = ({ currentUser, stats = [], agricStats = [], setStats, setAgr
   const currentDomainStats = statsDomain === 'AGRICULTURAL' ? agricStats : stats;
   const activeSetter = statsDomain === 'AGRICULTURAL' ? setAgricStats : setStats;
 
-// 🟢 Replace local region/station state initialization in Crime, Stats, and Stories with:
-  const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState(canViewGlobal ? 'ALL STATIONS' : currentUser?.station || '');
+  // 🟢 Safely resolve global view clearance
+  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
   const [updateSearch, setUpdateSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   
@@ -332,13 +334,13 @@ const Statistics = ({ currentUser, stats = [], agricStats = [], setStats, setAgr
             {/* Region/Station filters on the left, Domain Toggle Selector pushed to the right on the same line */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-                  {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                  {canViewGlobalActive ? (
                     <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
                   ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
                 </select>
-                <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
-                  {['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || currentUser?.permissions?.view_global_roster ? (
+                <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!canViewGlobalActive} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                  {canViewGlobalActive ? (
                     <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
                   ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
                 </select>
