@@ -27,6 +27,7 @@ import CrimeIncidentRegistry from './CrimeIncidentRegistry';
 import Statistics from './Statistics';
 import Nominal_Roll from './Nominal_Roll';
 import Establishments from './Establishments';
+import SuccessStories from './SuccessStories';
 
 // ====================================================================
 // 1. CONSTANTS & CONFIGURATION
