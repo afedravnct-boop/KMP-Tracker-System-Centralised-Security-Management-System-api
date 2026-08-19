@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
-import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart, Clock, Users, Award, MapPin, Zap, CheckCircle2, GitCommit, Network } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart, Clock, Users, Award, MapPin, Zap, CheckCircle2, GitCommit, Network, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { authFetch } from './api';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -32,7 +33,6 @@ const normalizeOffenceCategory = (rawOffence) => {
   return words.join(' ') || clean;
 };
 
-// 🟢 Helper to strip HTML tags from success stories / narratives for clean Excel exports
 const stripHtmlTags = (html) => {
   if (!html) return '';
   return String(html).replace(/<[^>]*>?/gm, '').trim();
@@ -55,12 +55,67 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   return cleanDbRegion || 'KMP GENERAL';
 };
 
-const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStories = [], operationalStats = [], currentUser, canViewGlobal = false }) => {
+const AnalyticsDashboard = ({ 
+  nominalRolls = [], 
+  nominal_rolls = [], 
+  crimeRegistry = [], 
+  reports = [], 
+  successStories = [], 
+  operationalStats = [], 
+  stats = [], 
+  currentUser, 
+  canViewGlobal = false 
+}) => {
+  const [fetchedRolls, setFetchedRolls] = useState([]);
+  const [fetchedCrime, setFetchedCrime] = useState([]);
+  const [fetchedSuccess, setFetchedSuccess] = useState([]);
+  const [fetchedOps, setFetchedOps] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  // 🟢 Fetch live data straight from NeonDB endpoints if parent props are empty
+  useEffect(() => {
+    let isMounted = true;
+    const fetchNeonData = async () => {
+      setLoading(true);
+      try {
+        const [rollRes, crimeRes, storyRes, statsRes] = await Promise.all([
+          authFetch('/api/v1/nominal-roll').catch(() => null),
+          authFetch('/api/v1/reports').catch(() => null),
+          authFetch('/api/v1/stories').catch(() => null),
+          authFetch('/api/v1/stats').catch(() => null)
+        ]);
+
+        const rollData = rollRes && rollRes.ok ? await rollRes.json() : [];
+        const crimeData = crimeRes && crimeRes.ok ? await crimeRes.json() : [];
+        const storyData = storyRes && storyRes.ok ? await storyRes.json() : [];
+        const statsData = statsRes && statsRes.ok ? await statsRes.json() : [];
+
+        if (isMounted) {
+          setFetchedRolls(Array.isArray(rollData) ? rollData : []);
+          setFetchedCrime(Array.isArray(crimeData) ? crimeData : []);
+          setFetchedSuccess(Array.isArray(storyData) ? storyData : []);
+          setFetchedOps(Array.isArray(statsData) ? statsData : []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch analytics data from NeonDB:", err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchNeonData();
+    return () => { isMounted = false; };
+  }, []);
+
+  const resolvedNominalRolls = nominalRolls.length ? nominalRolls : (nominal_rolls.length ? nominal_rolls : fetchedRolls);
+  const resolvedCrimeRegistry = crimeRegistry.length ? crimeRegistry : (reports.length ? reports : fetchedCrime);
+  const resolvedSuccessStories = successStories.length ? successStories : fetchedSuccess;
+  const resolvedOperationalStats = operationalStats.length ? operationalStats : (stats.length ? stats : fetchedOps);
+
   const [activeDomain, setActiveDomain] = useState('CRIME');
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
   const [dateFilter, setDateFilter] = useState('ALL'); 
   
-  // 🟢 Safely resolve global view active state matching other modules
   const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
 
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
@@ -68,16 +123,15 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
 
   const currentDataset = useMemo(() => {
     let baseData = [];
-    if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') baseData = crimeRegistry.filter(r => !isLockupLog(r)); 
-    else if (activeDomain === 'PERSONNEL') baseData = nominalRolls;
-    else if (activeDomain === 'SUCCESS') baseData = successStories;
-    else if (activeDomain === 'OPERATIONS') baseData = operationalStats;
+    if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') baseData = resolvedCrimeRegistry.filter(r => !isLockupLog(r)); 
+    else if (activeDomain === 'PERSONNEL') baseData = resolvedNominalRolls;
+    else if (activeDomain === 'SUCCESS') baseData = resolvedSuccessStories;
+    else if (activeDomain === 'OPERATIONS') baseData = resolvedOperationalStats;
 
     baseData = baseData.filter(item => {
       const stn = (item.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, item.region);
 
-      // 🟢 Bypass regional/station filtering if global view is active and 'ALL' options are selected
       if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
         return true;
       }
@@ -107,7 +161,7 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       });
     }
     return baseData;
-  }, [activeDomain, crimeRegistry, nominalRolls, successStories, operationalStats, dateFilter, selectedRegion, selectedStation, canViewGlobalActive]);
+  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, dateFilter, selectedRegion, selectedStation, canViewGlobalActive]);
 
   const aggregatedData = useMemo(() => {
     const grouped = {};
@@ -130,7 +184,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     return Object.values(grouped).sort((a, b) => b.count - a.count);
   }, [currentDataset, activeDomain, metricCategory]);
 
-  // 🟢 Standalone Crime Summary Data Table computation
   const crimeSummaryData = useMemo(() => {
     const crimeCounts = {};
     currentDataset.forEach(report => {
@@ -183,9 +236,9 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
   };
 
   const relationalImpactMatrix = useMemo(() => {
-    const reports = Array.isArray(crimeRegistry) ? crimeRegistry.filter(r => !isLockupLog(r)) : [];
-    const ops = Array.isArray(operationalStats) ? operationalStats : [];
-    const successes = Array.isArray(successStories) ? successStories : [];
+    const reports = Array.isArray(resolvedCrimeRegistry) ? resolvedCrimeRegistry.filter(r => !isLockupLog(r)) : [];
+    const ops = Array.isArray(resolvedOperationalStats) ? resolvedOperationalStats : [];
+    const successes = Array.isArray(resolvedSuccessStories) ? resolvedSuccessStories : [];
 
     const regionMap = {};
 
@@ -263,10 +316,10 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     });
 
     return rows;
-  }, [crimeRegistry, operationalStats, successStories, selectedRegion, selectedStation]);
+  }, [resolvedCrimeRegistry, resolvedOperationalStats, resolvedSuccessStories, selectedRegion, selectedStation]);
 
   const operationsTrendsData = useMemo(() => {
-    const ops = Array.isArray(operationalStats) ? operationalStats : [];
+    const ops = Array.isArray(resolvedOperationalStats) ? resolvedOperationalStats : [];
     const stationWeeks = {};
     const allWeeksSet = new Set();
 
@@ -307,9 +360,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
     });
 
     return { rows: rows.sort((a, b) => b.currentArrests - a.currentArrests), currentWeek, previousWeek };
-  }, [operationalStats, selectedRegion, selectedStation]);
+  }, [resolvedOperationalStats, selectedRegion, selectedStation]);
 
-  // 🟢 Professional Backend-Style Excel Export with Relational Stats Sheets & Text Wrapping
   const handleExportExcel = async () => {
     try {
       const wb = XLSX.utils.book_new();
@@ -317,7 +369,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       const stampedBy = `${currentUser?.rank || 'OFFICER'} ${currentUser?.name || 'UNKNOWN'} (F/NO: ${currentUser?.fnum || 'HQ'})`;
       const commandPost = `${currentUser?.station || 'KMP HEADQUARTERS'}, ${currentUser?.region || 'KMP HEADQUARTERS'}`;
 
-      // 1. Forensic Audit Stamp Sheet
       const metaSheetData = [
         ["KAMPALA METROPOLITAN POLICE - CENTRAL SECURITY DATA MANAGEMENT SYSTEM"],
         ["OFFICIAL FORENSIC ANALYTICS & RELATIONAL IMPACT REPORT"],
@@ -331,7 +382,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
       const wsMeta = XLSX.utils.aoa_to_sheet(metaSheetData);
       XLSX.utils.book_append_sheet(wb, wsMeta, "Forensic Audit Stamp");
 
-      // Helper to apply text wrapping and column widths
       const formatWorksheet = (ws, colWidths = []) => {
         if (!ws['!cols']) ws['!cols'] = colWidths.map(w => ({ wch: w }));
         const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
@@ -346,7 +396,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         }
       };
 
-      // 2. Relational Impact Statistics Sheet
       if (relationalImpactMatrix.length > 0) {
         const relationalData = relationalImpactMatrix.map(row => ({
           "Command Region": row.region,
@@ -361,9 +410,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         XLSX.utils.book_append_sheet(wb, wsRel, "Relational Impact Stats");
       }
 
-      // 3. Success Stories Sheet (Sanitized & Plain Text)
-      if (Array.isArray(successStories) && successStories.length > 0) {
-        const successData = successStories.map((s, index) => ({
+      if (Array.isArray(resolvedSuccessStories) && resolvedSuccessStories.length > 0) {
+        const successData = resolvedSuccessStories.map((s, index) => ({
           "S/N": index + 1,
           "Database Audit ID": s.id || s.sn || 'N/A',
           "Reference": s.sdRef || s.sd_ref || 'N/A',
@@ -378,9 +426,8 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         XLSX.utils.book_append_sheet(wb, wsSuccess, "Success Stories");
       }
 
-      // 4. Disruptive Operations Sheet
-      if (Array.isArray(operationalStats) && operationalStats.length > 0) {
-        const opsData = operationalStats.map((o, index) => ({
+      if (Array.isArray(resolvedOperationalStats) && resolvedOperationalStats.length > 0) {
+        const opsData = resolvedOperationalStats.map((o, index) => ({
           "S/N": index + 1,
           "Database Audit ID": o.id || o.sn || 'N/A',
           "Date": o.date || 'N/A',
@@ -423,6 +470,12 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         </button>
       </div>
 
+      {loading && (
+        <div className="flex items-center justify-center p-4 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-800 font-bold">
+          <Loader2 className="w-4 h-4 mr-2 animate-spin text-amber-600" /> Fetching live analytics data streams from NeonDB...
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         {[
           { id: 'OPERATIONS', label: '⚡ Disruptive Operations' },
@@ -444,7 +497,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
         ))}
       </div>
 
-      {/* 🟢 SECURED REGION & STATION FILTER BAR */}
       <div className="bg-[#fbf8f3] p-4 rounded-xl shadow-sm border border-[#e2d6c3] flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           <span className="text-xs font-bold text-[#736450] uppercase flex items-center">
@@ -610,7 +662,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
           </div>
         </div>
       ) : activeDomain === 'CRIME_SUMMARY' ? (
-        /* 🟢 EMBEDDED CRIME SUMMARY TABLE VIEW */
         <div className="space-y-6 animate-in fade-in duration-200">
           <div className="bg-[#3a3225] rounded-2xl p-6 text-[#f4eee2] shadow-xl border border-[#534735]">
             <h2 className="text-xl font-extrabold flex items-center tracking-wide text-[#f4eee2]">
@@ -663,7 +714,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
           </div>
         </div>
       ) : (
-        /* 🟢 STANDARD DOMAIN VIEW WITH PIE CHART & FULL LEGEND/DESCRIPTION LINES */
         <div className="space-y-6 animate-in fade-in duration-200">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
@@ -688,7 +738,6 @@ const AnalyticsDashboard = ({ nominalRolls = [], crimeRegistry = [], successStor
                 </div>
               </div>
 
-              {/* 🟢 Descriptive Legend / Description Lines */}
               <div className="w-full mt-4 max-h-36 overflow-y-auto custom-scrollbar space-y-1.5 pr-1 border-t border-[#e2d6c3] pt-3">
                 {pieSlices.map((slice, idx) => (
                   <div key={idx} className="flex items-center justify-between text-xs font-bold text-[#594d3c] px-2 py-1.5 bg-[#f4eee2] rounded border border-[#e2d6c3]/50">
