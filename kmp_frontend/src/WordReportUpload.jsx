@@ -5,21 +5,25 @@ import {
 } from 'lucide-react';
 
 const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
-  const [files, setFiles] = useState([]); // 🟢 Changed from single file to array for multi-upload support
+  const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
-  // 🟢 Single active view category that drives BOTH the upload form and the ledger below
   const [activeCategory, setActiveCategory] = useState('weekly_report'); 
 
   const [documents, setDocuments] = useState([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
 
-  // Custom name input for template uploads
   const [templateCustomName, setTemplateCustomName] = useState('');
 
-  const hasDownloadClearance = ['SUPER_ADMIN', 'ADMIN', 'RPC'].includes(currentUser?.role?.toUpperCase());
+  // 🟢 SOVEREIGN CLEARANCE DERIVATION FOR UPLOADS & DOWNLOADS
+  const canUploadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN'].includes(currentUser?.role?.toUpperCase());
+  const canDownloadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN', 'USER'].includes(currentUser?.role?.toUpperCase());
+
+  // Checks matrix keys or role baseline
+  const hasUploadClearance = currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_tripartite_upload !== false && (canUploadByRole || currentUser?.permissions?.acc_tripartite_upload === true));
+  const hasDownloadClearance = currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_tripartite_download !== false && (canDownloadByRole || currentUser?.permissions?.acc_tripartite_download === true));
 
   useEffect(() => {
     fetchArchiveList();
@@ -47,7 +51,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   };
 
   const handleFileChange = (e) => {
-    const selectedFiles = Array.from(e.target.files); // 🟢 Handle multiple selected files
+    const selectedFiles = Array.from(e.target.files);
     setFiles(selectedFiles);
     if (selectedFiles.length > 0 && !templateCustomName) {
       const firstFile = selectedFiles[0];
@@ -59,15 +63,14 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
 
   const handleUpload = async (e) => {
     e.preventDefault();
+    if (!hasUploadClearance) return alert("Security Restriction: You do not have command clearance to upload files.");
     if (!files || files.length === 0) return alert("Please select at least one file first.");
 
     const formData = new FormData();
     
-    // 🟢 Append multiple files correctly to FormData
     files.forEach((f) => {
-      formData.append("files", f); // Supports backend multi-file endpoint keys
+      formData.append("files", f);
     });
-    // Fallback single append in case backend reads "file" singular
     if (files.length === 1) {
       formData.append("file", files[0]);
     }
@@ -111,6 +114,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   };
 
   const handleDeleteDoc = async (docId) => {
+    if (!hasUploadClearance) return alert("Security Restriction: You do not have clearance to delete documents.");
     if (!window.confirm("Are you sure you want to permanently delete this document? This action cannot be undone.")) return;
 
     setActionLoading(`delete-${docId}`);
@@ -139,6 +143,10 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   };
 
   const handleFileAction = async (docId, action, isTemplate = false) => {
+    if (action === 'download' && !hasDownloadClearance) {
+      return alert("Security Restriction: You do not have command clearance to download documents.");
+    }
+
     setActionLoading(`${action}-${docId}`);
     try {
       const token = localStorage.getItem('kmp_authToken');
@@ -238,7 +246,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
     }
   };
 
-  // 🟢 Filter documents dynamically according to the active category tab
   const filteredDocuments = documents.filter(doc => {
     const docType = (doc.type || '').trim().toLowerCase();
 
@@ -267,47 +274,46 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
 
       <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
         
-        {/* 🟢 UNIVERSAL UPLOAD SECTION */}
+        {/* UPLOAD SECTION GUARDED BY hasUploadClearance */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="border-b border-slate-100 pb-4 mb-6">
             <h3 className="font-extrabold text-sm text-slate-900 uppercase">Universal File Intake Hub</h3>
-            <p className="text-xs text-slate-500 mt-1">Upload multiple files simultaneously across any format (Word, Excel, PowerPoint, PDF, etc.) directly into command storage.</p>
+            <p className="text-xs text-slate-500 mt-1">Upload multiple files simultaneously across any format directly into command storage.</p>
           </div>
 
-          <form onSubmit={handleUpload} className="max-w-3xl space-y-4">
-
-            {/* Unified category tabs controlling both upload mode & ledger view */}
-            <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-200 flex flex-col sm:flex-row gap-1">
-              <button
-                type="button"
-                onClick={() => setActiveCategory('weekly_report')}
-                className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${activeCategory === 'weekly_report' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
-              >
-                Weekly Reports
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveCategory('general_doc')}
-                className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${activeCategory === 'general_doc' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
-              >
-                General Docs / Statements
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveCategory('templates')}
-                className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${activeCategory === 'templates' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
-              >
-                Command Templates
-              </button>
+          {!hasUploadClearance ? (
+            <div className="p-6 text-center bg-amber-50 border border-amber-200 rounded-xl">
+              <Lock className="w-6 h-6 text-amber-600 mx-auto mb-2" />
+              <h3 className="text-amber-900 font-bold text-xs uppercase">Upload Restricted</h3>
+              <p className="text-xs text-amber-700 mt-1">You have viewing access to view and read documents, but require specific command clearance or upload privileges to submit files.</p>
             </div>
+          ) : (
+            <form onSubmit={handleUpload} className="max-w-3xl space-y-4">
 
-            {activeCategory === 'templates' && !hasDownloadClearance ? (
-               <div className="p-8 text-center bg-red-50 border border-red-200 rounded-xl mt-4">
-                  <Lock className="w-8 h-8 text-red-500 mx-auto mb-2" />
-                  <h3 className="text-red-800 font-bold">Admin Clearance Required</h3>
-                  <p className="text-xs text-red-600 mt-1">You do not have the required command clearance to upload system templates.</p>
-               </div>
-            ) : (
+              <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-200 flex flex-col sm:flex-row gap-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveCategory('weekly_report')}
+                  className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${activeCategory === 'weekly_report' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+                >
+                  Weekly Reports
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveCategory('general_doc')}
+                  className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${activeCategory === 'general_doc' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+                >
+                  General Docs / Statements
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveCategory('templates')}
+                  className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${activeCategory === 'templates' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+                >
+                  Command Templates
+                </button>
+              </div>
+
               <div className="space-y-4 mt-4 animate-in fade-in">
 
                 {activeCategory === 'templates' && (
@@ -321,19 +327,18 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                       required
                       className="w-full border border-amber-300 rounded-lg p-2.5 text-sm font-bold text-slate-800 outline-none focus:border-amber-500 bg-white uppercase"
                     />
-                    <p className="text-[10px] text-amber-700 font-medium"><AlertTriangle className="w-3 h-3 inline mr-1" />Type the exact name you want to display in the ledger.</p>
                   </div>
                 )}
 
-                <div className={`border-2 border-dashed rounded-xl p-6 text-center transition cursor-pointer relative ${activeCategory === 'templates' ? 'border-amber-300 bg-amber-50/50 hover:bg-amber-100 hover:border-amber-400' : 'border-slate-300 bg-slate-50 hover:bg-blue-50 hover:border-blue-300'}`}>
+                <div className={`border-2 border-dashed rounded-xl p-6 text-center transition cursor-pointer relative ${activeCategory === 'templates' ? 'border-amber-300 bg-amber-50/50 hover:bg-amber-100' : 'border-slate-300 bg-slate-50 hover:bg-blue-50'}`}>
                   <input 
                     type="file" 
-                    multiple // 🟢 Enabled multiple file selection attribute
+                    multiple 
                     onChange={handleFileChange} 
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                   />
                   <UploadCloud className={`w-8 h-8 mx-auto mb-2 ${activeCategory === 'templates' ? 'text-amber-500' : 'text-slate-400'}`} />
-                  <p className="text-sm font-bold text-slate-600">Click or drop multiple files here (Word, Excel, PPT, PDF, etc.)</p>
+                  <p className="text-sm font-bold text-slate-600">Click or drop multiple files here</p>
                 </div>
 
                 {files.length > 0 && (
@@ -359,24 +364,23 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                   disabled={files.length === 0 || uploading}
                   className={`w-full py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition disabled:bg-slate-300 ${activeCategory === 'templates' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-black'}`}
                 >
-                  {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading Files...</> : activeCategory === 'templates' ? `Upload ${files.length || ''} Template(s) to Ledger` : `Upload ${files.length || ''} Document(s) to Secure Storage`}
+                  {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading Files...</> : activeCategory === 'templates' ? `Upload ${files.length || ''} Template(s)` : `Upload ${files.length || ''} Document(s)`}
                 </button>
               </div>
-            )}
-          </form>
+            </form>
+          )}
         </div>
 
-        {/* 🟢 SYNCHRONIZED DYNAMIC LEDGER SECTION */}
+        {/* LEDGER SECTION */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="p-6 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-slate-50">
             <div>
               <h3 className="font-extrabold text-slate-900 uppercase flex items-center">
                 <FileArchive className="w-5 h-5 mr-2 text-emerald-600" /> 
-                System Records & Universal Templates Ledger ({activeCategory.replace('_', ' ').toUpperCase()})
+                System Records Ledger ({activeCategory.replace('_', ' ').toUpperCase()})
               </h3>
             </div>
 
-            {/* Connected secondary toggle mirroring the active selection */}
             <div className="flex flex-wrap bg-slate-200 p-1 rounded-lg border border-slate-300 w-full lg:w-auto">
               <button
                 type="button"
@@ -455,6 +459,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                           Read
                         </button>
 
+                        {/* DOWNLOAD & DELETE GUARDED BY hasDownloadClearance & hasUploadClearance */}
                         {hasDownloadClearance ? (
                           <>
                             <button 
@@ -466,14 +471,16 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                               Download
                             </button>
                             
-                            <button 
-                              onClick={() => handleDeleteDoc(doc.id)}
-                              disabled={actionLoading === `delete-${doc.id}`}
-                              className="text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
-                            >
-                              {actionLoading === `delete-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Trash2 className="w-3 h-3 mr-1" />}
-                              Delete
-                            </button>
+                            {hasUploadClearance && (
+                              <button 
+                                onClick={() => handleDeleteDoc(doc.id)}
+                                disabled={actionLoading === `delete-${doc.id}`}
+                                className="text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
+                              >
+                                {actionLoading === `delete-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Trash2 className="w-3 h-3 mr-1" />}
+                                Delete
+                              </button>
+                            )}
                           </>
                         ) : (
                           <button disabled className="text-slate-400 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded flex items-center text-xs font-bold cursor-not-allowed opacity-60" title="Command Clearance Required to Download">

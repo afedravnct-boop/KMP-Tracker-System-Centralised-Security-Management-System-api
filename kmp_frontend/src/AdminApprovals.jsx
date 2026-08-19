@@ -33,7 +33,9 @@ const CLEARANCE_MATRIX_COLS = [
   { key: 'acc_roster', label: 'System Roster', color: 'red', bg: 'bg-red-50/50' },
   { key: 'acc_online', label: 'Active Online', color: 'red', bg: 'bg-red-50/50' },
   { key: 'export_data', label: 'Master Export', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'export_logs', label: 'Export Logs', color: 'red', bg: 'bg-red-50/50' }
+  { key: 'export_logs', label: 'Export Logs', color: 'red', bg: 'bg-red-50/50' },
+  { key: 'acc_tripartite', label: 'Tripartite / Templates', color: 'indigo', bg: 'bg-indigo-50/50' },
+{ key: 'acc_tripartite_download', label: 'Tripartite Download', color: 'indigo', bg: 'bg-indigo-50/50' }
 ];
 
 const autoCapitalize = (text) => {
