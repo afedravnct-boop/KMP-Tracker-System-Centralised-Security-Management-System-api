@@ -193,30 +193,35 @@ const CrimeIncidentRegistry = ({ currentUser, reports, setReports, setSidebarOpe
     const results = reports.filter(r => {
       if (r.is_hq_general_total || (r.offence || '').toUpperCase().includes("LOCK-UP TOTAL")) return false;
 
-      // 🟢 Enforce Authoritative Regional Lookup (Resolves Mukono showing in KMP South)
       const stn = stripHtmlTags(r.station || '').trim().toUpperCase();
       const dbRegion = getOfficialRegionForStation(stn, r.region);
 
       if (activeRegion && dbRegion !== activeRegion) return false;
       if (activeStation && stn !== activeStation) return false;
 
-      // 🟢 DEFINITIVE AGRICULTURAL CRIME INDICATORS FILTER
+      // 🟢 PRECISION AGRICULTURAL CRIME FILTER (Explicitly excludes traffic/road accidents)
       if (showAgriculturalOnly) {
         const offenceText = stripHtmlTags(r.offence || '').toLowerCase();
         const narrativeText = extractPlainText(r.narrative || '').toLowerCase();
         const combinedText = `${offenceText} ${narrativeText}`;
 
+        // Reject accidents outright
+        const accidentTerms = ['accident', 'tar', 'collision', 'hit and run', 'overturned', 'crash', 'boda boda crash', 'motor vehicle accident'];
+        if (accidentTerms.some(term => combinedText.includes(term))) {
+          return false;
+        }
+
         const agriCrimeIndicators = [
-          'theft of produce', 'produce theft', 'animal theft', 'animals', 'cattle theft', 'cow', 'cows', 
+          'theft of produce', 'produce theft', 'animal theft', 'cattle theft', 'stole a cow', 'cows', 
           'bull', 'bulls', 'calf', 'calves', 'ox', 'oxen', 'stole a goat', 'goats', 'sheep', 'ram', 
           'ewe', 'lamb', 'pig', 'pigs', 'swine', 'poultry', 'chicken', 'chickens', 'duck', 
-          'ducks', 'bird', 'birds', 'egg', 'eggs', 'milk', 'dairy', 'stock theft', 'theft of livestock',
+          'ducks', 'egg', 'eggs', 'milk', 'dairy', 'stock theft', 'theft of livestock',
           'granary', 'granaries', 'broke into food store', 'food stores', 'storehouse', 'barn', 'silo', 'silos',
-          'cutting down crops', 'cutting crops', 'slashing crops', 'slashing', 'burning crops', 
+          'cutting down crops', 'cutting crops', 'slashing crops', 'burning crops', 
           'burning produce', 'destroying crops', 'crop destruction', 'arson of crops', 'arson of produce',
-          'harvest', 'crop', 'crops', 'farm', 'farming', 'farmer', 'farmers', 'plant', 'plants',
-          'coffee', 'cocoa', 'matooke', 'banana', 'bananas', 'sugarcane', 'vanilla', 'cassava', 
-          'maize', 'bean', 'beans', 'grain', 'grains', 'orchard', 'garden produce', 'agriculture', 'agri-crime'
+          'theft of crops', 'theft of coffee', 'theft of vanilla', 'theft of cassava', 'theft of maize',
+          'coffee theft', 'vanilla theft', 'maize theft', 'matooke theft', 'theft of matooke',
+          'farm break-in', 'farm robbery', 'farm trespass', 'crop theft'
         ];
 
         const isAgriCrimeMatch = agriCrimeIndicators.some(indicator => combinedText.includes(indicator));

@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 
 const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]); // 🟢 Changed from single file to array for multi-upload support
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
@@ -47,10 +47,11 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
   };
 
   const handleFileChange = (e) => {
-    const selectedFile = e.target.files[0];
-    setFile(selectedFile);
-    if (selectedFile && !templateCustomName) {
-      const baseName = selectedFile.name.substring(0, selectedFile.name.lastIndexOf('.')) || selectedFile.name;
+    const selectedFiles = Array.from(e.target.files); // 🟢 Handle multiple selected files
+    setFiles(selectedFiles);
+    if (selectedFiles.length > 0 && !templateCustomName) {
+      const firstFile = selectedFiles[0];
+      const baseName = firstFile.name.substring(0, firstFile.name.lastIndexOf('.')) || firstFile.name;
       setTemplateCustomName(baseName.replace(/[_]/g, ' ').toUpperCase());
     }
     setFeedback(null);
@@ -58,10 +59,18 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (!file) return alert("Please select a file first.");
+    if (!files || files.length === 0) return alert("Please select at least one file first.");
 
     const formData = new FormData();
-    formData.append("file", file);
+    
+    // 🟢 Append multiple files correctly to FormData
+    files.forEach((f) => {
+      formData.append("files", f); // Supports backend multi-file endpoint keys
+    });
+    // Fallback single append in case backend reads "file" singular
+    if (files.length === 1) {
+      formData.append("file", files[0]);
+    }
 
     let endpoint = "";
 
@@ -89,8 +98,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Upload failed.");
 
-      setFeedback({ type: 'success', message: data.message || "File securely uploaded!" });
-      setFile(null);
+      setFeedback({ type: 'success', message: data.message || "Files securely uploaded!" });
+      setFiles([]);
       setTemplateCustomName('');
       fetchArchiveList(); 
     } catch (err) {
@@ -252,7 +261,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
             <Server className="w-5 h-5 mr-2 text-blue-400" />
             Central Data Repository & Universal Templates
           </h2>
-          <p className="text-xs text-slate-400 mt-0.5">Universal secure intake hub supporting Word, Excel, PowerPoint, PDF, and all document formats.</p>
+          <p className="text-xs text-slate-400 mt-0.5">Universal secure intake hub supporting Word, Excel, PowerPoint, PDF, and multiple file uploads simultaneously.</p>
         </div>
       </div>
 
@@ -262,7 +271,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="border-b border-slate-100 pb-4 mb-6">
             <h3 className="font-extrabold text-sm text-slate-900 uppercase">Universal File Intake Hub</h3>
-            <p className="text-xs text-slate-500 mt-1">Upload any format (Word `.docx`, Excel `.xlsx`, PowerPoint `.pptx`, PDF, etc.) directly into command storage.</p>
+            <p className="text-xs text-slate-500 mt-1">Upload multiple files simultaneously across any format (Word, Excel, PowerPoint, PDF, etc.) directly into command storage.</p>
           </div>
 
           <form onSubmit={handleUpload} className="max-w-3xl space-y-4">
@@ -294,9 +303,9 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
 
             {activeCategory === 'templates' && !hasDownloadClearance ? (
                <div className="p-8 text-center bg-red-50 border border-red-200 rounded-xl mt-4">
-                 <Lock className="w-8 h-8 text-red-500 mx-auto mb-2" />
-                 <h3 className="text-red-800 font-bold">Admin Clearance Required</h3>
-                 <p className="text-xs text-red-600 mt-1">You do not have the required command clearance to upload system templates.</p>
+                  <Lock className="w-8 h-8 text-red-500 mx-auto mb-2" />
+                  <h3 className="text-red-800 font-bold">Admin Clearance Required</h3>
+                  <p className="text-xs text-red-600 mt-1">You do not have the required command clearance to upload system templates.</p>
                </div>
             ) : (
               <div className="space-y-4 mt-4 animate-in fade-in">
@@ -319,17 +328,22 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
                 <div className={`border-2 border-dashed rounded-xl p-6 text-center transition cursor-pointer relative ${activeCategory === 'templates' ? 'border-amber-300 bg-amber-50/50 hover:bg-amber-100 hover:border-amber-400' : 'border-slate-300 bg-slate-50 hover:bg-blue-50 hover:border-blue-300'}`}>
                   <input 
                     type="file" 
+                    multiple // 🟢 Enabled multiple file selection attribute
                     onChange={handleFileChange} 
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                   />
                   <UploadCloud className={`w-8 h-8 mx-auto mb-2 ${activeCategory === 'templates' ? 'text-amber-500' : 'text-slate-400'}`} />
-                  <p className="text-sm font-bold text-slate-600">Click or drop any file format (Word, Excel, PPT, PDF, etc.) here</p>
+                  <p className="text-sm font-bold text-slate-600">Click or drop multiple files here (Word, Excel, PPT, PDF, etc.)</p>
                 </div>
 
-                {file && (
-                  <div className="text-xs font-mono text-blue-800 bg-blue-50 p-3 rounded-lg border border-blue-200 flex justify-between items-center">
-                    <span className="flex items-center"><FileText className="w-4 h-4 mr-2" /> <strong>{file.name}</strong></span>
-                    <span className="text-blue-500 font-bold">{Math.round(file.size / 1024)} KB</span>
+                {files.length > 0 && (
+                  <div className="space-y-2">
+                    {files.map((f, idx) => (
+                      <div key={idx} className="text-xs font-mono text-blue-800 bg-blue-50 p-3 rounded-lg border border-blue-200 flex justify-between items-center">
+                        <span className="flex items-center"><FileText className="w-4 h-4 mr-2 shrink-0" /> <strong className="truncate max-w-[450px]">{f.name}</strong></span>
+                        <span className="text-blue-500 font-bold shrink-0 ml-2">{Math.round(f.size / 1024)} KB</span>
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -342,10 +356,10 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation }) => {
 
                 <button 
                   type="submit" 
-                  disabled={!file || uploading}
+                  disabled={files.length === 0 || uploading}
                   className={`w-full py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition disabled:bg-slate-300 ${activeCategory === 'templates' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-black'}`}
                 >
-                  {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading...</> : activeCategory === 'templates' ? 'Upload Template to Ledger' : 'Upload Document to Secure Storage'}
+                  {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading Files...</> : activeCategory === 'templates' ? `Upload ${files.length || ''} Template(s) to Ledger` : `Upload ${files.length || ''} Document(s) to Secure Storage`}
                 </button>
               </div>
             )}

@@ -187,28 +187,28 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
       acc.ncoSex.M += curr.ncos.sex.M;
       acc.ncoSex.F += curr.ncos.sex.F;
 
-      // 🟢 FIXED: Officer Age sums accumulation
+      // Officer Age sums accumulation
       acc.offAge.twenties += curr.officers.age.twenties;
       acc.offAge.thirties += curr.officers.age.thirties;
       acc.offAge.forties += curr.officers.age.forties;
       acc.offAge.fifties += curr.officers.age.fifties;
       acc.offAge.unknown += curr.officers.age.unknown;
 
-      // 🟢 FIXED: NCO Age sums accumulation
+      // NCO Age sums accumulation
       acc.ncoAge.twenties += curr.ncos.age.twenties;
       acc.ncoAge.thirties += curr.ncos.age.thirties;
       acc.ncoAge.forties += curr.ncos.age.forties;
       acc.ncoAge.fifties += curr.ncos.age.fifties;
       acc.ncoAge.unknown += curr.ncos.age.unknown;
 
-      // 🟢 FIXED: Officer Education sums accumulation
+      // Officer Education sums accumulation
       acc.offEdu.degree += curr.officers.edu.degree;
       acc.offEdu.diploma += curr.officers.edu.diploma;
       acc.offEdu.cert += curr.officers.edu.cert;
       acc.offEdu.highschool += curr.officers.edu.highschool;
       acc.offEdu.others += curr.officers.edu.others;
 
-      // 🟢 FIXED: NCO Education sums accumulation
+      // NCO Education sums accumulation
       acc.ncoEdu.degree += curr.ncos.edu.degree;
       acc.ncoEdu.diploma += curr.ncos.edu.diploma;
       acc.ncoEdu.cert += curr.ncos.edu.cert;
@@ -339,19 +339,19 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
                       </tr>
                    ))}
                    {/* KMP MASTER TOTALS ROW */}
-                   <tr className="bg-slate-800 border-t-[3px] border-slate-900">
-                      <td colSpan="2" className="p-4 text-center text-[11px] font-black text-white uppercase tracking-widest border-r border-slate-700 shadow-inner">
+                   <tr className="bg-slate-800 border-t-[3px] border-slate-900 text-white">
+                      <td colSpan="2" className="p-4 text-center text-[11px] font-black uppercase tracking-widest border-r border-slate-700 shadow-inner">
                          KMP MASTER TOTALS:
                       </td>
                       <td className="p-4 text-center text-base font-black text-blue-300 border-r border-slate-700">{masterTotals.totalOff}</td>
                       <td className="p-4 text-center text-base font-black text-green-400 border-r border-slate-700">{masterTotals.totalNco}</td>
                       
                       {/* Officer Vertical Age Demographics Sums */}
-                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40 text-white">
+                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
                         {renderAgeBlock(masterTotals.offAge)}
                       </td>
                       {/* NCO Vertical Age Demographics Sums */}
-                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40 text-white">
+                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
                         {renderAgeBlock(masterTotals.ncoAge)}
                       </td>
 
@@ -369,11 +369,11 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser }) => {
                       </td>
                       
                       {/* Officer Vertical Education Sums */}
-                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40 text-white">
+                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
                         {renderEduBlock(masterTotals.offEdu)}
                       </td>
                       {/* NCO Vertical Education Sums */}
-                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40 text-white">
+                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
                         {renderEduBlock(masterTotals.ncoEdu)}
                       </td>
 
