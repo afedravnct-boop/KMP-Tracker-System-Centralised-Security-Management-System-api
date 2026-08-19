@@ -90,9 +90,10 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   const [selectedOfficer, setSelectedOfficer] = useState(null);
+  const [updateSearch, setUpdateSearch] = useState(''); // 🟢 FIXED: Declared missing state
 
   // 🟢 STRICT INTERNAL CLEARANCES
-  const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||                        
+  const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||                       
                         (currentUser?.position || '').toUpperCase().includes('HR') ||
                         currentUser?.permissions?.system_admin === true;
 
@@ -768,7 +769,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                   <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(Nominal_Rolls || []).map(n => n.region).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
                 ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
               </select>
-              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(isCommandOrHR || canViewGlobal)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value) } disabled={!(isCommandOrHR || canViewGlobal)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
                 {(isCommandOrHR || canViewGlobal) ? (
                   <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(Nominal_Rolls || []).filter(n => filterRegion === 'ALL REGIONS' || n.region === filterRegion).map(n => n.station).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
                 ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
