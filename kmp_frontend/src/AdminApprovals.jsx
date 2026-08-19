@@ -126,14 +126,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
   const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
   const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
 
+  // 🟢 FIXED: Cleaned up fallback URL spamming to prevent 404 loops
   const fetchPendingUsers = useCallback(async () => {
     setLoadingPending(true);
     try {
-      let res = await authFetch("/api/v1/admin/pending-users");
-      if (!res.ok) res = await authFetch("/api/v1/users/pending");
-      if (!res.ok) res = await authFetch("/api/v1/auth/pending");
-      if (!res.ok) res = await authFetch("/api/v1/pending-users");
-
+      const res = await authFetch("/api/v1/admin/pending-users");
       if (res.ok) {
         const data = await res.json();
         setRealPendingUsers(Array.isArray(data) ? data : []);
@@ -148,9 +145,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
   const fetchResets = useCallback(async () => {
     setLoadingResets(true);
     try {
-      let res = await authFetch("/api/v1/admin/reset-requests");
-      if (!res.ok) res = await authFetch("/api/v1/auth/reset-requests");
-
+      const res = await authFetch("/api/v1/admin/reset-requests");
       if (res.ok) {
         const data = await res.json();
         setResetRequests(Array.isArray(data) ? data : []);
@@ -217,7 +212,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
       fetchModRequests();
     } else if (activeTab === 'logs') {
       fetchAuditLogs();
-      if (allSystemUsers.length === 0) fetchAllSystemUsers(); // Needed for matching log user details
+      if (allSystemUsers.length === 0) fetchAllSystemUsers();
     } else if (activeTab === 'resets') {
       fetchResets();
     }
