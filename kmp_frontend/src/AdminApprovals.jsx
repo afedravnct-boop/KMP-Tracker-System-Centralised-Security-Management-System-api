@@ -88,7 +88,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
   const [modRequests, setModRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
     
-  const [audit_logs, setaudit_logs] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
     
   const [realPendingUsers, setRealPendingUsers] = useState([]);
@@ -192,7 +192,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
       setLoadingLogs(true);
       authFetch("/api/v1/audit-logs")
         .then(res => res.json())
-        .then(data => { setaudit_logs(Array.isArray(data) ? data : []); setLoadingLogs(false); })
+        .then(data => { setAuditLogs(Array.isArray(data) ? data : []); setLoadingLogs(false); })
         .catch(err => { console.error(err); setLoadingLogs(false); });
     }
   }, [activeTab]);
@@ -252,7 +252,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
   }, [allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
 
   const filteredLogs = useMemo(() => {
-    return audit_logs.filter(log => {
+    return auditLogs.filter(log => {
       const logUser = allSystemUsers.find(u => u.fnum === log.user_fnum);
       const logRegion = stripHtmlTags(log.region || logUser?.region || '');
       const logStation = stripHtmlTags(log.station || logUser?.station || '');
@@ -262,7 +262,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
       if (filterStation !== 'ALL STATIONS' && logStation && logStation !== filterStation) return false;
       return true;
     });
-  }, [audit_logs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
+  }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
 
   const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
     if (currentUser?.role === 'SYSTEM_ADMIN') {
