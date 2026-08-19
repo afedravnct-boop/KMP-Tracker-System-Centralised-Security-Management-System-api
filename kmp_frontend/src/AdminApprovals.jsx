@@ -177,25 +177,51 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     }
   }, [authFetch]);
 
-  useEffect(() => {
+  const fetchModRequests = useCallback(async () => {
     setLoadingRequests(true);
-    authFetch("/api/v1/requests")
-      .then(res => res.json())
-      .then(data => { setModRequests(Array.isArray(data) ? data : []); setLoadingRequests(false); })
-      .catch(err => { console.error(err); setLoadingRequests(false); });
-
-    fetchPendingUsers();
-    fetchResets();
-    fetchAllSystemUsers();
-
-    if (activeTab === 'logs') {
-      setLoadingLogs(true);
-      authFetch("/api/v1/audit-logs")
-        .then(res => res.json())
-        .then(data => { setAuditLogs(Array.isArray(data) ? data : []); setLoadingLogs(false); })
-        .catch(err => { console.error(err); setLoadingLogs(false); });
+    try {
+      const res = await authFetch("/api/v1/requests");
+      if (res.ok) {
+        const data = await res.json();
+        setModRequests(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error("Failed to sync requests:", err);
+    } finally {
+      setLoadingRequests(false);
     }
-  }, [activeTab, authFetch, fetchPendingUsers, fetchResets, fetchAllSystemUsers]);
+  }, [authFetch]);
+
+  const fetchAuditLogs = useCallback(async () => {
+    setLoadingLogs(true);
+    try {
+      const res = await authFetch("/api/v1/audit-logs");
+      if (res.ok) {
+        const data = await res.json();
+        setAuditLogs(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error("Failed to sync audit logs:", err);
+    } finally {
+      setLoadingLogs(false);
+    }
+  }, [authFetch]);
+
+  // 🟢 OPTIMIZED: Fetch ONLY what is needed for the active tab to stop request spam
+  useEffect(() => {
+    if (activeTab === 'approvals') {
+      fetchPendingUsers();
+    } else if (activeTab === 'matrix') {
+      fetchAllSystemUsers();
+    } else if (activeTab === 'requests') {
+      fetchModRequests();
+    } else if (activeTab === 'logs') {
+      fetchAuditLogs();
+      if (allSystemUsers.length === 0) fetchAllSystemUsers(); // Needed for matching log user details
+    } else if (activeTab === 'resets') {
+      fetchResets();
+    }
+  }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, allSystemUsers.length]);
 
   const filteredPending = useMemo(() => {
     return realPendingUsers.filter(u => {
