@@ -2371,17 +2371,6 @@ const App = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const checkClearance = () => {
-      const token = localStorage.getItem('kmp_authToken');
-      const cachedUser = localStorage.getItem('kmp_currentUser');
-      if (!token || !cachedUser) { setIsInitializing(false); return; }
-      try { setCurrentUser(JSON.parse(cachedUser)); } catch (error) { localStorage.removeItem('kmp_authToken'); localStorage.removeItem('kmp_currentUser'); }
-      setIsInitializing(false);
-    };
-    checkClearance();
-  }, [setCurrentUser]);
-
 // 🟢 REAL-TIME LISTENER & SYNC: Polls server every 5 seconds to sync AdminApprovals matrix changes live
   useEffect(() => {
     if (!currentUser?.fnum) return; 
@@ -2423,11 +2412,22 @@ const App = () => {
             const allUsers = await resUsers.json();
             setUsers(allUsers);
             const me = allUsers.find(u => u.fnum === currentUser.fnum);
-            if (me && (JSON.stringify(me.permissions) !== JSON.stringify(currentUser.permissions) || me.role !== currentUser.role)) {
-                const updatedUser = { ...currentUser, permissions: me.permissions, role: me.role };
+            if (me) {
+              const mergedPermissions = {
+                ...(me.permissions || {}),
+                ...(currentUser.permissions || {}),
+                view_global_roster: currentUser.role === 'SUPER_ADMIN' || me.permissions?.view_global_roster === true || currentUser.permissions?.view_global_roster === true,
+                global_observer: currentUser.role === 'SUPER_ADMIN' || me.permissions?.global_observer === true || currentUser.permissions?.global_observer === true
+              };
+
+              const resolvedRole = currentUser.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : (me.role || currentUser.role);
+
+              if (JSON.stringify(mergedPermissions) !== JSON.stringify(currentUser.permissions) || resolvedRole !== currentUser.role) {
+                const updatedUser = { ...currentUser, permissions: mergedPermissions, role: resolvedRole };
                 setCurrentUser(updatedUser);
                 localStorage.setItem('kmp_currentUser', JSON.stringify(updatedUser));
-                console.log("🛡️ Sovereign permissions synchronized live from AdminApprovals matrix.");
+                console.log("🛡️ Sovereign permissions securely synchronized live.");
+              }
             }
           }
         }
@@ -2440,7 +2440,6 @@ const App = () => {
 
     fetchAllData();
     
-    // 🟢 Background Polling Interval (Every 5 seconds for real-time UI response)
     const pollingInterval = setInterval(fetchAllData, 5000);
 
     return () => {
