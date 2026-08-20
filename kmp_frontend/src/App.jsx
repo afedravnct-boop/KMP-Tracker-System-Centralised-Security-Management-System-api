@@ -96,6 +96,11 @@ export const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, 
   };
 };
 
+export const stripHtmlTags = (str) => {
+  if (!str) return '';
+  return str.toString().replace(/<[^>]*>?/gm, '');
+};
+
 // 🟢 MASTER GLOBAL VIEW HELPER (Centralized Control for All Modules)
 export const canViewGlobalJurisdiction = (user) => {
   if (!user) return false;
@@ -1443,7 +1448,6 @@ const WorkspaceSecurityCurtain = () => {
   const [isReadingMode, setIsReadingMode] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   
-  // Session Timeout States
   const [showIdleWarning, setShowIdleWarning] = useState(false);
   const [idleCountdown, setIdleCountdown] = useState(60);
   const [isTimedOut, setIsTimedOut] = useState(false);
@@ -1453,7 +1457,7 @@ const WorkspaceSecurityCurtain = () => {
   const countdownTimerRef = useRef(null);
 
   useEffect(() => {
-    const IDLE_TIMEOUT_MS = 60000;          
+    const IDLE_TIMEOUT_MS = 60000;         
     const SESSION_TIMEOUT_MS = 29 * 60 * 1000; 
 
     const handleUserActivity = () => {
@@ -1541,7 +1545,7 @@ const WorkspaceSecurityCurtain = () => {
 
   return (
     <div 
-      className="idle-curtain-bg fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
+      className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
       style={{
         position: 'fixed',
         top: 0, left: 0, right: 0, bottom: 0,
@@ -1550,33 +1554,19 @@ const WorkspaceSecurityCurtain = () => {
         isolation: 'isolate'
       }}
     >
-      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md transition-opacity duration-700 ease-in-out flex flex-col items-center justify-center">
+      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
         <div className="absolute inset-0 opacity-15 pointer-events-none flex flex-col justify-between z-0">
           <div className="h-1/3 w-full bg-black"></div>
           <div className="h-1/3 w-full bg-[#FCD116]"></div>
           <div className="h-1/3 w-full bg-[#D91B23]"></div>
         </div>
-        <div className="idle-backdrop-emblem z-10 pointer-events-none"></div>
-
-        <div className="idle-center-container relative z-20 flex items-center justify-center mx-auto my-auto" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
-          <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
-           
-          <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
-            {"KAMPALA METROPOLITAN POLICE TRACKER SYSTEM • CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
-              <span 
-                key={i} 
-                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-xs sm:text-sm tracking-widest drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]"
-                style={{ transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(38vmin)` }}
-              >
-                {char === ' ' ? '\u00A0' : char}
-              </span>
-            ))}
-          </div>
-        </div>
       </div>
 
       {showIdleWarning && (
-        <div className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto">
+        <div 
+          className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200"
+          style={{ pointerEvents: 'auto' }}
+        >
           {isTimedOut ? (
             <>
               <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
@@ -1590,13 +1580,11 @@ const WorkspaceSecurityCurtain = () => {
               </p>
               <button 
                 type="button"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
+                onClick={() => {
                   clearAuthSession();
                   window.location.replace('/');
                 }}
-                className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition-none cursor-pointer"
+                className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer transition-colors"
                 style={{ position: 'relative', zIndex: 2147483647, pointerEvents: 'auto' }}
               >
                 Acknowledge & Return to Login
@@ -1615,11 +1603,10 @@ const WorkspaceSecurityCurtain = () => {
               </p>
               <button 
                 type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
+                onClick={() => {
                   setShowIdleWarning(false);
                   setIdleCountdown(60);
+                  setIsWorkspaceIdle(false);
                 }}
                 className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
               >
