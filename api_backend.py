@@ -306,6 +306,76 @@ def get_command_templates(db: Session = Depends(get_db), current_user = Depends(
         # Returns an empty list safely instead of a 500 crash if the table is uninitialized or missing columns
         return []
 
+# ==========================================
+# 5. ADMIN APPROVALS, REQUESTS & AUDIT LOGS
+# ==========================================
+@app.get("/api/v1/admin/pending-users")
+def get_pending_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
+            raise HTTPException(status_code=403, detail="Unauthorized access.")
+        pending = db.query(models.Users).filter(models.Users.is_approved == False).all()
+        return [
+            {
+                "id": getattr(u, 'id', 0),
+                "fnum": u.fnum, "name": u.name, "rank": u.rank,
+                "station": u.station, "region": u.region, "role": u.role,
+                "email": u.email, "phone": u.phone, "ipps": u.ipps, "sex": u.sex
+            } for u in pending
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/requests")
+def get_system_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
+            raise HTTPException(status_code=403, detail="Unauthorized access.")
+        # Returns pending registration/access requests
+        requests = db.query(models.Users).filter(models.Users.is_approved == False).all()
+        return [
+            {
+                "id": getattr(r, 'id', 0),
+                "fnum": r.fnum, "name": r.name, "rank": r.rank,
+                "station": r.station, "region": r.region, "role": r.role
+            } for r in requests
+        ]
+    except Exception as e:
+        return []
+
+@app.get("/api/v1/audit-logs")
+def get_audit_logs(db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
+            raise HTTPException(status_code=403, detail="Unauthorized access.")
+        logs = db.query(models.Audit_Logs).order_by(models.Audit_Logs.id.desc()).limit(100).all()
+        return [
+            {
+                "id": log.id,
+                "event_type": getattr(log, 'event_type', 'ACTION'),
+                "target_user": getattr(log, 'target_user', ''),
+                "status": getattr(log, 'status', 'SUCCESS'),
+                "details": getattr(log, 'details', ''),
+                "user_fnum": getattr(log, 'user_fnum', ''),
+                "created_at": str(getattr(log, 'created_at', ''))
+            } for log in logs
+        ]
+    except Exception as e:
+        return []
+
+@app.get("/api/v1/admin/reset-requests")
+def get_reset_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
+            raise HTTPException(status_code=403, detail="Unauthorized access.")
+        # Fallback query if password reset requests table exists, else empty list
+        if hasattr(models, 'PasswordResetRequests'):
+            resets = db.query(models.PasswordResetRequests).all()
+            return [{"id": r.id, "fnum": r.fnum, "status": r.status} for r in resets]
+        return []
+    except Exception as e:
+        return []
+
 @app.post("/api/v1/users/heartbeat")
 @app.post("/api/v1/users/heartbeat/")
 def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):

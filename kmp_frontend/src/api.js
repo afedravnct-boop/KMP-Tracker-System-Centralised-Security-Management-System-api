@@ -42,12 +42,19 @@ export async function authFetch(endpoint, options = {}) {
 
   // --- SEPARATE THE SECURITY RESPONSES ---
   
-  // 1. Dead Token (Log them out) - EXCEPT on the login screen!
+  // 1. Dead Token (Log them out gracefully) - EXCEPT on the login screen!
   if (response.status === 401 && !url.includes('/api/auth/login')) {
-    console.warn("Unauthorized: Session expired or invalid.");
+    console.warn("🔒 Secure Session Expired. Acknowledging command re-authentication...");
     localStorage.removeItem('kmp_authToken');
-    localStorage.removeItem('kmp_currentUser'); // <--- Kills the Zombie Session
-    window.location.reload(); // <--- Kicks you instantly back to the login screen
+    localStorage.removeItem('kmp_currentUser'); 
+    
+    // Redirect with session timeout indicator for clean UI acknowledgment
+    if (!window.location.search.includes('session_expired=true')) {
+      window.location.href = '/?session_expired=true';
+    } else {
+      window.location.reload();
+    }
+    
     throw new Error("UNAUTHORIZED"); 
   }
   
