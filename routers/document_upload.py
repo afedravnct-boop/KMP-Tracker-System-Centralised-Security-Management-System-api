@@ -68,21 +68,43 @@ def get_document_archive(db: Session = Depends(get_db), current_user = Depends(g
 @router.get("/templates/list")
 def get_command_templates(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
-        templates = db.query(models.CommandTemplate).order_by(models.CommandTemplate.last_updated.desc()).all()
-        return [
-            {
-                "id": t.id,
-                "name": t.file_name,
-                "type": "Command Template", 
-                "date": t.last_updated.strftime("%Y-%m-%d") if t.last_updated else "",
-                "size": "N/A", 
-                "file_path": t.s3_url,
+        if not hasattr(models, 'CommandTemplate'):
+            return []
+            
+        templates = db.query(models.CommandTemplate).all()
+        results = []
+        for t in templates:
+            filename = getattr(t, 'file_name', None) or getattr(t, 's3_url', '') or "document"
+            ext = filename.split('.')[-1].lower() if '.' in filename else "unknown"
+            
+            if ext in ['docx', 'doc']:
+                file_type = "Word Document"
+            elif ext in ['xlsx', 'xls']:
+                file_type = "Excel Spreadsheet"
+            elif ext in ['pptx', 'ppt']:
+                file_type = "PowerPoint Presentation"
+            elif ext == 'pdf':
+                file_type = "PDF Document"
+            else:
+                file_type = "Command Template"
+
+            last_up = getattr(t, 'last_updated', None)
+            date_str = last_up.strftime("%Y-%m-%d") if isinstance(last_up, datetime) else str(last_up or "")
+
+            results.append({
+                "id": getattr(t, 'id', 1),
+                "name": filename,
+                "type": file_type,
+                "date": date_str,
+                "size": "N/A",
+                "file_path": getattr(t, 's3_url', ''),
                 "region": "KMP HEADQUARTERS",
                 "station": "HQ"
-            } for t in templates
-        ]
+            })
+        return results
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch templates: {str(e)}")
+        print(f"Templates List Error Traceback: {str(e)}")
+        return []
 
 @router.get("/reports/download/{doc_id}")
 def download_archive_file(
@@ -90,7 +112,6 @@ def download_archive_file(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    # Unified lookup checking DocumentArchive first, then CommandTemplate as fallback
     doc_record = db.query(models.DocumentArchive).filter(models.DocumentArchive.id == doc_id).first()
     is_template_record = False
 
