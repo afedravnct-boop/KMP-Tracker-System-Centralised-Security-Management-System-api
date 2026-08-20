@@ -439,14 +439,14 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                   </div>
                 )}
 
-                <div className={`border-2 border-dashed rounded-xl p-6 text-center transition cursor-pointer relative ${activeCategory === 'templates' ? 'border-amber-300 bg-amber-50/50 hover:bg-amber-100' : 'border-slate-300 bg-slate-50 hover:bg-blue-50'}`}>
+                <div className={`border-2 border-dashed rounded-xl p-4 text-center transition cursor-pointer relative ${activeCategory === 'templates' ? 'border-amber-300 bg-amber-50/50 hover:bg-amber-100' : 'border-slate-300 bg-slate-50 hover:bg-blue-50'}`}>
                   <input 
                     type="file" 
                     multiple 
                     onChange={handleFileChange} 
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                   />
-                  <UploadCloud className={`w-8 h-8 mx-auto mb-2 ${activeCategory === 'templates' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <UploadCloud className={`w-8 h-5 mx-auto mb-2 ${activeCategory === 'templates' ? 'text-amber-500' : 'text-slate-400'}`} />
                   <p className="text-sm font-bold text-slate-600">Click or drop multiple files here</p>
                 </div>
 
@@ -482,7 +482,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
         {/* LEDGER SECTION */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="p-6 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-slate-50">
+          <div className="p-4 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-slate-50">
             <div>
               <h3 className="font-extrabold text-slate-900 uppercase flex items-center">
                 <FileArchive className="w-5 h-5 mr-2 text-emerald-600" /> 
@@ -535,29 +535,29 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                   </tr>
                 ) : filteredDocuments.length === 0 ? (
                   <tr>
-                    <td colSpan="5" className="px-6 py-10 text-center text-slate-500 text-sm font-medium">
+                    <td colSpan="5" className="px-4 py-10 text-center text-slate-500 text-sm font-medium">
                       No documents found under this category for the selected jurisdiction.
                     </td>
                   </tr>
                 ) : filteredDocuments.map((doc) => (
                   <tr key={doc.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-800 flex items-center">
+                    <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-slate-800 flex items-center">
                       <FolderOpen className="w-4 h-4 mr-2 text-amber-500 shrink-0" />
                       {doc.name}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-xs">
+                    <td className="px-4 py-4 whitespace-nowrap text-xs">
                       <span className="px-2 py-1 rounded font-bold uppercase tracking-wide bg-slate-100 text-slate-700 border border-slate-200">
                         {doc.type}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500 flex items-center">
+                    <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-500 flex items-center">
                       <Clock className="w-3 h-3 mr-1" /> {doc.date}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500 font-mono">
+                    <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-500 font-mono">
                       {doc.size}
                     </td>
                     
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                    <td className="px-4 py-4 whitespace-nowrap text-right">
                       <div className="flex justify-end space-x-2">
                         <button 
                           onClick={() => handleFileAction(doc.id, 'read')}
