@@ -75,15 +75,17 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const fetchArchiveList = async () => {
     setLoadingDocs(true);
     try {
-      const [archiveRes, templateRes] = await Promise.all([
-        authFetch('/api/v1/reports/archive'),
-        authFetch('/api/v1/templates/list')
+      const [archiveRes, generalRes, templateRes] = await Promise.all([
+        authFetch('/api/v1/reports/archive').catch(() => null),
+        authFetch('/api/v1/general-docs/list').catch(() => null),
+        authFetch('/api/v1/templates/list').catch(() => null)
       ]);
 
-      const archiveData = archiveRes.ok ? await archiveRes.json() : [];
-      const templateData = templateRes.ok ? await templateRes.json() : [];
+      const archiveData = archiveRes && archiveRes.ok ? await archiveRes.json() : [];
+      const generalData = generalRes && generalRes.ok ? await generalRes.json() : [];
+      const templateData = templateRes && templateRes.ok ? await templateRes.json() : [];
 
-      setDocuments([...archiveData, ...templateData]);
+      setDocuments([...archiveData, ...generalData, ...templateData]);
     } catch (err) {
       console.error("Archive fetch error:", err);
     } finally {
@@ -112,7 +114,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     if (!files || files.length === 0) return alert("Please select at least one file first.");
 
     const formData = new FormData();
-    
     files.forEach((f) => {
       formData.append("files", f);
     });
@@ -121,7 +122,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
 
     let endpoint = "";
-
     const targetRegionToSubmit = overrideRegion || (canViewGlobalActive && filterRegion !== 'ALL REGIONS' ? filterRegion : currentUser?.region);
     const targetStationToSubmit = overrideStation || (canViewGlobalActive && filterStation !== 'ALL STATIONS' ? filterStation : currentUser?.station);
 
@@ -129,10 +129,13 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       const templateIdKey = templateCustomName ? templateCustomName.toLowerCase().replace(/[^a-z0-9]/g, '_') : 'custom_template';
       endpoint = `/api/v1/templates/upload/${templateIdKey}`;
       formData.append("doc_type", "Command Template");
+    } else if (activeCategory === 'general_doc') {
+      endpoint = `/api/v1/general-docs/upload`;
+      if (targetRegionToSubmit) formData.append("target_region", targetRegionToSubmit);
+      if (targetStationToSubmit) formData.append("target_station", targetStationToSubmit);
     } else {
       endpoint = `/api/v1/reports/upload-word-report`;
       formData.append("doc_type", activeCategory); 
-      
       if (targetRegionToSubmit) formData.append("target_region", targetRegionToSubmit);
       if (targetStationToSubmit) formData.append("target_station", targetStationToSubmit);
     }

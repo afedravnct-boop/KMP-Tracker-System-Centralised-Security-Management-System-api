@@ -2122,6 +2122,7 @@ const App = () => {
   const [overrideStation, setOverrideStation] = useState(currentUser?.station || 'KMP HEADQUARTERS');
 
   const [reports, setReports] = useState([]);
+  const [generalDocs, setGeneralDocs] = useState([]);
   const [stats, setStats] = useState([]);
   const [stories, setStories] = useState([]);
   const [establishments, setEstablishments] = useState([]);
@@ -2221,6 +2222,7 @@ const App = () => {
         if (!controller.signal.aborted) {
           // 🟢 3. Update active data states
           if (resReports.ok) setReports(await resReports.json());
+          if (resGeneralDocs.ok) setGeneralDocs(await resGeneralDocs.json());
           if (resStats.ok) setStats(await resStats.json());
           if (resStories.ok) setStories(await resStories.json());
           if (resNom.ok) setNominal_Rolls(await resNom.json());
@@ -2428,7 +2430,7 @@ const App = () => {
 
       case 'reports_hub':  
         return checkClearance(currentUser, 'acc_tripartite', true) ? (
-          <WordReportUpload currentUser={currentUser} />
+          <WordReportUpload currentUser={currentUser} generalDocs={generalDocs} />
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 

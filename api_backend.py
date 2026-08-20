@@ -32,6 +32,8 @@ from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from ai_router import router as ai_router
+from routers import general_documents
+app.include_router(general_documents.router)
 
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from jose import jwt, JWTError
@@ -49,6 +51,9 @@ from pptx import Presentation
 from pptx.util import Inches, Pt as PPTXPt
 from pptx.dml.color import RGBColor as PPTXRGBColor
 from sqlalchemy.orm.attributes import flag_modified
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 from urllib.parse import unquote
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -451,6 +456,48 @@ def get_reset_requests(db: Session = Depends(get_db), current_user: models.Users
         return []
     except Exception as e:
         return []
+
+@app.post("/api/v1/admin/execute-reset/{req_id}")
+def execute_password_reset(
+    req_id: int,
+    action: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
+        raise HTTPException(status_code=403, detail="Unauthorized access.")
+
+    TargetModel = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
+    if not TargetModel:
+        raise HTTPException(status_code=404, detail="Password reset model not initialized.")
+
+    reset_req = db.query(TargetModel).filter(TargetModel.id == req_id).first()
+    if not reset_req:
+        raise HTTPException(status_code=404, detail="Password reset request not found.")
+
+    if action.upper() == "APPROVE":
+        # 1. Generate temporary secure password
+        temp_password = "UPF" + secrets.token_hex(3).upper()
+        hashed_pw = pwd_context.hash(temp_password)
+
+        # 2. Update user's password in the users table
+        target_user = db.query(models.Users).filter(
+            func.trim(func.upper(models.Users.fnum)) == str(reset_req.fnum).strip().upper()
+        ).first()
+
+        if target_user:
+            target_user.hashed_password = hashed_pw
+
+        # 3. Remove the reset request from the queue
+        db.delete(reset_req)
+        db.commit()
+
+        return {"status": "success", "new_password": temp_password}
+    else:
+        # Reject and remove request
+        db.delete(reset_req)
+        db.commit()
+        return {"status": "success", "message": "Password reset request rejected."}
 
 @app.post("/api/v1/users/heartbeat")
 @app.post("/api/v1/users/heartbeat/")

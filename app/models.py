@@ -413,6 +413,24 @@ class LockupMatrix(Base):
     last_updated_by = Column(String, nullable=True)                  
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class GeneralDocuments(Base):
+    __tablename__ = "general_documents"
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    file_name = Column(String, nullable=False)
+    doc_type = Column(String, nullable=False, default="General Document")
+    file_size = Column(String, nullable=True)
+    file_path = Column(String, nullable=False)
+    region = Column(String, nullable=True, default="KMP HEADQUARTERS")
+    station = Column(String, nullable=True, default="HQ")
+    uploaded_by = Column(String, nullable=True)
+    upload_date = Column(DateTime, default=get_eat_time)
+
+# Add compatibility alias at the bottom
+General_Documents = GeneralDocuments
+
+
 # =====================================================================
 # 11. CROSS-ROUTER COMPATIBILITY ALIASES
 # (Prevents naming crashes across different modular routers)
