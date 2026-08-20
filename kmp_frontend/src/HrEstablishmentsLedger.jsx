@@ -28,24 +28,26 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
 };
 
 const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = false }) => {
-  
-  // 🟢 Safely resolve global view active state matching other modules
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
+  // 🟢 Unified Global Jurisdiction Resolution
+  const canViewGlobalActive = canViewGlobal || 
+    ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
+    currentUser?.permissions?.view_global_roster === true || 
+    currentUser?.permissions?.global_observer === true;
 
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
 
-  // 🟢 1. AGGRESSIVE DATA HUNTER: Finds the array no matter how the parent named it
+  // 🟢 1. AGGRESSIVE DATA HUNTER: Finds the array no matter how the backend key is formatted
   const getRawRoll = () => {
     if (Array.isArray(data)) {
-        if (data.length > 0 && (data[0].fnum || data[0].f_num || data[0].rank)) return data;
-        return [];
+      if (data.length > 0 && (data[0].fnum || data[0].f_num || data[0].rank)) return data;
+      return [];
     }
     if (data && typeof data === 'object') {
-        const keys = ['nominalRoll', 'nominal_roll', 'nominalRolls', 'nominal_rolls', 'Nominal_Rolls', 'personnel', 'hr', 'hrData'];
-        for (let key of keys) {
-            if (Array.isArray(data[key])) return data[key];
-        }
+      const keys = ['nominal_rolls', 'nominalRolls', 'nominal_roll', 'nominalRoll', 'Nominal_Rolls', 'personnel', 'hr', 'hrData'];
+      for (let key of keys) {
+        if (Array.isArray(data[key])) return data[key];
+      }
     }
     return [];
   };
@@ -53,15 +55,15 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
   const getEstData = () => {
     let rawEst = [];
     if (Array.isArray(data)) {
-        if (data.length > 0 && (data[0].personnel_in_station !== undefined || data[0].pers_stn !== undefined)) rawEst = data;
+      if (data.length > 0 && (data[0].personnel_in_station !== undefined || data[0].pers_stn !== undefined)) rawEst = data;
     } else if (data && typeof data === 'object') {
-        const keys = ['establishments', 'Establishments', 'estData', 'establishmentsData'];
-        for (let key of keys) {
-            if (Array.isArray(data[key])) {
-              rawEst = data[key];
-              break;
-            }
+      const keys = ['establishments', 'Establishments', 'estData', 'establishmentsData'];
+      for (let key of keys) {
+        if (Array.isArray(data[key])) {
+          rawEst = data[key];
+          break;
         }
+      }
     }
 
     // Filter establishments by selected jurisdiction
@@ -81,18 +83,18 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
   // 🟢 2. ROBUST PARSING LOGIC FOR NOMINAL ROLL AGGREGATES
   const nominalAggregates = useMemo(() => {
     const rawRoll = getRawRoll().filter(p => {
-        const statusStr = stripHtmlTags(String(p.status || '')).trim().toUpperCase();
-        if (statusStr === 'ARCHIVED' || p.is_archived === true) return false;
+      const statusStr = stripHtmlTags(String(p.status || '')).trim().toUpperCase();
+      if (statusStr === 'ARCHIVED' || p.is_archived === true) return false;
 
-        const stn = stripHtmlTags(p.station || '').trim().toUpperCase();
-        const reg = getOfficialRegionForStation(stn, p.region);
+      const stn = stripHtmlTags(p.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, p.region);
 
-        if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
-          return true;
-        }
-        if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
-        if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation.toUpperCase()) return false;
+      if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
         return true;
+      }
+      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
+      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation.toUpperCase()) return false;
+      return true;
     });
     
     const regions = [
@@ -102,12 +104,10 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       { key: 'KMP SOUTH', match: ['KMP SOUTH', 'SOUTH'] }
     ];
 
-    // Flawless Officer vs NCO Classification (IGP down to AIP)
     const isOfficer = (rankStr) => {
       if (!rankStr) return false;
       let cleanRank = stripHtmlTags(String(rankStr)).toUpperCase().replace(/[\.\/]/g, '').trim();
       const officerKeywords = ['IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'ASP', 'IP', 'AIP'];
-      
       const words = cleanRank.split(/\s+/); 
       return words.some(word => officerKeywords.includes(word)) || 
              cleanRank.includes('INSPECTOR') || 
@@ -115,7 +115,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
              cleanRank.includes('COMMISSIONER');
     };
 
-    // Deep-parse the demographics safely, preventing null crashes
     const calculateStats = (personnelList) => {
       const stats = {
         total: personnelList.length,
@@ -130,11 +129,11 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
         const ninStr = stripHtmlTags(String(p.nin || '')).trim().toUpperCase();
         
         if (sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM')) {
-            stats.sex.M++;
+          stats.sex.M++;
         } else if (sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF')) {
-            stats.sex.F++;
+          stats.sex.F++;
         } else {
-            stats.sex.M++; // Default to Male to preserve headcount metrics
+          stats.sex.M++;
         }
 
         // Age Parsing
@@ -145,13 +144,13 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
           let birthYear;
           const strVal = stripHtmlTags(String(dobStr)).trim();
           if (strVal.includes('-')) {
-             const parts = strVal.split('-');
-             birthYear = parts[0].length === 4 ? parseInt(parts[0], 10) : parseInt(parts[2], 10);
+            const parts = strVal.split('-');
+            birthYear = parts[0].length === 4 ? parseInt(parts[0], 10) : parseInt(parts[2], 10);
           } else if (strVal.includes('/')) {
-             const parts = strVal.split('/');
-             birthYear = parts[2].length === 4 ? parseInt(parts[2], 10) : parseInt(parts[0], 10);
+            const parts = strVal.split('/');
+            birthYear = parts[2].length === 4 ? parseInt(parts[2], 10) : parseInt(parts[0], 10);
           } else {
-             birthYear = new Date(strVal).getFullYear();
+            birthYear = new Date(strVal).getFullYear();
           }
 
           const currentYear = new Date().getFullYear();
@@ -165,22 +164,22 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
         }
         
         if (!ageCalculated) {
-            stats.age.unknown++;
+          stats.age.unknown++;
         }
 
         // Education Parsing
         const eduStr = stripHtmlTags(String(p.educ_level || p.educlevel || p.education || '')).trim().toUpperCase();
         
         if (eduStr.includes('DEGREE') || eduStr.includes('BACHELOR') || eduStr.match(/\bB\.?A\b/) || eduStr.match(/\bB\.?SC\b/) || eduStr.includes('MASTER') || eduStr.includes('PHD')) {
-            stats.edu.degree++;
+          stats.edu.degree++;
         } else if (eduStr.includes('DIP') || eduStr.includes('ND') || eduStr.includes('DIPLOMA')) {
-            stats.edu.diploma++;
+          stats.edu.diploma++;
         } else if (eduStr.includes('CERT')) {
-            stats.edu.cert++;
+          stats.edu.cert++;
         } else if (eduStr.includes('UACE') || eduStr.includes('UCE') || eduStr.includes('LEVEL') || eduStr.includes('S.4') || eduStr.includes('S.6') || eduStr.match(/\bS4\b/) || eduStr.match(/\bS6\b/)) {
-            stats.edu.highschool++;
+          stats.edu.highschool++;
         } else {
-            stats.edu.others++;
+          stats.edu.others++;
         }
       });
 
@@ -206,25 +205,24 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       };
     });
     
-    // Catch-all for personnel whose Region wasn't mapped cleanly
     const assignedIds = new Set();
     aggregatedRegions.forEach(r => {
-        rawRoll.filter(p => regions.find(reg => reg.key === r.region)?.match.some(m => stripHtmlTags(String(p.region || '')).toUpperCase().includes(m)))
-               .forEach(p => assignedIds.add(p.id || p.sn || p.fnum));
+      rawRoll.filter(p => regions.find(reg => reg.key === r.region)?.match.some(m => stripHtmlTags(String(p.region || '')).toUpperCase().includes(m)))
+        .forEach(p => assignedIds.add(p.id || p.sn || p.fnum));
     });
     
     const unassigned = rawRoll.filter(p => !assignedIds.has(p.id || p.sn || p.fnum));
     if (unassigned.length > 0) {
-        const officers = unassigned.filter(p => isOfficer(p.rank));
-        const ncos = unassigned.filter(p => !isOfficer(p.rank));
-        aggregatedRegions.push({
-            region: 'OTHER / UNASSIGNED',
-            officers: calculateStats(officers),
-            ncos: calculateStats(ncos),
-            totalOff: officers.length,
-            totalNco: ncos.length,
-            regionTotal: unassigned.length
-        });
+      const officers = unassigned.filter(p => isOfficer(p.rank));
+      const ncos = unassigned.filter(p => !isOfficer(p.rank));
+      aggregatedRegions.push({
+        region: 'OTHER / UNASSIGNED',
+        officers: calculateStats(officers),
+        ncos: calculateStats(ncos),
+        totalOff: officers.length,
+        totalNco: ncos.length,
+        regionTotal: unassigned.length
+      });
     }
 
     return aggregatedRegions;
@@ -236,34 +234,29 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       acc.totalNco += curr.totalNco;
       acc.regionTotal += curr.regionTotal;
       
-      // Sex ratio sums
       acc.offSex.M += curr.officers.sex.M;
       acc.offSex.F += curr.officers.sex.F;
       acc.ncoSex.M += curr.ncos.sex.M;
       acc.ncoSex.F += curr.ncos.sex.F;
 
-      // Officer Age sums accumulation
       acc.offAge.twenties += curr.officers.age.twenties;
       acc.offAge.thirties += curr.officers.age.thirties;
       acc.offAge.forties += curr.officers.age.forties;
       acc.offAge.fifties += curr.officers.age.fifties;
       acc.offAge.unknown += curr.officers.age.unknown;
 
-      // NCO Age sums accumulation
       acc.ncoAge.twenties += curr.ncos.age.twenties;
       acc.ncoAge.thirties += curr.ncos.age.thirties;
       acc.ncoAge.forties += curr.ncos.age.forties;
       acc.ncoAge.fifties += curr.ncos.age.fifties;
       acc.ncoAge.unknown += curr.ncos.age.unknown;
 
-      // Officer Education sums accumulation
       acc.offEdu.degree += curr.officers.edu.degree;
       acc.offEdu.diploma += curr.officers.edu.diploma;
       acc.offEdu.cert += curr.officers.edu.cert;
       acc.offEdu.highschool += curr.officers.edu.highschool;
       acc.offEdu.others += curr.officers.edu.others;
 
-      // NCO Education sums accumulation
       acc.ncoEdu.degree += curr.ncos.edu.degree;
       acc.ncoEdu.diploma += curr.ncos.edu.diploma;
       acc.ncoEdu.cert += curr.ncos.edu.cert;
@@ -275,8 +268,8 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       totalOff: 0, 
       totalNco: 0, 
       regionTotal: 0, 
-      offSex: {M:0, F:0}, 
-      ncoSex: {M:0, F:0},
+      offSex: { M: 0, F: 0 }, 
+      ncoSex: { M: 0, F: 0 },
       offAge: { twenties: 0, thirties: 0, forties: 0, fifties: 0, unknown: 0 },
       ncoAge: { twenties: 0, thirties: 0, forties: 0, fifties: 0, unknown: 0 },
       offEdu: { degree: 0, diploma: 0, cert: 0, highschool: 0, others: 0 },
@@ -286,13 +279,13 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
 
   const estData = getEstData();
   const estTotals = estData.reduce((acc, curr) => {
-      acc.station += (parseInt(curr.personnel_in_station ?? curr.pers_stn, 10) || 0);
-      acc.post += (parseInt(curr.personnel_in_post ?? curr.pers_post, 10) || 0);
-      acc.booth += (parseInt(curr.personnel_in_booth ?? curr.booths, 10) || 0);
-      return acc;
-  }, { station: 0, post: 0, booth: 0 });
+    acc.station += (parseInt(curr.personnel_in_station ?? curr.pers_stn, 10) || 0);
+    acc.sub += (parseInt(curr.personnel_in_sub_station ?? 0, 10) || 0);
+    acc.post += (parseInt(curr.personnel_in_post ?? curr.pers_post, 10) || 0);
+    acc.booth += (parseInt(curr.personnel_in_booth ?? curr.booths, 10) || 0);
+    return acc;
+  }, { station: 0, sub: 0, post: 0, booth: 0 });
 
-  // UI Block Renderers
   const renderAgeBlock = (stats) => (
     <div className="text-[9px] text-slate-600 font-medium space-y-0.5 w-full max-w-[90px] mx-auto">
       <div className="flex justify-between"><span>18-29yrs:</span> <strong className="text-slate-900">{stats.twenties}</strong></div>
@@ -380,7 +373,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px]">
           <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
              <h3 className="font-extrabold text-blue-900 text-sm uppercase tracking-wider flex items-center">
-               <Users className="mr-2 w-5 h-5" /> Nominal Roll Aggregates (Manpower Summary)
+                <Users className="mr-2 w-5 h-5" /> Nominal Roll Aggregates (Manpower Summary)
              </h3>
           </div>
           <div className="overflow-x-auto w-full p-0">
@@ -439,22 +432,20 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                          
                          <td className="p-3 text-center text-sm font-black text-blue-800 bg-blue-50 border-r border-blue-100 shadow-inner">{row.totalOff}</td>
                          <td className="p-3 text-center text-sm font-black text-emerald-800 bg-emerald-50 border-r border-emerald-100 shadow-inner">{row.totalNco}</td>
-                         <td className="p-3 text-center text-base font-yellow text-slate-900 bg-slate-100 shadow-inner">{row.regionTotal}</td>
+                         <td className="p-3 text-center text-base font-bold text-slate-900 bg-slate-100 shadow-inner">{row.regionTotal}</td>
                       </tr>
                    ))}
                    {/* KMP MASTER TOTALS ROW */}
                    <tr className="bg-slate-800 border-t-[3px] border-slate-900 text-white">
-                      <td colSpan="2" className="p-4 text-center text-[11px] font-yellow uppercase tracking-widest border-r border-slate-700 shadow-inner">
+                      <td colSpan="2" className="p-4 text-center text-[11px] font-black text-yellow-400 uppercase tracking-widest border-r border-slate-700 shadow-inner">
                           KMP MASTER TOTALS:
                       </td>
                       <td className="p-4 text-center text-base font-black text-blue-300 border-r border-slate-700">{masterTotals.totalOff}</td>
-                      <td className="p-4 text-center text-base font-yellow text-green-400 border-r border-slate-700">{masterTotals.totalNco}</td>
+                      <td className="p-4 text-center text-base font-bold text-green-400 border-r border-slate-700">{masterTotals.totalNco}</td>
                       
-                      {/* Officer Vertical Age Demographics Sums */}
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
                         {renderAgeBlock(masterTotals.offAge)}
                       </td>
-                      {/* NCO Vertical Age Demographics Sums */}
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
                         {renderAgeBlock(masterTotals.ncoAge)}
                       </td>
@@ -472,11 +463,9 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                          </div>
                       </td>
                       
-                      {/* Officer Vertical Education Sums */}
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
                         {renderEduBlock(masterTotals.offEdu)}
                       </td>
-                      {/* NCO Vertical Education Sums */}
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
                         {renderEduBlock(masterTotals.ncoEdu)}
                       </td>
@@ -496,7 +485,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px]">
           <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
              <h3 className="font-extrabold text-green-900 text-sm uppercase tracking-wider flex items-center">
-               <Building className="mr-2 w-5 h-5" /> Police Establishments
+                <Building className="mr-2 w-5 h-5" /> Police Establishments
              </h3>
           </div>
           <div className="overflow-x-auto w-full max-h-[500px] custom-scrollbar">
@@ -546,7 +535,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                       <td colSpan="2" className="p-4 text-center border-r border-slate-700 bg-slate-900/50"></td>
                       <td className="p-4 text-center text-base font-black text-emerald-300 border-r border-slate-700">{estTotals.post > 0 ? estTotals.post : '-'}</td>
                       <td className="p-4 text-center text-lg font-black text-yellow-400 bg-slate-900 shadow-inner">
-                         {estTotals.station + estTotals.post + estTotals.booth}
+                         {estTotals.station + estTotals.sub + estTotals.post + estTotals.booth}
                       </td>
                    </tr>
                 </tbody>

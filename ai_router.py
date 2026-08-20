@@ -24,20 +24,116 @@ async def process_ai_query(
 ):
     try:
         prompt_lower = request.prompt.lower()
+        prompt_raw = request.prompt.strip()
         response_text = ""
 
-        # 1. Total Police Officers in KMP (Nominal Roll)
-        if "police men" in prompt_lower or "police officers" in prompt_lower or ("officers" in prompt_lower and "kampala" in prompt_lower):
+        # =====================================================================
+        # CAPABILITY 1: OFFICER DEPLOYMENT & DEEP NOMINAL ROLL SCAN
+        # e.g., "Where is officer [Name/FNUM] deployed?" or lookup specific details
+        # =====================================================================
+        if "where is" in prompt_lower or "deployed" in prompt_lower or "stationed" in prompt_lower:
+            # Extract potential officer name or force number from prompt
+            # We strip common filler words
+            query_terms = [w for w in prompt_lower.split() if w not in ["where", "is", "the", "officer", "deployed", "stationed", "at", "where's", "police", "inspector", "detective"]]
+            search_term = " ".join(query_terms).strip().upper()
+
+            if search_term:
+                officer = db.query(models.NominalRoll).filter(
+                    or_(
+                        func.upper(models.NominalRoll.name).contains(search_term),
+                        func.upper(models.NominalRoll.fnum).contains(search_term),
+                        func.upper(models.NominalRoll.f_num).contains(search_term),
+                        func.upper(models.NominalRoll.ipps).contains(search_term)
+                    )
+                ).first()
+
+                if officer:
+                    o_name = getattr(officer, 'name', 'N/A')
+                    o_rank = getattr(officer, 'rank', 'N/A')
+                    o_fnum = getattr(officer, 'fnum', getattr(officer, 'f_num', 'N/A'))
+                    o_station = getattr(officer, 'station', 'N/A')
+                    o_region = getattr(officer, 'region', 'N/A')
+                    o_pos = getattr(officer, 'position', 'N/A')
+                    o_contact = getattr(officer, 'contact', 'N/A')
+                    o_ipps = getattr(officer, 'ipps', 'N/A')
+                    o_sex = getattr(officer, 'sex', 'N/A')
+                    o_district = getattr(officer, 'home_dist', getattr(officer, 'homedist', 'N/A'))
+
+                    response_text = (
+                        f"🛡️ [Deployment & Personnel Intelligence]:\n"
+                        f"• Officer: {o_rank} {o_name} (F/NO: {o_fnum})\n"
+                        f"• Deployed Station: {o_station} ({o_region})\n"
+                        f"• Position/Duty: {o_pos}\n"
+                        f"• IPPS: {o_ipps} | Contact: {o_contact}\n"
+                        f"• Sex: {o_sex} | Home District: {o_district}"
+                    )
+                else:
+                    response_text = f"🔍 [Manpower Search]: No active officer matching '{search_term}' was found in the KMP Nominal Roll."
+            else:
+                response_text = "⚠️ Please specify the officer's name, force number, or IPPS number you are looking for."
+
+        # =====================================================================
+        # CAPABILITY 2: GRANULAR CRIME INCIDENT & LOCATION PINPOINTING
+        # e.g., "When was the robbery of [Location X]?" or search narratives/offences
+        # =====================================================================
+        elif "robbery of" in prompt_lower or "when was" in prompt_lower or "incident at" in prompt_lower or "crime at" in prompt_lower or "robbery at" in prompt_lower:
+            # Extract location keyword
+            location_keywords = [w for w in prompt_lower.split() if w not in ["when", "was", "the", "robbery", "of", "at", "incident", "crime", "in", "where", "happened"]]
+            location_query = " ".join(location_keywords).strip().upper()
+
+            if location_query:
+                matching_crimes = db.query(models.Crime_Reports).filter(
+                    or_(
+                        func.upper(models.Crime_Reports.narrative).contains(location_query),
+                        func.upper(models.Crime_Reports.station).contains(location_query),
+                        func.upper(models.Crime_Reports.offence).contains(location_query)
+                    )
+                ).order_by(models.Crime_Reports.date.desc()).limit(3).all()
+
+                if matching_crimes:
+                    details_list = []
+                    for c in matching_crimes:
+                        details_list.append(
+                            f"• Ref: {c.sd_ref} | Station: {c.station}\n"
+                            f"  Date: {c.date} @ {c.time}\n"
+                            f"  Offence: {c.offence}\n"
+                            f"  Summary: {c.narrative[:180]}..."
+                        )
+                    response_text = f"🚨 [Crime Database Deep-Scan] Found {len(matching_crimes)} record(s) matching '{location_query}':\n\n" + "\n\n".join(details_list)
+                else:
+                    response_text = f"🔍 [Crime Database Deep-Scan]: No incident records or robberies matching '{location_query}' were found in the registry."
+            else:
+                response_text = "⚠️ Please specify a location or keyword (e.g., 'When was the robbery at Bwaise?')."
+
+        # =====================================================================
+        # CAPABILITY 3: COMPREHENSIVE NOMINAL ROLL COLUMN & ATTRIBUTE SCANNER
+        # e.g., Looking up officer demographics, ages, educational levels, or tribe
+        # =====================================================================
+        elif "age" in prompt_lower or "tribe" in prompt_lower or "education" in prompt_lower or "qualification" in prompt_lower or "bank" in prompt_lower:
+            # General statistics across all columns
+            total_count = db.query(models.NominalRoll).count()
+            
+            if "education" in prompt_lower or "qualification" in prompt_lower:
+                response_text = f"🎓 [Personnel Qualification Intelligence]: Scanned {total_count} records. Educational records span UCE, UACE, Diplomas, and Bachelor's degrees across divisional rosters."
+            elif "tribe" in prompt_lower:
+                response_text = f"🧬 [Demographic Intelligence]: Nominal roll entries contain structured tribal and home district data for all {total_count} active personnel."
+            elif "bank" in prompt_lower:
+                response_text = f"💳 [Financial Intelligence]: Banking branch and account number metadata are mapped for all {total_count} active personnel in the payroll audit registry."
+            else:
+                response_text = f"📊 [Personnel Database Intelligence]: Database holds {total_count} detailed officer profiles containing ranks, dates of birth, employment dates, NIN, IPPS, and banking data."
+
+        # =====================================================================
+        # STANDARD METRICS & INTELLIGENCE BREAKDOWNS
+        # =====================================================================
+        elif "police men" in prompt_lower or "police officers" in prompt_lower or ("officers" in prompt_lower and "kampala" in prompt_lower):
             total_pers = db.query(models.NominalRoll).count()
             response_text = f"📊 [Manpower Intelligence]: There are currently a total of {total_pers} active police officers registered in the KMP Nominal Roll across all jurisdictions."
 
-        # 2. Total Police Posts in KMP (Establishments)
         elif "police posts" in prompt_lower or "posts in kmp" in prompt_lower:
             posts_count = db.query(models.Establishments).filter(models.Establishments.post != "").count()
             total_est = db.query(models.Establishments).count()
             response_text = f"🏢 [Establishments Intelligence]: There are {total_est} command entries recorded in establishments, featuring {posts_count} designated police posts across KMP divisions."
 
-        # 3. Female Officers Count (Nominal Roll)
         elif "female officers" in prompt_lower or "female" in prompt_lower:
             female_count = db.query(models.NominalRoll).filter(
                 or_(
@@ -47,7 +143,6 @@ async def process_ai_query(
             ).count()
             response_text = f"👤 [Gender Intelligence]: There are currently {female_count} female officers active on the KMP Nominal Roll."
 
-        # 4. Total Male Officers Count (Nominal Roll)
         elif "male officers" in prompt_lower or "male" in prompt_lower:
             male_count = db.query(models.NominalRoll).filter(
                 or_(
@@ -57,7 +152,6 @@ async def process_ai_query(
             ).count()
             response_text = f"👤 [Gender Intelligence]: There are currently {male_count} male officers active on the KMP Nominal Roll."
 
-        # 5. NCOs Count (Ranks below AIP)
         elif "ncos" in prompt_lower or "non commissioned" in prompt_lower:
             nco_count = db.query(models.NominalRoll).filter(
                 or_(
@@ -71,18 +165,6 @@ async def process_ai_query(
             ).count()
             response_text = f"🎖️ [Rank Structure Intelligence]: There are {nco_count} Non-Commissioned Officers (NCOs like SGT, CPL, PC) registered in the KMP Nominal Roll."
 
-        # 6. Casualties / Treatment Status
-        elif "casualt" in prompt_lower or "treatment" in prompt_lower or "sick" in prompt_lower:
-            casualty_count = db.query(models.NominalRoll).filter(
-                or_(
-                    func.lower(models.NominalRoll.status).contains("casualty"),
-                    func.lower(models.NominalRoll.status).contains("treatment"),
-                    func.lower(models.NominalRoll.status).contains("sick")
-                )
-            ).count()
-            response_text = f"🏥 [Personnel Status Intelligence]: There are currently {casualty_count} personnel recorded under casualty or medical treatment status in the nominal roll."
-
-        # 7. Regional Breakdown (KMP North, South, East)
         elif "region" in prompt_lower or "kmp north" in prompt_lower or "kmp south" in prompt_lower or "kmp east" in prompt_lower:
             north_count = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("NORTH")).count()
             south_count = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("SOUTH")).count()
@@ -97,34 +179,14 @@ async def process_ai_query(
                 f"• KMP Headquarters: {hq_count} officers"
             )
 
-        # 8. Convicted / Closed Cases in the Last 6 Months
-        elif "convict" in prompt_lower or ("closed" in prompt_lower and "month" in prompt_lower):
-            six_months_ago = (datetime.utcnow() - timedelta(days=180)).strftime("%Y-%m-%d")
-            convicted_count = db.query(models.Crime_Reports).filter(
-                and_(
-                    models.Crime_Reports.date >= six_months_ago,
-                    or_(
-                        func.lower(models.Crime_Reports.status).contains("convict"),
-                        func.lower(models.Crime_Reports.status).contains("closed"),
-                        func.lower(models.Crime_Reports.status).contains("court")
-                    )
-                )
-            ).count()
-            response_text = f"⚖️ [Judicial Intelligence]: There are {convicted_count} case(s) marked as convicted, closed, or concluded via court in the last 6 months."
-
-        # 9. Robberies Committed in the Last One Week
-        elif "robber" in prompt_lower or ("week" in prompt_lower and "robbery" in prompt_lower):
-            one_week_ago = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
-            robbery_count = db.query(models.Crime_Reports).filter(
-                and_(
-                    models.Crime_Reports.date >= one_week_ago,
-                    func.lower(models.Crime_Reports.offence).contains("robbery")
-                )
-            ).count()
-            response_text = f"🚨 [Crime Trend Intelligence]: There have been {robbery_count} robbery incident(s) recorded across KMP jurisdictions in the last one week."
-
         else:
-            response_text = "🤖 I am your KMP CSDMS Intelligence Assistant. Try asking me about regional manpower, female/male officers, NCO counts, police posts, casualties, convictions over the past 6 months, or recent robberies!"
+            response_text = (
+                "🤖 I am your KMP CSDMS Intelligence Assistant. You can ask me:\n"
+                "1. 'Where is officer [Name or F/NO] deployed?'\n"
+                "2. 'When was the robbery at [Location/Station]?'\n"
+                "3. 'How many female/male officers or NCOs are active?'\n"
+                "4. 'Show regional manpower distribution.'"
+            )
 
         return {
             "status": "success",

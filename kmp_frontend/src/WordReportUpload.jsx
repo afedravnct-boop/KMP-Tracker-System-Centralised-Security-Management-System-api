@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {  
   UploadCloud, FileText, Download, CheckCircle, AlertTriangle,  
   Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, Server, Trash2, Filter
@@ -43,16 +43,33 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const [templateCustomName, setTemplateCustomName] = useState('');
 
   // 🟢 Safely resolve global view active state matching other modules
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
+  const canViewGlobalActive = canViewGlobal || 
+    ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
+    currentUser?.permissions?.view_global_roster === true || 
+    currentUser?.permissions?.global_observer === true;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+
+  // 🟢 Guard against background polling overwriting custom user filter selections
+  const isFilterInitialized = useRef(false);
+  useEffect(() => {
+    if (!isFilterInitialized.current && currentUser?.station) {
+      if (canViewGlobalActive) {
+        setFilterRegion('ALL REGIONS');
+        setFilterStation('ALL STATIONS');
+      } else {
+        setFilterRegion(currentUser.region || '');
+        setFilterStation(currentUser.station || '');
+      }
+      isFilterInitialized.current = true;
+    }
+  }, [canViewGlobalActive, currentUser?.station]);
 
   // 🟢 SOVEREIGN CLEARANCE DERIVATION FOR UPLOADS & DOWNLOADS
   const canUploadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN'].includes(currentUser?.role?.toUpperCase());
   const canDownloadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN', 'USER'].includes(currentUser?.role?.toUpperCase());
 
-  // Checks matrix keys or role baseline, including Super Admin override
   const hasUploadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_tripartite_upload !== false && (canUploadByRole || currentUser?.permissions?.acc_tripartite_upload === true));
   const hasDownloadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_tripartite_download !== false && (canDownloadByRole || currentUser?.permissions?.acc_tripartite_download === true));
 
@@ -109,7 +126,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
     let endpoint = "";
 
-    // Respect active toggle region/station if global view is active
     const targetRegionToSubmit = overrideRegion || (canViewGlobalActive && filterRegion !== 'ALL REGIONS' ? filterRegion : currentUser?.region);
     const targetStationToSubmit = overrideStation || (canViewGlobalActive && filterStation !== 'ALL STATIONS' ? filterStation : currentUser?.station);
 
@@ -304,7 +320,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
         if (!isMatch) return false;
       }
 
-      // Region & station filtering
       const stn = (doc.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, doc.region);
 
@@ -402,21 +417,21 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                 <button
                   type="button"
                   onClick={() => setActiveCategory('weekly_report')}
-                  className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${activeCategory === 'weekly_report' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+                  className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors cursor-pointer ${activeCategory === 'weekly_report' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
                 >
                   Weekly Reports
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveCategory('general_doc')}
-                  className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${activeCategory === 'general_doc' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+                  className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors cursor-pointer ${activeCategory === 'general_doc' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
                 >
                   General Docs / Statements
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveCategory('templates')}
-                  className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors ${activeCategory === 'templates' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+                  className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors cursor-pointer ${activeCategory === 'templates' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
                 >
                   Command Templates
                 </button>
@@ -470,7 +485,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                 <button 
                   type="submit" 
                   disabled={files.length === 0 || uploading}
-                  className={`w-full py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition disabled:bg-slate-300 ${activeCategory === 'templates' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-black'}`}
+                  className={`w-full py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition disabled:bg-slate-300 cursor-pointer ${activeCategory === 'templates' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-black'}`}
                 >
                   {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading Files...</> : activeCategory === 'templates' ? `Upload ${files.length || ''} Template(s)` : `Upload ${files.length || ''} Document(s)`}
                 </button>
@@ -493,21 +508,21 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
               <button
                 type="button"
                 onClick={() => setActiveCategory('weekly_report')}
-                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${activeCategory === 'weekly_report' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
+                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors cursor-pointer ${activeCategory === 'weekly_report' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
               >
                 Weekly Reports
               </button>
               <button
                 type="button"
                 onClick={() => setActiveCategory('general_doc')}
-                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${activeCategory === 'general_doc' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
+                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors cursor-pointer ${activeCategory === 'general_doc' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
               >
                 General Docs
               </button>
               <button
                 type="button"
                 onClick={() => setActiveCategory('templates')}
-                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${activeCategory === 'templates' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
+                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors cursor-pointer ${activeCategory === 'templates' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
               >
                 Templates
               </button>
@@ -567,7 +582,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                           Read
                         </button>
 
-                        {/* DOWNLOAD & DELETE GUARDED BY hasDownloadClearance & hasUploadClearance */}
                         {hasDownloadClearance ? (
                           <>
                             <button 

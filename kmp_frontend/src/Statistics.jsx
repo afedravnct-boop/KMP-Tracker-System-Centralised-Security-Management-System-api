@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { BarChart3, PlusCircle, Edit, AlertTriangle, CheckCircle } from 'lucide-react';
 
 const REGIONAL_HIERARCHY = {
@@ -22,7 +22,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
       <div className="bg-slate-900 px-4 py-3 flex justify-between items-center">
         <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{title}</h3>
-        <button onClick={() => { const nextState = !expanded; setExpanded(nextState); if (onToggle) onToggle(nextState); }} className="text-xs text-blue-400 hover:text-white font-bold">
+        <button onClick={() => { const nextState = !expanded; setExpanded(nextState); if (onToggle) onToggle(nextState); }} className="text-xs text-blue-400 hover:text-white font-bold cursor-pointer">
           {expanded ? 'Collapse ↙' : 'Expand ↗'}
         </button>
       </div>
@@ -48,11 +48,30 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
   const currentDomainStats = statsDomain === 'AGRICULTURAL' ? agricStats : stats;
   const activeSetter = statsDomain === 'AGRICULTURAL' ? setAgricStats : setStats;
 
-  // 🟢 Safely resolve global view clearance
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
+  // 🟢 Unified Global Jurisdiction Clearance
+  const canViewGlobalActive = canViewGlobal || 
+    ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
+    currentUser?.permissions?.view_global_roster === true || 
+    currentUser?.permissions?.global_observer === true;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+
+  // 🟢 Guard against background polling overwriting user selections
+  const isFilterInitialized = useRef(false);
+  useEffect(() => {
+    if (!isFilterInitialized.current && currentUser?.station) {
+      if (canViewGlobalActive) {
+        setFilterRegion('ALL REGIONS');
+        setFilterStation('ALL STATIONS');
+      } else {
+        setFilterRegion(currentUser.region || '');
+        setFilterStation(currentUser.station || '');
+      }
+      isFilterInitialized.current = true;
+    }
+  }, [canViewGlobalActive, currentUser?.station]);
+
   const [updateSearch, setUpdateSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   
@@ -64,9 +83,8 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0
   });
 
-const filteredStats = useMemo(() => {
+  const filteredStats = useMemo(() => {
     return (Array.isArray(currentDomainStats) ? currentDomainStats : []).filter(s => {
-      // 🟢 Global view bypass check
       const isAllRegions = filterRegion === 'ALL REGIONS';
       const isAllStations = filterStation === 'ALL STATIONS';
 
@@ -96,7 +114,7 @@ const filteredStats = useMemo(() => {
 
   const availableUpdateStats = useMemo(() => {
     return (Array.isArray(currentDomainStats) ? currentDomainStats : []).filter(s => {
-      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && s.region !== currentUser.region) return false;
+      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && !canViewGlobalActive && s.region !== currentUser.region) return false;
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
         const idStr = String(s.id || s.sn || '').toLowerCase();
@@ -106,7 +124,7 @@ const filteredStats = useMemo(() => {
       }
       return true;
     });
-  }, [currentDomainStats, currentUser, updateSearch]);
+  }, [currentDomainStats, currentUser, updateSearch, canViewGlobalActive]);
 
   const totals = useMemo(() => {
     return filteredStats.reduce((acc, curr) => {
@@ -141,15 +159,13 @@ const filteredStats = useMemo(() => {
     setFormData({ ...statData, sn: recordIdentifier, id: recordIdentifier });
   };
 
-const handleFormSubmit = async (e) => { 
+  const handleFormSubmit = async (e) => { 
     e.preventDefault();
     const token = localStorage.getItem('kmp_authToken');
     if (!token) return setNotification("Error: Security token missing.");
     
-    // 🟢 Dynamic endpoint routing based on active domain
     const targetEndpoint = statsDomain === 'AGRICULTURAL' ? '/api/v1/agric-stats' : '/api/v1/stats';
 
-    // 🟢 Resolve active region/station based on Super Admin toggle state or fallback to form data
     const activeRegion = (canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion : formData.region;
     const activeStation = (canViewGlobalActive && filterStation && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
 
@@ -257,15 +273,15 @@ const handleFormSubmit = async (e) => {
               </div>
               <div className="p-5 space-y-6">
                 <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                  <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
-                  <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
+                  <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all cursor-pointer ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
+                  <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all cursor-pointer ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
                 </div>
                 {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{notification}</span></div>}
                 
                 {operation === 'update' && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                     <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Record to Update</label>
-                    <input type="text" placeholder="Search by SN, Station, or Date..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
+                    <input type="text" placeholder="Search by SN, Station, or Date..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
                     <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
                       {availableUpdateStats.length === 0 ? (
                         <div className="p-3 text-xs text-gray-500 text-center">No records found matching your search.</div>
@@ -298,14 +314,14 @@ const handleFormSubmit = async (e) => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
                       <div>
                         <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
-                        <select name="region" value={formData.region} onChange={handleInputChange} disabled={!(currentUser.role === 'SUPER_ADMIN' || currentUser.permissions?.view_global_roster) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                          {['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
+                        <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                          {canViewGlobalActive ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
                         </select>
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-gray-700 mb-1">Station / Division *</label>
-                        <select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                          {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{currentUser.station}</option>}
+                        <select name="station" value={formData.station} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                          {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : canViewGlobalActive ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{currentUser.station}</option>}
                         </select>
                       </div>
                       <div>
@@ -327,7 +343,7 @@ const handleFormSubmit = async (e) => {
                       <div className="bg-white p-2 rounded border border-gray-200 shadow-sm"><label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1">Suspects Convicted</label><input type="number" name="convicted" min="0" value={formData.convicted} onChange={handleInputChange} className="w-full text-lg font-bold text-purple-600 border-b-2 border-transparent focus:border-purple-500 outline-none p-1 bg-transparent" /></div>
                     </div>
                   </div>
-                  <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center">
+                  <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center cursor-pointer">
                     {operation === 'new' ? '💾 Submit 8-Field Data Entry' : '💾 Save Updated Figures'}
                   </button>
                 </form>
@@ -356,27 +372,25 @@ const handleFormSubmit = async (e) => {
               </div>
             </div>
 
-            {/* Region/Station filters on the left, Domain Toggle Selector pushed to the right on the same line */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
                   {canViewGlobalActive ? (
                     <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
                   ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
                 </select>
-                <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!canViewGlobalActive} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+                <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!canViewGlobalActive} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
                   {canViewGlobalActive ? (
                     <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
                   ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
                 </select>
               </div>
 
-              {/* Domain Toggle Selector placed on the right side of the filters line */}
               <div className="inline-flex bg-slate-200 p-1 rounded-xl border shadow-inner shrink-0">
-                <button type="button" onClick={() => setStatsDomain('DISRUPTIVE')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition ${statsDomain === 'DISRUPTIVE' ? 'bg-slate-900 text-white shadow' : 'text-slate-700'}`}>
+                <button type="button" onClick={() => setStatsDomain('DISRUPTIVE')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${statsDomain === 'DISRUPTIVE' ? 'bg-slate-900 text-white shadow' : 'text-slate-700'}`}>
                   ⚡ Disruptive OPS
                 </button>
-                <button type="button" onClick={() => setStatsDomain('AGRICULTURAL')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition ${statsDomain === 'AGRICULTURAL' ? 'bg-emerald-700 text-white shadow' : 'text-slate-700'}`}>
+                <button type="button" onClick={() => setStatsDomain('AGRICULTURAL')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${statsDomain === 'AGRICULTURAL' ? 'bg-emerald-700 text-white shadow' : 'text-slate-700'}`}>
                   🌱 Agricultural Crimes Stats
                 </button>
               </div>
@@ -429,7 +443,7 @@ const handleFormSubmit = async (e) => {
                         <td className="px-2 py-3 text-center text-xs text-blue-800">{totals.convicted}</td>
                       </tr>
                     )}
-                    {filteredStats.length === 0 && <tr><td colSpan="11" className="text-center py-6 text-gray-500">No statistics logged for this jurisdiction.</td></tr>}
+                    {filteredStats.length === 0 && <tr><td colSpan="11" className="text-center py-6 text-gray-500 font-medium">No statistics logged for this jurisdiction.</td></tr>}
                   </tbody>
                 </table>
               </div>

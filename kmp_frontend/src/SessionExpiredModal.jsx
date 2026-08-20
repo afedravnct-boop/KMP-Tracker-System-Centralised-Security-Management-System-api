@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
-const SessionExpiredModal = ({ onContinue }) => {
+const SessionExpiredModal = ({ onContinue, onLogout }) => {
   const [timeLeft, setTimeLeft] = useState(60);
   const [phase, setPhase] = useState('WARNING'); 
 
@@ -23,9 +23,9 @@ const SessionExpiredModal = ({ onContinue }) => {
   }, [phase]);
 
   const handleAutomaticExpiration = () => {
-    localStorage.removeItem('kmp_authToken');
-    localStorage.removeItem('kmp_currentUser');
-    localStorage.removeItem('kmp_currentPage');
+    if (typeof onLogout === 'function') {
+      onLogout();
+    }
     setPhase('FINAL_LOGOUT');
   };
 
@@ -34,14 +34,15 @@ const SessionExpiredModal = ({ onContinue }) => {
       e.preventDefault();
       e.stopPropagation();
     }
-    localStorage.clear();
-    sessionStorage.clear();
-    window.location.replace('/');
+    if (typeof onLogout === 'function') {
+      onLogout();
+    } else {
+      window.location.replace('/');
+    }
   };
 
   return (
-    // 🟢 DECOUPLED LAYER: Sits strictly above the curtain system with a solid mask to prevent bleeding
-    <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-slate-950/90 isolate">
+    <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-slate-950/90 backdrop-blur-sm isolate">
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 flex flex-col items-center text-center border border-slate-200 relative z-[1000000] transform-gpu">
         
         <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-6 shadow-inner border ${phase === 'WARNING' ? 'bg-amber-50 border-amber-100' : 'bg-red-50 border-red-100'}`}>
@@ -68,7 +69,7 @@ const SessionExpiredModal = ({ onContinue }) => {
           <div className="w-full">
             <h2 className="text-xl font-extrabold text-slate-900 mb-2">Session Expired Due to Inactivity</h2>
             <p className="text-sm text-slate-600 mb-8 font-medium leading-relaxed">
-              Your security token has expired because the system was left unattended. You have been securely logged out.
+              Your secure session has expired because the system was left unattended. You have been securely logged out.
             </p>
             <button
               type="button"

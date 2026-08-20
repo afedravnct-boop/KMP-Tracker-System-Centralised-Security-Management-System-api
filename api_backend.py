@@ -48,6 +48,7 @@ from openpyxl.styles import Alignment
 from pptx import Presentation
 from pptx.util import Inches, Pt as PPTXPt
 from pptx.dml.color import RGBColor as PPTXRGBColor
+from sqlalchemy.orm.attributes import flag_modified
 
 from urllib.parse import unquote
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -364,6 +365,51 @@ def get_audit_logs(db: Session = Depends(get_logs_db), current_user: models.User
     except Exception as e:
         return []
 
+@app.put("/api/v1/users/{fnum}/access")
+@app.post("/api/v1/admin/bulk-permissions")
+@app.put("/api/v1/admin/bulk-permissions")
+def update_user_access(
+    data: dict, 
+    fnum: Optional[str] = None, 
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(require_admin)
+):
+    target_fnum = fnum or data.get("fnum") or data.get("user_fnum")
+    if not target_fnum:
+        raise HTTPException(status_code=400, detail="Officer force number (fnum) is required.")
+
+    clean_fnum = str(target_fnum).strip().upper()
+    user = db.query(models.Users).filter(
+        func.trim(func.upper(models.Users.fnum)) == clean_fnum
+    ).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="Officer record not found.")
+
+    # 1. Update system role
+    if "role" in data and data["role"]:
+        user.role = str(data["role"]).strip().upper()
+
+    # 2. Deep-merge permissions & explicitly flag JSON column as modified
+    if "permissions" in data and data["permissions"] is not None:
+        merged_perms = dict(user.permissions or {})
+        if isinstance(data["permissions"], dict):
+            merged_perms.update(data["permissions"])
+        user.permissions = merged_perms
+        flag_modified(user, "permissions")
+
+    try:
+        db.commit()
+        db.refresh(user)
+        return {
+            "status": "success",
+            "message": f"Access matrix permanently committed for {user.fnum}",
+            "permissions": user.permissions,
+            "role": user.role
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database commit error: {str(e)}")
 # ==========================================
 # BULK PERMISSIONS / ROSTER UPDATE ENDPOINT
 # ==========================================
@@ -631,6 +677,32 @@ def export_establishments_summary(db: Session = Depends(get_db), current_user = 
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"HR export failed: {str(e)}")
+
+@app.get("/api/v1/users/recipients-list")
+@app.get("/api/v1/communications/recipients-list")
+def get_recipients_list(
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
+    try:
+        users = db.query(models.Users).filter(
+            models.Users.role != 'REVOKED',
+            models.Users.is_approved == True
+        ).all()
+        
+        return [
+            {
+                "fnum": u.fnum,
+                "name": u.name,
+                "rank": u.rank,
+                "region": u.region,
+                "station": u.station,
+                "position": u.position,
+                "role": u.role
+            } for u in users
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch recipients: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run("api_backend:app", host="0.0.0.0", port=8000, reload=True)

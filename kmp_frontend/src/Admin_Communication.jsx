@@ -14,7 +14,6 @@ const autoCapitalize = (text) => {
 };
 
 // 🟢 TIME OFFSET FIX ENGINE
-// Intercepts timestamps and subtracts 3 hours to compensate for the backend timezone double-shift
 const adjustTimeOffset = (dateStr) => {
   if (!dateStr || dateStr === "Unknown Time") return dateStr;
   try {
@@ -44,10 +43,13 @@ const adjustTimeOffset = (dateStr) => {
   }
 };
 
-const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm }) => {
+const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm, initialTab }) => {
   const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
   
-  const [activeTab, setActiveTab] = useState(canBroadcast ? 'dispatch' : 'inbox'); 
+  // 🟢 Dynamically honor initialTab from dashboard notifications
+  const [activeTab, setActiveTab] = useState(
+    initialTab ? initialTab.toLowerCase() : (canBroadcast ? 'dispatch' : 'inbox')
+  ); 
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -87,6 +89,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     fetchRecipientsList();
   }, []);
 
+  // 🟢 Keep active tab synchronized when initialTab prop changes
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab.toLowerCase());
+    }
+  }, [initialTab]);
+
   const fetchRecipientsList = async () => {
     try {
       const token = localStorage.getItem('kmp_authToken');
@@ -96,9 +105,12 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       if (res.ok) {
         const data = await res.json();
         setFilteredRecipientsList(data);
+      } else {
+        setFilteredRecipientsList(users || []);
       }
     } catch (err) {
       console.error("Failed to load command recipients list:", err);
+      setFilteredRecipientsList(users || []);
     }
   };
 
@@ -162,7 +174,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
           target_region: formData.targetRegion, 
           target_fnum: formData.targetFnum, 
           message_type: formData.messageType, 
-          subject: formData.subject,
+          subject: formData.subject, 
           message: formData.message, 
           send_email: formData.sendEmail,
           requires_command_approval: containsCrossRegion
@@ -221,8 +233,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
       if (response.ok) {
         const rawData = await response.json();
-        
-        // 🟢 Apply Time Offset Fix to all incoming messages
         const data = rawData.map(msg => ({
             ...msg,
             created_at: adjustTimeOffset(msg.created_at)
@@ -235,7 +245,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     finally { setIsLoadingInbox(false); }
   };
 
-  // 🟢 ENHANCED: Fetch read receipts and calculate pending recipients for the group/category
   const fetchReceipts = async (msg) => {
     setViewingReceiptsFor(msg.id);
     setLoadingReceipts(true);
@@ -244,14 +253,11 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       const res = await fetch(`${API_URL}/api/v1/communications/${msg.id}/readers`, { headers: { 'Authorization': `Bearer ${token}` } });
       if(res.ok) {
           const rawData = await res.json();
-          
-          // 🟢 Apply Time Offset Fix to read timestamps
           const readers = rawData.map(r => ({
               ...r,
               read_at: adjustTimeOffset(r.read_at)
           }));
 
-          // Determine targeted pool of users based on msg.target_audience and msg.target_region
           const allSystemUsers = filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || []);
           let targetPool = [];
 
@@ -272,7 +278,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
               targetPool = allSystemUsers.filter(u => msg.target_fnum.includes(u.fnum));
           }
 
-          // Exclude sender from pending count if applicable
           const readerFnums = new Set(readers.map(r => r.fnum));
           const pending = targetPool.filter(u => !readerFnums.has(u.fnum) && u.fnum !== msg.sender_fnum);
 
@@ -289,7 +294,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     setExpandedMsgs(prev => ({ ...prev, [msg.id]: !prev[msg.id] }));
   };
 
-  // 🟢 GUARANTEED VISIBLE MANUAL ACKNOWLEDGEMENT WITH GLOBAL STATE SYNC
   const handleManualAcknowledge = async (e, msg) => {
     e.stopPropagation(); 
     try {
@@ -300,7 +304,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       });
       
       if (res.ok) {
-        // Update both inbox and outbox arrays to cover all cases
         setInboxMessages(prev => prev.map(m => m.id === msg.id ? { ...m, acknowledged: true } : m));
         setOutboxMessages(prev => prev.map(m => m.id === msg.id ? { ...m, acknowledged: true } : m));
         
@@ -345,7 +348,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                      <p className="text-xs text-center text-gray-500 font-bold animate-pulse py-4">Fetching ledgers...</p>
                    ) : (
                      <>
-                       {/* Readers List */}
                        <div>
                          <h4 className="text-xs font-extrabold text-green-700 uppercase tracking-wider mb-2 flex items-center">
                            <CheckCircle size={14} className="mr-1.5"/> Read & Acknowledged ({receiptsData.readers.length})
@@ -364,7 +366,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                          )}
                        </div>
 
-                       {/* Pending List */}
                        <div className="pt-2 border-t border-slate-200">
                          <h4 className="text-xs font-extrabold text-amber-700 uppercase tracking-wider mb-2 flex items-center">
                            <Clock size={14} className="mr-1.5"/> Pending Acknowledgment ({receiptsData.pending.length})
@@ -783,7 +784,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                               </div>
                               
                               <div className="flex items-center space-x-2">
-                                {/* 🟢 GUARANTEED VISIBLE BUTTON: Renders for any unacknowledged item where the user is NOT the sender */}
                                 {!msg.acknowledged && !isSender && (
                                   <button 
                                     onClick={(e) => handleManualAcknowledge(e, msg)} 

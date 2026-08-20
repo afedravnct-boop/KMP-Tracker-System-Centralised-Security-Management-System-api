@@ -35,9 +35,9 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     return String(str).toUpperCase();
   };
 
-  // 🟢 SECURELY FILTER LOCK-UP ENTRIES BY JURISDICTION & TIME
+  // 🟢 FILTER AND COMPUTE NET VARIATIONS BY JURISDICTION & TIME
   const filteredLockupEntries = useMemo(() => {
-    let filtered = Array.isArray(lockupEntries) ? lockupEntries : [];
+    let filtered = Array.isArray(lockupEntries) ? [...lockupEntries] : [];
 
     // 1. Regional Filter Application
     if (selectedRegion && selectedRegion !== 'ALL REGIONS') {
@@ -61,7 +61,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     if (lockupFilter !== 'ALL') {
       const today = new Date();
       const tzOffset = today.getTimezoneOffset() * 60000; 
-      const localToday = new Date(today - tzOffset);
+      const localToday = new Date(today.getTime() - tzOffset);
       
       const todayStr = localToday.toISOString().split('T')[0];
       
@@ -87,7 +87,20 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
       });
     }
 
-    return filtered;
+    // Sort chronologically descending
+    filtered.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+    // Compute variation dynamically relative to preceding logged entry
+    return filtered.map((log, index, arr) => {
+      if (index === arr.length - 1) return { ...log, variation: 0, hasPrev: false };
+      const prevSuspects = Number(arr[index + 1]?.suspects || 0);
+      const currentSuspects = Number(log?.suspects || 0);
+      return { 
+        ...log, 
+        variation: currentSuspects - prevSuspects, 
+        hasPrev: true 
+      };
+    });
   }, [lockupEntries, lockupFilter, selectedRegion, selectedStation]);
 
   // Calculations for filtered totals including explicit juvenile splits
@@ -120,7 +133,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
               Showing records for: <span className="text-white font-bold">{selectedRegion || 'ALL REGIONS'}</span> {selectedStation && selectedStation !== 'ALL STATIONS' ? `➔ ${selectedStation}` : ''}
             </p>
           </div>
-          <button onClick={onClose} className="text-amber-200 hover:text-white hover:bg-amber-700 p-1.5 rounded transition-colors">
+          <button onClick={onClose} className="text-amber-200 hover:text-white hover:bg-amber-700 p-1.5 rounded transition-colors cursor-pointer">
             <X size={20} />
           </button>
         </div>
@@ -132,7 +145,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
               <button
                 key={f}
                 onClick={() => setLockupFilter(f)}
-                className={`px-4 py-1.5 text-[11px] font-extrabold uppercase rounded-md transition-colors whitespace-nowrap ${
+                className={`px-4 py-1.5 text-[11px] font-extrabold uppercase rounded-md transition-colors whitespace-nowrap cursor-pointer ${
                   lockupFilter === f
                     ? 'bg-amber-500 text-amber-950 shadow-sm'
                     : 'text-amber-200 hover:text-white hover:bg-amber-800/80'
@@ -183,7 +196,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                     <td className="px-3 py-3 text-xs font-bold text-slate-600 uppercase border-r border-slate-100">{row.station}</td>
                     <td className="px-3 py-3 text-sm font-black text-amber-900 text-center bg-amber-50/30 border-r border-slate-100">{row.suspects}</td>
                     
-                    {/* 🟢 Explicit Sex & Juvenile Breakdown Data Cells */}
+                    {/* 🟢 Sex & Juvenile Breakdown Data Cells */}
                     <td className="px-2 py-3 text-xs font-bold text-blue-700 text-center border-r border-slate-100 bg-blue-50/20">{row.male_count || row.male || 0}</td>
                     <td className="px-2 py-3 text-xs font-bold text-indigo-700 text-center border-r border-slate-100 bg-indigo-50/20">{row.male_juvenile_count || row.male_juvenile || 0}</td>
                     <td className="px-2 py-3 text-xs font-bold text-pink-700 text-center border-r border-slate-100 bg-pink-50/20">{row.female_count || row.female || 0}</td>
@@ -216,7 +229,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 ))
               ) : (
                 <tr>
-                  <td colSpan="12" className="px-6 py-12 text-center text-sm text-slate-500 font-bold">
+                  <td colSpan="13" className="px-6 py-12 text-center text-sm text-slate-500 font-bold">
                     No independent lock-up records found for this jurisdiction and period.
                   </td>
                 </tr>

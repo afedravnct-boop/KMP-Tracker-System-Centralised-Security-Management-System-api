@@ -1,5 +1,6 @@
 // src/api.js
-const BASE_URL = 'https://kmp-tracker-system-centralised-security.onrender.com';
+const BASE_URL = import.meta.env.VITE_API_URL || 'https://kmp-tracker-system-centralised-security.onrender.com';
+
 export async function authFetch(endpoint, options = {}) {
   const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
   
@@ -38,22 +39,20 @@ export async function authFetch(endpoint, options = {}) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(url, { ...options, headers });
+  const response = await fetch(url, { 
+    ...options, 
+    headers,
+    credentials: 'include' // Crucial for cookie transmission if applicable
+  });
 
   // --- SEPARATE THE SECURITY RESPONSES ---
   
-  // 1. Dead Token (Log them out gracefully) - EXCEPT on the login screen!
+  // 1. Dead Token / Expired Session (Dispatch modal event instead of instant hard reload) - EXCEPT on login!
   if (response.status === 401 && !url.includes('/api/auth/login')) {
-    console.warn("🔒 Secure Session Expired. Acknowledging command re-authentication...");
-    localStorage.removeItem('kmp_authToken');
-    localStorage.removeItem('kmp_currentUser'); 
+    console.warn("🔒 Secure Session Expired. Triggering session expiration modal...");
     
-    // Redirect with session timeout indicator for clean UI acknowledgment
-    if (!window.location.search.includes('session_expired=true')) {
-      window.location.href = '/?session_expired=true';
-    } else {
-      window.location.reload();
-    }
+    // Dispatch event to show the SessionExpiredModal gracefully in App.jsx
+    window.dispatchEvent(new Event('auth-expired'));
     
     throw new Error("UNAUTHORIZED"); 
   }

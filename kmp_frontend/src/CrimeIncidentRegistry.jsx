@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout
 } from 'lucide-react';
@@ -15,7 +15,7 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 Helper to dynamically resolve the authoritative jurisdiction from station name
+// 🟢 Authoritative jurisdiction resolution
 const getOfficialRegionForStation = (stationName, dbRegion) => {
   const cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
   const cleanDbRegion = stripHtmlTags(dbRegion || '').trim().toUpperCase();
@@ -33,7 +33,6 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   return cleanDbRegion || 'KMP GENERAL';
 };
 
-// Auto-Capitalization (Ignores HTML tags during typing)
 const autoCapitalize = (text) => {
   if (!text) return '';
   return stripHtmlTags(text).replace(/(^\s*(?:<[^>]+>\s*)*|[\.\!\?]\s+(?:<[^>]+>\s*)*|<(?:p|br|div|li|h[1-6])[^>]*>\s*)([a-z])/gi, (match, prefix, letter) => {
@@ -118,8 +117,29 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
 
   const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
 
-  const isGlobalCommand = currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster || ['IGP', 'DIGP', 'DIRECTOR', 'KMP COMMANDER'].some(title => (currentUser?.position || '').toUpperCase().includes(title)) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((currentUser?.region || '').toUpperCase());
-  const isRegionalCommand = isGlobalCommand || ['RPC', 'DEPUTY COMMANDER'].includes((currentUser?.role || '').toUpperCase()) || (currentUser?.position || '').toUpperCase().includes('RPC') || (currentUser?.position || '').toUpperCase().includes('REGIONAL');
+  // 🟢 Unified Global Jurisdiction Clearance
+  const canViewGlobalActive = canViewGlobal || 
+    ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
+    currentUser?.permissions?.view_global_roster === true || 
+    currentUser?.permissions?.global_observer === true;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
+  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+
+  // 🟢 Guard against background polling overwriting custom user filter selections
+  const isFilterInitialized = useRef(false);
+  useEffect(() => {
+    if (!isFilterInitialized.current && currentUser?.station) {
+      if (canViewGlobalActive) {
+        setFilterRegion('ALL REGIONS');
+        setFilterStation('ALL STATIONS');
+      } else {
+        setFilterRegion(currentUser.region || '');
+        setFilterStation(currentUser.station || '');
+      }
+      isFilterInitialized.current = true;
+    }
+  }, [canViewGlobalActive, currentUser?.station]);
 
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -128,12 +148,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
   const [showHqGrandModal, setShowHqGrandModal] = useState(false);
   const [hqGrandTotalInput, setHqGrandTotalInput] = useState('');
   const [showLockupMatrixModal, setShowLockupMatrixModal] = useState(false);  
-
-  // 🟢 Safely resolve global view active state matching App.jsx logic
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
-
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
@@ -190,7 +204,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
     });
   };
 
-  // 🟢 FIXED: Filter logic now fully respects `canViewGlobalActive` and `ALL REGIONS` / `ALL STATIONS`
   const filteredReports = useMemo(() => {
     if (!Array.isArray(reports)) return [];
     
@@ -204,24 +217,22 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       const dbRegion = getOfficialRegionForStation(stn, r.region);
 
       if (canViewGlobalActive && activeRegion === null) {
-        // Bypass regional restriction entirely when global view is active and 'ALL REGIONS' is selected
+        // Allow all regions
       } else if (activeRegion && dbRegion !== activeRegion) {
         return false;
       }
 
       if (canViewGlobalActive && activeRegion === null && activeStation === null) {
-        // Bypass station restriction entirely
+        // Allow all stations
       } else if (activeStation && stn !== activeStation) {
         return false;
       }
 
-      // 🟢 PRECISION AGRICULTURAL CRIME FILTER (Explicitly excludes traffic/road accidents)
       if (showAgriculturalOnly) {
         const offenceText = stripHtmlTags(r.offence || '').toLowerCase();
         const narrativeText = extractPlainText(r.narrative || '').toLowerCase();
         const combinedText = `${offenceText} ${narrativeText}`;
 
-        // Reject accidents outright
         const accidentTerms = ['accident', 'tar', 'collision', 'hit and run', 'overturned', 'crash', 'boda boda crash', 'motor vehicle accident'];
         if (accidentTerms.some(term => combinedText.includes(term))) {
           return false;
@@ -498,8 +509,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         const cleanStationSub = stripHtmlTags(formData.station).substring(0,3).toUpperCase();
         const popRef = `POP-${cleanStationSub}-${Date.now().toString().slice(-6)}`;
         
-        // 🟢 FIXED: Respect Super Admin active region toggle when posting cell populations
-        const activeSubmissionRegion = (currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster)
+        const activeSubmissionRegion = canViewGlobalActive
           ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
           : getOfficialRegionForStation(formData.station, formData.region);
 
@@ -598,8 +608,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       const isDuplicate = reports.some(r => stripHtmlTags(r.station) === stripHtmlTags(formData.station) && ((stripHtmlTags(r.sdRef || r.sd_ref || '')).trim().toLowerCase() === final_reference.toLowerCase() || extractPlainText(r.narrative || '').trim().toLowerCase() === plainTextForDuplicate.toLowerCase()));
       if (isDuplicate) return setNotification(`Error: This specific ${cleanRefType} entry or identical narrative already exists.`);
 
-      // 🟢 FIXED: Respect Super Admin active region toggle when posting new reports
-      const activeSubmissionRegion = (currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster)
+      const activeSubmissionRegion = canViewGlobalActive
         ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
         : getOfficialRegionForStation(formData.station, formData.region);
 
@@ -959,7 +968,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
                <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(stripHtmlTags(e.target.value))} className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm shadow-sm outline-none focus:border-blue-500 bg-white" />
              </div>
 
-             {/* 🟢 AGRICULTURAL CRIMES TOGGLE FILTER BUTTON */}
              <button
                type="button"
                onClick={() => setShowAgriculturalOnly(prev => !prev)}
@@ -1024,8 +1032,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       </div>
 
       <div className="mt-8 space-y-6 animate-in fade-in duration-300 max-w-4xl mx-auto">
-        
-        {/* 🟢 FULL BREAKDOWN INPUTS FOR INDEPENDENT DAILY LOCK-UP (WITH MALE & FEMALE JUVENILES) */}
         <div className="bg-amber-50 p-6 rounded-2xl border border-amber-200 shadow-md space-y-4">
           <div>
             <h3 className="font-extrabold text-amber-900 uppercase tracking-wider text-sm flex items-center">
@@ -1202,15 +1208,16 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         </div>
       </div>
 
-{showLockupMatrixModal && (
-  <LockupMatrixLedger 
-    lockupEntries={lockupData} 
-    allTimeLockupTotal={allTimeLockupTotal} 
-    onClose={() => setShowLockupMatrixModal(false)} 
-    selectedRegion={filterRegion}     // 🟢 Pass the filters down
-    selectedStation={filterStation}   // 🟢 Pass the filters down
-  />
-)}
+      {showLockupMatrixModal && (
+        <LockupMatrixLedger 
+          lockupEntries={lockupData} 
+          allTimeLockupTotal={allTimeLockupTotal} 
+          onClose={() => setShowLockupMatrixModal(false)} 
+          selectedRegion={filterRegion}
+          selectedStation={filterStation}
+        />
+      )}
+
       {selectedCase && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 sm:p-6 animate-in fade-in zoom-in-95 duration-200">
           <div className="bg-white shadow-2xl max-w-4xl w-full flex flex-col max-h-[95vh] rounded-xl overflow-hidden border border-slate-300">

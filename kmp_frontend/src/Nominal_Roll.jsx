@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Users, PlusCircle, Edit, AlertTriangle, CheckCircle, Upload, 
   BarChart3, PieChart, ArrowRight 
@@ -90,10 +90,10 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   const [selectedOfficer, setSelectedOfficer] = useState(null);
-  const [updateSearch, setUpdateSearch] = useState(''); // 🟢 FIXED: Declared missing state
+  const [updateSearch, setUpdateSearch] = useState(''); 
 
   // 🟢 STRICT INTERNAL CLEARANCES
-  const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||                       
+  const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||                        
                         (currentUser?.position || '').toUpperCase().includes('HR') ||
                         currentUser?.permissions?.system_admin === true;
 
@@ -102,11 +102,26 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   // Resolve global view permissions
   const canViewGlobal = propCanViewGlobal !== undefined 
     ? propCanViewGlobal 
-    : (currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true);
+    : (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'RPC' || currentUser?.role === 'Deputy Commander' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true);
 
-  // Initialize region/station filters based on global access (Unified Single Declaration)
+  // Initialize region/station filters based on global access
   const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobal ? 'ALL STATIONS' : ((isCommandOrHR) ? 'ALL STATIONS' : currentUser?.station || ''));
+
+  // 🟢 Guard against background polling overwriting custom user selections
+  const isFilterInitialized = useRef(false);
+  useEffect(() => {
+    if (!isFilterInitialized.current && currentUser?.station) {
+      if (canViewGlobal) {
+        setFilterRegion('ALL REGIONS');
+        setFilterStation('ALL STATIONS');
+      } else {
+        setFilterRegion(currentUser.region || '');
+        setFilterStation(currentUser.station || '');
+      }
+      isFilterInitialized.current = true;
+    }
+  }, [canViewGlobal, currentUser?.station]);
 
   // 🟢 NEW RE-INTEGRATION STATES
   const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
@@ -328,7 +343,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
-  // 🟢 FIXED: Filter logic now fully respects `canViewGlobal` and `ALL REGIONS` / `ALL STATIONS`
   const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const statusStr = (n.status || '').trim().toUpperCase();
@@ -340,7 +354,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const selStation = (filterStation || '').trim().toUpperCase();
 
       if (canViewGlobal && selRegion === 'ALL REGIONS') {
-        // Bypass regional restriction entirely
+        // Allow all regions
       } else if (selRegion !== 'ALL REGIONS' && selRegion !== '' && dbRegion !== selRegion) {
         return false;
       }
@@ -374,7 +388,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const selStation = (filterStation || '').trim().toUpperCase();
 
       if (canViewGlobal && selRegion === 'ALL REGIONS') {
-        // Bypass regional restriction
+        // Allow all regions
       } else if (selRegion !== 'ALL REGIONS' && selRegion !== '' && dbRegion !== selRegion) {
         return false;
       }
@@ -513,9 +527,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             Personnel Metrics Dashboard ({viewMode === 'archive' ? 'Archived Records' : 'Active Roll'})
           </h3>
           <div className="flex space-x-2 mt-2 md:mt-0">
-             <button onClick={() => { setViewMode('active'); setShowAnalytics(false); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'active' && !showAnalytics ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Active Roll</button>
-             <button onClick={() => { setViewMode('archive'); setShowAnalytics(false); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${viewMode === 'archive' && !showAnalytics ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Archived</button>
-             <button onClick={() => setShowAnalytics(!showAnalytics)} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors ${showAnalytics ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+             <button onClick={() => { setViewMode('active'); setShowAnalytics(false); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors cursor-pointer ${viewMode === 'active' && !showAnalytics ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Active Roll</button>
+             <button onClick={() => { setViewMode('archive'); setShowAnalytics(false); setBulkSelectMode(false); }} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors cursor-pointer ${viewMode === 'archive' && !showAnalytics ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Archived</button>
+             <button onClick={() => setShowAnalytics(!showAnalytics)} className={`px-4 py-1.5 text-xs font-bold rounded shadow-sm transition-colors cursor-pointer ${showAnalytics ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                 {showAnalytics ? 'Close Analytics' : 'Analytics'}
              </button>
           </div>
@@ -580,8 +594,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                   </div>
                   <div className="p-4 space-y-4">
                     <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                      <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-1.5 text-xs font-bold rounded transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-3.5 h-3.5 inline mr-1" /> Register New</button>
-                      <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-1.5 text-xs font-bold rounded transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-3.5 h-3.5 inline mr-1" /> Update Existing</button>
+                      <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-1.5 text-xs font-bold rounded transition-all cursor-pointer ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-3.5 h-3.5 inline mr-1" /> Register New</button>
+                      <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-1.5 text-xs font-bold rounded transition-all cursor-pointer ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-3.5 h-3.5 inline mr-1" /> Update Existing</button>
                     </div>
 
                     {notification && <div className={`px-3 py-2 rounded-lg flex items-center text-xs ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border border-red-200 text-red-800' : 'bg-green-50 border border-green-200 text-green-800'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-4 h-4 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-4 h-4 mr-2 text-green-500 shrink-0" />}<span className="font-medium">{notification}</span></div>}
@@ -589,7 +603,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                     {operation === 'update' && (
                       <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5">
                         <label className="block text-[11px] font-bold text-blue-800 mb-1.5">🔍 Search & Select Officer to Update</label>
-                        <input type="text" placeholder="Search by Force No, Name, IPPS..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-xs p-1.5 mb-1.5 border border-blue-200 rounded outline-none focus:ring-1 focus:ring-blue-400" />
+                        <input type="text" placeholder="Search by Force No, Name, IPPS..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-xs p-1.5 mb-1.5 border border-blue-200 rounded outline-none focus:ring-1 focus:ring-blue-400 bg-white" />
                         <div className="max-h-32 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
                           {availableUpdateRolls.length === 0 ? <div className="p-2 text-[11px] text-gray-500 text-center">No personnel found.</div> : availableUpdateRolls.map(n => (
                               <div key={n.sn || n.fnum} onClick={() => populateUpdateForm(n)} className={`p-1.5 text-[11px] border-b cursor-pointer transition-colors ${formData.sn === n.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
@@ -605,10 +619,10 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                         <div className="bg-red-50 p-3 rounded-lg border border-red-200 space-y-2 mb-4 shadow-sm">
                           <h4 className="text-[11px] font-bold text-red-700 uppercase border-b border-red-200 pb-1 flex items-center"><AlertTriangle size={12} className="mr-1.5"/> Archive / Remove</h4>
                           <div className="flex space-x-2">
-                              <select value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} className="flex-1 text-xs border-red-300 rounded shadow-sm border py-1.5 px-2 font-bold text-red-700 outline-none focus:ring-1 focus:ring-red-400">
+                              <select value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} className="flex-1 text-xs border-red-300 rounded shadow-sm border py-1.5 px-2 font-bold text-red-700 outline-none focus:ring-1 focus:ring-red-400 bg-white">
                                 <option value="TRANSFERRED">Transferred</option><option value="DEATH">Death</option><option value="DISMISSAL">Dismissal</option><option value="DESERTION">Desertion</option><option value="RETIREMENT">Retirement</option>
                               </select>
-                              <button type="button" onClick={handleArchivePersonnel} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded font-bold text-[11px] shadow transition border border-red-800">Move to Archive</button>
+                              <button type="button" onClick={handleArchivePersonnel} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded font-bold text-[11px] shadow transition border border-red-800 cursor-pointer">Move to Archive</button>
                           </div>
                         </div>
                       )}
@@ -618,13 +632,13 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-2.5">
                         <h4 className="text-[10px] font-bold text-gray-500 uppercase border-b pb-0.5">1. Identifiers</h4>
                         <div className="grid grid-cols-2 gap-2">
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">F/NO. *</label><input type="text" name="fnum" value={formData.fnum} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 uppercase" /></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">IPPS NO. *</label><input type="text" name="ipps" value={formData.ipps} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
-                          <div className="col-span-2"><label className="block text-[10px] font-bold text-gray-700 mb-0.5">NAME *</label><input type="text" name="name" value={formData.name} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 uppercase" /></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">RANK *</label><input type="text" name="rank" value={formData.rank} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">F/NO. *</label><input type="text" name="fnum" value={formData.fnum} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 uppercase bg-white" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">IPPS NO. *</label><input type="text" name="ipps" value={formData.ipps} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
+                          <div className="col-span-2"><label className="block text-[10px] font-bold text-gray-700 mb-0.5">NAME *</label><input type="text" name="name" value={formData.name} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 uppercase bg-white" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">RANK *</label><input type="text" name="rank" value={formData.rank} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
                           <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">SEX</label><select name="sex" value={formData.sex} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white"><option>MALE</option><option>FEMALE</option></select></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">TIN NO.</label><input type="text" name="tin" value={formData.tin} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">NIN</label><input type="text" name="nin" value={formData.nin} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">TIN NO.</label><input type="text" name="tin" value={formData.tin} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">NIN</label><input type="text" name="nin" value={formData.nin} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
                         </div>
                       </div>
 
@@ -633,32 +647,32 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                         <div className="grid grid-cols-2 gap-2">
                           <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">REGION *</label><select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}</select></div>
                           <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DUTY STATION *</label><select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : (<option value={currentUser.station}>{currentUser.station}</option>)}</select></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">POSITION *</label><input type="text" name="position" value={formData.position} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DISTRICT</label><input type="text" name="district" value={formData.district} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">SECTION</label><input type="text" name="section" value={formData.section} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DIR (Directorate)</label><input type="text" name="dir" value={formData.dir} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">POSITION *</label><input type="text" name="position" value={formData.position} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DISTRICT</label><input type="text" name="district" value={formData.district} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">SECTION</label><input type="text" name="section" value={formData.section} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DIR (Directorate)</label><input type="text" name="dir" value={formData.dir} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
                         </div>
                       </div>
 
                       <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-2.5">
                         <h4 className="text-[10px] font-bold text-gray-500 uppercase border-b pb-0.5">3. Demographics</h4>
                         <div className="grid grid-cols-2 gap-2">
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">D.O.B</label><input type="date" name="dob" value={formData.dob} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">D.O.E</label><input type="date" name="doe" value={formData.doe} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">D.O. POST</label><input type="date" name="dopost" value={formData.dopost} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">D.O. PRO</label><input type="date" name="dopro" value={formData.dopro} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
-                          <div className="col-span-2"><label className="block text-[10px] font-bold text-gray-700 mb-0.5">CONTACT</label><input type="text" name="contact" value={formData.contact} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">EDUC LEVEL</label><input type="text" name="educlevel" value={formData.educlevel} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">HOME DIST</label><input type="text" name="homedist" value={formData.homedist} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">TRIBE</label><input type="text" name="tribe" value={formData.tribe} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">D.O.B</label><input type="date" name="dob" value={formData.dob} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">D.O.E</label><input type="date" name="doe" value={formData.doe} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">D.O. POST</label><input type="date" name="dopost" value={formData.dopost} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">D.O. PRO</label><input type="date" name="dopro" value={formData.dopro} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
+                          <div className="col-span-2"><label className="block text-[10px] font-bold text-gray-700 mb-0.5">CONTACT</label><input type="text" name="contact" value={formData.contact} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">EDUC LEVEL</label><input type="text" name="educlevel" value={formData.educlevel} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">HOME DIST</label><input type="text" name="homedist" value={formData.homedist} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">TRIBE</label><input type="text" name="tribe" value={formData.tribe} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
                         </div>
                       </div>
 
                       <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-2.5">
                         <h4 className="text-[10px] font-bold text-gray-500 uppercase border-b pb-0.5">4. Financial & Status</h4>
                         <div className="grid grid-cols-2 gap-2">
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">ACC. NO</label><input type="text" name="accno" value={formData.accno} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
-                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">BANK & BRANCH</label><input type="text" name="bankbranch" value={formData.bankbranch} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">ACC. NO</label><input type="text" name="accno" value={formData.accno} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
+                          <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">BANK & BRANCH</label><input type="text" name="bankbranch" value={formData.bankbranch} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white" /></div>
                           <div className="col-span-2"><label className="block text-[10px] font-bold text-gray-700 mb-0.5">STATUS</label><select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-sm border py-1.5 px-2 bg-white font-bold"><option>ACTIVE</option><option>ON LEAVE</option><option>SUSPENDED</option></select></div>
                         </div>
                       </div>
@@ -666,7 +680,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       {operation === 'new' && isArchivedReturnee && archiveDetails && (
                         <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg mt-3 animate-in fade-in zoom-in-95 shadow-sm">
                           <div className="flex items-start mb-2">
-                            <AlertTriangle className="text-amber-500 w-4 h-4 mr-1.5 mt-0.5" />
+                            <AlertTriangle className="text-amber-500 w-4 h-4 mr-1.5 mt-0.5 shrink-0" />
                             <div>
                               <h4 className="text-xs font-bold text-amber-900">Historical Record Match</h4>
                               <p className="text-[11px] text-amber-700 mt-0.5">
@@ -687,7 +701,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                                 value={customReason}
                                 onChange={(e) => setCustomReason(e.target.value)}
                                 placeholder="e.g., Deployed from HR HQs back to KMP..."
-                                className="w-full text-xs py-1.5 px-2 border border-slate-300 rounded shadow-sm focus:ring-1 focus:ring-amber-500 outline-none"
+                                className="w-full text-xs py-1.5 px-2 border border-slate-300 rounded shadow-sm focus:ring-1 focus:ring-amber-500 outline-none bg-white"
                               />
                             </div>
                             
@@ -701,7 +715,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                                   value={previousFnum}
                                   onChange={(e) => setPreviousFnum(e.target.value)}
                                   placeholder="Leave blank if unchanged"
-                                  className="flex-1 text-xs py-1.5 px-2 border border-slate-300 rounded shadow-sm focus:ring-1 focus:ring-amber-500 outline-none uppercase"
+                                  className="flex-1 text-xs py-1.5 px-2 border border-slate-300 rounded shadow-sm focus:ring-1 focus:ring-amber-500 outline-none uppercase bg-white"
                                 />
                                 {previousFnum && (
                                   <div className="flex items-center text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-1 rounded border border-amber-200">
@@ -714,7 +728,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                         </div>
                       )}
 
-                      <button type="submit" className={`w-full transition-colors text-white py-2.5 font-bold rounded-lg shadow text-xs uppercase flex justify-center items-center ${isArchivedReturnee ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-700 hover:bg-blue-800'}`}>
+                      <button type="submit" className={`w-full transition-colors text-white py-2.5 font-bold rounded-lg shadow text-xs uppercase flex justify-center items-center cursor-pointer ${isArchivedReturnee ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-700 hover:bg-blue-800'}`}>
                         {operation === 'new' 
                           ? (isArchivedReturnee ? '⚠️ Execute Safe Re-integration' : '💾 Log Personnel Record') 
                           : '💾 Save Updates'}
@@ -732,7 +746,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-3">
                 <button
                     onClick={() => { setBulkSelectMode(!bulkSelectMode); setSelectedOfficers([]); }}
-                    className={`text-xs font-bold px-4 py-2 rounded-lg transition-colors border shadow-sm ${bulkSelectMode ? 'bg-slate-800 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'}`}
+                    className={`text-xs font-bold px-4 py-2 rounded-lg transition-colors border shadow-sm cursor-pointer ${bulkSelectMode ? 'bg-slate-800 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'}`}
                 >
                     {bulkSelectMode ? 'Cancel Bulk Select' : '☑️ Enable Bulk Archive'}
                 </button>
@@ -743,7 +757,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                         <select
                             value={bulkArchiveReason}
                             onChange={(e) => setBulkArchiveReason(e.target.value)}
-                            className="text-xs border border-slate-300 rounded p-1.5 outline-none font-bold text-slate-700"
+                            className="text-xs border border-slate-300 rounded p-1.5 outline-none font-bold text-slate-700 bg-white"
                         >
                             <option value="TRANSFERRED">Transferred</option>
                             <option value="DEATH">Death</option>
@@ -754,7 +768,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                         <button
                             onClick={handleBulkArchive}
                             disabled={isBulkArchiving}
-                            className="text-xs font-bold bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded transition-colors shadow-sm disabled:opacity-50"
+                            className="text-xs font-bold bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
                         >
                             {isBulkArchiving ? 'Archiving...' : 'Execute Bulk Archive'}
                         </button>
@@ -764,12 +778,12 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             )}
 
             <div className="flex flex-col sm:flex-row gap-3">
-              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobal} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobal} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
                 {canViewGlobal ? (
                   <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(Nominal_Rolls || []).map(n => n.region).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
                 ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
               </select>
-              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value) } disabled={!(isCommandOrHR || canViewGlobal)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value) } disabled={!(isCommandOrHR || canViewGlobal)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
                 {(isCommandOrHR || canViewGlobal) ? (
                   <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(Nominal_Rolls || []).filter(n => filterRegion === 'ALL REGIONS' || n.region === filterRegion).map(n => n.station).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
                 ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
@@ -782,7 +796,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       <h3 className="font-extrabold text-lg text-indigo-900 flex items-center"><PieChart className="mr-2"/> {viewMode === 'archive' ? 'Archived Roll Analytics' : 'Active Roll Analytics'}</h3>
                       <div className="flex items-center space-x-2 bg-indigo-50 p-2 rounded-lg border border-indigo-100">
                          <label className="text-xs font-bold text-indigo-800 uppercase">Categorize By:</label>
-                         <select value={metricCategory} onChange={e => setMetricCategory(e.target.value)} className="border border-indigo-300 rounded p-1 text-sm font-bold text-indigo-700 outline-none bg-white">
+                         <select value={metricCategory} onChange={e => setMetricCategory(e.target.value)} className="border border-indigo-300 rounded p-1 text-sm font-bold text-indigo-700 outline-none bg-white cursor-pointer">
                              <option value="RANK">Rank Breakdown</option>
                              <option value="UNIT">Unit / Station Breakdown</option>
                              <option value="SEX">Sex Distribution</option>
@@ -955,7 +969,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           onClose={() => setSelectedOfficer(null)} 
         />
       )}
-    </div>
+    </div>  
   );
 };
 

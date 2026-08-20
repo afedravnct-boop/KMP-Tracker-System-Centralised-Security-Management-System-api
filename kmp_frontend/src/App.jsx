@@ -2495,18 +2495,84 @@ const App = () => {
 
   const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
 
-  const renderPage = () => {
-    const canViewGlobal = currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
+const renderPage = () => {
+    // 🟢 SOVEREIGN GLOBAL CLEARANCE ENGINE (Prevents 1-second filter reverts)
+    const canViewGlobal = canViewGlobalJurisdiction(currentUser);
 
     switch (currentPage) {
       case 'home':  
-        return checkClearance(currentUser, 'acc_home', true) ? <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} /> : null;
+        return checkClearance(currentUser, 'acc_home', true) ? (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        ) : null;
+
       case 'reports':  
-        return checkClearance(currentUser, 'acc_crime', true) ? <CrimeIncidentRegistry currentUser={currentUser} canViewGlobal={canViewGlobal} reports={reports} setReports={setReports} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+        return checkClearance(currentUser, 'acc_crime', true) ? (
+          <CrimeIncidentRegistry 
+            currentUser={currentUser} 
+            canViewGlobal={canViewGlobal} 
+            reports={reports} 
+            setReports={setReports} 
+          />
+        ) : (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        );
+
       case 'statistics':  
-        return checkClearance(currentUser, 'acc_ops', true) ? <Statistics currentUser={currentUser} canViewGlobal={canViewGlobal} stats={stats} setStats={setStats} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+        return checkClearance(currentUser, 'acc_ops', true) ? (
+          <Statistics 
+            currentUser={currentUser} 
+            canViewGlobal={canViewGlobal} 
+            stats={stats} 
+            setStats={setStats} 
+          />
+        ) : (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        );
+
       case 'success':  
-        return checkClearance(currentUser, 'acc_stories', true) ? <SuccessStories currentUser={currentUser} canViewGlobal={canViewGlobal} stories={stories} setStories={setStories} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+        return checkClearance(currentUser, 'acc_stories', true) ? (
+          <SuccessStories 
+            currentUser={currentUser} 
+            canViewGlobal={canViewGlobal} 
+            stories={stories} 
+            setStories={setStories} 
+          />
+        ) : (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        );
+
       case 'establishments':  
         return checkClearance(currentUser, 'acc_est', true) ? (
           <Establishments 
@@ -2515,11 +2581,38 @@ const App = () => {
             establishments={establishments} 
             setEstablishments={setEstablishments} 
           />
-        ) : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+        ) : (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        );
+
       case 'analytics':  
         return checkClearance(currentUser, 'acc_analytics', true) ? (
-          <AnalyticsDashboard nominalRolls={Nominal_Rolls} crimeRegistry={reports} successStories={stories} operationalStats={stats} />
-        ) : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+          <AnalyticsDashboard 
+            nominalRolls={Nominal_Rolls} 
+            crimeRegistry={reports} 
+            successStories={stories} 
+            operationalStats={stats} 
+          />
+        ) : (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        );
+
       case 'nominal-roll':  
         return checkClearance(currentUser, 'acc_hr', true) ? (
           <Nominal_Roll 
@@ -2541,16 +2634,95 @@ const App = () => {
             onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
           />
         );
+
       case 'reports_hub':  
-        return checkClearance(currentUser, 'acc_tripartite', true) ? <WordReportUpload currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />; 
+        return checkClearance(currentUser, 'acc_tripartite', true) ? (
+          <WordReportUpload currentUser={currentUser} />
+        ) : (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        ); 
+
       case 'approvals':  
-        return checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role)) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />; 
+        return checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role)) ? (
+          <AdminApprovals 
+            pendingUsers={pendingUsers} 
+            setPendingUsers={setPendingUsers} 
+            users={users} 
+            setUsers={setUsers} 
+            currentUser={currentUser} 
+          />
+        ) : (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        ); 
+
       case 'profile':  
-        return checkClearance(currentUser, 'acc_profile', true) ? <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+        return checkClearance(currentUser, 'acc_profile', true) ? (
+          <AdminProfile 
+            currentUser={currentUser} 
+            setCurrentUser={setCurrentUser} 
+            setCurrentPage={handlePageChange} 
+          />
+        ) : (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        );
+
       case 'Admin_Communication':  
-        return checkClearance(currentUser, 'acc_comms', true) ? <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} onAcknowledgeComm={handleAcknowledgeComm} initialTab={commDefaultTab} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+        return checkClearance(currentUser, 'acc_comms', true) ? (
+          <Admin_Communication 
+            currentUser={currentUser} 
+            users={users} 
+            setCurrentPage={handlePageChange} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            initialTab={commDefaultTab} 
+          />
+        ) : (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        );
+
       default:  
-        return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+        return (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        );
     }
   };
 
@@ -2559,22 +2731,31 @@ const App = () => {
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const res = await authFetch(`${API_URL}/api/v1/reports/establishments-json`);
       if (!res.ok) throw new Error("Security clearance rejected or server error.");
-      const data = await res.json(); setHrLedgerData(data); setIsViewingHR(true);
-    } catch (err) { alert("Cannot load HR ledger data. Ensure your session is active and you have network connectivity."); }
+      const data = await res.json(); 
+      setHrLedgerData(data); 
+      setIsViewingHR(true);
+    } catch (err) { 
+      alert("Cannot load HR ledger data. Ensure your session is active and you have network connectivity."); 
+    }
   };
 
   const handleViewConsolidated = async () => {
-      setIsViewingHR(false);
-      const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-      const lastWeek = new Date(); lastWeek.setDate(lastWeek.getDate() - 7);
-      const start = lastWeek.toISOString().split('T')[0];
+    setIsViewingHR(false);
+    const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+    const lastWeek = new Date(); 
+    lastWeek.setDate(lastWeek.getDate() - 7);
+    const start = lastWeek.toISOString().split('T')[0];
 
-      try {
-          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-          const response = await authFetch(`${API_URL}/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
-          if (!response.ok) throw new Error("Backend failed to compile ledger.");
-          const data = await response.json(); setConsolidatedData(data); setIsViewingConsolidated(true);
-      } catch (err) { alert("Failed to load Consolidated Ledger. Check Python terminal for errors."); }
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const response = await authFetch(`${API_URL}/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
+      if (!response.ok) throw new Error("Backend failed to compile ledger.");
+      const data = await response.json(); 
+      setConsolidatedData(data); 
+      setIsViewingConsolidated(true);
+    } catch (err) { 
+      alert("Failed to load Consolidated Ledger. Check Python terminal for errors."); 
+    }
   };
 
   if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
@@ -2591,14 +2772,25 @@ const App = () => {
     );
   }
 
-  if (!currentUser) return <LoginScreen 
-    onLogin={(user) => {
-      localStorage.removeItem('kmp_currentPage'); setCurrentPage('home'); setCurrentUser(user);
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      fetch(`${API_URL}/api/v1/system/log-session`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fnum: user.fnum }) }).catch(e => console.error(e));
-    }} 
-    onForgot={() => {}} onSignup={(u) => setPendingUsers([...pendingUsers, u])} pendingUsers={pendingUsers} activeUsers={users} 
-  />;
+  if (!currentUser) return (
+    <LoginScreen 
+      onLogin={(user) => {
+        localStorage.removeItem('kmp_currentPage'); 
+        setCurrentPage('home'); 
+        setCurrentUser(user);
+        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+        fetch(`${API_URL}/api/v1/system/log-session`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ fnum: user.fnum }) 
+        }).catch(e => console.error(e));
+      }} 
+      onForgot={() => {}} 
+      onSignup={(u) => setPendingUsers([...pendingUsers, u])} 
+      pendingUsers={pendingUsers} 
+      activeUsers={users} 
+    />
+  );
 
   const handleGenerateHRReport = () => downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
 
@@ -2607,8 +2799,14 @@ const App = () => {
     try {
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      await fetch(`${API_URL}/api/v1/users/${fnum}/access`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify({ role: newRole, permissions: newPermissions }) });
-    } catch (err) { console.error("Failed to save permissions to database:", err); }
+      await fetch(`${API_URL}/api/v1/users/${fnum}/access`, { 
+        method: "PUT", 
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
+        body: JSON.stringify({ role: newRole, permissions: newPermissions }) 
+      });
+    } catch (err) { 
+      console.error("Failed to save permissions to database:", err); 
+    }
   };
 
   const handleRevokeUser = async (fnum) => {
@@ -2624,7 +2822,9 @@ const App = () => {
       });
       setUsers(users.filter(u => u.fnum !== fnum));
       alert(`Access revoked for ${fnum}. Reason logged in Audit Trail.`);
-    } catch (err) { console.error("Failed to revoke user:", err); }
+    } catch (err) { 
+      console.error("Failed to revoke user:", err); 
+    }
   };
 
   return (
@@ -2673,7 +2873,7 @@ const App = () => {
         {/* 🟢 FLOATING AI INTELLIGENCE ASSISTANT */}
         <SystemAssistant 
           currentUser={currentUser} 
-          canViewGlobal={currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true} 
+          canViewGlobal={canViewGlobalJurisdiction(currentUser)} 
           onClose={() => {}} 
         />
       </DashboardLayout>
