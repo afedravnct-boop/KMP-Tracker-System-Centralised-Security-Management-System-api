@@ -363,6 +363,50 @@ def get_audit_logs(db: Session = Depends(get_logs_db), current_user: models.User
     except Exception as e:
         return []
 
+# ==========================================
+# BULK PERMISSIONS / ROSTER UPDATE ENDPOINT
+# ==========================================
+@app.post("/api/v1/admin/bulk-permissions")
+@app.put("/api/v1/admin/bulk-permissions")
+def update_bulk_permissions(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        # Verify admin clearance
+        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
+            raise HTTPException(status_code=403, detail="Unauthorized access: Admin privileges required.")
+        
+        target_fnum = data.get("fnum") or data.get("user_fnum")
+        new_role = data.get("role")
+        new_perms = data.get("permissions")
+        
+        if not target_fnum:
+            raise HTTPException(status_code=400, detail="Target officer force number (fnum) is required.")
+        
+        target_user = db.query(models.Users).filter(
+            func.trim(func.upper(models.Users.fnum)) == str(target_fnum).strip().upper()
+        ).first()
+        
+        if not target_user:
+            raise HTTPException(status_code=404, detail="Target officer record not found.")
+        
+        if new_role:
+            target_user.role = str(new_role).strip().upper()
+        
+        if new_perms is not None:
+            # Merge or replace permissions dictionary
+            existing_perms = target_user.permissions or {}
+            if isinstance(new_perms, dict):
+                existing_perms.update(new_perms)
+                target_user.permissions = existing_perms
+                
+        db.commit()
+        db.refresh(target_user)
+        
+        return {"status": "success", "message": f"Permissions successfully synchronized for officer {target_user.fnum}."}
+    except Exception as e:
+        db.rollback()
+        print(f"Bulk Update Error Traceback: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update bulk permissions: {str(e)}")
+
 @app.get("/api/v1/admin/reset-requests")
 def get_reset_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
