@@ -287,11 +287,10 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       const docType = (doc.type || '').trim().toLowerCase();
 
       if (activeCategory === 'weekly_report') {
-        if (!docType.includes('weekly report')) return false;
+        if (!docType.includes('weekly') && !docType.includes('report')) return false;
       } else if (activeCategory === 'general_doc') {
-        if (!docType.includes('general document') && !docType.includes('statement') && !docType.includes('general')) return false;
+        if (!docType.includes('general') && !docType.includes('statement') && !docType.includes('document')) return false;
       } else if (activeCategory === 'templates') {
-        // 🟢 Fully updated to capture dynamic file extension formats (PDF, Word, Excel, PowerPoint, files, documents, etc.)
         const isMatch = docType.includes('template') || 
                         docType.includes('command template') || 
                         docType.includes('document') || 
