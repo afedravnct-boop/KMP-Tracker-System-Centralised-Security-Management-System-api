@@ -126,7 +126,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
   const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
   const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
 
-  // 🟢 FIXED: Cleaned up fallback URL spamming to prevent 404 loops
   const fetchPendingUsers = useCallback(async () => {
     setLoadingPending(true);
     try {
@@ -202,7 +201,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     }
   }, [authFetch]);
 
-  // 🟢 OPTIMIZED: Fetch ONLY what is needed for the active tab to stop request spam
+  // 🟢 FIXED: Isolated activeTab to prevent infinite re-fetch loops
   useEffect(() => {
     if (activeTab === 'approvals') {
       fetchPendingUsers();
@@ -212,11 +211,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
       fetchModRequests();
     } else if (activeTab === 'logs') {
       fetchAuditLogs();
-      if (allSystemUsers.length === 0) fetchAllSystemUsers();
+      fetchAllSystemUsers();
     } else if (activeTab === 'resets') {
       fetchResets();
     }
-  }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, allSystemUsers.length]);
+  }, [activeTab]);
 
   const filteredPending = useMemo(() => {
     return realPendingUsers.filter(u => {
