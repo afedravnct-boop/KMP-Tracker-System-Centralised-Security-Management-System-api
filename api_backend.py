@@ -13,6 +13,7 @@ from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import urllib.parse
 import fitz
+import zipfile
 
 import pytz
 import uvicorn
@@ -503,6 +504,133 @@ def log_user_session(data: dict, db: Session = Depends(get_db)):
             target_identifier="SYSTEM", changes={}, remarks="Secure session initiated via Dashboard Gateway"
         )
     return {"status": "success"}
+
+# ====================================================================
+# 1. COMMUNICATION RECIPIENTS LIST (Fixes 404 on /users/recipients-list)
+# ====================================================================
+@app.get("/api/v1/users/recipients-list")
+def get_recipients_list(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        users = db.query(models.Users).filter(models.Users.role != 'REVOKED').all()
+        return [
+            {
+                "fnum": u.fnum,
+                "name": u.name,
+                "rank": u.rank,
+                "region": u.region,
+                "station": u.station,
+                "position": u.position,
+                "role": u.role
+            } for u in users
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch recipients: {str(e)}")
+
+
+# ====================================================================
+# 2. HR ESTABLISHMENTS JSON (Fixes "Cannot load HR ledger data")
+# ====================================================================
+@app.get("/api/v1/reports/establishments-json")
+def get_establishments_json(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    try:
+        est = db.query(models.Establishments).all() if hasattr(models, 'Establishments') else []
+        nom = db.query(models.Nominal_Roll).all() if hasattr(models, 'Nominal_Roll') else []
+        return {
+            "establishments": [e.__dict__ for e in est if hasattr(e, '__dict__')],
+            "nominal_rolls": [n.__dict__ for n in nom if hasattr(n, '__dict__')]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to compile HR Ledger: {str(e)}")
+
+
+# ====================================================================
+# 3. CONSOLIDATED LEDGER (Fixes "Failed to load Consolidated Ledger")
+# ====================================================================
+@app.get("/api/v1/reports/consolidated-ledger")
+def get_consolidated_ledger(
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None, 
+    db: Session = Depends(get_db), 
+    current_user = Depends(get_current_user)
+):
+    try:
+        crimes = db.query(models.Crime_Reports).all() if hasattr(models, 'Crime_Reports') else []
+        stats = db.query(models.Operational_Statistics).all() if hasattr(models, 'Operational_Statistics') else []
+        stories = db.query(models.Success_Stories).all() if hasattr(models, 'Success_Stories') else []
+        
+        return {
+            "crimes": [c.__dict__ for c in crimes if hasattr(c, '__dict__')],
+            "statistics": [s.__dict__ for s in stats if hasattr(s, '__dict__')],
+            "stories": [st.__dict__ for st in stories if hasattr(st, '__dict__')]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Consolidated ledger compilation error: {str(e)}")
+
+
+# ====================================================================
+# 4. MASTER DATABASE EXPORT (Fixes "Export Failed: Method Not Allowed")
+# ====================================================================
+@app.get("/api/v1/reports/export")
+def export_master_database(
+    timeframe: str = "all", 
+    scope: Optional[str] = None, 
+    value: Optional[str] = None, 
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(require_export_privilege)
+):
+    try:
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            if hasattr(models, 'Crime_Reports'):
+                crimes = db.query(models.Crime_Reports).all()
+                df_crimes = pd.DataFrame([c.__dict__ for c in crimes if hasattr(c, '__dict__')])
+                if '_sa_instance_state' in df_crimes.columns:
+                    df_crimes.drop(columns=['_sa_instance_state'], inplace=True)
+                b1 = io.BytesIO()
+                df_crimes.to_excel(b1, index=False)
+                zip_file.writestr("KMP_Crime_Incidents.xlsx", b1.getvalue())
+
+            if hasattr(models, 'Operational_Statistics'):
+                stats = db.query(models.Operational_Statistics).all()
+                df_stats = pd.DataFrame([s.__dict__ for s in stats if hasattr(s, '__dict__')])
+                if '_sa_instance_state' in df_stats.columns:
+                    df_stats.drop(columns=['_sa_instance_state'], inplace=True)
+                b2 = io.BytesIO()
+                df_stats.to_excel(b2, index=False)
+                zip_file.writestr("KMP_Disruptive_Ops_Statistics.xlsx", b2.getvalue())
+
+        zip_buffer.seek(0)
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=KMP_Master_Database_Export.zip"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Master export failed: {str(e)}")
+
+
+# ====================================================================
+# 5. HR ESTABLISHMENTS SUMMARY EXPORT (Fixes HR Export Button)
+# ====================================================================
+@app.get("/api/v1/export/establishments")
+def export_establishments_summary(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    try:
+        est = db.query(models.Establishments).all() if hasattr(models, 'Establishments') else []
+        df_est = pd.DataFrame([e.__dict__ for e in est if hasattr(e, '__dict__')])
+        if '_sa_instance_state' in df_est.columns:
+            df_est.drop(columns=['_sa_instance_state'], inplace=True)
+        
+        output = io.BytesIO()
+        df_est.to_excel(output, index=False)
+        output.seek(0)
+        
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=HR_Establishments_Summary.xlsx"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"HR export failed: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run("api_backend:app", host="0.0.0.0", port=8000, reload=True)
