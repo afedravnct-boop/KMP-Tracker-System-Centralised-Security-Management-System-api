@@ -369,11 +369,17 @@ def get_system_requests(db: Session = Depends(get_db), current_user: models.User
         return []
 
 @app.get("/api/v1/audit-logs")
-def get_audit_logs(db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
+def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
             raise HTTPException(status_code=403, detail="Unauthorized access.")
-        logs = db.query(models.Audit_Logs).order_by(models.Audit_Logs.id.desc()).limit(100).all()
+        
+        # Fallback resolver for different table name casings
+        AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
+        if not AuditModel:
+            return []
+
+        logs = db.query(AuditModel).order_by(AuditModel.id.desc()).limit(100).all()
         return [
             {
                 "id": log.id,
@@ -386,6 +392,7 @@ def get_audit_logs(db: Session = Depends(get_logs_db), current_user: models.User
             } for log in logs
         ]
     except Exception as e:
+        print(f"Audit log fetch error: {e}")
         return []
 
 @app.put("/api/v1/users/{fnum}/access")

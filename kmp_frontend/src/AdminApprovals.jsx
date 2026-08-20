@@ -4,6 +4,7 @@ import {
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
+import { authFetch, hasValidSession } from './api';
 
 // 🟢 REGIONAL HIERARCHY CONSTANTS
 const REGIONAL_HIERARCHY = {
@@ -69,20 +70,7 @@ const formatOfficerHeader = (user) => {
   return `${fnum} ${rank} ${name}`;
 };
 
-const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAuthFetch }) => {
-    
-  const authFetch = propAuthFetch || (async (url, options = {}) => {
-    const token = localStorage.getItem('kmp_authToken');
-    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-    return fetch(`${API_URL}${url}`, {
-      ...options,
-      headers: {
-        ...options?.headers,
-        'Authorization': `Bearer ${token}`
-      }
-    });
-  });
-
+const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
     
   const [modRequests, setModRequests] = useState([]);
@@ -109,7 +97,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     reason: ''
   });
 
-  // 🟢 Safely resolve global view active state matching other modules
   const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
 
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
@@ -126,9 +113,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
   const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
   const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
 
-  // 🟢 GUARDED FETCH FUNCTIONS (Prevents redundant spamming)
   const fetchPendingUsers = useCallback(async () => {
-    if (loadingPending) return;
+    if (!hasValidSession() || loadingPending) return;
     setLoadingPending(true);
     try {
       const res = await authFetch("/api/v1/admin/pending-users");
@@ -141,10 +127,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     } finally { 
       setLoadingPending(false); 
     }
-  }, [authFetch, loadingPending]);
+  }, [loadingPending]);
 
   const fetchResets = useCallback(async () => {
-    if (loadingResets) return;
+    if (!hasValidSession() || loadingResets) return;
     setLoadingResets(true);
     try {
       const res = await authFetch("/api/v1/admin/reset-requests");
@@ -157,10 +143,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     } finally { 
       setLoadingResets(false); 
     }
-  }, [authFetch, loadingResets]);
+  }, [loadingResets]);
 
   const fetchAllSystemUsers = useCallback(async () => {
-    if (loadingUsers) return;
+    if (!hasValidSession() || loadingUsers) return;
     setLoadingUsers(true);
     try {
       const res = await authFetch("/api/v1/users");
@@ -173,10 +159,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     } finally { 
       setLoadingUsers(false); 
     }
-  }, [authFetch, loadingUsers]);
+  }, [loadingUsers]);
 
   const fetchModRequests = useCallback(async () => {
-    if (loadingRequests) return;
+    if (!hasValidSession() || loadingRequests) return;
     setLoadingRequests(true);
     try {
       const res = await authFetch("/api/v1/requests");
@@ -189,10 +175,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     } finally {
       setLoadingRequests(false);
     }
-  }, [authFetch, loadingRequests]);
+  }, [loadingRequests]);
 
   const fetchAuditLogs = useCallback(async () => {
-    if (loadingLogs) return;
+    if (!hasValidSession() || loadingLogs) return;
     setLoadingLogs(true);
     try {
       const res = await authFetch("/api/v1/audit-logs");
@@ -205,9 +191,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     } finally {
       setLoadingLogs(false);
     }
-  }, [authFetch, loadingLogs]);
+  }, [loadingLogs]);
 
-  // 🟢 CLEAN TAB SWITCH EFFECT (Fetches only once per tab selection if empty)
   useEffect(() => {
     if (activeTab === 'approvals' && realPendingUsers.length === 0) {
       fetchPendingUsers();
@@ -221,7 +206,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     } else if (activeTab === 'resets' && resetRequests.length === 0) {
       fetchResets();
     }
-  }, [activeTab]);
+  }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, realPendingUsers.length, allSystemUsers.length, modRequests.length, auditLogs.length, resetRequests.length]);
 
   const filteredPending = useMemo(() => {
     return realPendingUsers.filter(u => {
@@ -350,7 +335,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
       });
-        
+      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
@@ -384,7 +369,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
-        
+      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
@@ -445,7 +430,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
       });
-        
+      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
@@ -469,15 +454,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     if (newRole !== 'REVOKED' && targetUser.role === 'REVOKED' && !isSuperAdminOrTopCommand && targetUser.permissions?.revoked_by === 'SUPER_ADMIN') {
       alert("SECURITY OVERRIDE DENIED: This officer's access was revoked by a Global Super Admin. Only the Super Admin has the exclusive authority to reinstate them.");
       return;
-    }
-
-    if (currentUser?.role === 'STATION_ADMIN') {
-      const currentUserStation = stripHtmlTags(currentUser.station || '');
-      const stationUsersCount = allSystemUsers.filter(u => stripHtmlTags(u.station || '') === currentUserStation).length;
-      if (stationUsersCount >= 3 && newRole !== 'USER' && newRole !== 'REVOKED') {
-        alert("Station Admin Limit: You are restricted to managing a maximum of 3 users per station.");
-        return;
-      }
     }
 
     if (newRole === 'REVOKED' && !isSuperAdminOrTopCommand) {
@@ -506,7 +482,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
-        
+      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
@@ -519,17 +495,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
 
   const handleApproveUser = async (fnum) => {
     try {
-      const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       const cleanFnum = stripHtmlTags(fnum);
       const safeFnum = encodeURIComponent(cleanFnum.trim());
 
-      const response = await fetch(`${API_URL}/api/v1/admin/approve-user/${safeFnum}`, {
+      const response = await authFetch(`/api/v1/admin/approve-user/${safeFnum}`, {
         method: "PATCH",
-        headers: { 
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        }
+        headers: { "Content-Type": "application/json" }
       });
 
       const data = await response.json();
@@ -554,23 +525,17 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     }
 
     try {
-      const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        
-      const response = await fetch(`${API_URL}/api/v1/requests/${reqId}`, {
+      const response = await authFetch(`/api/v1/requests/${reqId}`, {
         method: "PATCH", 
-        headers: { 
-          "Content-Type": "application/json", 
-          "Authorization": `Bearer ${token}` 
-        }, 
+        headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify(payload)
       });
-        
+      
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errData.detail) || `Server Error: ${response.status}`);
       }
-        
+      
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId));
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
@@ -582,18 +547,18 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
     try {
       const formData = new URLSearchParams();
       formData.append('action', actionStr);
-        
+      
       const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
         method: "POST", 
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, 
         body: formData
       });
-        
+      
       const data = await response.json();
       if (!response.ok) throw new Error(stripHtmlTags(data.detail));
-        
+      
       setResetRequests(resetRequests.filter(r => r.id !== reqId));
-        
+      
       if (actionStr === "APPROVE") {
         alert(`Password successfully reset! Temporary key: ${stripHtmlTags(data.new_password)}`);
       } else {
@@ -639,11 +604,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
 
       {/* Navigation Tabs */}
       <div className="flex space-x-2 border-b border-slate-200 mb-6 bg-white/50 backdrop-blur rounded-t-xl px-4 pt-4 overflow-x-auto custom-scrollbar">
-        <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>New Account Authorizations ({loadingPending ? '...' : filteredPending.length})</button>
-        <button onClick={() => setActiveTab('matrix')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'matrix' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Active Roster & Clearance Matrix ({filteredSystemUsers.length})</button>
-        <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'requests' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>HR Modification Requests ({filteredRequests.length})</button>
-        <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Audit Logs ({filteredLogs.length})</button>
-        <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Password Resets ({filteredResets.length})</button>
+        <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>New Account Authorizations ({loadingPending ? '...' : filteredPending.length})</button>
+        <button onClick={() => setActiveTab('matrix')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'matrix' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Active Roster & Clearance Matrix ({filteredSystemUsers.length})</button>
+        <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'requests' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>HR Modification Requests ({filteredRequests.length})</button>
+        <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Audit Logs ({filteredLogs.length})</button>
+        <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Password Resets ({filteredResets.length})</button>
       </div>
 
       {/* ACTIVE ROSTER & EXPANDED GRANULAR MATRIX TAB */}
@@ -748,14 +713,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
                             <button 
                               onClick={() => handleBulkMatrixAction(u.fnum, true)}
                               title="Check All Modules"
-                              className="p-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded border border-emerald-300 transition shadow-sm"
+                              className="p-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded border border-emerald-300 transition shadow-sm cursor-pointer"
                             >
                               <CheckSquare size={14} />
                             </button>
                             <button 
                               onClick={() => handleBulkMatrixAction(u.fnum, false)}
                               title="Uncheck All Modules (Deny Access)"
-                              className="p-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded border border-red-300 transition shadow-sm"
+                              className="p-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded border border-red-300 transition shadow-sm cursor-pointer"
                             >
                               <Square size={14} />
                             </button>
@@ -1011,7 +976,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, authFetch: propAut
                         value={revokePrompt.reason}
                         onChange={(e) => setRevokePrompt({...revokePrompt, reason: stripHtmlTags(e.target.value)})}
                         placeholder="Type official reason for revocation here..."
-                        className="w-full border border-slate-300 rounded-xl p-3 text-sm font-medium outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 resize-none h-32"
+                        className="w-full border border-slate-300 rounded-xl p-3 text-sm font-medium outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 resize-none h-32 bg-white"
                     />
                 </div>
                  

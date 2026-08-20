@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart, Clock, Users, Award, MapPin, Zap, CheckCircle2, GitCommit, Network, Loader2, BookOpen } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { authFetch } from './api';
+import { authFetch, hasValidSession } from './api';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -77,6 +77,9 @@ const AnalyticsDashboard = ({
   useEffect(() => {
     let isMounted = true;
     const fetchNeonData = async () => {
+      // 🟢 GUARD: Abort fetch if session token is missing or expired
+      if (!hasValidSession()) return;
+
       setLoading(true);
       try {
         const [rollRes, archiveRes, lockupRes, crimeRes, storyRes, statsRes] = await Promise.all([
@@ -104,7 +107,9 @@ const AnalyticsDashboard = ({
           setFetchedOps(Array.isArray(statsData) ? statsData : []);
         }
       } catch (err) {
-        console.error("Failed to fetch analytics data from NeonDB:", err);
+        if (err.message !== 'UNAUTHORIZED') {
+          console.error("Failed to fetch analytics data from NeonDB:", err);
+        }
       } finally {
         if (isMounted) setLoading(false);
       }

@@ -13,6 +13,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt, RGBColor
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app import models
 from app.database import get_db
@@ -36,13 +37,17 @@ def get_eat_now():
     return datetime.now(eat_tz).replace(tzinfo=None)
 
 def get_doc_archive_model():
-    model = getattr(models, 'DocumentArchive', getattr(models, 'document_archive', None))
-    if not model:
-        raise HTTPException(status_code=500, detail="Document Archive model is not configured.")
-    return model
+    """Dynamically resolves the Document Archive model across table name naming conventions."""
+    for model_name in ['DocumentArchive', 'Document_Archive', 'document_archive', 'document_archives']:
+        if hasattr(models, model_name):
+            return getattr(models, model_name)
+    raise HTTPException(status_code=500, detail="Document Archive database model is not configured.")
 
 def get_template_model():
-    return getattr(models, 'CommandTemplate', getattr(models, 'command_template', None))
+    for model_name in ['CommandTemplate', 'Command_Template', 'command_template', 'command_templates']:
+        if hasattr(models, model_name):
+            return getattr(models, model_name)
+    return None
 
 def log_semantic_audit(db: Session, fnum: str, action: str, target_identifier: str, changes: dict, remarks: str = ""):
     try:
@@ -71,29 +76,65 @@ def log_semantic_audit(db: Session, fnum: str, action: str, target_identifier: s
 def get_document_archive(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
         ArchiveModel = get_doc_archive_model()
-        pk_col = getattr(ArchiveModel, 'id', getattr(ArchiveModel, 'sn', None))
         
-        query = db.query(ArchiveModel)
-        if pk_col is not None:
-            docs = query.order_by(pk_col.desc()).all()
-        else:
-            docs = query.all()
+        # Fallback raw SQL query to guarantee fetching existing NeonDB records regardless of ORM mapping issues
+        docs = db.query(ArchiveModel).all()
+        if not docs:
+            raw_result = db.execute(text("SELECT id, file_name, doc_type, file_size, file_path, region, station, uploaded_by, upload_date FROM document_archive ORDER BY id DESC")).fetchall()
+            return [
+                {
+                    "id": row[0],
+                    "name": row[1] or "document",
+                    "type": row[2] or "General Document",
+                    "date": str(row[8]).split(' ')[0] if row[8] else "",
+                    "size": row[3] or "N/A",
+                    "file_path": row[4] or "",
+                    "region": row[5] or "KMP HEADQUARTERS",
+                    "station": row[6] or "KMP HEADQUARTERS"
+                } for row in raw_result
+            ]
 
-        return [
-            {
+        results = []
+        for doc in docs:
+            file_name = getattr(doc, 'file_name', getattr(doc, 'filename', 'document'))
+            doc_type = getattr(doc, 'doc_type', getattr(doc, 'doctype', 'General Document'))
+            file_size = getattr(doc, 'file_size', getattr(doc, 'filesize', 'N/A'))
+            file_path = getattr(doc, 'file_path', getattr(doc, 'filepath', ''))
+            region = getattr(doc, 'region', 'KMP HEADQUARTERS')
+            station = getattr(doc, 'station', 'KMP HEADQUARTERS')
+            upload_date = getattr(doc, 'upload_date', getattr(doc, 'uploaded_at', None))
+            
+            date_str = ""
+            if isinstance(upload_date, datetime):
+                date_str = upload_date.strftime("%Y-%m-%d")
+            elif upload_date:
+                date_str = str(upload_date).split(' ')[0]
+
+            results.append({
                 "id": getattr(doc, 'id', getattr(doc, 'sn', 1)),
-                "name": doc.file_name,
-                "type": getattr(doc, 'doc_type', "General Document"),
-                "date": doc.upload_date.strftime("%Y-%m-%d") if isinstance(doc.upload_date, datetime) else str(doc.upload_date or ""),
-                "size": getattr(doc, 'file_size', "N/A"),
-                "file_path": doc.file_path,
-                "region": getattr(doc, 'region', 'KMP HEADQUARTERS'),
-                "station": getattr(doc, 'station', 'KMP HEADQUARTERS')
-            } for doc in docs
-        ]
+                "name": file_name,
+                "type": doc_type or "General Document",
+                "date": date_str,
+                "size": file_size or "N/A",
+                "file_path": file_path,
+                "region": region,
+                "station": station
+            })
+        return results
     except Exception as e:
         print(f"Archive fetch error: {str(e)}")
-        return []
+        try:
+            raw_result = db.execute(text("SELECT id, file_name, doc_type, file_size, file_path, region, station, upload_date FROM document_archive ORDER BY id DESC")).fetchall()
+            return [
+                {
+                    "id": row[0], "name": row[1] or "document", "type": row[2] or "General Document",
+                    "date": str(row[7]).split(' ')[0] if row[7] else "", "size": row[3] or "N/A",
+                    "file_path": row[4] or "", "region": row[5] or "KMP HEADQUARTERS", "station": row[6] or "KMP HEADQUARTERS"
+                } for row in raw_result
+            ]
+        except Exception as inner_err:
+            print(f"Raw SQL fallback failed: {inner_err}")
+            return []
 
 @router.get("/templates/list")
 def get_command_templates(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
@@ -102,28 +143,20 @@ def get_command_templates(db: Session = Depends(get_db), current_user = Depends(
         if not TemplateModel:
             return []
             
-        pk_col = getattr(TemplateModel, 'id', getattr(TemplateModel, 'sn', None))
-        query = db.query(TemplateModel)
-        templates = query.order_by(pk_col.desc()).all() if pk_col is not None else query.all()
-        
+        templates = db.query(TemplateModel).all()
         results = []
         for t in templates:
-            filename = getattr(t, 'file_name', None) or getattr(t, 'file_path', '') or "document"
+            filename = getattr(t, 'file_name', getattr(t, 'filename', getattr(t, 'file_path', 'document')))
             ext = filename.split('.')[-1].lower() if '.' in filename else "unknown"
             
-            if ext in ['docx', 'doc']:
-                file_type = "Word Document"
-            elif ext in ['xlsx', 'xls']:
-                file_type = "Excel Spreadsheet"
-            elif ext in ['pptx', 'ppt']:
-                file_type = "PowerPoint Presentation"
-            elif ext == 'pdf':
-                file_type = "PDF Document"
-            else:
-                file_type = getattr(t, 'doc_type', 'Command Template')
+            if ext in ['docx', 'doc']: file_type = "Word Document"
+            elif ext in ['xlsx', 'xls']: file_type = "Excel Spreadsheet"
+            elif ext in ['pptx', 'ppt']: file_type = "PowerPoint Presentation"
+            elif ext == 'pdf': file_type = "PDF Document"
+            else: file_type = getattr(t, 'doc_type', 'Command Template')
 
-            upload_dt = getattr(t, 'upload_date', None)
-            date_str = upload_dt.strftime("%Y-%m-%d") if isinstance(upload_dt, datetime) else str(upload_dt or "")
+            upload_dt = getattr(t, 'upload_date', getattr(t, 'uploaded_at', None))
+            date_str = upload_dt.strftime("%Y-%m-%d") if isinstance(upload_dt, datetime) else str(upload_dt or "").split(' ')[0]
 
             results.append({
                 "id": getattr(t, 'id', getattr(t, 'sn', 1)),
@@ -131,7 +164,7 @@ def get_command_templates(db: Session = Depends(get_db), current_user = Depends(
                 "type": file_type,
                 "date": date_str,
                 "size": getattr(t, 'file_size', 'N/A'),
-                "file_path": getattr(t, 'file_path', ''),
+                "file_path": getattr(t, 'file_path', getattr(t, 'filepath', '')),
                 "region": getattr(t, 'region', 'KMP HEADQUARTERS'),
                 "station": getattr(t, 'station', 'HQ')
             })
@@ -153,12 +186,7 @@ async def upload_command_template(
     if not TemplateModel:
         raise HTTPException(status_code=500, detail="Command Template table model not initialized.")
 
-    file_list = []
-    if files:
-        file_list.extend(files)
-    if file:
-        file_list.append(file)
-        
+    file_list = [f for f in [file, *(files or [])] if f is not None]
     if not file_list:
         raise HTTPException(status_code=400, detail="No template file provided.")
 
@@ -176,11 +204,8 @@ async def upload_command_template(
             s3_key = f"command_templates/{safe_filename}"
             
             s3_client.put_object(
-                Bucket=BUCKET_NAME, 
-                Key=s3_key, 
-                Body=contents,
-                ContentType=single_file.content_type or "application/octet-stream", 
-                ServerSideEncryption="AES256"
+                Bucket=BUCKET_NAME, Key=s3_key, Body=contents,
+                ContentType=single_file.content_type or "application/octet-stream", ServerSideEncryption="AES256"
             )
             
             full_s3_url = f"https://{BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
@@ -215,13 +240,8 @@ async def upload_word_report(
     current_user = Depends(get_current_user)
 ):
     ArchiveModel = get_doc_archive_model()
+    file_list = [f for f in [file, *(files or [])] if f is not None]
     
-    file_list = []
-    if files:
-        file_list.extend(files)
-    if file:
-        file_list.append(file)
-        
     if not file_list:
         raise HTTPException(status_code=400, detail="No files received for intake.")
 
@@ -234,7 +254,6 @@ async def upload_word_report(
         for single_file in file_list:
             contents = await single_file.read()
             
-            # Format and justify docx if requested
             if doc_type == "weekly_report" and single_file.filename.lower().endswith('.docx'):
                 try:
                     doc = Document(io.BytesIO(contents))
@@ -257,15 +276,11 @@ async def upload_word_report(
             s3_key = f"reports_archive/{safe_filename}"
             
             s3_client.put_object(
-                Bucket=BUCKET_NAME, 
-                Key=s3_key, 
-                Body=contents,
-                ContentType=single_file.content_type or "application/octet-stream", 
-                ServerSideEncryption="AES256"
+                Bucket=BUCKET_NAME, Key=s3_key, Body=contents,
+                ContentType=single_file.content_type or "application/octet-stream", ServerSideEncryption="AES256"
             )
             
             full_s3_url = f"https://{BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
-            
             display_type = "Weekly Report" if doc_type == "weekly_report" else ("General Document" if doc_type == "general_doc" else doc_type)
             
             new_archive = ArchiveModel(
@@ -355,10 +370,8 @@ def download_archive_file(
         elif file_extension in ['xlsx', 'xls']:
             wb = openpyxl.load_workbook(io.BytesIO(raw_bytes))
             for ws in wb.worksheets:
-                if hasattr(ws, 'sheet_footer'):
-                    ws.sheet_footer.center.text = receipt_text
-                elif hasattr(ws, 'odd_footer'):
-                    ws.odd_footer.center.text = receipt_text
+                if hasattr(ws, 'sheet_footer'): ws.sheet_footer.center.text = receipt_text
+                elif hasattr(ws, 'odd_footer'): ws.odd_footer.center.text = receipt_text
             wb.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         else:
@@ -367,12 +380,7 @@ def download_archive_file(
         output_stream.seek(0)
 
         stamped_s3_key = f"forensic_cache/{current_user.fnum}_DOC_{doc_id}.{file_extension}"
-        s3_client.upload_fileobj(
-            output_stream, 
-            BUCKET_NAME, 
-            stamped_s3_key,
-            ExtraArgs={"ContentType": content_type}
-        )
+        s3_client.upload_fileobj(output_stream, BUCKET_NAME, stamped_s3_key, ExtraArgs={"ContentType": content_type})
 
         stamped_url = f"https://{BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{stamped_s3_key}"
         return {"download_url": stamped_url, "file_url": stamped_url}
