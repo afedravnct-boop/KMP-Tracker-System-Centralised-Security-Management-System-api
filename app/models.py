@@ -113,7 +113,7 @@ class Success_Stories(Base):
     __tablename__ = "success_stories"
     __table_args__ = {'extend_existing': True}
     
-    sn = Column(Integer, index=True, unique=True) 
+    sn = Column(Integer, primary_key=True, index=True) 
     date = Column(String)
     time = Column(String)
     region = Column(String)
