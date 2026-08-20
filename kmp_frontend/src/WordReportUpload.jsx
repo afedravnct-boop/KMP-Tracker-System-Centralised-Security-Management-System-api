@@ -66,14 +66,15 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       const token = localStorage.getItem('kmp_authToken');
       const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
-      const response = await fetch(`${API_URL}/api/v1/reports/archive`, {
-        headers: { "Authorization": `Bearer ${token}` }
-      });
+      const [archiveRes, templateRes] = await Promise.all([
+        fetch(`${API_URL}/api/v1/reports/archive`, { headers: { "Authorization": `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/v1/templates/list`, { headers: { "Authorization": `Bearer ${token}` } })
+      ]);
 
-      if (!response.ok) throw new Error("Failed to fetch documents");
+      const archiveData = archiveRes.ok ? await archiveRes.json() : [];
+      const templateData = templateRes.ok ? await templateRes.json() : [];
 
-      const data = await response.json();
-      setDocuments(data);
+      setDocuments([...archiveData, ...templateData]);
     } catch (err) {
       console.error("Archive fetch error:", err);
     } finally {
