@@ -84,7 +84,6 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # 1. ROUTER INCLUSIONS (MODULAR ARCHITECTURE)
 # ==========================================
 from routers import (
-    admin_users, 
     nominal_roll, 
     crime_registry, 
     lockup_matrix, 
@@ -94,7 +93,6 @@ from routers import (
     document_upload 
 )
 
-app.include_router(admin_users.router)
 app.include_router(nominal_roll.router)
 app.include_router(crime_registry.router)
 app.include_router(lockup_matrix.router)

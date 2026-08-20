@@ -282,7 +282,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-const filteredDocuments = useMemo(() => {
+  const filteredDocuments = useMemo(() => {
     return documents.filter(doc => {
       const docType = (doc.type || '').trim().toLowerCase();
 
@@ -291,8 +291,18 @@ const filteredDocuments = useMemo(() => {
       } else if (activeCategory === 'general_doc') {
         if (!docType.includes('general document') && !docType.includes('statement') && !docType.includes('general')) return false;
       } else if (activeCategory === 'templates') {
-        // 🟢 Captures both "Command Template" from document_archive and "Command Template" from templates list
-        if (!docType.includes('template') && !docType.includes('command template')) return false;
+        // 🟢 Fully updated to capture dynamic file extension formats (PDF, Word, Excel, PowerPoint, files, documents, etc.)
+        const isMatch = docType.includes('template') || 
+                        docType.includes('command template') || 
+                        docType.includes('document') || 
+                        docType.includes('spreadsheet') || 
+                        docType.includes('presentation') || 
+                        docType.includes('file') ||
+                        docType.includes('pdf') ||
+                        docType.includes('word') ||
+                        docType.includes('excel') ||
+                        docType.includes('powerpoint');
+        if (!isMatch) return false;
       }
 
       // Region & station filtering
@@ -436,7 +446,7 @@ const filteredDocuments = useMemo(() => {
                     onChange={handleFileChange} 
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                   />
-                  <UploadCloud className={`w-8 h-3 mx-auto mb-2 ${activeCategory === 'templates' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <UploadCloud className={`w-8 h-8 mx-auto mb-2 ${activeCategory === 'templates' ? 'text-amber-500' : 'text-slate-400'}`} />
                   <p className="text-sm font-bold text-slate-600">Click or drop multiple files here</p>
                 </div>
 
