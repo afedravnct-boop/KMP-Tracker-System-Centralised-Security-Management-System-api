@@ -6,11 +6,6 @@ import urllib.parse
 from docx import Document
 from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-import openpyxl
-from pptx import Presentation
-from pptx.util import Inches, Pt as PPTXPt
-from pptx.dml.color import RGBColor as PPTXRGBColor
-import fitz
 import os
 import boto3
 from typing import Optional
@@ -53,6 +48,7 @@ def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, chang
 @router.get("/reports/archive")
 def get_document_archive(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
+        # Fetch from DocumentArchive table in NeonDB
         docs = db.query(models.DocumentArchive).order_by(models.DocumentArchive.upload_date.desc()).all()
         return [
             {
@@ -60,14 +56,14 @@ def get_document_archive(db: Session = Depends(get_db), current_user = Depends(g
                 "name": doc.file_name,
                 "type": doc.doc_type,
                 "date": doc.upload_date.strftime("%Y-%m-%d") if doc.upload_date else "",
-                "size": doc.file_size,
+                "size": doc.file_size or "N/A",
                 "file_path": doc.file_path,
-                "region": doc.region,
-                "station": doc.station
+                "region": getattr(doc, 'region', 'KMP GENERAL'),
+                "station": getattr(doc, 'station', 'KMP HEADQUARTERS')
             } for doc in docs
         ]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch archive: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch document archive: {str(e)}")
 
 @router.get("/templates/list")
 def get_command_templates(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
@@ -77,9 +73,9 @@ def get_command_templates(db: Session = Depends(get_db), current_user = Depends(
             {
                 "id": t.id,
                 "name": t.file_name,
-                "type": "Command Template",
+                "type": "Command Template",  # Aligns with frontend filter checks
                 "date": t.last_updated.strftime("%Y-%m-%d") if t.last_updated else "",
-                "size": "N/A",
+                "size": "N/A",  # Since command_templates table doesn't track file size
                 "file_path": t.s3_url,
                 "region": "KMP HEADQUARTERS",
                 "station": "HQ"
@@ -102,14 +98,6 @@ async def upload_word_report(
         file_size_kb = max(1, round(len(contents) / 1024))
         file_size_str = f"{file_size_kb} KB" if file_size_kb < 1024 else f"{round(file_size_kb / 1024, 1)} MB"
 
-        is_duplicate = db.query(models.DocumentArchive).filter(
-            models.DocumentArchive.file_name == file.filename,
-            models.DocumentArchive.file_size == file_size_str
-        ).first()
-        
-        if is_duplicate:
-            raise HTTPException(status_code=400, detail="DUPLICATE DETECTED: This document has already been uploaded.")
-
         effective_region = current_user.region or "KMP GENERAL"
         effective_station = current_user.station or "KMP HEADQUARTERS"
         
@@ -125,12 +113,11 @@ async def upload_word_report(
                     for run in para.runs:
                         run.font.name = 'Arial'
                         run.font.size = Pt(11)
-
                 formatted_io = io.BytesIO()
                 doc.save(formatted_io)
                 contents = formatted_io.getvalue()
             except Exception as format_err:
-                print(f"Skipping formatting for {file.filename}: {format_err}")
+                print(f"Formatting notice: {format_err}")
         
         eat_time = datetime.utcnow() + timedelta(hours=3)
         timestamp = eat_time.strftime("%Y%m%d_%H%M%S")
@@ -138,22 +125,17 @@ async def upload_word_report(
         s3_key = f"reports_archive/{safe_filename}"
         
         s3_client.put_object(
-            Bucket=BUCKET_NAME,
-            Key=s3_key,
-            Body=contents,
-            ContentType=file.content_type,
-            ServerSideEncryption="AES256"
+            Bucket=BUCKET_NAME, Key=s3_key, Body=contents,
+            ContentType=file.content_type, ServerSideEncryption="AES256"
         )
         
         full_s3_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
         
-        # 🟢 Clean display type mapping matching frontend filters exactly
+        # Map category names precisely to what frontend filters expect
         if doc_type == "weekly_report":
             display_type = "Weekly Report"
         elif doc_type == "general_doc":
             display_type = "General Document"
-        elif doc_type == "templates":
-            display_type = "Command Template"
         else:
             display_type = doc_type
         
@@ -170,20 +152,7 @@ async def upload_word_report(
         db.add(new_archive)
         db.commit()
 
-        if hasattr(models, 'Audit_Logs'):
-            log_semantic_audit(
-                db=db, fnum=current_user.fnum, action="DOCUMENT_UPLOADED",
-                target_identifier=file.filename, changes={}, 
-                remarks=f"Successfully ingested {display_type} to S3 for {effective_region} / {effective_station}"
-            )
-
-        return {
-            "status": "success",
-            "message": f"Successfully processed and securely archived {file.filename} under {effective_station}.",
-            "jurisdiction": {"region": effective_region, "station": effective_station}
-        }
-    except HTTPException:
-        raise
+        return {"status": "success", "message": f"Successfully archived {file.filename}."}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to process document: {str(e)}")
@@ -199,7 +168,7 @@ def delete_archive_file(
         
     doc_record = db.query(models.DocumentArchive).filter(models.DocumentArchive.id == doc_id).first()
     if not doc_record:
-        raise HTTPException(status_code=404, detail="Document not found in the database.")
+        raise HTTPException(status_code=404, detail="Document not found.")
         
     try:
         if str(doc_record.file_path).startswith("http"):
@@ -208,16 +177,11 @@ def delete_archive_file(
             try:
                 s3_client.delete_object(Bucket=BUCKET_NAME, Key=s3_key)
             except Exception as s3_err:
-                print(f"Warning: Could not delete S3 object {s3_key}: {s3_err}")
+                print(f"S3 Delete warning: {s3_err}")
             
         db.delete(doc_record)
-        log_semantic_audit(
-            db=db, fnum=current_user.fnum, action="DOCUMENT_DELETED",
-            target_identifier=doc_record.file_name, changes={}, 
-            remarks="Admin permanently deleted document from secure archives and S3."
-        )
         db.commit()
-        return {"message": "Document and associated cloud data successfully deleted."}
+        return {"message": "Document successfully deleted."}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")

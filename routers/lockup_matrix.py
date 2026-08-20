@@ -114,6 +114,13 @@ def update_lockup_entry(
         existing_entry.region = entry.region
         existing_entry.station = entry.station
         existing_entry.suspects = entry.suspects
+        existing_entry.male_count = entry.male_count
+        existing_entry.male_juvenile_count = entry.male_juvenile_count          # 🟢 Added
+        existing_entry.female_count = entry.female_count
+        existing_entry.female_juvenile_count = entry.female_juvenile_count      # 🟢 Added
+        existing_entry.detention_1day = entry.detention_1day
+        existing_entry.detention_2days = entry.detention_2days
+        existing_entry.detention_3days_over = entry.detention_3days_over
         existing_entry.last_updated_by = f"{get_officer_signature(current_user)} [EDITED]"
         
         db.commit()

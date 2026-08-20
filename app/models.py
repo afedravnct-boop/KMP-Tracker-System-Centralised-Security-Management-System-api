@@ -354,7 +354,7 @@ class DocumentArchive(Base):
     uploaded_by = Column(String)
     upload_date = Column(DateTime, default=datetime.utcnow)
 
-class CommandTemplate(Base):
+class CommandTemplates(Base):
     __tablename__ = "command_templates"
     __table_args__ = {'extend_existing': True}
 

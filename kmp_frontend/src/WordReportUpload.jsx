@@ -282,16 +282,16 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-  // 🟢 Filter documents respecting global view & selected jurisdiction
-  const filteredDocuments = useMemo(() => {
+const filteredDocuments = useMemo(() => {
     return documents.filter(doc => {
       const docType = (doc.type || '').trim().toLowerCase();
 
       if (activeCategory === 'weekly_report') {
         if (!docType.includes('weekly report')) return false;
       } else if (activeCategory === 'general_doc') {
-        if (!docType.includes('general document') && !docType.includes('statement')) return false;
+        if (!docType.includes('general document') && !docType.includes('statement') && !docType.includes('general')) return false;
       } else if (activeCategory === 'templates') {
+        // 🟢 Captures both "Command Template" from document_archive and "Command Template" from templates list
         if (!docType.includes('template') && !docType.includes('command template')) return false;
       }
 

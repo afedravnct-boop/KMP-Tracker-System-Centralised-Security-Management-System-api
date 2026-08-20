@@ -110,7 +110,9 @@ const authFetch = async (url, options = {}) => {
 
 const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, setReports, setSidebarOpen }) => {
   const [lockupData, setLockupData] = useState([]);
-  const [standalonePopInput, setStandalonePopInput] = useState({ total: '', male: '', female: '', d1: '', d2: '', d3: '' });
+  const [standalonePopInput, setStandalonePopInput] = useState({ 
+    total: '', male: '', male_juvenile: '', female: '', female_juvenile: '', d1: '', d2: '', d3: '' 
+  });
   const [isEditingLockup, setIsEditingLockup] = useState(false);
   const [editLockupTarget, setEditLockupTarget] = useState(null);
 
@@ -426,7 +428,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
     if (isEditingLockup) {
       setIsEditingLockup(false);
       setEditLockupTarget(null);
-      setStandalonePopInput({ total: '', male: '', female: '', d1: '', d2: '', d3: '' });
+      setStandalonePopInput({ total: '', male: '', male_juvenile: '', female: '', female_juvenile: '', d1: '', d2: '', d3: '' });
     } else {
       const todayStr = getTodayString();
       const existingEntry = lockupData.find(l => stripHtmlTags(l.station) === formData.station && l.date === todayStr);
@@ -436,7 +438,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         setStandalonePopInput({
           total: existingEntry.suspects.toString(),
           male: (existingEntry.male_count || 0).toString(),
+          male_juvenile: (existingEntry.male_juvenile_count || 0).toString(),
           female: (existingEntry.female_count || 0).toString(),
+          female_juvenile: (existingEntry.female_juvenile_count || 0).toString(),
           d1: (existingEntry.detention_1day || 0).toString(),
           d2: (existingEntry.detention_2days || 0).toString(),
           d3: (existingEntry.detention_3days_over || 0).toString()
@@ -451,7 +455,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
   const handleStandalonePopSubmit = async () => {
     const totalVal = parseInt(standalonePopInput.total) || 0;
     const maleVal = parseInt(standalonePopInput.male) || 0;
+    const maleJuvVal = parseInt(standalonePopInput.male_juvenile) || 0;
     const femaleVal = parseInt(standalonePopInput.female) || 0;
+    const femaleJuvVal = parseInt(standalonePopInput.female_juvenile) || 0;
     const d1Val = parseInt(standalonePopInput.d1) || 0;
     const d2Val = parseInt(standalonePopInput.d2) || 0;
     const d3Val = parseInt(standalonePopInput.d3) || 0;
@@ -468,7 +474,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
           ...editLockupTarget,
           suspects: totalVal,
           male_count: maleVal,
+          male_juvenile_count: maleJuvVal,
           female_count: femaleVal,
+          female_juvenile_count: femaleJuvVal,
           detention_1day: d1Val,
           detention_2days: d2Val,
           detention_3days_over: d3Val,
@@ -503,7 +511,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
           time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
           suspects: totalVal,
           male_count: maleVal,
+          male_juvenile_count: maleJuvVal,
           female_count: femaleVal,
+          female_juvenile_count: femaleJuvVal,
           detention_1day: d1Val,
           detention_2days: d2Val,
           detention_3days_over: d3Val,
@@ -520,7 +530,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         setNotification(`✅ Daily Cell Population successfully logged to the Independent Matrix for ${stripHtmlTags(formData.station)}!`);
       }
       
-      setStandalonePopInput({ total: '', male: '', female: '', d1: '', d2: '', d3: '' }); 
+      setStandalonePopInput({ total: '', male: '', male_juvenile: '', female: '', female_juvenile: '', d1: '', d2: '', d3: '' }); 
       setTimeout(() => setNotification(null), 5000);
     } catch (err) {
       setNotification(`❌ Error: ${stripHtmlTags(err.message)}`);
@@ -542,7 +552,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
       suspects: parseInt(hqGrandTotalInput) || 0,
       male_count: 0,
+      male_juvenile_count: 0,
       female_count: 0,
+      female_juvenile_count: 0,
       detention_1day: 0,
       detention_2days: 0,
       detention_3days_over: 0,
@@ -1013,81 +1025,103 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
 
       <div className="mt-8 space-y-6 animate-in fade-in duration-300 max-w-4xl mx-auto">
         
-        {/* 🟢 FULL BREAKDOWN INPUTS FOR INDEPENDENT DAILY LOCK-UP */}
+        {/* 🟢 FULL BREAKDOWN INPUTS FOR INDEPENDENT DAILY LOCK-UP (WITH MALE & FEMALE JUVENILES) */}
         <div className="bg-amber-50 p-6 rounded-2xl border border-amber-200 shadow-md space-y-4">
           <div>
             <h3 className="font-extrabold text-amber-900 uppercase tracking-wider text-sm flex items-center">
               <HardDrive className="w-5 h-5 mr-2 text-amber-600"/> Log Independent Daily Lock-Up
             </h3>
             <p className="text-[11px] font-bold text-amber-700/70 mt-1 leading-relaxed">
-              Log your station's total cell population with the required Sex and Detention Duration breakdown directly into the independent Lock-Up Matrix.
+              Log your station's total cell population with the required Sex, Juvenile breakdown, and Detention Duration directly into the independent Lock-Up Matrix.
             </p>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 pt-2">
             <div>
-              <label className="block text-[10px] font-extrabold text-amber-900 uppercase mb-1">Total Suspects *</label>
+              <label className="block text-[9px] font-extrabold text-amber-900 uppercase mb-1">Total Suspects *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.total} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, total: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-base border-amber-300 rounded-lg shadow-sm border p-2.5 bg-white font-black text-amber-900 text-center outline-none focus:ring-2 focus:ring-amber-500" 
+                className="w-full text-sm border-amber-300 rounded-lg shadow-sm border p-2 bg-white font-black text-amber-900 text-center outline-none focus:ring-2 focus:ring-amber-500" 
                 placeholder="0" 
               />
             </div>
             <div>
-              <label className="block text-[10px] font-extrabold text-blue-800 uppercase mb-1">Male Count *</label>
+              <label className="block text-[9px] font-extrabold text-blue-800 uppercase mb-1">Male *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.male} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, male: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-base border-blue-300 rounded-lg shadow-sm border p-2.5 bg-white font-black text-blue-900 text-center outline-none focus:ring-2 focus:ring-blue-500" 
+                className="w-full text-sm border-blue-300 rounded-lg shadow-sm border p-2 bg-white font-black text-blue-900 text-center outline-none focus:ring-2 focus:ring-blue-500" 
                 placeholder="0" 
               />
             </div>
             <div>
-              <label className="block text-[10px] font-extrabold text-pink-800 uppercase mb-1">Female Count *</label>
+              <label className="block text-[9px] font-extrabold text-indigo-800 uppercase mb-1">Male Juv *</label>
+              <input 
+                type="number" 
+                value={standalonePopInput.male_juvenile} 
+                onChange={(e) => setStandalonePopInput(prev => ({ ...prev, male_juvenile: stripHtmlTags(e.target.value) }))} 
+                min="0" 
+                className="w-full text-sm border-indigo-300 rounded-lg shadow-sm border p-2 bg-white font-black text-indigo-900 text-center outline-none focus:ring-2 focus:ring-indigo-500" 
+                placeholder="0" 
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-extrabold text-pink-800 uppercase mb-1">Female *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.female} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, female: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-base border-pink-300 rounded-lg shadow-sm border p-2.5 bg-white font-black text-pink-900 text-center outline-none focus:ring-2 focus:ring-pink-500" 
+                className="w-full text-sm border-pink-300 rounded-lg shadow-sm border p-2 bg-white font-black text-pink-900 text-center outline-none focus:ring-2 focus:ring-pink-500" 
                 placeholder="0" 
               />
             </div>
             <div>
-              <label className="block text-[10px] font-extrabold text-slate-700 uppercase mb-1">1 Day *</label>
+              <label className="block text-[9px] font-extrabold text-purple-800 uppercase mb-1">Female Juv *</label>
+              <input 
+                type="number" 
+                value={standalonePopInput.female_juvenile} 
+                onChange={(e) => setStandalonePopInput(prev => ({ ...prev, female_juvenile: stripHtmlTags(e.target.value) }))} 
+                min="0" 
+                className="w-full text-sm border-purple-300 rounded-lg shadow-sm border p-2 bg-white font-black text-purple-900 text-center outline-none focus:ring-2 focus:ring-purple-500" 
+                placeholder="0" 
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-extrabold text-slate-700 uppercase mb-1">1 Day *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.d1} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, d1: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-base border-slate-300 rounded-lg shadow-sm border p-2.5 bg-white font-black text-slate-900 text-center outline-none focus:ring-2 focus:ring-slate-500" 
+                className="w-full text-sm border-slate-300 rounded-lg shadow-sm border p-2 bg-white font-black text-slate-900 text-center outline-none focus:ring-2 focus:ring-slate-500" 
                 placeholder="0" 
               />
             </div>
             <div>
-              <label className="block text-[10px] font-extrabold text-slate-700 uppercase mb-1">2 Days *</label>
+              <label className="block text-[9px] font-extrabold text-slate-700 uppercase mb-1">2 Days *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.d2} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, d2: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-base border-slate-300 rounded-lg shadow-sm border p-2.5 bg-white font-black text-slate-900 text-center outline-none focus:ring-2 focus:ring-slate-500" 
+                className="w-full text-sm border-slate-300 rounded-lg shadow-sm border p-2 bg-white font-black text-slate-900 text-center outline-none focus:ring-2 focus:ring-slate-500" 
                 placeholder="0" 
               />
             </div>
             <div>
-              <label className="block text-[10px] font-extrabold text-slate-700 uppercase mb-1">3 Days & Over *</label>
+              <label className="block text-[9px] font-extrabold text-slate-700 uppercase mb-1">3 Days+ *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.d3} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, d3: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-base border-slate-300 rounded-lg shadow-sm border p-2.5 bg-white font-black text-slate-900 text-center outline-none focus:ring-2 focus:ring-slate-500" 
+                className="w-full text-sm border-slate-300 rounded-lg shadow-sm border p-2 bg-white font-black text-slate-900 text-center outline-none focus:ring-2 focus:ring-slate-500" 
                 placeholder="0" 
               />
             </div>
@@ -1173,8 +1207,8 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
     lockupEntries={lockupData} 
     allTimeLockupTotal={allTimeLockupTotal} 
     onClose={() => setShowLockupMatrixModal(false)} 
-    selectedRegion={filterRegion}      // 🟢 Pass the filters down
-    selectedStation={filterStation}    // 🟢 Pass the filters down
+    selectedRegion={filterRegion}     // 🟢 Pass the filters down
+    selectedStation={filterStation}   // 🟢 Pass the filters down
   />
 )}
       {selectedCase && (

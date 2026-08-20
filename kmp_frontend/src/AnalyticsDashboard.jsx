@@ -67,31 +67,39 @@ const AnalyticsDashboard = ({
   canViewGlobal = false 
 }) => {
   const [fetchedRolls, setFetchedRolls] = useState([]);
+  const [fetchedArchiveRolls, setFetchedArchiveRolls] = useState([]);
+  const [fetchedLockup, setFetchedLockup] = useState([]);
   const [fetchedCrime, setFetchedCrime] = useState([]);
   const [fetchedSuccess, setFetchedSuccess] = useState([]);
   const [fetchedOps, setFetchedOps] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // 🟢 Fetch live data straight from NeonDB endpoints if parent props are empty
+  // 🟢 Fetch live data straight from NeonDB endpoints including nominal roll, archive, and lockup matrix
   useEffect(() => {
     let isMounted = true;
     const fetchNeonData = async () => {
       setLoading(true);
       try {
-        const [rollRes, crimeRes, storyRes, statsRes] = await Promise.all([
+        const [rollRes, archiveRes, lockupRes, crimeRes, storyRes, statsRes] = await Promise.all([
           authFetch('/api/v1/nominal-roll').catch(() => null),
+          authFetch('/api/v1/nominal-roll-archive').catch(() => null),
+          authFetch('/api/v1/lockup-matrix').catch(() => null),
           authFetch('/api/v1/reports').catch(() => null),
           authFetch('/api/v1/stories').catch(() => null),
           authFetch('/api/v1/stats').catch(() => null)
         ]);
 
         const rollData = rollRes && rollRes.ok ? await rollRes.json() : [];
+        const archiveData = archiveRes && archiveRes.ok ? await archiveRes.json() : [];
+        const lockupData = lockupRes && lockupRes.ok ? await lockupRes.json() : [];
         const crimeData = crimeRes && crimeRes.ok ? await crimeRes.json() : [];
         const storyData = storyRes && storyRes.ok ? await storyRes.json() : [];
         const statsData = statsRes && statsRes.ok ? await statsRes.json() : [];
 
         if (isMounted) {
           setFetchedRolls(Array.isArray(rollData) ? rollData : []);
+          setFetchedArchiveRolls(Array.isArray(archiveData) ? archiveData : []);
+          setFetchedLockup(Array.isArray(lockupData) ? lockupData : []);
           setFetchedCrime(Array.isArray(crimeData) ? crimeData : []);
           setFetchedSuccess(Array.isArray(storyData) ? storyData : []);
           setFetchedOps(Array.isArray(statsData) ? statsData : []);
@@ -122,10 +130,46 @@ const AnalyticsDashboard = ({
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : (currentUser?.region || 'KMP HEADQUARTERS'));
   const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : (currentUser?.station || 'KMP HEADQUARTERS'));
 
+  // 🟢 Manpower & Regional Distribution Calculations
+  const manpowerAnalytics = useMemo(() => {
+    const rolls = Array.isArray(resolvedNominalRolls) ? resolvedNominalRolls : [];
+    const regionCounts = { "KMP NORTH": 0, "KMP SOUTH": 0, "KMP EAST": 0, "KMP HEADQUARTERS": 0, "POLICE HEADQUARTERS": 0, "GENERAL / OTHER": 0 };
+    const genderCounts = { MALE: 0, FEMALE: 0, UNKNOWN: 0 };
+    const rankCounts = {};
+
+    rolls.forEach(officer => {
+      const stn = (officer.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, officer.region);
+      
+      if (regionCounts[reg] !== undefined) {
+        regionCounts[reg] += 1;
+      } else {
+        regionCounts["GENERAL / OTHER"] += 1;
+      }
+
+      const sex = (officer.sex || '').trim().toUpperCase();
+      if (sex.startsWith('F')) genderCounts.FEMALE += 1;
+      else if (sex.startsWith('M')) genderCounts.MALE += 1;
+      else genderCounts.UNKNOWN += 1;
+
+      const rank = (officer.rank || 'UNRANKED').trim().toUpperCase();
+      rankCounts[rank] = (rankCounts[rank] || 0) + 1;
+    });
+
+    return {
+      totalActive: rolls.length,
+      regions: regionCounts,
+      genders: genderCounts,
+      ranks: Object.entries(rankCounts).sort((a, b) => b[1] - a[1])
+    };
+  }, [resolvedNominalRolls]);
+
   const currentDataset = useMemo(() => {
     let baseData = [];
     if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') baseData = resolvedCrimeRegistry.filter(r => !isLockupLog(r)); 
-    else if (activeDomain === 'PERSONNEL') baseData = resolvedNominalRolls;
+    else if (activeDomain === 'MANPOWER') baseData = resolvedNominalRolls;
+    else if (activeDomain === 'ARCHIVE') baseData = fetchedArchiveRolls;
+    else if (activeDomain === 'LOCKUP') baseData = fetchedLockup;
     else if (activeDomain === 'SUCCESS') baseData = resolvedSuccessStories;
     else if (activeDomain === 'OPERATIONS') baseData = resolvedOperationalStats;
 
@@ -142,10 +186,10 @@ const AnalyticsDashboard = ({
       return true;
     });
 
-    if (activeDomain !== 'PERSONNEL' && activeDomain !== 'RELATIONAL' && dateFilter !== 'ALL') {
+    if (activeDomain !== 'MANPOWER' && activeDomain !== 'ARCHIVE' && activeDomain !== 'RELATIONAL' && dateFilter !== 'ALL') {
       const now = new Date();
       baseData = baseData.filter(item => {
-        const itemDateStr = item.date || item.createdAt || item.timestamp;
+        const itemDateStr = item.date || item.createdAt || item.timestamp || item.archive_date;
         if (!itemDateStr) return true; 
         const itemDate = new Date(itemDateStr);
         if (isNaN(itemDate)) return true;
@@ -162,7 +206,7 @@ const AnalyticsDashboard = ({
       });
     }
     return baseData;
-  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, dateFilter, selectedRegion, selectedStation, canViewGlobalActive]);
+  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, fetchedArchiveRolls, fetchedLockup, resolvedSuccessStories, resolvedOperationalStats, dateFilter, selectedRegion, selectedStation, canViewGlobalActive]);
 
   const aggregatedData = useMemo(() => {
     const grouped = {};
@@ -172,6 +216,12 @@ const AnalyticsDashboard = ({
         if (metricCategory === 'CATEGORY') key = normalizeOffenceCategory(item.crime_category || item.offence || 'GENERAL CRIME');
         else if (metricCategory === 'CASES') key = (item.status || 'PENDING').toUpperCase();
         else if (metricCategory === 'STATION') key = (item.station || 'UNKNOWN STATION').toUpperCase();
+      } else if (activeDomain === 'MANPOWER') {
+        key = (item.rank || 'UNRANKED').toUpperCase();
+      } else if (activeDomain === 'ARCHIVE') {
+        key = (item.archive_reason || item.rank || 'RETIRED / TRANSFERRED').toUpperCase();
+      } else if (activeDomain === 'LOCKUP') {
+        key = (item.station || 'UNKNOWN STATION').toUpperCase();
       } else if (activeDomain === 'SUCCESS') {
         key = (item.impact_type || item.category || 'COMMUNITY RECOVERY').toUpperCase();
       } else if (activeDomain === 'OPERATIONS') {
@@ -179,7 +229,7 @@ const AnalyticsDashboard = ({
       }
 
       if (!grouped[key]) grouped[key] = { label: key, count: 0 };
-      grouped[key].count += 1;
+      grouped[key].count += (activeDomain === 'LOCKUP' ? Number(item.suspects || 1) : 1);
     });
 
     return Object.values(grouped).sort((a, b) => b.count - a.count);
@@ -411,6 +461,24 @@ const AnalyticsDashboard = ({
         XLSX.utils.book_append_sheet(wb, wsRel, "Relational Impact Stats");
       }
 
+      if (resolvedNominalRolls.length > 0) {
+        const wsRoll = XLSX.utils.json_to_sheet(resolvedNominalRolls);
+        formatWorksheet(wsRoll, [10, 15, 15, 25, 10, 20, 15, 15, 20, 20]);
+        XLSX.utils.book_append_sheet(wb, wsRoll, "Nominal Roll");
+      }
+
+      if (fetchedArchiveRolls.length > 0) {
+        const wsArch = XLSX.utils.json_to_sheet(fetchedArchiveRolls);
+        formatWorksheet(wsArch, [10, 15, 15, 25, 10, 20, 25, 15]);
+        XLSX.utils.book_append_sheet(wb, wsArch, "Nominal Roll Archive");
+      }
+
+      if (fetchedLockup.length > 0) {
+        const wsLock = XLSX.utils.json_to_sheet(fetchedLockup);
+        formatWorksheet(wsLock, [10, 15, 15, 20, 20, 15]);
+        XLSX.utils.book_append_sheet(wb, wsLock, "Lockup Matrix");
+      }
+
       if (Array.isArray(resolvedSuccessStories) && resolvedSuccessStories.length > 0) {
         const successData = resolvedSuccessStories.map((s, index) => ({
           "S/N": index + 1,
@@ -477,10 +545,14 @@ const AnalyticsDashboard = ({
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+      {/* Navigation Tabs including Manpower, Archive, and Lockup Matrix */}
+      <div className="grid grid-cols-2 md:grid-cols-9 gap-2">
         {[
-          { id: 'OPERATIONS', label: '⚡ Disruptive Operations' },
-          { id: 'RELATIONAL', label: '🔗 Relational Impact Matrix' },
+          { id: 'OPERATIONS', label: '⚡ Disruptive Ops' },
+          { id: 'MANPOWER', label: '🛡️ Nominal Roll' },
+          { id: 'ARCHIVE', label: '📂 HR Archive' },
+          { id: 'LOCKUP', label: '🔒 Lockup Matrix' },
+          { id: 'RELATIONAL', label: '🔗 Impact Matrix' },
           { id: 'SUCCESS', label: '🌟 Success Stories' },
           { id: 'CRIME', label: '📊 Crime Categories' },
           { id: 'CRIME_SUMMARY', label: '📋 Crime Summary Table' },
@@ -489,7 +561,7 @@ const AnalyticsDashboard = ({
           <button
             key={tab.id}
             onClick={() => { setActiveDomain(tab.id); setMetricCategory('CATEGORY'); }}
-            className={`p-4 rounded-xl font-bold text-xs transition border text-left shadow-sm cursor-pointer ${
+            className={`p-3 rounded-xl font-bold text-xs transition border text-center shadow-sm cursor-pointer ${
               activeDomain === tab.id ? 'bg-[#3a3225] text-[#f4eee2] border-[#3a3225]' : 'bg-[#fbf8f3] text-[#594d3c] border-[#e2d6c3] hover:bg-[#f1ebd9]'
             }`}
           >
@@ -540,7 +612,7 @@ const AnalyticsDashboard = ({
             )}
           </select>
 
-          {activeDomain !== 'RELATIONAL' && (
+          {activeDomain !== 'RELATIONAL' && activeDomain !== 'MANPOWER' && activeDomain !== 'ARCHIVE' && (
             <select 
               value={dateFilter} 
               onChange={(e) => setDateFilter(e.target.value)}
@@ -560,7 +632,125 @@ const AnalyticsDashboard = ({
         </span>
       </div>
 
-      {activeDomain === 'RELATIONAL' ? (
+      {activeDomain === 'MANPOWER' ? (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-[#3a3225] p-6 rounded-2xl text-[#f4eee2] shadow-md border border-[#534735] flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase font-bold text-[#b8ab97]">Total Active Force</p>
+                <h3 className="text-3xl font-black mt-1 text-[#f4eee2]">{resolvedNominalRolls.length} Officers</h3>
+              </div>
+              <Users className="w-10 h-10 text-[#C5A880]" />
+            </div>
+
+            <div className="bg-[#fbf8f3] p-6 rounded-2xl shadow-sm border border-[#e2d6c3] flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase font-bold text-[#736450]">Archived / Separated Personnel</p>
+                <h3 className="text-3xl font-black mt-1 text-amber-900">{fetchedArchiveRolls.length} Officers</h3>
+              </div>
+              <Shield className="w-10 h-10 text-amber-700" />
+            </div>
+
+            <div className="bg-[#fbf8f3] p-6 rounded-2xl shadow-sm border border-[#e2d6c3] flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase font-bold text-[#736450]">Cell Lockup Entries</p>
+                <h3 className="text-3xl font-black mt-1 text-[#596E47]">{fetchedLockup.length} Records</h3>
+              </div>
+              <Lock className="w-10 h-10 text-[#596E47]" />
+            </div>
+          </div>
+
+          <div className="bg-[#fbf8f3] p-6 rounded-2xl shadow-sm border border-[#e2d6c3] space-y-4">
+            <h3 className="text-sm font-bold text-[#3a3225] uppercase tracking-wide flex items-center">
+              <MapPin size={16} className="mr-2 text-[#596E47]" /> Regional Manpower Distribution & Ranks
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {Object.entries(REGIONAL_HIERARCHY).map(([reg, stations], idx) => {
+                const count = resolvedNominalRolls.filter(o => getOfficialRegionForStation(o.station, o.region) === reg).length;
+                return (
+                  <div key={idx} className="p-4 bg-[#f4eee2] rounded-xl border border-[#e2d6c3] flex justify-between items-center">
+                    <div>
+                      <h4 className="font-extrabold text-[#3a3225] text-xs uppercase">{reg}</h4>
+                      <p className="text-[11px] text-[#736450] mt-0.5">{stations.length} Divisions / Stations Mapped</p>
+                    </div>
+                    <span className="text-sm font-black text-[#596E47] bg-[#e9eedf] px-3 py-1 rounded-lg border border-[#cfe1b9]">{count} Officers</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : activeDomain === 'ARCHIVE' ? (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          <div className="bg-[#3a3225] rounded-2xl p-6 text-[#f4eee2] shadow-xl">
+            <h2 className="text-xl font-extrabold">Nominal Roll Archive (Separated / Retired Personnel)</h2>
+            <p className="text-xs text-[#b8ab97] mt-1">Historical database containing all migrated and archived officer records from NeonDB.</p>
+          </div>
+          <div className="bg-[#fbf8f3] rounded-xl shadow-sm border border-[#e2d6c3] overflow-hidden">
+            <table className="min-w-full divide-y divide-[#e2d6c3]">
+              <thead className="bg-[#efece6]">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase">Force Number</th>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase">Rank & Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase">Last Station</th>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase">Archive Reason</th>
+                </tr>
+              </thead>
+              <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
+                {fetchedArchiveRolls.length > 0 ? (
+                  fetchedArchiveRolls.map((row, index) => (
+                    <tr key={index} className="hover:bg-[#e9eedf]/30">
+                      <td className="px-6 py-3 text-xs font-bold text-[#3a3225]">{row.fnum || row.f_num}</td>
+                      <td className="px-6 py-3 text-xs font-bold text-[#736450] uppercase">{row.rank} {row.name}</td>
+                      <td className="px-6 py-3 text-xs">{row.station}</td>
+                      <td className="px-6 py-3 text-xs text-amber-900 font-medium">{row.archive_reason || 'N/A'}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="4" className="px-6 py-8 text-center text-xs text-[#736450]">No archived records found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : activeDomain === 'LOCKUP' ? (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          <div className="bg-[#3a3225] rounded-2xl p-6 text-[#f4eee2] shadow-xl">
+            <h2 className="text-xl font-extrabold">Cell Lockup Matrix (Daily Station Populations)</h2>
+            <p className="text-xs text-[#b8ab97] mt-1">Tracking detainee and suspect cell lockup counts across divisions from NeonDB.</p>
+          </div>
+          <div className="bg-[#fbf8f3] rounded-xl shadow-sm border border-[#e2d6c3] overflow-hidden">
+            <table className="min-w-full divide-y divide-[#e2d6c3]">
+              <thead className="bg-[#efece6]">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase">Region</th>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase">Station / Division</th>
+                  <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase">Suspect Count</th>
+                </tr>
+              </thead>
+              <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
+                {fetchedLockup.length > 0 ? (
+                  fetchedLockup.map((row, index) => (
+                    <tr key={index} className="hover:bg-[#e9eedf]/30">
+                      <td className="px-6 py-3 text-xs">{row.date}</td>
+                      <td className="px-6 py-3 text-xs font-bold text-[#736450] uppercase">{row.region}</td>
+                      <td className="px-6 py-3 text-xs font-bold text-[#3a3225]">{row.station}</td>
+                      <td className="px-6 py-3 text-xs text-center font-extrabold text-[#596E47]">{row.suspects}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="4" className="px-6 py-8 text-center text-xs text-[#736450]">No lockup matrix entries found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : activeDomain === 'RELATIONAL' ? (
         <div className="space-y-6 animate-in fade-in duration-200">
           <div className="bg-[#3a3225] rounded-2xl p-6 text-[#f4eee2] shadow-xl border border-[#534735]">
             <h2 className="text-xl font-extrabold flex items-center tracking-wide text-[#f4eee2]">
