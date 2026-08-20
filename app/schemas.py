@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field, EmailStr
-from typing import Optional, List, Union
-from datetime import datetime
+from typing import Optional, List, Union, Dict, Any
+from datetime import datetime, date
 
 # ==========================================
 # 0. PASSWORD MANAGEMENT SCHEMAS
@@ -22,7 +22,7 @@ class UserCreate(BaseModel):
     division: str
     station: str
     position: str
-    email: EmailStr  # Validates that it's a real email format
+    email: EmailStr
     phone: str
     password: str
     role: str
@@ -38,7 +38,7 @@ class UserUpdate(BaseModel):
     profile_photo_path: Optional[str] = None
     password: Optional[str] = None
 
-class UserAccessUpdate(BaseModel): # 🟢 ADDED: Missing Schema for Access Matrix Update
+class UserAccessUpdate(BaseModel):
     role: str
     permissions: dict
 
@@ -54,37 +54,37 @@ class ReportBase(BaseModel):
     narrative: str
     status: str
     suspects: int
-    daily_lock_up: int
+    daily_lock_up: int = 0
 
 class ReportResponse(ReportBase):
     id: int
-    sn: int
+    sn: Optional[int] = None
     last_updated_by: Optional[str] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
     
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 # ==========================================
-# 2. DISRUPTIVE OPS STATISTICS
+# 2. DISRUPTIVE & AGRICULTURAL STATISTICS
 # ==========================================
 class StatisticBase(BaseModel):
     region: str
     station: str
     date: str
     arrested: int
-    givenBond: int = Field(validation_alias="given_bond")
-    cautioned: int
-    pendingCourt: int = Field(validation_alias="pending_court")
-    takenToCourt: int = Field(validation_alias="taken_to_court")
-    released: int
-    remanded: int
-    convicted: int
+    givenBond: int = Field(0, validation_alias="given_bond")
+    cautioned: int = 0
+    pendingCourt: int = Field(0, validation_alias="pending_court")
+    takenToCourt: int = Field(0, validation_alias="taken_to_court")
+    released: int = 0
+    remanded: int = 0
+    convicted: int = 0
 
 class StatisticResponse(StatisticBase):
     id: int
-    sn: int
+    sn: Optional[int] = None
     last_updated_by: Optional[str] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
     
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
@@ -111,8 +111,7 @@ class AgricStatsResponse(AgricStatsBase):
     last_updated_by: Optional[str] = None
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 # ==========================================
 # 3. SUCCESS STORIES
@@ -127,10 +126,10 @@ class StoryBase(BaseModel):
     status: str
 
 class StoryResponse(StoryBase):
-    id: int
+    id: Optional[int] = None
     sn: int
     last_updated_by: Optional[str] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
     
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
@@ -156,16 +155,16 @@ class EstablishmentBase(BaseModel):
 class EstablishmentResponse(EstablishmentBase):
     id: int
     last_updated_by: Optional[str] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 # ==========================================
 # 5. NOMINAL ROLL (Personnel Registry)
 # ==========================================
 class NominalRollCreate(BaseModel):
     sn: Optional[int] = None
-    fnum: str
+    fnum: str = Field(..., validation_alias="f_num")
     rank: str
     name: str
     sex: Optional[str] = "MALE"
@@ -192,7 +191,7 @@ class NominalRollCreate(BaseModel):
     archiveReason: Optional[str] = Field(None, validation_alias="archive_reason")
     archiveDate: Optional[str] = Field(None, validation_alias="archive_date")
     last_updated_by: Optional[str] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)    
 
@@ -201,7 +200,7 @@ class NominalRollResponse(NominalRollCreate):
     
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
-class ArchiveRequest(BaseModel): # 🟢 ADDED: Missing Schema for Archiving Personnel
+class ArchiveRequest(BaseModel):
     archive_reason: str
 
 # ==========================================
@@ -249,14 +248,13 @@ class UserResponse(BaseModel):
     role: str
     is_approved: bool
     photoUrl: Optional[str] = Field(None, validation_alias="profile_photo_path") 
-    created_at: datetime
+    created_at: Optional[datetime] = None
     
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 # ==========================================
 # 7. SYSTEM AUDIT LOGS & HR REQUESTS
 # ==========================================
-
 class ModificationRequestCreate(BaseModel):
     fnum: str
     requestedRank: Optional[str] = Field(None, validation_alias="requested_rank")
@@ -265,8 +263,8 @@ class ModificationRequestCreate(BaseModel):
     requestedStation: Optional[str] = Field(None, validation_alias="requested_station")
 
 class ModificationRequestReview(BaseModel):
-    status: str # "APPROVED" or "REJECTED"
-    reason: Optional[str] = None # 🟢 Added to capture the rejection reason from the frontend prompt
+    status: str
+    reason: Optional[str] = None
 
 class ModificationRequestResponse(BaseModel):
     id: int
@@ -276,7 +274,7 @@ class ModificationRequestResponse(BaseModel):
     requested_region: Optional[str] = None
     requested_station: Optional[str] = None
     status: str
-    created_at: datetime
+    created_at: Optional[datetime] = None
     reviewed_by: Optional[str] = None
     reviewed_at: Optional[datetime] = None
 
@@ -298,13 +296,13 @@ class LogResponse(BaseModel):
     id: int
     user_fnum: str
     event_type: str
-    details: str
+    details: Optional[str] = None
     status: str
-    timestamp: datetime
+    timestamp: Optional[datetime] = Field(None, validation_alias="created_at")
     
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
-class SessionLogRequest(BaseModel): # 🟢 ADDED: Missing Schema for Dashboard Access Audit Log
+class SessionLogRequest(BaseModel):
     fnum: str
 
 class ActivityLogReq(BaseModel):
@@ -320,7 +318,6 @@ class LockupMatrixBase(BaseModel):
     station: str
     suspects: int
     
-    # 🟢 NEW SEQUENTIAL BREAKDOWN FIELDS
     male_count: int = 0
     male_juvenile_count: int = 0
     female_count: int = 0
@@ -338,9 +335,11 @@ class LockupMatrixResponse(LockupMatrixBase):
     sn: int
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
+# ==========================================
+# 8. AI ASSISTANT SCHEMA
+# ==========================================
 class AIQueryRequest(BaseModel):
     prompt: str
     target_region: Optional[str] = "ALL REGIONS"

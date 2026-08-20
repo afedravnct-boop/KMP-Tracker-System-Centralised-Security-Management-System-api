@@ -6,12 +6,12 @@ from datetime import datetime
 import pytz
 
 def get_eat_time():
-    # Explicitly set to Africa/Nairobi (which is EAT)
+    """Returns the current East Africa Time (EAT) without timezone offset for clean database storage."""
     eat = pytz.timezone('Africa/Nairobi')
     return datetime.now(eat).replace(tzinfo=None)
 
 # ==========================================
-# 1. LIVE CRIME REGISTRY
+# 1. LIVE CRIME REGISTRY & SUSPECT LOCKUPS
 # ==========================================
 class Crime_Reports(Base):
     __tablename__ = "crime_reports"
@@ -38,21 +38,21 @@ class Crime_Reports(Base):
     last_updated_by = Column(String)
     created_at = Column(DateTime, default=get_eat_time)
 
-    # String reference solves circular dependency
     suspect_details = relationship("Suspect_Lockup", back_populates="crime_report", cascade="all, delete-orphan")
 
 
 class Suspect_Lockup(Base):
     __tablename__ = "suspect_lockup"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     report_id = Column(Integer, ForeignKey("crime_reports.id", ondelete="CASCADE"), nullable=False)
     
     name = Column(String, nullable=False)
     sex = Column(String, default="MALE")
-    age = Column(Integer, nullable=True)
+    age = Column(String, nullable=True)
     tribe = Column(String, nullable=True)
-    nationality = Column(String)
+    nationality = Column(String, nullable=True)
     residence = Column(String, nullable=True)
     contact = Column(String, nullable=True)
     mental_health_status = Column(String, default="NORMAL")
@@ -85,8 +85,10 @@ class Operational_Statistics(Base):
     last_updated_by = Column(String)
     created_at = Column(DateTime, default=get_eat_time)
 
+
 class AgricCrimeStatistics(Base):
     __tablename__ = "agric_crimes_statistics"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     sn = Column(Integer, nullable=True)
@@ -102,7 +104,7 @@ class AgricCrimeStatistics(Base):
     remanded = Column(Integer, default=0)
     convicted = Column(Integer, default=0)
     last_updated_by = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=get_eat_time)
 
 # ==========================================
 # 3. SUCCESS STORIES
@@ -111,7 +113,8 @@ class Success_Stories(Base):
     __tablename__ = "success_stories"
     __table_args__ = {'extend_existing': True}
     
-    sn = Column(Integer, primary_key=True) 
+    id = Column(Integer, primary_key=True, index=True)
+    sn = Column(Integer, index=True, unique=True) 
     date = Column(String)
     time = Column(String)
     region = Column(String)
@@ -152,10 +155,12 @@ class Establishments(Base):
 # ==========================================
 class NominalRoll(Base):
     __tablename__ = "nominal_roll"
+    __table_args__ = {'extend_existing': True}
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     sn = Column(Integer, nullable=True)
     f_num = Column(String, index=True)
+    fnum = Column(String, nullable=True) # Secondary alias for compatibility
     rank = Column(String)
     name = Column(String)
     sex = Column(String)
@@ -265,17 +270,19 @@ class Modification_Requests(Base):
     reviewed_by = Column(String, nullable=True) 
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
 
+
 class Audit_Logs(Base):
     __tablename__ = "audit_logs"
     __table_args__ = {'extend_existing': True} 
     
     id = Column(Integer, primary_key=True, index=True)
     event_type = Column(String)
-    target_user = Column(String) 
-    status = Column(String) 
-    details = Column(String)
+    target_user = Column(String, nullable=True) 
+    status = Column(String, default="SUCCESS") 
+    details = Column(String, nullable=True)
     created_at = Column(DateTime, default=get_eat_time)
     user_fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
+
 
 class Activity_Logs(Base):
     __tablename__ = "activity_logs"
@@ -308,9 +315,7 @@ class Admin_Communication(Base):
     status = Column(String, default="ACTIVE")
     created_at = Column(DateTime, default=get_eat_time)
 
-# ==========================================
-# 10. COMMUNICATION READ RECEIPTS & SYSTEM CONFIG
-# ==========================================
+
 class Communication_Reads(Base):
     __tablename__ = "communication_reads"
     __table_args__ = {'extend_existing': True}
@@ -320,6 +325,9 @@ class Communication_Reads(Base):
     fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
     read_at = Column(DateTime(timezone=True), server_default=func.now())
 
+# ==========================================
+# 10. RECOVERY, CONFIG, ARCHIVE & TEMPLATES
+# ==========================================
 class Password_Reset_Requests(Base):
     __tablename__ = "password_reset_requests"
     __table_args__ = {'extend_existing': True}
@@ -333,12 +341,24 @@ class Password_Reset_Requests(Base):
     status = Column(String, default="PENDING") 
     request_date = Column(DateTime, default=get_eat_time)
 
+
+class PasswordResets(Base):
+    __tablename__ = "password_resets"
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    fnum = Column(String, index=True, nullable=False)
+    token = Column(String, nullable=True)
+    created_at = Column(DateTime, default=get_eat_time)
+
+
 class SystemConfig(Base):
     __tablename__ = "system_config"
     __table_args__ = {'extend_existing': True}
     
     config_key = Column(String, primary_key=True, index=True)
     config_value = Column(String, nullable=True)
+
 
 class DocumentArchive(Base):
     __tablename__ = "document_archive"
@@ -352,7 +372,8 @@ class DocumentArchive(Base):
     region = Column(String, nullable=True)
     station = Column(String, nullable=True)
     uploaded_by = Column(String, nullable=True)
-    upload_date = Column(DateTime, default=datetime.utcnow)
+    upload_date = Column(DateTime, default=get_eat_time)
+
 
 class CommandTemplate(Base):
     __tablename__ = "command_templates"
@@ -362,11 +383,12 @@ class CommandTemplate(Base):
     file_name = Column(String, nullable=False)
     doc_type = Column(String, nullable=False, default="Command Template")
     file_size = Column(String, nullable=True)
-    file_path = Column(String, nullable=False)  # Acts as s3_url equivalent
+    file_path = Column(String, nullable=False)
     region = Column(String, nullable=True, default="KMP HEADQUARTERS")
     station = Column(String, nullable=True, default="HQ")
     uploaded_by = Column(String, nullable=True)
-    upload_date = Column(DateTime, default=datetime.utcnow)
+    upload_date = Column(DateTime, default=get_eat_time)
+
 
 class LockupMatrix(Base):
     __tablename__ = "lockup_matrix"
@@ -374,8 +396,8 @@ class LockupMatrix(Base):
 
     sn = Column(Integer, primary_key=True, index=True, autoincrement=True)
     sd_ref = Column(String, unique=True, index=True, nullable=False) 
-    date = Column(String, index=True, nullable=False)              
-    time = Column(String, nullable=True)                             
+    date = Column(String, index=True, nullable=False)               
+    time = Column(String, nullable=True)                               
     region = Column(String, index=True, nullable=False)              
     station = Column(String, index=True, nullable=False)             
     suspects = Column(Integer, default=0, nullable=False)             
@@ -390,3 +412,17 @@ class LockupMatrix(Base):
 
     last_updated_by = Column(String, nullable=True)                  
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+# =====================================================================
+# 11. CROSS-ROUTER COMPATIBILITY ALIASES
+# (Prevents naming crashes across different modular routers)
+# =====================================================================
+CrimeReports = Crime_Reports
+OperationalStatistics = Operational_Statistics
+SuccessStories = Success_Stories
+AuditLogs = Audit_Logs
+ActivityLogs = Activity_Logs
+ModificationRequests = Modification_Requests
+PasswordResetRequests = Password_Reset_Requests
+CommunicationReads = Communication_Reads
+AdminCommunication = Admin_Communication

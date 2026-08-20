@@ -1,32 +1,50 @@
 // src/api.js
 const BASE_URL = import.meta.env.VITE_API_URL || 'https://kmp-tracker-system-centralised-security.onrender.com';
 
+// 🟢 Secure In-Memory Session Storage (Zero persistence to localStorage/sessionStorage)
+let inMemoryToken = null;
+let inMemoryUserFNum = null;
+
+export const setAuthSession = (token, fnum) => {
+  inMemoryToken = token;
+  inMemoryUserFNum = fnum;
+};
+
+export const clearAuthSession = () => {
+  inMemoryToken = null;
+  inMemoryUserFNum = null;
+};
+
+export const getAuthToken = () => inMemoryToken;
+export const getAuthUserFNum = () => inMemoryUserFNum;
+
 export async function authFetch(endpoint, options = {}) {
-  const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
-  
-  // Always grab the freshest token
-  const token = localStorage.getItem('kmp_authToken'); 
-  const fnum = localStorage.getItem('kmp_currentUser_fnum');
+  // 🟢 Defend against double-domain prepending
+  const url = (endpoint.startsWith('http://') || endpoint.startsWith('https://'))
+    ? endpoint
+    : `${BASE_URL}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+
   const headers = { ...options.headers };
 
-  if (fnum) {
-    headers['X-User-FNum'] = fnum; 
+  // Attach Officer Signature Header from volatile RAM
+  if (inMemoryUserFNum) {
+    headers['X-User-FNum'] = inMemoryUserFNum;
   }
- 
-  // --- THE MAGIC LOGIN FIX ---
+
+  // --- FASTAPI OAUTH2 COMPLIANCE INTERCEPTOR ---
   if (url.includes('/api/auth/login') && typeof options.body === 'string') {
     try {
       const parsedBody = JSON.parse(options.body);
       const formData = new URLSearchParams();
-      formData.append("username", parsedBody.username || parsedBody.email);
-      formData.append("password", parsedBody.password);
-      options.body = formData; 
+      formData.append("username", parsedBody.username || parsedBody.email || parsedBody.fnum || "");
+      formData.append("password", parsedBody.password || "");
+      options.body = formData;
     } catch (e) {
-      // Ignore if it's not valid JSON
+      // Body is not a JSON string, retain original payload
     }
   }
 
-  // --- FIXED CONTENT-TYPE LOGIC (Only add if a body exists) ---
+  // --- CONTENT-TYPE NORMALIZATION ---
   if (options.body) {
     if (options.body instanceof URLSearchParams) {
       headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=utf-8';
@@ -35,33 +53,32 @@ export async function authFetch(endpoint, options = {}) {
     }
   }
 
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+  // Attach Bearer Token from in-memory store
+  if (inMemoryToken) {
+    headers['Authorization'] = `Bearer ${inMemoryToken}`;
   }
 
-  const response = await fetch(url, { 
-    ...options, 
+  const response = await fetch(url, {
+    ...options,
     headers,
-    credentials: 'include' // Crucial for cookie transmission if applicable
+    credentials: 'include' // Transmit secure HttpOnly cookies across origins
   });
 
-  // --- SEPARATE THE SECURITY RESPONSES ---
-  
-  // 1. Dead Token / Expired Session (Dispatch modal event instead of instant hard reload) - EXCEPT on login!
+  // --- SECURITY ENFORCEMENT PROTOCOLS ---
+
+  // 1. Token Expired or Session Terminated
   if (response.status === 401 && !url.includes('/api/auth/login')) {
-    console.warn("🔒 Secure Session Expired. Triggering session expiration modal...");
-    
-    // Dispatch event to show the SessionExpiredModal gracefully in App.jsx
+    console.warn("🔒 Secure In-Memory Session Expired. Purging memory references...");
+    clearAuthSession();
     window.dispatchEvent(new Event('auth-expired'));
-    
-    throw new Error("UNAUTHORIZED"); 
+    throw new Error("UNAUTHORIZED");
   }
-  
-  // 2. Lack of Rank/Clearance (Keep them logged in, just deny the action)
+
+  // 2. Privilege Violation / Insufficient Command Rank
   if (response.status === 403) {
-    console.warn("Forbidden: You do not have the required permissions.");
-    throw new Error("Clearance Denied"); 
+    console.warn("🛡️ Security Restriction: Sovereign Clearance Denied.");
+    throw new Error("Clearance Denied");
   }
-  
+
   return response;
 }

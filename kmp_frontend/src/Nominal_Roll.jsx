@@ -3,6 +3,7 @@ import {
   Users, PlusCircle, Edit, AlertTriangle, CheckCircle, Upload, 
   BarChart3, PieChart, ArrowRight 
 } from 'lucide-react';
+import { authFetch } from './api';
 import BulkNominalRollUpload from './BulkNominalRollUpload';
 import OfficerDossierModal from './OfficerDossierModal';
 
@@ -14,7 +15,7 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// Helper rank weights for sorting (Uganda Police Force Rank Hierarchy)
+// UPF Rank Weights for Command Seniority
 const getRankWeight = (rank) => {
   if (!rank) return 99;
   const r = rank.toUpperCase().trim();
@@ -62,28 +63,19 @@ const MetricCard = ({ title, value, colorClass }) => (
   </div>
 );
 
-const authFetch = async (url, options = {}) => {
-  const token = localStorage.getItem('kmp_authToken');
-  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-  
-  const existingHeaders = options.headers || {};
-  
-  const response = await fetch(`${API_URL}${url}`, { 
-    ...options, 
-    headers: { 
-      ...existingHeaders, 
-      "Authorization": `Bearer ${token}` 
-    } 
-  });
-
-  if (response.status === 401) {
-    console.warn("Session expired. Automatically logging out...");
-    localStorage.removeItem('kmp_authToken');
-    localStorage.removeItem('kmp_currentUser'); 
-    window.location.href = '/'; 
-  }
-
-  return response;
+const ExpandableTableCard = ({ title, children, onToggle }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  return (
+    <div className={isExpanded ? "fixed inset-4 z-[9999] bg-white rounded-xl shadow-2xl p-6 overflow-auto flex flex-col" : "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col"}>
+      <div className="bg-slate-50 px-4 py-3 border-b flex justify-between items-center">
+        <h3 className="text-gray-800 font-bold text-sm uppercase tracking-wider">{title}</h3>
+        <button onClick={() => { const next = !isExpanded; setIsExpanded(next); if (onToggle) onToggle(next); }} className="text-xs font-bold text-blue-600 hover:underline cursor-pointer">
+          {isExpanded ? 'Collapse ↙' : 'Expand ↗'}
+        </button>
+      </div>
+      <div className="p-0 overflow-auto flex-1">{children}</div>
+    </div>
+  );
 };
 
 const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_Rolls, setNominal_Rolls, Nominal_Roll_archives, setNominal_Roll_archives, setSidebarOpen }) => {
@@ -92,23 +84,19 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [selectedOfficer, setSelectedOfficer] = useState(null);
   const [updateSearch, setUpdateSearch] = useState(''); 
 
-  // 🟢 STRICT INTERNAL CLEARANCES
   const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||                        
                         (currentUser?.position || '').toUpperCase().includes('HR') ||
                         currentUser?.permissions?.system_admin === true;
 
   const canEditRecords = isCommandOrHR || currentUser?.permissions?.upload_hr === true;
   
-  // Resolve global view permissions
   const canViewGlobal = propCanViewGlobal !== undefined 
     ? propCanViewGlobal 
     : (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'RPC' || currentUser?.role === 'Deputy Commander' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true);
 
-  // Initialize region/station filters based on global access
   const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobal ? 'ALL STATIONS' : ((isCommandOrHR) ? 'ALL STATIONS' : currentUser?.station || ''));
 
-  // 🟢 Guard against background polling overwriting custom user selections
   const isFilterInitialized = useRef(false);
   useEffect(() => {
     if (!isFilterInitialized.current && currentUser?.station) {
@@ -123,20 +111,18 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   }, [canViewGlobal, currentUser?.station]);
 
-  // 🟢 NEW RE-INTEGRATION STATES
   const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
   const [archiveDetails, setArchiveDetails] = useState(null);
   const [customReason, setCustomReason] = useState('');
   const [previousFnum, setPreviousFnum] = useState('');
 
-  // 🟢 BULK ARCHIVE STATES
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [selectedOfficers, setSelectedOfficers] = useState([]);
   const [bulkArchiveReason, setBulkArchiveReason] = useState('TRANSFERRED');
   const [isBulkArchiving, setIsBulkArchiving] = useState(false);
 
-  const [viewMode, setViewMode] = useState('active'); // 'active' | 'archive'
-  const [showAnalytics, setShowAnalytics] = useState(false); // true | false
+  const [viewMode, setViewMode] = useState('active'); 
+  const [showAnalytics, setShowAnalytics] = useState(false); 
   
   const [metricCategory, setMetricCategory] = useState('RANK');  
   const [archiveReason, setArchiveReason] = useState('TRANSFERRED');
@@ -192,9 +178,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
     try {
       setNotification("Moving record to archive...");
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
       
-      const response = await authFetch(`${API_URL}/api/v1/nominal-roll/${encodeURIComponent(targetFnum)}/archive`, {
+      const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(targetFnum)}/archive`, {
         method: "PUT", 
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ archive_reason: archiveReason })
@@ -232,7 +217,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     setIsBulkArchiving(true);
     setNotification(`Archiving ${selectedOfficers.length} officers. Please wait...`);
     
-    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
     let successCount = 0;
     let failCount = 0;
     const newArchives = [];
@@ -240,7 +224,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
     await Promise.all(selectedOfficers.map(async (targetFnum) => {
       try {
-        const response = await authFetch(`${API_URL}/api/v1/nominal-roll/${encodeURIComponent(targetFnum)}/archive`, {
+        const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(targetFnum)}/archive`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ archive_reason: bulkArchiveReason })
@@ -284,10 +268,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     if (!canEditRecords) return alert("Security Restriction: You do not have clearance to modify the Nominal Roll.");
 
     const currentRolls = Array.isArray(Nominal_Rolls) ? Nominal_Rolls : [];
-    const token = localStorage.getItem('kmp_authToken');
     
-    if (!token) return setNotification("Error: Security token missing. Please log out and log back in.");
-
     if (formData.nin) {
         const cleanNin = formData.nin.toUpperCase().trim();
         if (!/^C[MF][A-Z0-9]{12}$/.test(cleanNin)) return setNotification("⚠️ Error: National ID must start with CM or CF, be exactly 14 characters.");
@@ -305,9 +286,10 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       };
       
       try {
-        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        const response = await fetch(`${API_URL}/api/v1/nominal-roll`, {
-          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newEntryPayload)
+        const response = await authFetch(`/api/v1/nominal-roll`, {
+          method: "POST", 
+          headers: { "Content-Type": "application/json" }, 
+          body: JSON.stringify(newEntryPayload)
         });
         
         const responseData = await response.json().catch(() => ({}));
@@ -330,8 +312,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     } else if (operation === 'update') {
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       try {
-          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-          const response = await authFetch(`${API_URL}/api/v1/nominal-roll/${formData.fnum || formData.f_num || formData.sn}`, {
+          const response = await authFetch(`/api/v1/nominal-roll/${formData.fnum || formData.f_num || formData.sn}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(updatedRecord) 
@@ -970,21 +951,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         />
       )}
     </div>  
-  );
-};
-
-const ExpandableTableCard = ({ title, children, onToggle }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-  return (
-    <div className={isExpanded ? "fixed inset-4 z-[9999] bg-white rounded-xl shadow-2xl p-6 overflow-auto flex flex-col" : "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col"}>
-      <div className="bg-slate-50 px-4 py-3 border-b flex justify-between items-center">
-        <h3 className="text-gray-800 font-bold text-sm uppercase tracking-wider">{title}</h3>
-        <button onClick={() => { const next = !isExpanded; setIsExpanded(next); if (onToggle) onToggle(next); }} className="text-xs font-bold text-blue-600 hover:underline cursor-pointer">
-          {isExpanded ? 'Collapse ↙' : 'Expand ↗'}
-        </button>
-      </div>
-      <div className="p-0 overflow-auto flex-1">{children}</div>
-    </div>
   );
 };
 
