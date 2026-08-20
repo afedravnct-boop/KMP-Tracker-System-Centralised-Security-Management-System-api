@@ -260,6 +260,52 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ==========================================
+# COMMAND TEMPLATES LIST ENDPOINT (FAIL-SAFE)
+# ==========================================
+@app.get("/api/v1/templates/list")
+def get_command_templates(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    try:
+        # Check if the CommandTemplate model/table exists in models
+        if not hasattr(models, 'CommandTemplate'):
+            return []
+            
+        templates = db.query(models.CommandTemplate).all()
+        results = []
+        for t in templates:
+            filename = getattr(t, 'file_name', None) or getattr(t, 's3_url', '') or "document"
+            ext = filename.split('.')[-1].lower() if '.' in filename else "unknown"
+            
+            if ext in ['docx', 'doc']:
+                file_type = "Word Document"
+            elif ext in ['xlsx', 'xls']:
+                file_type = "Excel Spreadsheet"
+            elif ext in ['pptx', 'ppt']:
+                file_type = "PowerPoint Presentation"
+            elif ext == 'pdf':
+                file_type = "PDF Document"
+            else:
+                file_type = "Command Template"
+
+            last_up = getattr(t, 'last_updated', None)
+            date_str = last_up.strftime("%Y-%m-%d") if isinstance(last_up, datetime) else str(last_up or "")
+
+            results.append({
+                "id": getattr(t, 'id', 1),
+                "name": filename,
+                "type": file_type,
+                "date": date_str,
+                "size": "N/A",
+                "file_path": getattr(t, 's3_url', ''),
+                "region": "KMP HEADQUARTERS",
+                "station": "HQ"
+            })
+        return results
+    except Exception as e:
+        print(f"Templates List Error Traceback: {str(e)}")
+        # Returns an empty list safely instead of a 500 crash if the table is uninitialized or missing columns
+        return []
+
 @app.post("/api/v1/users/heartbeat")
 @app.post("/api/v1/users/heartbeat/")
 def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
