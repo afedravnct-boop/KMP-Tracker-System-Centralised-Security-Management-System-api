@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { authFetch } from './api';
 import { 
   LayoutDashboard, BarChart3, Trophy, UserPlus, LogOut, Menu, 
   Search, PlusCircle, Edit, Download, Shield, CheckCircle, 
@@ -29,18 +28,19 @@ import Nominal_Roll from './Nominal_Roll';
 import Establishments from './Establishments';
 import SuccessStories from './SuccessStories';
 import SystemAssistant from './SystemAssistant';
+import { authFetch, hasValidSession, setAuthSession, clearAuthSession } from './api';
 
 // ====================================================================
 // 1. CONSTANTS & CONFIGURATION
 // ====================================================================
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+const API_URL = import.meta.env.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "POLICE HEADQUARTERS": ["NAGURU", "KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"]
+  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
 const POSITIONS = {
@@ -65,34 +65,28 @@ const POSITIONS = {
 // 🟢 SOVEREIGN OVERRIDE & ENFORCEMENT ENGINE
 export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = true) => {
   if (!currentUser) return false;
-  
-  // Super Admin absolute god-mode override
   if (currentUser.role === 'SUPER_ADMIN') return true;
 
   const perms = currentUser.permissions || {};
-
-  // 1. SOVEREIGN DENIAL OVERRIDE: If explicitly set to false in matrix, deny instantly
   if (typeof perms[permissionKey] === 'boolean') {
     return perms[permissionKey];
   }
-
-  // 2. Default standard baseline access (Open by default unless explicitly revoked)
   return Boolean(defaultRoleAccess);
 };
 
 export const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, filterStation) => {
-  const scopedSubmissions = allSubmissions.filter(entry => {
+  const scopedSubmissions = (Array.isArray(allSubmissions) ? allSubmissions : []).filter(entry => {
     if (filterRegion && filterRegion !== 'ALL REGIONS' && entry.region !== filterRegion) return false;
     if (filterStation && filterStation !== 'ALL STATIONS' && entry.station !== filterStation) return false;
     return true;
   });
 
   const calculatedStationSum = scopedSubmissions.reduce((sum, entry) => {
-    return sum + (Number(entry.total_value || entry.count || entry.amount) || 0);
+    return sum + (Number(entry.total_value || entry.count || entry.amount || entry.daily_lock_up) || 0);
   }, 0);
 
   const hqEntry = scopedSubmissions.find(entry => entry.is_hq_grand_total || entry.station === 'HQ GENERAL');
-  const hqEnteredTotal = hqEntry ? (Number(hqEntry.total_value || hqEntry.count || hqEntry.amount) || 0) : null;
+  const hqEnteredTotal = hqEntry ? (Number(hqEntry.total_value || hqEntry.count || hqEntry.amount || hqEntry.daily_lock_up) || 0) : null;
 
   return {
     displayTotal: hqEnteredTotal !== null && currentUser?.role !== 'STATION_ADMIN' ? hqEnteredTotal : calculatedStationSum,
@@ -107,13 +101,6 @@ export const canViewGlobalJurisdiction = (user) => {
   if (!user) return false;
   if (['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(user.role)) return true;
   return user.permissions?.view_global_roster === true || user.permissions?.global_observer === true;
-};
-
-const autoCapitalize = (text) => {
-  if (!text) return text;
-  return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
-    return separator + letter.toUpperCase();
-  });
 };
 
 export const formatEATDateTime = (dateStr) => {
@@ -134,44 +121,33 @@ export const formatEATDateTime = (dateStr) => {
 };
 
 const downloadWithAuth = async (url, filename) => {
-    try {
-      const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
-      
-      console.log("Starting secure download:", fullUrl);
-      const response = await fetch(fullUrl, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('kmp_authToken')}` }
-      });
-      
-      if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.detail || `Server Error ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      console.log("Blob received. Size:", blob.size, "bytes");
-
-      if (blob.size === 0) {
-          throw new Error("Received empty file (0 bytes). Check the backend.");
-      }
-
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.style.display = 'none';
-      link.href = downloadUrl;
-      link.download = filename;
-      
-      document.body.appendChild(link);
-      link.click();
-      
-      setTimeout(() => {
-          document.body.removeChild(link);
-          window.URL.revokeObjectURL(downloadUrl);
-      }, 2000);
-      
-    } catch (error) {
-      console.error("Download Error:", error);
-      alert(`Export Failed: ${error.message}`); 
+  try {
+    const response = await authFetch(url);
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || `Server Error ${response.status}`);
     }
+
+    const blob = await response.blob();
+    if (blob.size === 0) throw new Error("Received empty file (0 bytes).");
+
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.style.display = 'none';
+    link.href = downloadUrl;
+    link.download = filename;
+    
+    document.body.appendChild(link);
+    link.click();
+    
+    setTimeout(() => {
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    }, 2000);
+  } catch (error) {
+    console.error("Download Error:", error);
+    alert(`Export Failed: ${error.message}`); 
+  }
 };
 
 // ====================================================================
@@ -179,7 +155,7 @@ const downloadWithAuth = async (url, filename) => {
 // ====================================================================
 export function usePersistentState(key, initialValue) {
   const [state, setState] = useState(() => {
-    const saved = localStorage.getItem(key);
+    const saved = typeof window !== 'undefined' ? sessionStorage.getItem(key) : null;
     if (saved) {
       try { return JSON.parse(saved); } catch (e) { return initialValue; }
     }
@@ -189,7 +165,7 @@ export function usePersistentState(key, initialValue) {
   const setPersistentState = (newValue) => {
     setState(prev => {
       const valToSave = typeof newValue === 'function' ? newValue(prev) : newValue;
-      localStorage.setItem(key, JSON.stringify(valToSave));
+      sessionStorage.setItem(key, JSON.stringify(valToSave));
       return valToSave;
     });
   };
@@ -298,20 +274,13 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-
 const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], onMasterExport, onViewConsolidated, adminCommsData, onAcknowledgeComm, onOpenInbox }) => {
-  const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role);
-  const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role);
-  
-  const hasNominalClearance = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'Regional_HR_Officer'].includes(currentUser?.role) ||                        
-                            (currentUser?.position || '').toUpperCase().includes('HR') ||
-                            currentUser?.permissions?.view_nominal_roll ||                            
-                            currentUser?.permissions?.upload_hr;
+  const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role);
+  const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
 
   const rawComms = adminCommsData || [];
   const safeComms = Array.isArray(rawComms) ? rawComms : (rawComms.data || rawComms.items || []);
 
-  // 🟢 Baseline open access controls
   const canViewCrime = checkClearance(currentUser, 'acc_crime', true);
   const canViewOps = checkClearance(currentUser, 'acc_ops', true);
   const canViewStories = checkClearance(currentUser, 'acc_stories', true);
@@ -325,10 +294,10 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const today = new Date().getDay();
   const isEndOfWeek = today === 4 || today === 6 || today === 0;
 
-  const userRole = (currentUser.role || '').toUpperCase();
-  const userPosition = (currentUser.position || '').toUpperCase();
-  const userRegion = (currentUser.region || '').toUpperCase();
-  const userStation = (currentUser.station || '').trim().toUpperCase();
+  const userRole = (currentUser?.role || '').toUpperCase();
+  const userPosition = (currentUser?.position || '').toUpperCase();
+  const userRegion = (currentUser?.region || '').toUpperCase();
+  const userStation = (currentUser?.station || '').trim().toUpperCase();
 
   const isPoliceHQ = userRegion.includes('POLICE HEADQUARTERS') || userStation.includes('POLICE HEADQUARTERS');
   const isSystemManager = userPosition.includes('SYSTEM MANAGER') || userRole === 'SUPER_ADMIN';
@@ -337,7 +306,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const matchesFieldRole = targetKeywords.some(keyword => userPosition.includes(keyword) || userRole.includes(keyword));
 
   const isTargetOfficer = matchesFieldRole && !isPoliceHQ && !isSystemManager;
-
   const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
 
   const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => {
@@ -355,7 +323,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   });
 
   const hasSubmittedThisWeek = hasSubmittedReport || hasSubmittedStats;
-
   const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && isTargetOfficer;
   const showComplianceSuccess = isEndOfWeek && hasSubmittedThisWeek && isTargetOfficer;
 
@@ -379,7 +346,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 
   return (
     <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
-      
       {showComplianceWarning && (
         <div className="fixed bottom-6 right-6 z-[9990]">
           <div
@@ -443,14 +409,16 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 
       <div className="w-full">
         <h3 className="text-center text-xs font-bold text-slate-600 bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-            Welcome, <span className="text-blue-700">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
+          Welcome, <span className="text-blue-700">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
         </h3>   
       </div>
 
       <div onClick={onOpenInbox} className="min-h-[4.5rem] bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-green-400 group relative overflow-hidden mb-2">
         {hasUnread && (
-          <><div className="absolute top-2 right-2 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping"></div>
-            <div className="absolute top-2 right-2 w-2.5 h-2.5 bg-green-500 rounded-full"></div></>
+          <>
+            <div className="absolute top-2 right-2 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping"></div>
+            <div className="absolute top-2 right-2 w-2.5 h-2.5 bg-green-500 rounded-full"></div>
+          </>
         )}
         <div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center mr-3 group-hover:bg-slate-800 transition-colors shrink-0">
           <RadioReceiver size={18} className={hasUnread ? "text-green-400 animate-pulse" : "text-slate-400"} />
@@ -465,68 +433,68 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 
       {/* 🟢 OPTIMIZED MODULE GRID (Open by Default) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full">
-          {canViewCrime && (
-            <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 group">
-              <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mr-3 group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0"><LayoutDashboard size={18} /></div>
-              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Crime Registry</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Log and track daily incidents.</p></div>
-            </div>
-          )}
-          
-          {canViewOps && (
-            <div onClick={() => setCurrentPage('statistics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 group">
-              <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mr-3 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0"><BarChart3 size={18} /></div>
-              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">OPS Statistics</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Weekly numerical aggregates.</p></div>
-            </div>
-          )}
+        {canViewCrime && (
+          <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 group">
+            <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mr-3 group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0"><LayoutDashboard size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Crime Registry</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Log and track daily incidents.</p></div>
+          </div>
+        )}
+        
+        {canViewOps && (
+          <div onClick={() => setCurrentPage('statistics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 group">
+            <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mr-3 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0"><BarChart3 size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">OPS Statistics</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Weekly numerical aggregates.</p></div>
+          </div>
+        )}
 
-          {canViewStories && (
-            <div onClick={() => setCurrentPage('success')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-yellow-400 group">
-              <div className="w-10 h-10 rounded-full bg-yellow-50 text-yellow-600 flex items-center justify-center mr-3 group-hover:bg-yellow-500 group-hover:text-white transition-colors shrink-0"><Trophy size={18} /></div>
-              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Success Stories</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Document tactical milestones.</p></div>
-            </div>
-          )}
+        {canViewStories && (
+          <div onClick={() => setCurrentPage('success')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-yellow-400 group">
+            <div className="w-10 h-10 rounded-full bg-yellow-50 text-yellow-600 flex items-center justify-center mr-3 group-hover:bg-yellow-500 group-hover:text-white transition-colors shrink-0"><Trophy size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Success Stories</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Document tactical milestones.</p></div>
+          </div>
+        )}
 
-          {canViewEst && (
-            <div onClick={() => setCurrentPage('establishments')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-emerald-300 group">
-              <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mr-3 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0"><Building size={18} /></div>
-              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Map divisions, stations, posts.</p></div>
-            </div>
-          )}
+        {canViewEst && (
+          <div onClick={() => setCurrentPage('establishments')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-emerald-300 group">
+            <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mr-3 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0"><Building size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Map divisions, stations, posts.</p></div>
+          </div>
+        )}
 
-          {canViewAnalytics && (
-            <div onClick={() => setCurrentPage('analytics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-cyan-400 group">
-              <div className="w-10 h-10 rounded-full bg-cyan-50 text-cyan-600 flex items-center justify-center mr-3 group-hover:bg-cyan-600 group-hover:text-white transition-colors shrink-0"><PieChart size={18} /></div>
-              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Analytics Dashboard</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Graphs, cross-tabs & reports.</p></div>
-            </div>
-          )}
+        {canViewAnalytics && (
+          <div onClick={() => setCurrentPage('analytics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-cyan-400 group">
+            <div className="w-10 h-10 rounded-full bg-cyan-50 text-cyan-600 flex items-center justify-center mr-3 group-hover:bg-cyan-600 group-hover:text-white transition-colors shrink-0"><PieChart size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Analytics Dashboard</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Graphs, cross-tabs & reports.</p></div>
+          </div>
+        )}
 
-          {canViewHR && (
-            <div onClick={() => setCurrentPage('nominal-roll')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-purple-300 group">
-              <div className="w-10 h-10 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mr-3 group-hover:bg-purple-600 group-hover:text-white transition-colors shrink-0"><Users size={18} /></div>
-              <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Nominal Roll</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Personnel deployment registry.</p></div>
-            </div>
-          )}
+        {canViewHR && (
+          <div onClick={() => setCurrentPage('nominal-roll')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-purple-300 group">
+            <div className="w-10 h-10 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mr-3 group-hover:bg-purple-600 group-hover:text-white transition-colors shrink-0"><Users size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Nominal Roll</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Personnel deployment registry.</p></div>
+          </div>
+        )}
 
-          {canViewApprovals && (
-            <div onClick={() => setCurrentPage('approvals')} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-slate-500 group lg:col-span-2">
-              <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-3 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0"><UserPlus size={18} /></div>
-              <div><h3 className="text-sm font-extrabold text-white leading-tight">Access Approvals</h3><p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-snug">Review system logs and pending signups.</p></div>
-            </div>
-          )}
-          
-          {canViewConsolidated && (
-            <div onClick={onViewConsolidated} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-slate-500 group lg:col-span-2">
-              <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-3 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0"><Eye size={18} /></div>
-              <div><h3 className="text-sm font-extrabold text-white leading-tight">Consolidated Entries</h3><p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-snug">Cross-domain master visualization.</p></div>
-            </div>
-          )}
+        {canViewApprovals && (
+          <div onClick={() => setCurrentPage('approvals')} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-slate-500 group lg:col-span-2">
+            <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-3 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0"><UserPlus size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-white leading-tight">Access Approvals</h3><p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-snug">Review system logs and pending signups.</p></div>
+          </div>
+        )}
+        
+        {canViewConsolidated && (
+          <div onClick={onViewConsolidated} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-slate-500 group lg:col-span-2">
+            <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-3 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0"><Eye size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-white leading-tight">Consolidated Entries</h3><p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-snug">Cross-domain master visualization.</p></div>
+          </div>
+        )}
 
-          {canExportData && (
-            <div onClick={() => onMasterExport('all', 'all')} className="bg-blue-900 rounded-xl shadow-sm border border-blue-800 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-400 group lg:col-span-2">
-              <div className="w-10 h-10 rounded-full bg-blue-800 text-blue-200 flex items-center justify-center mr-3 group-hover:bg-blue-700 group-hover:text-white transition-colors shrink-0"><Download size={18} /></div>
-              <div><h3 className="text-sm font-extrabold text-white leading-tight">Download Master Database</h3><p className="text-[11px] text-blue-200 font-medium mt-0.5 leading-snug">Export full encrypted .xlsx ledger.</p></div>
-            </div>
-          )}
+        {canExportData && (
+          <div onClick={() => onMasterExport('all', 'all')} className="bg-blue-900 rounded-xl shadow-sm border border-blue-800 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-400 group lg:col-span-2">
+            <div className="w-10 h-10 rounded-full bg-blue-800 text-blue-200 flex items-center justify-center mr-3 group-hover:bg-blue-700 group-hover:text-white transition-colors shrink-0"><Download size={18} /></div>
+            <div><h3 className="text-sm font-extrabold text-white leading-tight">Download Master Database</h3><p className="text-[11px] text-blue-200 font-medium mt-0.5 leading-snug">Export full encrypted .xlsx ledger.</p></div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -567,7 +535,6 @@ const getRankWeight = (rankStr) => {
   if (cleanRank.startsWith('D/')) cleanRank = cleanRank.substring(2);
   return RANK_SENIORITY[cleanRank] !== undefined ? RANK_SENIORITY[cleanRank] : 50;
 };
-
 
 // 🟢 Helper function to categorize and extract qualifications and specific courses
 const parseEducationLevel = (rawVal) => {
@@ -639,25 +606,25 @@ const parseEducationLevel = (rawVal) => {
   if (str.includes("P.2") || str.includes("P2") || str.includes("PRIMARY 2")) return "P.2";
   if (str.includes("P.1") || str.includes("P1") || str.includes("PRIMARY 1")) return "P.1";
 
-  // Return formatted raw string for any custom qualifications
   return str;
 };
 
+// ====================================================================
+// --- PROFILE UPDATE SYSTEM (COMMAND WORKFLOW ENABLED FOR ALL USERS) ---
+// ====================================================================
 const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isRequestMode, setIsRequestMode] = useState(false);
   const [notification, setNotification] = useState(null);
   const [viewingImage, setViewingImage] = useState(null);
-
-  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
   
   const [passwordData, setPasswordData] = useState({ old_password: '', new_password: '' });
+  
   const handlePasswordChange = async (e) => {
     e.preventDefault();
     setNotification("⏳ Updating security key...");
     try {
-      const token = localStorage.getItem('kmp_authToken');
-const response = await authFetch(`/api/v1/users/change-password`, {
+      const response = await authFetch(`/api/v1/users/change-password`, {
         method: "PUT", 
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify(passwordData)
@@ -686,7 +653,7 @@ const response = await authFetch(`/api/v1/users/change-password`, {
 
   const handleInputChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
-const handlePhotoUpload = async (e) => {
+  const handlePhotoUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
       setNotification("⏳ Uploading and saving new profile photo...");
@@ -696,8 +663,6 @@ const handlePhotoUpload = async (e) => {
       uploadData.append("category", "user_profile");
 
       try {
-        // 1. Upload photo via authFetch (automatically attaches Bearer token & API_URL)
-        // NOTE: Do not set 'Content-Type' when sending FormData, the browser handles it.
         const response = await authFetch('/api/v1/users/upload-profile', { 
           method: "POST", 
           body: uploadData 
@@ -711,7 +676,6 @@ const handlePhotoUpload = async (e) => {
         const data = await response.json();
         const s3Url = data.full_s3_url || data.cloud_storage_path;
 
-        // 2. Link the uploaded photo URL to the user's profile in the database
         const securePayload = { ...formData, profile_photo_path: s3Url };
         const updateRes = await authFetch('/api/v1/users/profile/update', {
           method: "PUT", 
@@ -738,10 +702,9 @@ const handlePhotoUpload = async (e) => {
     if (e) e.preventDefault();
     setNotification("⏳ Sending official request to Command...");
     try {
-      const token = localStorage.getItem('kmp_authToken');
-      const response = await fetch(`${API_URL}/api/v1/requests`, {
+      const response = await authFetch('/api/v1/requests', {
         method: "POST", 
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fnum: currentUser.fnum, requested_fnum: formData.fnum !== currentUser.fnum ? formData.fnum : null,
           requested_name: formData.name !== currentUser.name ? formData.name : null, requested_rank: formData.rank !== currentUser.rank ? formData.rank : null,
@@ -767,7 +730,6 @@ const handlePhotoUpload = async (e) => {
     if (e) e.preventDefault();
     setNotification("⏳ Verifying profile data with HR Nominal Roll...");
     try {
-      const token = localStorage.getItem('kmp_authToken');
       const response = await authFetch(`/api/v1/users/profile/update`, {
         method: "PUT", 
         headers: { "Content-Type": "application/json" }, 
@@ -776,7 +738,7 @@ const handlePhotoUpload = async (e) => {
       const data = await response.json();
 
       if (!response.ok) throw new Error(data.detail || "Failed to update database.");
-      if (data.new_token) localStorage.setItem('kmp_authToken', data.new_token);
+      if (data.new_token) setAuthSession(data.new_token, formData.fnum);
 
       setCurrentUser({ ...currentUser, ...formData });
       setNotification("✅ Profile verified and successfully updated!");
@@ -792,7 +754,6 @@ const handlePhotoUpload = async (e) => {
     if (e) e.preventDefault();
     setNotification("⏳ Saving contact details...");
     try {
-      const token = localStorage.getItem('kmp_authToken');
       const securePayload = { ...currentUser, email: formData.email, phone: formData.phone, profile_photo_path: formData.profile_photo_path };
 
       const response = await authFetch(`/api/v1/users/profile/update`, {
@@ -820,7 +781,7 @@ const handlePhotoUpload = async (e) => {
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6 mt-10 relative z-10 animate-in fade-in duration-300">
-      <button onClick={() => setCurrentPage && setCurrentPage('home')} className="flex items-center text-xs font-bold text-slate-500 hover:text-blue-700 transition-colors bg-white hover:bg-blue-50 px-4 py-2 rounded-lg shadow-xs border border-slate-200 w-fit">
+      <button onClick={() => setCurrentPage && setCurrentPage('home')} className="flex items-center text-xs font-bold text-slate-500 hover:text-blue-700 transition-colors bg-white hover:bg-blue-50 px-4 py-2 rounded-lg shadow-xs border border-slate-200 w-fit cursor-pointer">
         <Home size={16} className="mr-2" /> Return to Master Dashboard
       </button>
 
@@ -844,7 +805,7 @@ const handlePhotoUpload = async (e) => {
               <p className="text-blue-300 font-medium tracking-wide mt-1 uppercase text-xs">{currentUser?.rank} • {currentUser?.station} • {currentUser?.region}</p>
             </div>
           </div>
-          <button onClick={() => { setIsEditing(!isEditing); setIsRequestMode(false); }} className={`z-10 flex items-center px-4 py-2 rounded-lg text-xs font-bold transition-colors shadow-xs ${isEditing ? 'bg-slate-700 text-white border border-slate-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}>
+          <button onClick={() => { setIsEditing(!isEditing); setIsRequestMode(false); }} className={`z-10 flex items-center px-4 py-2 rounded-lg text-xs font-bold transition-colors shadow-xs cursor-pointer ${isEditing ? 'bg-slate-700 text-white border border-slate-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}>
             {isEditing ? <><X size={16} className="mr-2"/> Cancel Edit</> : <><Edit size={16} className="mr-2"/> Update Profile</>}
           </button>
         </div>
@@ -865,10 +826,10 @@ const handlePhotoUpload = async (e) => {
                     Official Deployment Records {canAutoApprove ? "(Admin Override Active)" : isRequestMode ? "(Drafting Request)" : "(Restricted)"}
                   </div>
                   {!canAutoApprove && !isRequestMode && (
-                    <button type="button" onClick={() => setIsRequestMode(true)} className="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-xs"><Shield size={12} className="mr-1"/> Request Modification</button>
+                    <button type="button" onClick={() => setIsRequestMode(true)} className="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-xs cursor-pointer"><Shield size={12} className="mr-1"/> Request Modification</button>
                   )}
                   {!canAutoApprove && isRequestMode && (
-                    <button type="button" onClick={handleProfileSave} className="text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-xs"><Send size={12} className="mr-1"/> Send Official Request</button>
+                    <button type="button" onClick={handleProfileSave} className="text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-xs cursor-pointer"><Send size={12} className="mr-1"/> Send Official Request</button>
                   )}
                 </div>
 
@@ -914,7 +875,7 @@ const handlePhotoUpload = async (e) => {
                   </div>
                 </div>
                 <div className="flex justify-end pt-4 mt-2 border-t border-slate-100">
-                  <button type="submit" className="bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-6 rounded-lg shadow-xs transition-colors flex items-center text-xs">💾 Save Profile Changes</button>
+                  <button type="submit" className="bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-6 rounded-lg shadow-xs transition-colors flex items-center text-xs cursor-pointer">💾 Save Profile Changes</button>
                 </div>
               </form>
 
@@ -933,7 +894,7 @@ const handlePhotoUpload = async (e) => {
                   </div>
                 </div>
                 <div className="flex justify-end pt-4 mt-2 border-t border-slate-100">
-                  <button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg shadow-xs transition-colors text-xs">Update Security Key</button>
+                  <button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg shadow-xs transition-colors text-xs cursor-pointer">Update Security Key</button>
                 </div>
               </form>
 
@@ -995,7 +956,7 @@ const handlePhotoUpload = async (e) => {
       {/* FULL SCREEN IMAGE MODAL */}
       {viewingImage && (
         <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingImage(null)}>
-          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg">
+          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg cursor-pointer">
             <X size={24}/>
           </button>
           <img 
@@ -1011,374 +972,378 @@ const handlePhotoUpload = async (e) => {
   );
 };
 
+// ====================================================================
+// --- SECURE IN-MEMORY LOGIN SCREEN ---
+// ====================================================================
+const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUsers = [] }) => {
+  const [mode, setMode] = useState('login');
+  const [fnum, setfnum] = useState('');
+  const [password, setPassword] = useState('');
+  const [authMessage, setAuthMessage] = useState(null);
+  
+  const [signupData, setSignupData] = useState({
+    fnum: '', ipps: '', name: '', rank: '', sex: 'MALE', region: 'KMP NORTH', station: 'KAWEMPE', position: '', email: '', phone: '', password: '', profile_photo_path: ''
+  });
+  const [photoFile, setPhotoFile] = useState(null);
 
-// ====================================================================
-// --- PROFILE UPDATE SYSTEM (COMMAND WORKFLOW ENABLED FOR ALL USERS) ---
-// ====================================================================
-    const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUsers = [] }) => {
-      const [mode, setMode] = useState('login');
-      const [fnum, setfnum] = useState('');
-      const [password, setPassword] = useState('');
-      const [authMessage, setAuthMessage] = useState(null);
+  const availablePositions = [
+    ...POSITIONS.ADMIN, ...POSITIONS.RPC, `${signupData.region} Commander`, `Divisional Commander ${signupData.station}`, `CID Officer ${signupData.station}`, `Data Officer ${signupData.station}`, `Data Assistant Officer ${signupData.station}`
+  ];
+
+  const [attempts, setAttempts] = useState(0);
+  const [lockoutEnd, setLockoutEnd] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(0);
+
+  // 🟢 LOGIN SCREEN IDLE CURTAIN STATE
+  const [isLoginIdle, setIsLoginIdle] = useState(false);
+  const idleTimerRef = useRef(null);
+
+  useEffect(() => {
+    const IDLE_TIME = 30000; // 30 seconds of idle time
+
+    const resetIdle = () => {
+      setIsLoginIdle(false);
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(() => {
+        setIsLoginIdle(true);
+      }, IDLE_TIME);
+    };
+
+    resetIdle();
+
+    const events = ['mousemove', 'keydown', 'keyup', 'input', 'click', 'scroll', 'touchstart'];
+    events.forEach(event => window.addEventListener(event, resetIdle, true));
+
+    return () => {
+      clearTimeout(idleTimerRef.current);
+      events.forEach(event => window.removeEventListener(event, resetIdle, true));
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!lockoutEnd) return;
+    const interval = setInterval(() => {
+      const remaining = Math.ceil((lockoutEnd - Date.now()) / 1000);
+      if (remaining <= 0) { setLockoutEnd(null); setAttempts(0); setTimeLeft(0); } else { setTimeLeft(remaining); }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [lockoutEnd]);
+
+  const handleSignupChange = (e) => {
+    const { name, value } = e.target;
+    if (name === 'region') setSignupData({ ...signupData, region: value, station: REGIONAL_HIERARCHY[value][0], position: '' });
+    else if (name === 'station') setSignupData({ ...signupData, station: value, position: '' });
+    else setSignupData({ ...signupData, [name]: value });
+  };
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setAuthMessage("⏳ Uploading photo...");
+      const uploadData = new FormData(); 
+      uploadData.append("file", file); 
+      uploadData.append("fnum", signupData.fnum || "NEW_USER"); 
+      uploadData.append("category", "user_profile");
       
-      const [signupData, setSignupData] = useState({
-        fnum: '', ipps: '', name: '', rank: '', sex: 'MALE', region: 'KMP NORTH', station: 'KAWEMPE', position: '', email: '', phone: '', password: '', profile_photo_path: ''
-      });
-      const [photoFile, setPhotoFile] = useState(null);
+      try {
+        const response = await authFetch('/api/v1/users/upload-profile', { method: "POST", body: uploadData });
+        if (!response.ok) throw new Error("Upload failed on server.");
+        const data = await response.json();
+        setSignupData(prev => ({ ...prev, profile_photo_path: data.full_s3_url || data.cloud_storage_path }));
+        setAuthMessage("✅ Photo uploaded securely!"); setTimeout(() => setAuthMessage(null), 3000);
+      } catch (error) {
+        setSignupData(prev => ({ ...prev, profile_photo_path: URL.createObjectURL(file) })); setPhotoFile(file);
+        setAuthMessage("⚠️ Network error: Using local preview. Photo will upload on submit.");
+      }
+    }
+  };
 
-      const availablePositions = [
-        ...POSITIONS.ADMIN, ...POSITIONS.RPC, `${signupData.region} Commander`, `Divisional Commander ${signupData.station}`, `CID Officer ${signupData.station}`, `Data Officer ${signupData.station}`, `Data Assistant Officer ${signupData.station}`
-      ];
+  const handleSignupSubmit = async (e) => {
+    e.preventDefault();
+    if (!signupData.profile_photo_path) return setAuthMessage("⚠️ Error: Profile photo upload is mandatory.");
+    if (!/^\d{10}$/.test(signupData.phone)) return setAuthMessage("⚠️ Error: Contact number must be exactly 10 digits.");
 
-      const [attempts, setAttempts] = useState(0);
-      const [lockoutEnd, setLockoutEnd] = useState(null);
-      const [timeLeft, setTimeLeft] = useState(0);
+    setAuthMessage("⏳ Submitting authorization request...");
+    try {
+      const formData = new FormData();
+      Object.keys(signupData).forEach(key => formData.append(key, signupData[key]));
+      
+      let derivedRole = 'USER';
+      if (signupData.position === 'System Manager') derivedRole = 'SUPER_ADMIN';
+      else if (POSITIONS.ADMIN.includes(signupData.position) || signupData.position.includes('Divisional Commander') || signupData.station === 'KMP HEADQUARTERS' || signupData.station === 'KMP Headquarters' || signupData.region === 'POLICE HEADQUARTERS') derivedRole = 'ADMIN';
+      else if (POSITIONS.RPC.includes(signupData.position) || signupData.position.includes(`${signupData.region} Commander`)) derivedRole = 'RPC';
+      
+      formData.set("role", derivedRole);
+      if (photoFile && signupData.profile_photo_path.startsWith('blob:')) formData.set("file", photoFile);
 
-// 🟢 LOGIN SCREEN IDLE CURTAIN STATE
-      const [isLoginIdle, setIsLoginIdle] = useState(false);
-      const idleTimerRef = useRef(null);
+      const response = await authFetch('/api/v1/auth/signup', { method: 'POST', body: formData });
+      const data = await response.json();
 
-      useEffect(() => {
-        const IDLE_TIME = 30000; // 30 seconds of idle time
+      if (response.ok) {
+        setAuthMessage("✅ Account Request Submitted! Awaiting Admin Approval.");
+        if (onSignup) onSignup({ ...signupData, role: derivedRole });
+        setTimeout(() => setMode('login'), 2000);
+      } else { setAuthMessage(`❌ Registration Failed: ${data.detail || "Server error"}`); }
+    } catch (error) { setAuthMessage("❌ Connection error. Could not reach server."); }
+  };
 
-        const resetIdle = () => {
-          setIsLoginIdle(false);
-          clearTimeout(idleTimerRef.current);
-          idleTimerRef.current = setTimeout(() => {
-            setIsLoginIdle(true);
-          }, IDLE_TIME);
-        };
+  const handleLoginSubmit = async (e) => { 
+    e.preventDefault();
+    if (lockoutEnd) return;
 
-        // Start the clock on load
-        resetIdle();
+    if (mode === 'login') {
+      try {
+        const response = await authFetch('/api/auth/login', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ username: fnum.trim(), password: password.trim() }) 
+        });
+        const data = await response.json();
 
-        // 🟢 Array includes 'keyup' and 'input' to detect typing
-        const events = ['mousemove', 'keydown', 'keyup', 'input', 'click', 'scroll', 'touchstart'];
-        
-        // Attach all listeners automatically
-        events.forEach(event => window.addEventListener(event, resetIdle, true));
-
-        return () => {
-          clearTimeout(idleTimerRef.current);
-          // Remove all listeners automatically
-          events.forEach(event => window.removeEventListener(event, resetIdle, true));
-        };
-      }, []); // 🟢 Empty array ensures the timer never resets prematurely!
-
-      useEffect(() => {
-        if (!lockoutEnd) return;
-        const interval = setInterval(() => {
-          const remaining = Math.ceil((lockoutEnd - Date.now()) / 1000);
-          if (remaining <= 0) { setLockoutEnd(null); setAttempts(0); setTimeLeft(0); } else { setTimeLeft(remaining); }
-        }, 1000);
-        return () => clearInterval(interval);
-      }, [lockoutEnd]);
-
-      const handleSignupChange = (e) => {
-        const { name, value } = e.target;
-        if (name === 'region') setSignupData({ ...signupData, region: value, station: REGIONAL_HIERARCHY[value][0], position: '' });
-        else if (name === 'station') setSignupData({ ...signupData, station: value, position: '' });
-        else setSignupData({ ...signupData, [name]: value });
-      };
-
-      const handlePhotoUpload = async (e) => {
-        const file = e.target.files[0];
-        if (file) {
-          setAuthMessage("⏳ Uploading photo...");
-          const uploadData = new FormData(); uploadData.append("file", file); uploadData.append("fnum", signupData.fnum || "NEW_USER"); uploadData.append("category", "user_profile");
-          try {
-            const response = await fetch(`${API_URL}/api/v1/users/upload-profile`, { method: "POST", body: uploadData });
-            if (!response.ok) throw new Error("Upload failed on server.");
-            const data = await response.json();
-            setSignupData(prev => ({ ...prev, profile_photo_path: data.full_s3_url || data.cloud_storage_path }));
-            setAuthMessage("✅ Photo uploaded securely!"); setTimeout(() => setAuthMessage(null), 3000);
-          } catch (error) {
-            setSignupData(prev => ({ ...prev, profile_photo_path: URL.createObjectURL(file) })); setPhotoFile(file);
-            setAuthMessage("⚠️ Network error: Using local preview. Photo will upload on submit.");
-          }
+        if (response.ok) {
+          setAuthSession(data.access_token, data.fnum || fnum.trim());
+          onLogin({ 
+            fnum: data.fnum || fnum.trim(), 
+            rank: data.rank || 'AIP', 
+            name: data.name || 'Afedra Vincent', 
+            sex: data.sex || 'MALE', 
+            ipps: data.ipps || '950010',
+            region: data.region || 'KMP HEADQUARTERS', 
+            division: data.division || 'KMP HEADQUARTERS', 
+            station: data.station || 'KMP HEADQUARTERS',
+            position: data.position || 'System Manager', 
+            email: data.email || 'afedravnct@gmail.com', 
+            phone: data.phone || '0779302872', 
+            role: data.role || 'SUPER_ADMIN',
+            permissions: data.permissions || {}, 
+            profile_photo_path: data.profile_photo_path || ''
+          });
+        } else {
+          setPassword(''); setAuthMessage(data.detail || "Incorrect Force Number or password");
+          const newAttempts = attempts + 1; setAttempts(newAttempts);
+          if (newAttempts >= 3) setLockoutEnd(Date.now() + 30000);
         }
-      };
+      } catch (err) { setPassword(''); setAuthMessage("Network error. Could not connect to the server."); }
+    } else if (mode === 'forgot') {
+      try {
+        const formData = new URLSearchParams(); 
+        formData.append('fnum', fnum.trim());
+        const response = await authFetch('/api/v1/auth/request-reset', { method: 'POST', body: formData });
+        const data = await response.json();
+        if (response.ok) { setMode('login'); setfnum(''); setAuthMessage("✅ " + (data.message || "Account recovery requested.")); } 
+        else { setAuthMessage(`❌ ${data.detail || "Failed to submit request."}`); }
+      } catch (err) { setAuthMessage("❌ Network error. Could not connect to the server."); }
+    }
+  };
 
-      const handleSignupSubmit = async (e) => {
-        e.preventDefault();
-        if (!signupData.profile_photo_path) return setAuthMessage("⚠️ Error: Profile photo upload is mandatory.");
-        if (!/^\d{10}$/.test(signupData.phone)) return setAuthMessage("⚠️ Error: Contact number must be exactly 10 digits.");
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative overflow-hidden">
+      
+      {/* 🟢 THE FULL-SCREEN LOGIN CURTAIN */}
+      <div 
+        className={`security-curtain-overlay fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center transition-opacity duration-700 ease-in-out ${
+          isLoginIdle ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        <div className="absolute top-0 w-full h-2 bg-[#000000]"></div>
+        <div className="absolute top-2 w-full h-2 bg-[#facc15]"></div>
+        <div className="absolute top-4 w-full h-2 bg-[#dc2626]"></div>
 
-        setAuthMessage("⏳ Submitting authorization request...");
-        try {
-          const formData = new FormData();
-          Object.keys(signupData).forEach(key => formData.append(key, signupData[key]));
+        <div 
+          className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-cover pointer-events-none" 
+          style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}
+        ></div>
+
+        <div className="relative z-10 flex flex-col items-center text-center p-6 max-w-3xl">
+          <div className="upf-css-globe mb-6 border border-slate-600/50"></div>
           
-          let derivedRole = 'USER';
-          if (signupData.position === 'System Manager') derivedRole = 'SUPER_ADMIN';
-          else if (POSITIONS.ADMIN.includes(signupData.position) || signupData.position.includes('Divisional Commander') || signupData.station === 'KMP HEADQUARTERS' || signupData.station === 'KMP Headquarters' || signupData.region === 'POLICE HEADQUARTERS') derivedRole = 'ADMIN';
-          else if (POSITIONS.RPC.includes(signupData.position) || signupData.position.includes(`${signupData.region} Commander`)) derivedRole = 'RPC';
-          
-          formData.set("role", derivedRole);
-          if (photoFile && signupData.profile_photo_path.startsWith('blob:')) formData.set("file", photoFile);
-
-          const response = await fetch(`${API_URL}/api/v1/auth/signup`, { method: 'POST', body: formData });
-          const data = await response.json();
-
-          if (response.ok) {
-            setAuthMessage("✅ Account Request Submitted! Awaiting Admin Approval.");
-            if (onSignup) onSignup({ ...signupData, role: derivedRole });
-            setTimeout(() => setMode('login'), 2000);
-          } else { setAuthMessage(`❌ Registration Failed: ${data.detail || "Server error"}`); }
-        } catch (error) { setAuthMessage("❌ Connection error. Could not reach server."); }
-      };
-
-      const handleLoginSubmit = async (e) => { 
-        e.preventDefault();
-        if (lockoutEnd) return;
-
-        if (mode === 'login') {
-          try {
-            const formData = new URLSearchParams(); formData.append('username', fnum.trim()); formData.append('password', password.trim());
-            const response = await fetch(`${API_URL}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData });
-            const data = await response.json();
-
-            if (response.ok) {
-              localStorage.setItem('kmp_authToken', data.access_token);
-              onLogin({ 
-                  fnum: data.fnum || 'A/2408', rank: data.rank || 'AIP', name: data.name || 'Afedra Vincent', sex: data.sex || 'MALE', ipps: data.ipps || '950010',
-                  region: data.region || 'KMP HEADQUARTERS', division: data.division || 'KMP HEADQUARTERS', station: data.station || 'KMP HEADQUARTERS',
-                  position: data.position || 'System Manager', email: data.email || 'afedravnct@gmail.com', phone: data.phone || '0779302872', role: data.role || 'SUPER_ADMIN',
-                  permissions: data.permissions || {}, profile_photo_path: data.profile_photo_path || ''
-              });
-            } else {
-              setPassword(''); setAuthMessage(data.detail || "Incorrect Force Number or password");
-              const newAttempts = attempts + 1; setAttempts(newAttempts);
-              if (newAttempts >= 3) setLockoutEnd(Date.now() + 30000);
-            }
-          } catch (err) { setPassword(''); setAuthMessage("Network error. Could not connect to the server."); }
-        } else if (mode === 'forgot') {
-          try {
-            const formData = new URLSearchParams(); formData.append('fnum', fnum.trim());
-            const response = await fetch(`${API_URL}/api/v1/auth/request-reset`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData });
-            const data = await response.json();
-            if (response.ok) { setMode('login'); setfnum(''); setAuthMessage("✅ " + (data.message || "Account recovery requested.")); } 
-            else { setAuthMessage(`❌ ${data.detail || "Failed to submit request."}`); }
-          } catch (err) { setAuthMessage("❌ Network error. Could not connect to the server."); }
-        }
-      };
-
-      return (
-        <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative overflow-hidden">
-          
-          {/* 🟢 THE FULL-SCREEN LOGIN CURTAIN */}
-          <div 
-            className={`security-curtain-overlay fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center transition-opacity duration-700 ease-in-out ${
-              isLoginIdle ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-            }`}
-          >
-            {/* Top Flag Stripes */}
-            <div className="absolute top-0 w-full h-2 bg-[#000000]"></div>
-            <div className="absolute top-2 w-full h-2 bg-[#facc15]"></div>
-            <div className="absolute top-4 w-full h-2 bg-[#dc2626]"></div>
-
-            {/* Faded Background Emblem Watermark */}
-            <div 
-              className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-cover pointer-events-none" 
-              style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}
-            ></div>
-
-            <div className="relative z-10 flex flex-col items-center text-center p-6 max-w-3xl">
-              <div className="upf-css-globe mb-6 border border-slate-600/50"></div>
-              
-              {/* Sweep-and-Settle Animated Title */}
-              <div className="curtain-title-container">
-                <h2 className="text-2xl sm:text-3xl font-extrabold text-center text-white tracking-widest uppercase drop-shadow-lg flex justify-center flex-wrap leading-relaxed">
-                  {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM".split("").map((char, index) => {
-                    const delay = Math.pow(index, 1.2) * 0.025; 
-                    return (
-                      <span
-                        key={index}
-                        className="animate-sweep-letter"
-                        style={{ 
-                          animationDelay: `${delay}s`,
-                          whiteSpace: "pre" 
-                        }}
-                      >
-                        {char === " " ? "\u00A0" : char}
-                      </span>
-                    );
-                  })}
-                </h2>
-              </div>
-
-              {/* Subtitle Badge */}
-              <div className="mt-6 inline-flex items-center space-x-2 bg-slate-900/90 px-5 py-2.5 rounded-full border border-cyan-500/30 shadow-xl backdrop-blur-md">
-                <Lock size={16} className="text-yellow-400 animate-bounce" />
-                <span className="text-xs sm:text-sm font-bold text-blue-200 tracking-wider">
-                  KMP TRACKER SYSTEM - KMPCSDMS160626 • IDLE STANDBY MODE
-                </span>
-                <Globe size={18} className="text-cyan-400 animate-spin-globe" />
-              </div>
-
-              <p className="text-xs text-slate-400 mt-4 font-medium tracking-wide">
-                Move your mouse, click, or press any key to return to the login interface.
-              </p>
-            </div>
-
-            {/* Bottom Flag Stripes */}
-            <div className="absolute bottom-4 w-full h-2 bg-[#dc2626]"></div> 
-            <div className="absolute bottom-2 w-full h-2 bg-[#facc15]"></div> 
-            <div className="absolute bottom-0 w-full h-2 bg-[#000000]"></div> 
+          <div className="curtain-title-container">
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-center text-white tracking-widest uppercase drop-shadow-lg flex justify-center flex-wrap leading-relaxed">
+              {"KMP CENTRALISED SECURITY DATA MANAGEMENT SYSTEM".split("").map((char, index) => {
+                const delay = Math.pow(index, 1.2) * 0.025; 
+                return (
+                  <span
+                    key={index}
+                    className="animate-sweep-letter"
+                    style={{ 
+                      animationDelay: `${delay}s`,
+                      whiteSpace: "pre" 
+                    }}
+                  >
+                    {char === " " ? "\u00A0" : char}
+                  </span>
+                );
+              })}
+            </h2>
           </div>
 
-          {/* MAIN CARD CONTAINER */}
-          <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
-            
-            {/* 🟢 LOGIN / SIGNUP FORM AREA */}
-            <div className="bg-slate-900 p-6 text-center relative">
-              <img 
-                src="/upf_badge.png" 
-                alt="UPF Logo" 
-                className="w-24 h-24 mx-auto mb-4 object-contain contrast-200 brightness-75 drop-shadow-sm" 
-                onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} 
-              />
-              <h1 className="text-2xl font-extrabold text-white tracking-wide">Uganda Police Force</h1>
-              <h2 className="text-lg font-bold text-blue-400 mt-1">Kampala Metropolitan Police Headquarters</h2>
-              <h3 className="text-sm font-medium text-slate-400 mt-2 uppercase tracking-widest">Centralised Security Data Management System Access Portal</h3>
-            </div>
-            
-            <div className="p-6">
-              {lockoutEnd ? (
-                <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-center">
-                  <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-red-500"/>
-                  <h3 className="font-bold text-lg">Too Many Attempts</h3>
-                  <p className="text-sm mt-1">Account locked for security purposes. Please wait <span className="font-bold">{timeLeft} seconds</span> before trying again.</p>
-                </div>
-              ) : (
-                <>
-                  {authMessage && (
-                    <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${authMessage.includes('Error') || authMessage.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
-                     <span className="text-sm font-medium">{typeof authMessage === 'string' ? authMessage : JSON.stringify(authMessage)}</span>
-                    </div>
-                  )}
-                  
-                  {mode === 'signup' ? (
-                    <form onSubmit={handleSignupSubmit} className="space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
-                      <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">Request Access Authorization</h3>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-gray-700 mb-1">File/Force Number *</label>
-                          <input type="text" name="fnum" required value={signupData.fnum} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm" placeholder="e.g. A/2408"/>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-700 mb-1">IPPS Number *</label>
-                          <input type="text" name="ipps" required maxLength="6" value={signupData.ipps} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="123456"/>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
-                          <input type="text" name="name" required value={signupData.name} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-700 mb-1">Rank *</label>
-                          <input type="text" name="rank" required value={signupData.rank} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. AIP"/>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-700 mb-1">Region *</label>
-                          <select name="region" value={signupData.region} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
-                            {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                          <select name="station" value={signupData.station} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
-                            {REGIONAL_HIERARCHY[signupData.region]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
-                          </select>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label>
-                        <select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
-                          <option value="">-- Select Official Title --</option>
-                          {availablePositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
-                        </select>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-gray-700 mb-1">Email *</label>
-                          <input type="email" name="email" required value={signupData.email} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-700 mb-1">Telephone *</label>
-                          <input type="tel" name="phone" required maxLength="10" pattern="\d{10}" value={signupData.phone} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. 0772123456" />
-                        </div>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                        <label className="block text-xs font-bold text-gray-700 mb-2">Officer Identification Photo (Mandatory) *</label>
-                        <div className="flex items-center space-x-4">
-                          {signupData.profile_photo_path ? (
-                            <img src={signupData.profile_photo_path} alt="Preview" className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm" />
-                          ) : (
-                            <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300"><Camera size={24} /></div>
-                          )}
-                          <div className="flex-1">
-                            <input type="file" accept="image/*" required onChange={handlePhotoUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
-                            <p className="text-xs text-gray-400 mt-1">Directly uploads to secure storage</p>
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 mb-1">Create Password *</label>
-                        <input type="password" name="password" required value={signupData.password} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
-                      </div>
-                      <div className="pt-4 flex flex-col space-y-3">
-                        <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 rounded-lg transition-colors text-sm">Submit Registration Request</button>
-                        <button type="button" onClick={() => setMode('login')} className="text-sm text-blue-600 hover:underline font-medium">Cancel and return to Login</button>
-                      </div>
-                    </form>
-                  ) : (
-                    <form onSubmit={handleLoginSubmit} className="space-y-4">
-                      {attempts > 0 && mode === 'login' && (
-                        <div className="text-xs text-red-600 font-bold bg-red-50 p-2 rounded text-center">
-                          Invalid credentials. Attempts remaining: {3 - attempts}
-                        </div>
-                      )}
-                      <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-1">Force Number</label>
-                        <div className="relative">
-                          <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"/>
-                          <input type="text" required value={fnum} onChange={(e) => setfnum(e.target.value)} className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none uppercase" placeholder="e.g. A/2408 or 63034"/>
-                        </div>
-                      </div>
-                      {mode === 'login' && (
-                        <div>
-                          <label className="block text-sm font-bold text-gray-700 mb-1">Security Key (Password)</label>
-                          <div className="relative">
-                            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"/>
-                            <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="••••••••"/>
-                          </div>
-                        </div>
-                      )}
-                      <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg transition-colors">
-                        {mode === 'login' ? 'Authorize Access' : 'Request Password Reset'}
-                      </button>
-                      <div className="text-center mt-4 flex justify-between px-4">
-                        <button type="button" onClick={() => {setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0);}} className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium">
-                          {mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}
-                        </button>
-                        {mode === 'login' && (
-                          <button type="button" onClick={() => setMode('signup')} className="text-sm text-blue-600 font-bold hover:underline">
-                            Sign Up (Request Access)
-                          </button>
-                        )}
-                      </div>
-                    </form>
-                  )}
-                </>
-              )}
-            </div>
+          <div className="mt-6 inline-flex items-center space-x-2 bg-slate-900/90 px-5 py-2.5 rounded-full border border-cyan-500/30 shadow-xl backdrop-blur-md">
+            <Lock size={16} className="text-yellow-400 animate-bounce" />
+            <span className="text-xs sm:text-sm font-bold text-blue-200 tracking-wider">
+              KMP TRACKER SYSTEM - KMPCSDMS160626 • IDLE STANDBY MODE
+            </span>
+            <Globe size={18} className="text-cyan-400 animate-spin-globe" />
           </div>
-          <p className="text-xs text-gray-400 mt-6 flex items-center relative z-10">
-            <Lock className="w-3 h-3 mr-1"/> Protected by Central Command Security Protocols
+
+          <p className="text-xs text-slate-400 mt-4 font-medium tracking-wide">
+            Move your mouse, click, or press any key to return to the login interface.
           </p>
         </div>
-      );
-    };
+
+        <div className="absolute bottom-4 w-full h-2 bg-[#dc2626]"></div> 
+        <div className="absolute bottom-2 w-full h-2 bg-[#facc15]"></div> 
+        <div className="absolute bottom-0 w-full h-2 bg-[#000000]"></div> 
+      </div>
+
+      <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
+        <div className="bg-slate-900 p-6 text-center relative">
+          <img 
+            src="/upf_badge.png" 
+            alt="UPF Logo" 
+            className="w-24 h-24 mx-auto mb-4 object-contain contrast-200 brightness-75 drop-shadow-sm" 
+            onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; }} 
+          />
+          <h1 className="text-2xl font-extrabold text-white tracking-wide">Uganda Police Force</h1>
+          <h2 className="text-lg font-bold text-blue-400 mt-1">Kampala Metropolitan Police Headquarters</h2>
+          <h3 className="text-sm font-medium text-slate-400 mt-2 uppercase tracking-widest">Centralised Security Data Management System Access Portal</h3>
+        </div>
+        
+        <div className="p-6">
+          {lockoutEnd ? (
+            <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-center">
+              <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-red-500"/>
+              <h3 className="font-bold text-lg">Too Many Attempts</h3>
+              <p className="text-sm mt-1">Account locked for security purposes. Please wait <span className="font-bold">{timeLeft} seconds</span> before trying again.</p>
+            </div>
+          ) : (
+            <>
+              {authMessage && (
+                <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${authMessage.includes('Error') || authMessage.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
+                 <span className="text-sm font-medium">{typeof authMessage === 'string' ? authMessage : JSON.stringify(authMessage)}</span>
+                </div>
+              )}
+              
+              {mode === 'signup' ? (
+                <form onSubmit={handleSignupSubmit} className="space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
+                  <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">Request Access Authorization</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">File/Force Number *</label>
+                      <input type="text" name="fnum" required value={signupData.fnum} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm" placeholder="e.g. A/2408"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">IPPS Number *</label>
+                      <input type="text" name="ipps" required maxLength="6" value={signupData.ipps} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="123456"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
+                      <input type="text" name="name" required value={signupData.name} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Rank *</label>
+                      <input type="text" name="rank" required value={signupData.rank} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. AIP"/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Region *</label>
+                      <select name="region" value={signupData.region} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
+                        {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
+                      <select name="station" value={signupData.station} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
+                        {REGIONAL_HIERARCHY[signupData.region]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label>
+                    <select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
+                      <option value="">-- Select Official Title --</option>
+                      {availablePositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Email *</label>
+                      <input type="email" name="email" required value={signupData.email} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Telephone *</label>
+                      <input type="tel" name="phone" required maxLength="10" pattern="\d{10}" value={signupData.phone} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. 0772123456" />
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                    <label className="block text-xs font-bold text-gray-700 mb-2">Officer Identification Photo (Mandatory) *</label>
+                    <div className="flex items-center space-x-4">
+                      {signupData.profile_photo_path ? (
+                        <img src={signupData.profile_photo_path} alt="Preview" className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm" />
+                      ) : (
+                        <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300"><Camera size={24} /></div>
+                      )}
+                      <div className="flex-1">
+                        <input type="file" accept="image/*" required onChange={handlePhotoUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
+                        <p className="text-xs text-gray-400 mt-1">Directly uploads to secure storage</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Create Password *</label>
+                    <input type="password" name="password" required value={signupData.password} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
+                  </div>
+                  <div className="pt-4 flex flex-col space-y-3">
+                    <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 rounded-lg transition-colors text-sm cursor-pointer">Submit Registration Request</button>
+                    <button type="button" onClick={() => setMode('login')} className="text-sm text-blue-600 hover:underline font-medium cursor-pointer">Cancel and return to Login</button>
+                  </div>
+                </form>
+              ) : (
+                <form onSubmit={handleLoginSubmit} className="space-y-4">
+                  {attempts > 0 && mode === 'login' && (
+                    <div className="text-xs text-red-600 font-bold bg-red-50 p-2 rounded text-center">
+                      Invalid credentials. Attempts remaining: {3 - attempts}
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Force Number</label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"/>
+                      <input type="text" required value={fnum} onChange={(e) => setfnum(e.target.value)} className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none uppercase text-sm" placeholder="e.g. A/2408 or 63034"/>
+                    </div>
+                  </div>
+                  {mode === 'login' && (
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Security Key (Password)</label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"/>
+                        <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="••••••••"/>
+                      </div>
+                    </div>
+                  )}
+                  <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg transition-colors cursor-pointer text-xs uppercase tracking-wider">
+                    {mode === 'login' ? 'Authorize Access' : 'Request Password Reset'}
+                  </button>
+                  <div className="text-center mt-4 flex justify-between px-4">
+                    <button type="button" onClick={() => {setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0);}} className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium cursor-pointer">
+                      {mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}
+                    </button>
+                    {mode === 'login' && (
+                      <button type="button" onClick={() => setMode('signup')} className="text-sm text-blue-600 font-bold hover:underline cursor-pointer">
+                        Sign Up (Request Access)
+                      </button>
+                    )}
+                  </div>
+                </form>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+      <p className="text-xs text-gray-400 mt-6 flex items-center relative z-10">
+        <Lock className="w-3 h-3 mr-1"/> Protected by Central Command Security Protocols
+      </p>
+    </div>
+  );
+};
 
 
 const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals }) => {
@@ -1387,7 +1352,7 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
   // Group submissions by Region and Station to build the drill-down tree
   const breakdownTree = {};
   
-  allSubmissions.forEach(entry => {
+  (Array.isArray(allSubmissions) ? allSubmissions : []).forEach(entry => {
     if (entry.is_hq_grand_total || (entry.station || '').includes('HEADQUARTERS GENERAL TOTAL')) return;
     
     const region = (entry.region || 'UNKNOWN REGION').trim().toUpperCase();
@@ -1417,7 +1382,7 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
             </h3>
             <p className="text-[11px] text-slate-400 mt-0.5">Hierarchical aggregation of regional and station entries.</p>
           </div>
-          <button onClick={onClose} className="hover:bg-slate-800 p-1.5 rounded transition"><X size={18}/></button>
+          <button onClick={onClose} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer"><X size={18}/></button>
         </div>
 
         {/* Summary Banner */}
@@ -1460,7 +1425,7 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
 
         {/* Footer */}
         <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
-          <button onClick={onClose} className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs uppercase tracking-wider shadow">
+          <button onClick={onClose} className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs uppercase tracking-wider shadow cursor-pointer">
             Close Breakdown
           </button>
         </div>
@@ -1474,21 +1439,20 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
 // --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN & SESSION TIMEOUT COMPONENT ---
 // ====================================================================
 const WorkspaceSecurityCurtain = () => {
-  const [isWorkspaceIdle, setIsWorkspaceIdle] = React.useState(false);
-  const [isReadingMode, setIsReadingMode] = React.useState(false);
-  const [isExpanded, setIsExpanded] = React.useState(false);
+  const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
+  const [isReadingMode, setIsReadingMode] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   
   // Session Timeout States
-  const [showIdleWarning, setShowIdleWarning] = React.useState(false);
-  const [idleCountdown, setIdleCountdown] = React.useState(60);
-  const [isTimedOut, setIsTimedOut] = React.useState(false);
+  const [showIdleWarning, setShowIdleWarning] = useState(false);
+  const [idleCountdown, setIdleCountdown] = useState(60);
+  const [isTimedOut, setIsTimedOut] = useState(false);
 
-  const idleTimerRef = React.useRef(null);
-  const sessionTimerRef = React.useRef(null);
-  const countdownTimerRef = React.useRef(null);
+  const idleTimerRef = useRef(null);
+  const sessionTimerRef = useRef(null);
+  const countdownTimerRef = useRef(null);
 
-  // 🟢 1. ROBUST USER ACTIVITY DETECTOR
-  React.useEffect(() => {
+  useEffect(() => {
     const IDLE_TIMEOUT_MS = 60000;          
     const SESSION_TIMEOUT_MS = 29 * 60 * 1000; 
 
@@ -1575,7 +1539,7 @@ const WorkspaceSecurityCurtain = () => {
     );
   }
 
-return (
+  return (
     <div 
       className="idle-curtain-bg fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
       style={{
@@ -1622,17 +1586,14 @@ return (
                 Session Expired Due to Inactivity
               </h4>
               <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
-                Your security token has expired because the system was left unattended. You have been securely logged out.
+                Your security session has expired because the system was left unattended. You have been securely logged out.
               </p>
               <button 
                 type="button"
                 onPointerDown={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  localStorage.removeItem('kmp_authToken');
-                  localStorage.removeItem('kmp_currentUser');
-                  localStorage.removeItem('kmp_currentPage');
-                  sessionStorage.clear();
+                  clearAuthSession();
                   window.location.replace('/');
                 }}
                 className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition-none cursor-pointer"
@@ -1701,31 +1662,14 @@ const DashboardLayout = ({
   const [isAnimating, setIsAnimating] = useState(true);
   const [isMotionExpanded, setIsMotionExpanded] = useState(false);
 
-  const [lastViewedId, setLastViewedId] = useState(() => {
-    const saved = localStorage.getItem('last_viewed_comm_id');
-    return saved ? JSON.parse(saved) : 0;
-  });
-
   const [realOnlineUsers, setRealOnlineUsers] = useState([]);
 
   useEffect(() => {
-    const handleAuthExpired = () => setIsTimedOut(true);
-    window.addEventListener('auth-expired', handleAuthExpired);
-    return () => window.removeEventListener('auth-expired', handleAuthExpired);
-  }, []);
-
-  useEffect(() => {
-    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+    if (!hasValidSession()) return;
 
     const syncHeartbeat = async () => {
-      const currentToken = localStorage.getItem('kmp_authToken');
-      if (!currentToken) return;
-
       try {
-        const hb = await fetch(`${API_URL}/api/v1/users/heartbeat`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${currentToken}` }
-        });
+        const hb = await authFetch('/api/v1/users/heartbeat', { method: 'POST' });
 
         if (hb.status === 401) {
           window.dispatchEvent(new Event('auth-expired'));
@@ -1734,16 +1678,12 @@ const DashboardLayout = ({
 
         if (hb.ok) {
           const hbData = await hb.json();
-          if (hbData.new_token) {
-            localStorage.setItem('kmp_authToken', hbData.new_token);
+          if (hbData.new_token && currentUser?.fnum) {
+            setAuthSession(hbData.new_token, currentUser.fnum);
           }
         }
 
-        const freshToken = localStorage.getItem('kmp_authToken');
-        const response = await fetch(`${API_URL}/api/v1/users/online`, {
-          headers: { 'Authorization': `Bearer ${freshToken}` }
-        });
-        
+        const response = await authFetch('/api/v1/users/online');
         if (response.ok) {
           setRealOnlineUsers(await response.json());
         }
@@ -1753,103 +1693,20 @@ const DashboardLayout = ({
     };
 
     syncHeartbeat();
-    const heartbeatInterval = setInterval(syncHeartbeat, 15000); // 15-second live online polling
+    const heartbeatInterval = setInterval(syncHeartbeat, 15000);
     return () => clearInterval(heartbeatInterval);
-  }, []);
-
-  const [showIdleWarning, setShowIdleWarning] = useState(false);
-  const [idleCountdown, setIdleCountdown] = useState(60);
-  const [isTimedOut, setIsTimedOut] = useState(false);
-  
-  const isWarningActive = useRef(false);
-  const resetIdleTimersRef = useRef(null);
-  const latestOnLogout = useRef(onLogout);
-
-  useEffect(() => {
-    latestOnLogout.current = onLogout;
-  }, [onLogout]);
-
-  useEffect(() => {
-    let warningTimer;
-    let logoutTimer;
-    let countdownInterval;
-    let activityThrottle;
-
-    const IDLE_LIMIT = 29 * 60 * 1000; 
-    const WARNING_WINDOW = 60 * 1000;  
-
-    const startTimers = () => {
-      if (isTimedOut) return;
-      clearTimeout(warningTimer);
-      clearTimeout(logoutTimer);
-      clearInterval(countdownInterval);
-
-      isWarningActive.current = false;
-      setShowIdleWarning(false);
-
-      warningTimer = setTimeout(() => {
-        isWarningActive.current = true;
-        setShowIdleWarning(true);
-        setIdleCountdown(WARNING_WINDOW / 1000);
-        
-        countdownInterval = setInterval(() => {
-          setIdleCountdown(prev => {
-            if (prev <= 1) {
-              clearInterval(countdownInterval);
-              setIsTimedOut(true);
-              return 0;
-            }
-            return prev - 1;
-          });
-        }, 1000);
-      }, IDLE_LIMIT);
-
-      logoutTimer = setTimeout(() => {
-        clearInterval(countdownInterval);
-        isWarningActive.current = false;
-        setIsTimedOut(true);
-      }, IDLE_LIMIT + WARNING_WINDOW);
-    };
-
-    resetIdleTimersRef.current = startTimers;
-
-    const handleUserActivity = () => {
-      if (isWarningActive.current || isTimedOut) return;
-      if (!activityThrottle) {
-         activityThrottle = setTimeout(() => {
-            startTimers();
-            activityThrottle = null;
-         }, 2000); 
-      }
-    };
-
-    const events = ['mousemove', 'keydown', 'keyup', 'input', 'mousedown', 'scroll', 'touchstart', 'click'];
-    events.forEach(event => window.addEventListener(event, handleUserActivity, true));
-    startTimers();
-
-    return () => {
-      clearTimeout(warningTimer);
-      clearTimeout(logoutTimer);
-      clearInterval(countdownInterval);
-      clearTimeout(activityThrottle);
-      events.forEach(event => window.removeEventListener(event, handleUserActivity, true));
-    };
-  }, [isTimedOut]);
+  }, [currentUser?.fnum]);
 
   const lastLoggedPage = useRef(null);
 
   useEffect(() => {
-    if (!currentUser?.fnum || !currentPage) return;
+    if (!currentUser?.fnum || !currentPage || !hasValidSession()) return;
     if (lastLoggedPage.current === currentPage) return;
     
     lastLoggedPage.current = currentPage;
-    const token = localStorage.getItem('kmp_authToken');
-    if (!token) return;
 
-    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-    fetch(`${API_URL}/api/v1/activity-logs`, {
+    authFetch('/api/v1/activity-logs', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ 
         fnum: currentUser.fnum, 
         action: 'PAGE_ACCESS', 
@@ -1875,13 +1732,6 @@ const DashboardLayout = ({
 
   const hasUnreadComms = relevantComms.some(c => !c.acknowledged);
 
-  const hasNominalClearance = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
-                              (currentUser?.position || '').toUpperCase().includes('HR') ||
-                              currentUser?.permissions?.view_nominal_roll || 
-                              currentUser?.permissions?.upload_hr || 
-                              currentUser?.permissions?.system_admin;
-
-  // 🟢 SAFELY ACCESSIBLE NAV ITEMS (Open by default)
   const navItems = [
     checkClearance(currentUser, 'acc_home', true) ? { 
       name: 'Home Dashboard', 
@@ -1906,9 +1756,7 @@ const DashboardLayout = ({
 
   const handleExportLogs = async () => {
     try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const token = localStorage.getItem('kmp_authToken');
-      const response = await fetch(`${API_URL}/api/v1/audit-logs`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const response = await authFetch('/api/v1/audit-logs');
       if (!response.ok) throw new Error("Security Clearance Denied");
 
       const logs = await response.json();
@@ -1917,10 +1765,10 @@ const DashboardLayout = ({
       const csvRows = logs.map(log => [
           log.id, 
           log.event_type || "N/A", 
-          log.target_user || "N/A",
-          log.status || "N/A",
+          log.target_user || "N/A", 
+          log.status || "N/A", 
           `"${(log.details || "").replace(/"/g, '""')}"`, 
-          log.created_at || "Unknown Time",
+          log.created_at || "Unknown Time", 
           log.user_fnum || "SYSTEM"
       ]);
 
@@ -1941,7 +1789,7 @@ const DashboardLayout = ({
       
     } catch (error) {
       console.error("Download failed:", error);
-      alert("Failed to download logs. You may not have Super Admin clearance.");
+      alert("Failed to download logs. Clearance denied.");
     }
   };
 
@@ -1974,14 +1822,7 @@ const DashboardLayout = ({
               {navItems.map((item) => (
                 <button 
                   key={item.id} 
-                  onClick={() => {
-                    setCurrentPage(item.id);
-                    if (item.id === 'Admin_Communication') {
-                      const safeId = typeof latestCommId !== 'undefined' ? latestCommId : Date.now();
-                      setLastViewedId(safeId);
-                      localStorage.setItem('last_viewed_comm_id', JSON.stringify(safeId));
-                    }
-                  }}
+                  onClick={() => setCurrentPage(item.id)}
                   className={`w-full flex items-center py-3 transition-colors text-left ${sidebarOpen ? 'px-6' : 'px-0 justify-center'} ${currentPage === item.id ? 'bg-blue-600 border-l-4 border-yellow-400 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white border-l-4 border-transparent'}`}
                 >
                   <div className="min-w-[24px] flex justify-center shrink-0">{item.icon}</div>
@@ -1999,7 +1840,7 @@ const DashboardLayout = ({
               <div className="px-4 space-y-3 min-w-max">
                 <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
                   <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
-                  <button onClick={() => setCurrentPage('approvals')} className={`w-full text-xs py-4 rounded transition font-medium ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}>
+                  <button onClick={() => setCurrentPage('approvals')} className={`w-full text-xs py-4 rounded transition font-medium cursor-pointer ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}>
                     All Access Approvals & Logs
                   </button>
                 </div>
@@ -2008,7 +1849,7 @@ const DashboardLayout = ({
 
             {sidebarOpen && checkClearance(currentUser, 'acc_online', true) && (
               <div className="rounded-lg p-4 bg-slate-800 mx-4 mt-3">
-                <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400">
+                <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400 cursor-pointer">
                   <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Online ({realOnlineUsers?.length || 0})</span>
                 </button>
                 {showOnline && (
@@ -2037,7 +1878,7 @@ const DashboardLayout = ({
             {sidebarOpen && checkClearance(currentUser, 'acc_roster', true) && (
               <div className="px-4 mt-3 space-y-3 min-w-max">
                 <div className="rounded-lg p-3 bg-slate-800 border border-slate-700">
-                  <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400">
+                  <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400 cursor-pointer">
                     <span className="flex items-center"><Users size={16} className="mr-2"/> 👥 System Roster</span>
                     <span className="bg-slate-900 px-2 py-0.5 rounded-full text-xs text-white border border-slate-600">{users?.length || 0}</span>
                   </button>
@@ -2073,23 +1914,23 @@ const DashboardLayout = ({
                     <div>
                       <span className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1 block">HR & Establishments</span>
                       <div className="flex space-x-2">
-                        <button onClick={onViewHRReport} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center">
+                        <button onClick={onViewHRReport} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center cursor-pointer">
                           <Eye size={14} className="mr-1"/> View
                         </button>
                         {checkClearance(currentUser, 'export_data', true) && (
-                          <button onClick={onGenerateHRReport} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded transition flex items-center justify-center">
+                          <button onClick={onGenerateHRReport} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded transition flex items-center justify-center cursor-pointer">
                             <Download size={14} className="mr-1"/> Export
                           </button>
                         )}
                       </div>
                     </div>
                     {checkClearance(currentUser, 'acc_consolidated', true) && (
-                      <button onClick={onViewConsolidated} className="w-full text-xs py-2 rounded transition flex items-center justify-center font-bold mt-3 bg-slate-900 hover:bg-slate-950 text-blue-400 border border-blue-900">
+                      <button onClick={onViewConsolidated} className="w-full text-xs py-2 rounded transition flex items-center justify-center font-bold mt-3 bg-slate-900 hover:bg-slate-950 text-blue-400 border border-blue-900 cursor-pointer">
                         <Eye size={14} className="mr-2"/> Consolidated Entries
                       </button>
                     )}
                     {checkClearance(currentUser, 'export_logs', ['SUPER_ADMIN'].includes(currentUser?.role)) && (
-                      <button onClick={handleExportLogs} className="w-full mt-2 text-xs py-2 rounded transition font-bold bg-slate-900 hover:bg-slate-950 text-slate-300 border border-slate-700 flex items-center justify-center">
+                      <button onClick={handleExportLogs} className="w-full mt-2 text-xs py-2 rounded transition font-bold bg-slate-900 hover:bg-slate-950 text-slate-300 border border-slate-700 flex items-center justify-center cursor-pointer">
                         <Download size={14} className="mr-2 text-blue-400"/> Export Audit Logs
                       </button>
                     )}
@@ -2113,7 +1954,7 @@ const DashboardLayout = ({
                  </div>
                )}
             </div>
-            <button onClick={onLogout} className={`flex items-center w-full py-2 text-red-400 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-red-900 ${sidebarOpen ? 'px-4 justify-start' : 'px-0 justify-center'}`}>
+            <button onClick={onLogout} className={`flex items-center w-full py-2 text-red-400 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-red-900 cursor-pointer ${sidebarOpen ? 'px-4 justify-start' : 'px-0 justify-center'}`}>
                <LogOut size={18} />
                {sidebarOpen && <span className="ml-3 font-medium text-sm min-w-max">Secure Logout</span>}
             </button>
@@ -2127,14 +1968,14 @@ const DashboardLayout = ({
               onMouseEnter={() => setIsMotionExpanded(true)}
               onMouseLeave={() => setIsMotionExpanded(false)}
               onClick={() => setIsAnimating(!isAnimating)}
-              className={`transition-all duration-300 ease-in-out rounded-full shadow-md flex items-center justify-center border font-bold text-xs ${isMotionExpanded ? 'px-3.5 py-1.5 gap-2' : 'p-2'} ${isAnimating ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-500' : 'bg-slate-700 hover:bg-slate-800 text-slate-200 border-slate-600'}`}
+              className={`transition-all duration-300 ease-in-out rounded-full shadow-md flex items-center justify-center border font-bold text-xs cursor-pointer ${isMotionExpanded ? 'px-3.5 py-1.5 gap-2' : 'p-2'} ${isAnimating ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-500' : 'bg-slate-700 hover:bg-slate-800 text-slate-200 border-slate-600'}`}
               title={isAnimating ? "Pause Background Motion" : "Play Background Motion"}
             >
               <span className="text-sm">{isAnimating ? '⏸' : '▶'}</span>
               {isMotionExpanded && <span className="whitespace-nowrap animate-in fade-in duration-200 font-bold">{isAnimating ? 'Pause Motion' : 'Play Motion'}</span>}
             </button>
 
-            <button onClick={() => setIsFullScreen(!isFullScreen)} className="bg-blue-400 hover:bg-blue-450 text-white px-3 py-1.5 rounded text-xs font-bold shadow-md transition-colors flex items-center gap-2 border border-blue-400">
+            <button onClick={() => setIsFullScreen(!isFullScreen)} className="bg-blue-400 hover:bg-blue-500 text-white px-3 py-1.5 rounded text-xs font-bold shadow-md transition-colors flex items-center gap-2 border border-blue-400 cursor-pointer">
               {isFullScreen ? '🗗' : '⛶'}
             </button>
           </div>
@@ -2157,7 +1998,7 @@ const DashboardLayout = ({
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-y-auto max-h-[95vh] custom-scrollbar flex flex-col">
             <div className="bg-slate-900 text-white p-4 flex justify-between items-center shrink-0">
               <h3 className="font-bold flex items-center text-sm"><Shield size={18} className="text-blue-400 mr-2" /> ACCESS CLEARANCE MATRIX</h3>
-              <button onClick={() => setSelectedUserDetail(null)} className="text-slate-400 hover:text-white transition-colors"><X size={20} /></button>
+              <button onClick={() => setSelectedUserDetail(null)} className="text-slate-400 hover:text-white transition-colors cursor-pointer"><X size={20} /></button>
             </div>
             
             <div className="p-6">
@@ -2218,11 +2059,8 @@ const DashboardLayout = ({
                         <button onClick={async () => {
                             if (newForcePassword.length < 6) return alert('Password must be at least 6 characters.');
                             try {
-                              const token = localStorage.getItem('kmp_authToken');
-                              const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-                              const res = await fetch(`${API_URL}/api/v1/admin/users/${selectedUserDetail.fnum}/force-password`, {
+                              const res = await authFetch(`/api/v1/admin/users/${selectedUserDetail.fnum}/force-password`, {
                                 method: 'PUT',
-                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                                 body: JSON.stringify({ new_password: newForcePassword })
                               });
                               if (!res.ok) throw new Error(await res.text());
@@ -2230,7 +2068,7 @@ const DashboardLayout = ({
                               setNewForcePassword('');
                             } catch (err) { alert('Error: ' + err.message); }
                           }}
-                          className="bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2 rounded text-xs transition border border-red-800 shrink-0"
+                          className="bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2 rounded text-xs transition border border-red-800 shrink-0 cursor-pointer"
                         >
                           Set Password
                         </button>
@@ -2242,13 +2080,13 @@ const DashboardLayout = ({
             </div>
 
             <div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center rounded-b-xl shrink-0">
-              <button onClick={() => setSelectedUserDetail(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center border border-gray-300">
+              <button onClick={() => setSelectedUserDetail(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center border border-gray-300 cursor-pointer">
                 <X size={14} className="mr-1"/> Close Profile
               </button>
               {selectedUserDetail.isSystemUser && (
                 currentUser?.role === 'SUPER_ADMIN' || (currentUser?.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser?.region === selectedUserDetail.region)
               ) && (
-                <button onClick={() => { if (window.confirm(`Are you absolutely sure you want to revoke all system access for ${selectedUserDetail.name}?`)) { onRevokeUser(selectedUserDetail.fnum); setSelectedUserDetail(null); } }} className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm">
+                <button onClick={() => { if (window.confirm(`Are you absolutely sure you want to revoke all system access for ${selectedUserDetail.name}?`)) { onRevokeUser(selectedUserDetail.fnum); setSelectedUserDetail(null); } }} className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm cursor-pointer">
                   Revoke Access
                 </button>
               )}
@@ -2259,48 +2097,12 @@ const DashboardLayout = ({
 
       {viewingProfileImage && (
         <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingProfileImage(null)}>
-          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg"><X size={24}/></button>
+          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg cursor-pointer"><X size={24}/></button>
           <img src={viewingProfileImage} alt="Full Profile" className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
     </>
   );
-};
-
-export const stripHtmlTags = (html) => {
-  if (!html) return '';
-  return String(html).replace(/<[^>]*>?/gm, '').trim();
-};
-
-export const formatWorksheetAutoFit = (ws, maxLongColWidth = 55) => {
-  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-  const colWidths = [];
-
-  for (let C = range.s.c; C <= range.e.c; ++C) {
-    let maxLength = 10;
-    for (let R = range.s.r; R <= range.e.r; ++R) {
-      const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
-      if (ws[cellRef] && ws[cellRef].v !== undefined) {
-        const valStr = String(ws[cellRef].v);
-        if (valStr.length > maxLength) {
-          maxLength = valStr.length;
-        }
-      }
-    }
-    colWidths.push({ wch: Math.min(maxLength + 4, maxLongColWidth) });
-  }
-
-  ws['!cols'] = colWidths;
-
-  for (let R = range.s.r; R <= range.e.r; ++R) {
-    for (let C = range.s.c; C <= range.e.c; ++C) {
-      const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
-      if (ws[cellRef]) {
-        if (!ws[cellRef].s) ws[cellRef].s = {};
-        ws[cellRef].s.alignment = { wrapText: true, vertical: 'top' };
-      }
-    }
-  }
 };
 
 // ====================================================================
@@ -2347,7 +2149,7 @@ const App = () => {
   useEffect(() => {
     const handleOnlineStatus = async () => {
       if (navigator.onLine) {
-        const token = localStorage.getItem('kmp_authToken');
+        const token = getAuthToken();
         if (token) {
           const remaining = await syncOfflineQueue(token);
           if (remaining === 0 && getOfflineQueueCount() === 0) {
@@ -2374,14 +2176,13 @@ const App = () => {
   // 🟢 INITIAL CLEARANCE & SESSION TIMEOUT CHECK
   useEffect(() => {
     const initApp = () => {
-      const token = localStorage.getItem('kmp_authToken');
-      const cachedUser = localStorage.getItem('kmp_currentUser');
+      const token = getAuthToken();
       const params = new URLSearchParams(window.location.search);
 
       // If redirected after session timeout or missing credentials, reset state cleanly
-      if (params.get('session_expired') === 'true' || !token || !cachedUser) {
-        localStorage.removeItem('kmp_authToken');
-        localStorage.removeItem('kmp_currentUser');
+      if (params.get('session_expired') === 'true' || !token || !currentUser) {
+        clearAuthSession();
+        setCurrentUser(null);
         if (params.get('session_expired') === 'true') {
           window.history.replaceState({}, document.title, window.location.pathname);
         }
@@ -2389,12 +2190,6 @@ const App = () => {
         return;
       }
 
-      try {
-        setCurrentUser(JSON.parse(cachedUser));
-      } catch (error) {
-        localStorage.removeItem('kmp_authToken');
-        localStorage.removeItem('kmp_currentUser');
-      }
       setIsInitializing(false);
     };
 
@@ -2403,34 +2198,29 @@ const App = () => {
 
   // 🟢 REAL-TIME LISTENER & SYNC: Polls server every 5 seconds to sync AdminApprovals matrix changes live
   useEffect(() => {
-    if (!currentUser?.fnum) return; 
+    if (!currentUser?.fnum || !hasValidSession()) return; 
     const controller = new AbortController();
     
     const fetchAllData = async () => {
-      const token = localStorage.getItem('kmp_authToken');
-      if (!token) return;
+      // 🟢 1. Validate session token without touching localStorage
+      if (!hasValidSession() || !currentUser?.fnum) return;
+
       try {
+        // 🟢 2. Use relative endpoints (authFetch handles BASE_URL and Bearer headers automatically)
         const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives, resUsers] = await Promise.all([
-          authFetch(`${API_URL}/api/v1/reports`, { signal: controller.signal }), 
-          authFetch(`${API_URL}/api/v1/stats`, { signal: controller.signal }),
-          authFetch(`${API_URL}/api/v1/stories`, { signal: controller.signal }), 
-          authFetch(`${API_URL}/api/v1/nominal-roll`, { signal: controller.signal }),
-          authFetch(`${API_URL}/api/v1/Admin_Communication`, { signal: controller.signal }), 
-          authFetch(`${API_URL}/api/v1/establishments`, { signal: controller.signal }),
-          authFetch(`${API_URL}/api/v1/nominal-roll-archive`, { signal: controller.signal }), 
-          authFetch(`${API_URL}/api/v1/users`, { signal: controller.signal })
+          authFetch('/api/v1/reports', { signal: controller.signal }), 
+          authFetch('/api/v1/stats', { signal: controller.signal }),
+          authFetch('/api/v1/stories', { signal: controller.signal }), 
+          authFetch('/api/v1/nominal-roll', { signal: controller.signal }),
+          authFetch('/api/v1/Admin_Communication', { signal: controller.signal }), 
+          authFetch('/api/v1/establishments', { signal: controller.signal }),
+          authFetch('/api/v1/nominal-roll-archive', { signal: controller.signal }), 
+          authFetch('/api/v1/users', { signal: controller.signal })
         ]);
 
         if (!controller.signal.aborted) {
-          if (resReports.status === 401) {
-             window.dispatchEvent(new Event('auth-expired'));
-             return;
-          }
-
-          if (resReports.ok) {
-             setReports(await resReports.json());
-          }
-
+          // 🟢 3. Update active data states
+          if (resReports.ok) setReports(await resReports.json());
           if (resStats.ok) setStats(await resStats.json());
           if (resStories.ok) setStories(await resStories.json());
           if (resNom.ok) setNominal_Rolls(await resNom.json());
@@ -2438,6 +2228,7 @@ const App = () => {
           if (resEst.ok) setEstablishments(await resEst.json());
           if (resArchives.ok) setNominal_Roll_archives(await resArchives.json());
           
+          // 🟢 4. Sync dynamic matrix permissions in RAM only
           if (resUsers.ok) {
             const allUsers = await resUsers.json();
             setUsers(allUsers);
@@ -2453,17 +2244,19 @@ const App = () => {
               const resolvedRole = currentUser.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : (me.role || currentUser.role);
 
               if (JSON.stringify(mergedPermissions) !== JSON.stringify(currentUser.permissions) || resolvedRole !== currentUser.role) {
-                const updatedUser = { ...currentUser, permissions: mergedPermissions, role: resolvedRole };
-                setCurrentUser(updatedUser);
-                localStorage.setItem('kmp_currentUser', JSON.stringify(updatedUser));
+                setCurrentUser(prev => ({
+                  ...prev,
+                  permissions: mergedPermissions,
+                  role: resolvedRole
+                }));
                 console.log("🛡️ Sovereign permissions securely synchronized live.");
               }
             }
           }
         }
       } catch (error) { 
-        if (error.name !== 'AbortError') {
-          console.error("Network/Fetch Error:", error);
+        if (error.name !== 'AbortError' && error.message !== 'UNAUTHORIZED') {
+          console.error("Data Sync Error:", error);
         }
       } 
     };    
@@ -2486,16 +2279,14 @@ const App = () => {
 
   const handleAcknowledgeComm = async (commId) => {
     try {
-      const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const response = await fetch(`${API_URL}/api/v1/communications/${commId}/acknowledge`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+      const response = await authFetch(`/api/v1/communications/${commId}/acknowledge`, { method: 'POST' });
       if (response.ok) setAdminCommsData(prevData => prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c));
     } catch (err) { console.error("Failed to acknowledge receipt", err); }
   };
 
   const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
 
-const renderPage = () => {
+  const renderPage = () => {
     // 🟢 SOVEREIGN GLOBAL CLEARANCE ENGINE (Prevents 1-second filter reverts)
     const canViewGlobal = canViewGlobalJurisdiction(currentUser);
 
@@ -2577,7 +2368,7 @@ const renderPage = () => {
         return checkClearance(currentUser, 'acc_est', true) ? (
           <Establishments 
             currentUser={currentUser} 
-            canViewGlobal={canViewGlobal}
+            canViewGlobal={canViewGlobal} 
             establishments={establishments} 
             setEstablishments={setEstablishments} 
           />
@@ -2617,7 +2408,7 @@ const renderPage = () => {
         return checkClearance(currentUser, 'acc_hr', true) ? (
           <Nominal_Roll 
             currentUser={currentUser} 
-            canViewGlobal={canViewGlobal}
+            canViewGlobal={canViewGlobal} 
             Nominal_Rolls={Nominal_Rolls} 
             setNominal_Rolls={setNominal_Rolls} 
             Nominal_Roll_archives={Nominal_Roll_archives} 
@@ -2728,8 +2519,7 @@ const renderPage = () => {
 
   const handleViewHRReport = async () => {
     try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const res = await authFetch(`${API_URL}/api/v1/reports/establishments-json`);
+      const res = await authFetch('/api/v1/reports/establishments-json');
       if (!res.ok) throw new Error("Security clearance rejected or server error.");
       const data = await res.json(); 
       setHrLedgerData(data); 
@@ -2747,8 +2537,7 @@ const renderPage = () => {
     const start = lastWeek.toISOString().split('T')[0];
 
     try {
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      const response = await authFetch(`${API_URL}/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
+      const response = await authFetch(`/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
       if (!response.ok) throw new Error("Backend failed to compile ledger.");
       const data = await response.json(); 
       setConsolidatedData(data); 
@@ -2761,47 +2550,43 @@ const renderPage = () => {
   if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
 
   if (currentUser && !currentUser.region) {
-    localStorage.removeItem('kmp_currentUser'); 
-    localStorage.removeItem('kmp_authToken');
+    clearAuthSession();
+    setCurrentUser(null);
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
         <h2 className="text-2xl font-bold text-red-600 mb-2">Ghost Session Detected</h2>
-        <p className="text-slate-600 mb-6">Corrupted local data is blocking the dashboard. Click below to wipe it.</p>
-        <button onClick={() => window.location.reload()} className="px-6 py-3 bg-blue-700 text-white font-bold rounded-lg shadow-md hover:bg-blue-800">Force Clear & Restart App</button>
+        <p className="text-slate-600 mb-6">Corrupted session state detected. Click below to restart safely.</p>
+        <button onClick={() => window.location.reload()} className="px-6 py-3 bg-blue-700 text-white font-bold rounded-lg shadow-md hover:bg-blue-800 cursor-pointer">Force Clear & Restart App</button>
       </div>
     );
   }
 
-  if (!currentUser) return (
-    <LoginScreen 
-      onLogin={(user) => {
-        localStorage.removeItem('kmp_currentPage'); 
-        setCurrentPage('home'); 
-        setCurrentUser(user);
-        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        fetch(`${API_URL}/api/v1/system/log-session`, { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ fnum: user.fnum }) 
-        }).catch(e => console.error(e));
-      }} 
-      onForgot={() => {}} 
-      onSignup={(u) => setPendingUsers([...pendingUsers, u])} 
-      pendingUsers={pendingUsers} 
-      activeUsers={users} 
-    />
-  );
+  if (!currentUser || !hasValidSession()) {
+    return (
+      <LoginScreen 
+        onLogin={(user) => {
+          setCurrentPage('home'); 
+          setCurrentUser(user);
+          authFetch('/api/v1/system/log-session', { 
+            method: 'POST', 
+            body: JSON.stringify({ fnum: user.fnum }) 
+          }).catch(e => console.error(e));
+        }} 
+        onForgot={() => {}} 
+        onSignup={(u) => setPendingUsers([...pendingUsers, u])} 
+        pendingUsers={pendingUsers} 
+        activeUsers={users} 
+      />
+    );
+  }
 
   const handleGenerateHRReport = () => downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
 
   const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
     setUsers(users.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: newPermissions } : u));
     try {
-      const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      await fetch(`${API_URL}/api/v1/users/${fnum}/access`, { 
+      await authFetch(`/api/v1/users/${fnum}/access`, { 
         method: "PUT", 
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
         body: JSON.stringify({ role: newRole, permissions: newPermissions }) 
       });
     } catch (err) { 
@@ -2815,10 +2600,8 @@ const renderPage = () => {
     if (reason.trim() === '') return alert("An official reason is mandatory to revoke a user's access.");
 
     try {
-      const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-      await fetch(`${API_URL}/api/v1/users/${encodeURIComponent(fnum)}/revoke?reason=${encodeURIComponent(reason)}`, {
-        method: "DELETE", headers: { "Authorization": `Bearer ${token}` }
+      await authFetch(`/api/v1/users/${encodeURIComponent(fnum)}/revoke?reason=${encodeURIComponent(reason)}`, {
+        method: "DELETE"
       });
       setUsers(users.filter(u => u.fnum !== fnum));
       alert(`Access revoked for ${fnum}. Reason logged in Audit Trail.`);
@@ -2834,15 +2617,14 @@ const renderPage = () => {
         currentPage={currentPage} 
         setCurrentPage={handlePageChange} 
         onLogout={() => { 
-          localStorage.removeItem('kmp_authToken'); 
-          localStorage.removeItem('kmp_currentUser'); 
-          localStorage.removeItem('kmp_currentPage'); 
+          clearAuthSession();
+          setCurrentUser(null);
           window.location.reload(); 
         }}
         onUpdateUserRole={handleUpdateUserRole} 
         onRevokeUser={handleRevokeUser} 
         users={users} 
-        Admin_Communication={adminCommsData}
+        adminCommsData={adminCommsData}
         onViewConsolidated={handleViewConsolidated} 
         onViewHRReport={handleViewHRReport} 
         onGenerateHRReport={handleGenerateHRReport}

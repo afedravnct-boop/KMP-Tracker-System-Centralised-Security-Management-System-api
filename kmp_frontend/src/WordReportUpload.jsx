@@ -3,6 +3,7 @@ import {
   UploadCloud, FileText, Download, CheckCircle, AlertTriangle,  
   Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, Server, Trash2, Filter
 } from 'lucide-react';
+import { authFetch } from './api';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -51,7 +52,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
 
-  // 🟢 Guard against background polling overwriting custom user filter selections
   const isFilterInitialized = useRef(false);
   useEffect(() => {
     if (!isFilterInitialized.current && currentUser?.station) {
@@ -64,28 +64,20 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       }
       isFilterInitialized.current = true;
     }
-  }, [canViewGlobalActive, currentUser?.station]);
+  }, [canViewGlobalActive, currentUser?.station, currentUser?.region]);
 
-  // 🟢 SOVEREIGN CLEARANCE DERIVATION FOR UPLOADS & DOWNLOADS
   const canUploadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN'].includes(currentUser?.role?.toUpperCase());
   const canDownloadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN', 'USER'].includes(currentUser?.role?.toUpperCase());
 
   const hasUploadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_tripartite_upload !== false && (canUploadByRole || currentUser?.permissions?.acc_tripartite_upload === true));
   const hasDownloadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_tripartite_download !== false && (canDownloadByRole || currentUser?.permissions?.acc_tripartite_download === true));
 
-  useEffect(() => {
-    fetchArchiveList();
-  }, []);
-
   const fetchArchiveList = async () => {
     setLoadingDocs(true);
     try {
-      const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-
       const [archiveRes, templateRes] = await Promise.all([
-        fetch(`${API_URL}/api/v1/reports/archive`, { headers: { "Authorization": `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/v1/templates/list`, { headers: { "Authorization": `Bearer ${token}` } })
+        authFetch('/api/v1/reports/archive'),
+        authFetch('/api/v1/templates/list')
       ]);
 
       const archiveData = archiveRes.ok ? await archiveRes.json() : [];
@@ -98,6 +90,10 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       setLoadingDocs(false);
     }
   };
+
+  useEffect(() => {
+    fetchArchiveList();
+  }, []);
 
   const handleFileChange = (e) => {
     const selectedFiles = Array.from(e.target.files);
@@ -131,10 +127,10 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
     if (activeCategory === 'templates') {
       const templateIdKey = templateCustomName ? templateCustomName.toLowerCase().replace(/[^a-z0-9]/g, '_') : 'custom_template';
-      endpoint = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api/v1/templates/upload/${templateIdKey}`;
+      endpoint = `/api/v1/templates/upload/${templateIdKey}`;
       formData.append("doc_type", "Command Template");
     } else {
-      endpoint = `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/api/v1/reports/upload-word-report`;
+      endpoint = `/api/v1/reports/upload-word-report`;
       formData.append("doc_type", activeCategory); 
       
       if (targetRegionToSubmit) formData.append("target_region", targetRegionToSubmit);
@@ -143,10 +139,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
     setUploading(true);
     try {
-      const token = localStorage.getItem('kmp_authToken');
-      const response = await fetch(endpoint, {
+      const response = await authFetch(endpoint, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
         body: formData
       });
 
@@ -171,12 +165,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
     setActionLoading(`delete-${docId}`);
     try {
-      const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-
-      const response = await fetch(`${API_URL}/api/v1/reports/archive/${docId}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${token}` }
+      const response = await authFetch(`/api/v1/reports/archive/${docId}`, {
+        method: "DELETE"
       });
 
       if (!response.ok) {
@@ -201,16 +191,12 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
     setActionLoading(`${action}-${docId}`);
     try {
-      const token = localStorage.getItem('kmp_authToken');
-      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-
       const endpoint = isTemplate 
-        ? `${API_URL}/api/v1/templates/download/${docId}`
-        : `${API_URL}/api/v1/reports/download/${docId}`;
+        ? `/api/v1/templates/download/${docId}`
+        : `/api/v1/reports/download/${docId}`;
 
-      const response = await fetch(endpoint, {
-        method: "GET",
-        headers: { "Authorization": `Bearer ${token}` }
+      const response = await authFetch(endpoint, {
+        method: "GET"
       });
 
       if (!response.ok) {
@@ -397,7 +383,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
       <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
         
-        {/* UPLOAD SECTION GUARDED BY hasUploadClearance */}
+        {/* UPLOAD SECTION */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="border-b border-slate-100 pb-4 mb-6">
             <h3 className="font-extrabold text-sm text-slate-900 uppercase">Universal File Intake Hub</h3>
@@ -445,9 +431,9 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                     <input 
                       type="text" 
                       value={templateCustomName} 
-                      onChange={(e) => setTemplateCustomName(e.target.value)}
-                      placeholder="e.g. NOMINAL ROLL SUBMISSION TEMPLATE"
-                      required
+                      onChange={(e) => setTemplateCustomName(e.target.value)} 
+                      placeholder="e.g. NOMINAL ROLL SUBMISSION TEMPLATE" 
+                      required 
                       className="w-full border border-amber-300 rounded-lg p-2.5 text-sm font-bold text-slate-800 outline-none focus:border-amber-500 bg-white uppercase"
                     />
                   </div>

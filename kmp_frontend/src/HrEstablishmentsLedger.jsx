@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import { X, Shield, FileText, Users, Building, Filter } from 'lucide-react';
-import { stripHtmlTags } from './App';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -10,9 +9,14 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+const stripHtml = (html) => {
+  if (!html) return '';
+  return String(html).replace(/<[^>]*>?/gm, '').trim();
+};
+
 const getOfficialRegionForStation = (stationName, dbRegion) => {
-  const cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
-  const cleanDbRegion = stripHtmlTags(dbRegion || '').trim().toUpperCase();
+  const cleanStation = stripHtml(stationName || '').trim().toUpperCase();
+  const cleanDbRegion = stripHtml(dbRegion || '').trim().toUpperCase();
 
   if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
     return cleanDbRegion;
@@ -37,7 +41,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
 
-  // 🟢 1. AGGRESSIVE DATA HUNTER: Finds the array no matter how the backend key is formatted
+  // 🟢 1. AGGRESSIVE DATA HUNTER: Finds the array regardless of backend payload wrapping
   const getRawRoll = () => {
     if (Array.isArray(data)) {
       if (data.length > 0 && (data[0].fnum || data[0].f_num || data[0].rank)) return data;
@@ -68,7 +72,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
 
     // Filter establishments by selected jurisdiction
     return rawEst.filter(e => {
-      const stn = stripHtmlTags(e.station || '').trim().toUpperCase();
+      const stn = stripHtml(e.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, e.region);
 
       if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
@@ -83,10 +87,10 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
   // 🟢 2. ROBUST PARSING LOGIC FOR NOMINAL ROLL AGGREGATES
   const nominalAggregates = useMemo(() => {
     const rawRoll = getRawRoll().filter(p => {
-      const statusStr = stripHtmlTags(String(p.status || '')).trim().toUpperCase();
+      const statusStr = stripHtml(String(p.status || '')).trim().toUpperCase();
       if (statusStr === 'ARCHIVED' || p.is_archived === true) return false;
 
-      const stn = stripHtmlTags(p.station || '').trim().toUpperCase();
+      const stn = stripHtml(p.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, p.region);
 
       if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
@@ -98,7 +102,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     });
     
     const regions = [
-      { key: 'GENERAL / HQ', match: ['HEADQUARTERS', 'HQ', 'GENERAL'] },
+      { key: 'GENERAL / HQ', match: ['HEADQUARTERS', 'HQ', 'GENERAL', 'NAGURU'] },
       { key: 'KMP EAST', match: ['KMP EAST', 'EAST'] },
       { key: 'KMP NORTH', match: ['KMP NORTH', 'NORTH'] },
       { key: 'KMP SOUTH', match: ['KMP SOUTH', 'SOUTH'] }
@@ -106,7 +110,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
 
     const isOfficer = (rankStr) => {
       if (!rankStr) return false;
-      let cleanRank = stripHtmlTags(String(rankStr)).toUpperCase().replace(/[\.\/]/g, '').trim();
+      let cleanRank = stripHtml(String(rankStr)).toUpperCase().replace(/[\.\/]/g, '').trim();
       const officerKeywords = ['IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'ASP', 'IP', 'AIP'];
       const words = cleanRank.split(/\s+/); 
       return words.some(word => officerKeywords.includes(word)) || 
@@ -125,8 +129,8 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
 
       personnelList.forEach(p => {
         // Sex Parsing
-        const sexStr = stripHtmlTags(String(p.sex || p.gender || '')).trim().toUpperCase();
-        const ninStr = stripHtmlTags(String(p.nin || '')).trim().toUpperCase();
+        const sexStr = stripHtml(String(p.sex || p.gender || '')).trim().toUpperCase();
+        const ninStr = stripHtml(String(p.nin || '')).trim().toUpperCase();
         
         if (sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM')) {
           stats.sex.M++;
@@ -142,7 +146,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
         
         if (dobStr) {
           let birthYear;
-          const strVal = stripHtmlTags(String(dobStr)).trim();
+          const strVal = stripHtml(String(dobStr)).trim();
           if (strVal.includes('-')) {
             const parts = strVal.split('-');
             birthYear = parts[0].length === 4 ? parseInt(parts[0], 10) : parseInt(parts[2], 10);
@@ -168,7 +172,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
         }
 
         // Education Parsing
-        const eduStr = stripHtmlTags(String(p.educ_level || p.educlevel || p.education || '')).trim().toUpperCase();
+        const eduStr = stripHtml(String(p.educ_level || p.educlevel || p.education || '')).trim().toUpperCase();
         
         if (eduStr.includes('DEGREE') || eduStr.includes('BACHELOR') || eduStr.match(/\bB\.?A\b/) || eduStr.match(/\bB\.?SC\b/) || eduStr.includes('MASTER') || eduStr.includes('PHD')) {
           stats.edu.degree++;
@@ -188,7 +192,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
 
     const aggregatedRegions = regions.map(reg => {
       const regionPersonnel = rawRoll.filter(p => {
-        const pReg = stripHtmlTags(String(p.region || '')).trim().toUpperCase();
+        const pReg = stripHtml(String(p.region || '')).trim().toUpperCase();
         return reg.match.some(m => pReg.includes(m));
       });
 
@@ -207,7 +211,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     
     const assignedIds = new Set();
     aggregatedRegions.forEach(r => {
-      rawRoll.filter(p => regions.find(reg => reg.key === r.region)?.match.some(m => stripHtmlTags(String(p.region || '')).toUpperCase().includes(m)))
+      rawRoll.filter(p => regions.find(reg => reg.key === r.region)?.match.some(m => stripHtml(String(p.region || '')).toUpperCase().includes(m)))
         .forEach(p => assignedIds.add(p.id || p.sn || p.fnum));
     });
     
@@ -313,7 +317,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
           <h2 className="text-lg font-black flex items-center tracking-wide uppercase"><FileText className="mr-2 text-blue-400" /> Human Resource & Establishments Ledger</h2>
           <p className="text-xs text-slate-400 font-medium mt-1 tracking-wider">KMP Command Operational Aggregates</p>
         </div>
-        <button onClick={onClose} className="bg-slate-800 hover:bg-slate-700 text-white p-2 rounded-lg transition-colors border border-slate-600 shadow-sm flex items-center">
+        <button onClick={onClose} className="bg-slate-800 hover:bg-slate-700 text-white p-2 rounded-lg transition-colors border border-slate-600 shadow-sm flex items-center cursor-pointer">
           <X size={18} className="mr-2"/> Close Module
         </button>
       </div>
@@ -406,7 +410,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                    {nominalAggregates.map((row, index) => (
                       <tr key={index} className="hover:bg-blue-50/50 transition-colors">
                          <td className="p-3 text-center text-xs font-bold text-slate-700 border-r border-slate-200">{index + 1}</td>
-                         <td className="p-3 text-left text-xs font-black text-slate-900 border-r border-slate-200 bg-slate-50/50">{stripHtmlTags(row.region)}</td>
+                         <td className="p-3 text-left text-xs font-black text-slate-900 border-r border-slate-200 bg-slate-50/50">{stripHtml(row.region)}</td>
                          
                          <td className="p-3 text-center text-sm font-extrabold text-blue-700 border-r border-slate-200">{row.totalOff}</td>
                          <td className="p-3 text-center text-sm font-extrabold text-green-700 border-r border-slate-200">{row.totalNco}</td>
@@ -514,12 +518,12 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                       return (
                          <tr key={idx} className="hover:bg-emerald-50/40 transition-colors">
                             <td className="p-3 text-xs text-slate-500 font-bold">{idx + 1}</td>
-                            <td className="p-3 text-xs font-black text-slate-800 bg-slate-50/50 uppercase">{stripHtmlTags(e.region)}</td>
-                            <td className="p-3 text-xs font-bold text-slate-600 uppercase">{stripHtmlTags(e.division || '-')}</td>
-                            <td className="p-3 text-xs font-bold text-slate-600 bg-slate-50/50 uppercase">{stripHtmlTags(e.station || '-')}</td>
+                            <td className="p-3 text-xs font-black text-slate-800 bg-slate-50/50 uppercase">{stripHtml(e.region)}</td>
+                            <td className="p-3 text-xs font-bold text-slate-600 uppercase">{stripHtml(e.division || '-')}</td>
+                            <td className="p-3 text-xs font-bold text-slate-600 bg-slate-50/50 uppercase">{stripHtml(e.station || '-')}</td>
                             <td className="p-3 text-center text-sm font-extrabold text-green-700">{stn > 0 ? stn : '-'}</td>
-                            <td className="p-3 text-xs font-medium text-slate-600 bg-slate-50/50 capitalize">{stripHtmlTags(e.sub_station || '-')}</td>
-                            <td className="p-3 text-xs font-medium text-slate-600 capitalize">{stripHtmlTags(e.post || '-')}</td>
+                            <td className="p-3 text-xs font-medium text-slate-600 bg-slate-50/50 capitalize">{stripHtml(e.sub_station || '-')}</td>
+                            <td className="p-3 text-xs font-medium text-slate-600 capitalize">{stripHtml(e.post || '-')}</td>
                             <td className="p-3 text-center text-sm font-bold text-emerald-600 bg-slate-50/50">{pst > 0 ? pst : '-'}</td>
                             <td className="p-3 text-center text-sm font-black text-emerald-900 bg-emerald-50 shadow-inner border-l border-emerald-100">{totalPerLocation > 0 ? totalPerLocation : '-'}</td>
                          </tr>
@@ -534,7 +538,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                       <td className="p-4 text-center text-base font-black text-green-400 border-r border-slate-700">{estTotals.station > 0 ? estTotals.station : '-'}</td>
                       <td colSpan="2" className="p-4 text-center border-r border-slate-700 bg-slate-900/50"></td>
                       <td className="p-4 text-center text-base font-black text-emerald-300 border-r border-slate-700">{estTotals.post > 0 ? estTotals.post : '-'}</td>
-                      <td className="p-4 text-center text-lg font-black text-yellow-400 bg-slate-900 shadow-inner">
+                      <td className="p-4 text-center text-lg font-black text-yellow-400 bg-slate-950 shadow-inner">
                          {estTotals.station + estTotals.sub + estTotals.post + estTotals.booth}
                       </td>
                    </tr>

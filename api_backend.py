@@ -6,7 +6,7 @@ import html
 import uuid
 import asyncio
 import secrets  
-import string    
+import string   
 from datetime import datetime, timedelta
 from typing import Optional, List, Union
 from docx.shared import Pt
@@ -132,6 +132,37 @@ def get_officer_signature(user):
     name = (user.name or "").strip()
     return f"{fnum} {rank} {name}".strip().upper()
 
+def sanitize_df_for_excel(df: pd.DataFrame) -> pd.DataFrame:
+    """Removes all timezone metadata from pandas DataFrames for openpyxl / Excel compatibility."""
+    if df.empty:
+        return df
+    
+    # 1. Strip timezone from any datetime-like columns
+    for col in df.select_dtypes(include=['datetimetz', 'datetime', 'datetime64[ns, UTC]', 'datetime64[ns]']).columns:
+        try:
+            df[col] = df[col].dt.tz_localize(None)
+        except Exception:
+            df[col] = df[col].astype(str)
+            
+    # 2. Safety pass on object columns containing raw datetime objects
+    for col in df.select_dtypes(include=['object']).columns:
+        df[col] = df[col].apply(lambda x: x.replace(tzinfo=None) if isinstance(x, datetime) and x.tzinfo is not None else x)
+        
+    return df
+
+def serialize_model_row(row):
+    """Safely converts an SQLAlchemy instance into a JSON-serializable dictionary."""
+    if not row:
+        return {}
+    d = row.__dict__.copy()
+    d.pop('_sa_instance_state', None)
+    for k, v in d.items():
+        if isinstance(v, datetime):
+            d[k] = v.strftime("%Y-%m-%d %H:%M:%S")
+        elif hasattr(v, 'isoformat'):
+            d[k] = v.isoformat()
+    return d
+
 # ==========================================
 # 2. STARTUP & MIDDLEWARE
 # ==========================================
@@ -244,7 +275,7 @@ def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, chang
         db.rollback()
 
 # ==========================================
-# 4. USERS, HEARTBEAT & ACTIVITY LOGS ENDPOINTS
+# 4. USERS, HEARTBEAT & ACTIVITY LOGS
 # ==========================================
 @app.get("/api/v1/users")
 def get_all_active_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -262,17 +293,14 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ==========================================
-# COMMAND TEMPLATES LIST ENDPOINT (FAIL-SAFE)
-# ==========================================
 @app.get("/api/v1/templates/list")
 def get_command_templates(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
-        # Check if the CommandTemplate model/table exists in models
-        if not hasattr(models, 'CommandTemplate'):
+        target_model = getattr(models, 'CommandTemplate', getattr(models, 'command_templates', None))
+        if not target_model:
             return []
             
-        templates = db.query(models.CommandTemplate).all()
+        templates = db.query(target_model).all()
         results = []
         for t in templates:
             filename = getattr(t, 'file_name', None) or getattr(t, 's3_url', '') or "document"
@@ -289,7 +317,7 @@ def get_command_templates(db: Session = Depends(get_db), current_user = Depends(
             else:
                 file_type = "Command Template"
 
-            last_up = getattr(t, 'last_updated', None)
+            last_up = getattr(t, 'upload_date', getattr(t, 'created_at', None))
             date_str = last_up.strftime("%Y-%m-%d") if isinstance(last_up, datetime) else str(last_up or "")
 
             results.append({
@@ -297,20 +325,16 @@ def get_command_templates(db: Session = Depends(get_db), current_user = Depends(
                 "name": filename,
                 "type": file_type,
                 "date": date_str,
-                "size": "N/A",
-                "file_path": getattr(t, 's3_url', ''),
-                "region": "KMP HEADQUARTERS",
-                "station": "HQ"
+                "size": getattr(t, 'file_size', "N/A"),
+                "file_path": getattr(t, 'file_path', getattr(t, 's3_url', '')),
+                "region": getattr(t, 'region', "KMP HEADQUARTERS"),
+                "station": getattr(t, 'station', "HQ")
             })
         return results
     except Exception as e:
         print(f"Templates List Error Traceback: {str(e)}")
-        # Returns an empty list safely instead of a 500 crash if the table is uninitialized or missing columns
         return []
 
-# ==========================================
-# 5. ADMIN APPROVALS, REQUESTS & AUDIT LOGS
-# ==========================================
 @app.get("/api/v1/admin/pending-users")
 def get_pending_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
@@ -333,7 +357,6 @@ def get_system_requests(db: Session = Depends(get_db), current_user: models.User
     try:
         if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
             raise HTTPException(status_code=403, detail="Unauthorized access.")
-        # Returns pending registration/access requests
         requests = db.query(models.Users).filter(models.Users.is_approved == False).all()
         return [
             {
@@ -386,11 +409,9 @@ def update_user_access(
     if not user:
         raise HTTPException(status_code=404, detail="Officer record not found.")
 
-    # 1. Update system role
     if "role" in data and data["role"]:
         user.role = str(data["role"]).strip().upper()
 
-    # 2. Deep-merge permissions & explicitly flag JSON column as modified
     if "permissions" in data and data["permissions"] is not None:
         merged_perms = dict(user.permissions or {})
         if isinstance(data["permissions"], dict):
@@ -410,58 +431,15 @@ def update_user_access(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database commit error: {str(e)}")
-# ==========================================
-# BULK PERMISSIONS / ROSTER UPDATE ENDPOINT
-# ==========================================
-@app.post("/api/v1/admin/bulk-permissions")
-@app.put("/api/v1/admin/bulk-permissions")
-def update_bulk_permissions(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        # Verify admin clearance
-        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
-            raise HTTPException(status_code=403, detail="Unauthorized access: Admin privileges required.")
-        
-        target_fnum = data.get("fnum") or data.get("user_fnum")
-        new_role = data.get("role")
-        new_perms = data.get("permissions")
-        
-        if not target_fnum:
-            raise HTTPException(status_code=400, detail="Target officer force number (fnum) is required.")
-        
-        target_user = db.query(models.Users).filter(
-            func.trim(func.upper(models.Users.fnum)) == str(target_fnum).strip().upper()
-        ).first()
-        
-        if not target_user:
-            raise HTTPException(status_code=404, detail="Target officer record not found.")
-        
-        if new_role:
-            target_user.role = str(new_role).strip().upper()
-        
-        if new_perms is not None:
-            # Merge or replace permissions dictionary
-            existing_perms = target_user.permissions or {}
-            if isinstance(new_perms, dict):
-                existing_perms.update(new_perms)
-                target_user.permissions = existing_perms
-                
-        db.commit()
-        db.refresh(target_user)
-        
-        return {"status": "success", "message": f"Permissions successfully synchronized for officer {target_user.fnum}."}
-    except Exception as e:
-        db.rollback()
-        print(f"Bulk Update Error Traceback: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to update bulk permissions: {str(e)}")
 
 @app.get("/api/v1/admin/reset-requests")
 def get_reset_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
             raise HTTPException(status_code=403, detail="Unauthorized access.")
-        # Fallback query if password reset requests table exists, else empty list
-        if hasattr(models, 'PasswordResetRequests'):
-            resets = db.query(models.PasswordResetRequests).all()
+        target_model = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
+        if target_model:
+            resets = db.query(target_model).all()
             return [{"id": r.id, "fnum": r.fnum, "status": r.status} for r in resets]
         return []
     except Exception as e:
@@ -510,7 +488,7 @@ def get_system_activity_logs(db: Session = Depends(get_logs_db), current_user: m
         return [
             {
                 "id": log.id,
-                "created_at": log.created_at.isoformat() if log.created_at else None,
+                "created_at": log.created_at.isoformat() if hasattr(log.created_at, 'isoformat') else str(log.created_at),
                 "fnum": log.fnum or '',
                 "action": log.action or '',
                 "module": log.module or '',
@@ -552,12 +530,16 @@ def log_user_session(data: dict, db: Session = Depends(get_db)):
     return {"status": "success"}
 
 # ====================================================================
-# 1. COMMUNICATION RECIPIENTS LIST (Fixes 404 on /users/recipients-list)
+# 5. RECIPIENTS, ESTABLISHMENTS JSON & CONSOLIDATED LEDGER
 # ====================================================================
 @app.get("/api/v1/users/recipients-list")
+@app.get("/api/v1/communications/recipients-list")
 def get_recipients_list(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        users = db.query(models.Users).filter(models.Users.role != 'REVOKED').all()
+        users = db.query(models.Users).filter(
+            models.Users.role != 'REVOKED',
+            models.Users.is_approved == True
+        ).all()
         return [
             {
                 "fnum": u.fnum,
@@ -572,26 +554,22 @@ def get_recipients_list(db: Session = Depends(get_db), current_user: models.User
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch recipients: {str(e)}")
 
-
-# ====================================================================
-# 2. HR ESTABLISHMENTS JSON (Fixes "Cannot load HR ledger data")
-# ====================================================================
 @app.get("/api/v1/reports/establishments-json")
 def get_establishments_json(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
-        est = db.query(models.Establishments).all() if hasattr(models, 'Establishments') else []
-        nom = db.query(models.Nominal_Roll).all() if hasattr(models, 'Nominal_Roll') else []
+        est_model = getattr(models, 'Establishments', getattr(models, 'establishments', None))
+        nom_model = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
+        
+        est = db.query(est_model).all() if est_model else []
+        nom = db.query(nom_model).all() if nom_model else []
+        
         return {
-            "establishments": [e.__dict__ for e in est if hasattr(e, '__dict__')],
-            "nominal_rolls": [n.__dict__ for n in nom if hasattr(n, '__dict__')]
+            "establishments": [serialize_model_row(e) for e in est],
+            "nominal_rolls": [serialize_model_row(n) for n in nom]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to compile HR Ledger: {str(e)}")
 
-
-# ====================================================================
-# 3. CONSOLIDATED LEDGER (Fixes "Failed to load Consolidated Ledger")
-# ====================================================================
 @app.get("/api/v1/reports/consolidated-ledger")
 def get_consolidated_ledger(
     start_date: Optional[str] = None, 
@@ -600,21 +578,24 @@ def get_consolidated_ledger(
     current_user = Depends(get_current_user)
 ):
     try:
-        crimes = db.query(models.Crime_Reports).all() if hasattr(models, 'Crime_Reports') else []
-        stats = db.query(models.Operational_Statistics).all() if hasattr(models, 'Operational_Statistics') else []
-        stories = db.query(models.Success_Stories).all() if hasattr(models, 'Success_Stories') else []
+        crime_model = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
+        stats_model = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', None))
+        story_model = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', None))
+
+        crimes = db.query(crime_model).all() if crime_model else []
+        stats = db.query(stats_model).all() if stats_model else []
+        stories = db.query(story_model).all() if story_model else []
         
         return {
-            "crimes": [c.__dict__ for c in crimes if hasattr(c, '__dict__')],
-            "statistics": [s.__dict__ for s in stats if hasattr(s, '__dict__')],
-            "stories": [st.__dict__ for st in stories if hasattr(st, '__dict__')]
+            "crimes": [serialize_model_row(c) for c in crimes],
+            "statistics": [serialize_model_row(s) for s in stats],
+            "stories": [serialize_model_row(st) for st in stories]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Consolidated ledger compilation error: {str(e)}")
 
-
 # ====================================================================
-# 4. MASTER DATABASE EXPORT (Fixes "Export Failed: Method Not Allowed")
+# 6. MASTER DATABASE & HR EXPORTS (TIMEZONE-SAFE EXCEL EXPORTS)
 # ====================================================================
 @app.get("/api/v1/reports/export")
 def export_master_database(
@@ -627,23 +608,38 @@ def export_master_database(
     try:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            if hasattr(models, 'Crime_Reports'):
-                crimes = db.query(models.Crime_Reports).all()
-                df_crimes = pd.DataFrame([c.__dict__ for c in crimes if hasattr(c, '__dict__')])
-                if '_sa_instance_state' in df_crimes.columns:
-                    df_crimes.drop(columns=['_sa_instance_state'], inplace=True)
+            
+            crime_model = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
+            if crime_model:
+                crimes = db.query(crime_model).all()
+                df_crimes = sanitize_df_for_excel(pd.DataFrame([serialize_model_row(c) for c in crimes]))
                 b1 = io.BytesIO()
-                df_crimes.to_excel(b1, index=False)
+                df_crimes.to_excel(b1, index=False, engine='openpyxl')
                 zip_file.writestr("KMP_Crime_Incidents.xlsx", b1.getvalue())
 
-            if hasattr(models, 'Operational_Statistics'):
-                stats = db.query(models.Operational_Statistics).all()
-                df_stats = pd.DataFrame([s.__dict__ for s in stats if hasattr(s, '__dict__')])
-                if '_sa_instance_state' in df_stats.columns:
-                    df_stats.drop(columns=['_sa_instance_state'], inplace=True)
+            stats_model = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', None))
+            if stats_model:
+                stats = db.query(stats_model).all()
+                df_stats = sanitize_df_for_excel(pd.DataFrame([serialize_model_row(s) for s in stats]))
                 b2 = io.BytesIO()
-                df_stats.to_excel(b2, index=False)
+                df_stats.to_excel(b2, index=False, engine='openpyxl')
                 zip_file.writestr("KMP_Disruptive_Ops_Statistics.xlsx", b2.getvalue())
+
+            story_model = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', None))
+            if story_model:
+                stories = db.query(story_model).all()
+                df_stories = sanitize_df_for_excel(pd.DataFrame([serialize_model_row(st) for st in stories]))
+                b3 = io.BytesIO()
+                df_stories.to_excel(b3, index=False, engine='openpyxl')
+                zip_file.writestr("KMP_Success_Stories.xlsx", b3.getvalue())
+
+            nom_model = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
+            if nom_model:
+                nominal = db.query(nom_model).all()
+                df_nominal = sanitize_df_for_excel(pd.DataFrame([serialize_model_row(n) for n in nominal]))
+                b4 = io.BytesIO()
+                df_nominal.to_excel(b4, index=False, engine='openpyxl')
+                zip_file.writestr("KMP_Nominal_Roll.xlsx", b4.getvalue())
 
         zip_buffer.seek(0)
         return StreamingResponse(
@@ -652,22 +648,18 @@ def export_master_database(
             headers={"Content-Disposition": "attachment; filename=KMP_Master_Database_Export.zip"}
         )
     except Exception as e:
+        print(f"Master export error: {e}")
         raise HTTPException(status_code=500, detail=f"Master export failed: {str(e)}")
 
-
-# ====================================================================
-# 5. HR ESTABLISHMENTS SUMMARY EXPORT (Fixes HR Export Button)
-# ====================================================================
 @app.get("/api/v1/export/establishments")
 def export_establishments_summary(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
-        est = db.query(models.Establishments).all() if hasattr(models, 'Establishments') else []
-        df_est = pd.DataFrame([e.__dict__ for e in est if hasattr(e, '__dict__')])
-        if '_sa_instance_state' in df_est.columns:
-            df_est.drop(columns=['_sa_instance_state'], inplace=True)
+        est_model = getattr(models, 'Establishments', getattr(models, 'establishments', None))
+        est = db.query(est_model).all() if est_model else []
+        df_est = sanitize_df_for_excel(pd.DataFrame([serialize_model_row(e) for e in est]))
         
         output = io.BytesIO()
-        df_est.to_excel(output, index=False)
+        df_est.to_excel(output, index=False, engine='openpyxl')
         output.seek(0)
         
         return StreamingResponse(
@@ -676,33 +668,8 @@ def export_establishments_summary(db: Session = Depends(get_db), current_user = 
             headers={"Content-Disposition": "attachment; filename=HR_Establishments_Summary.xlsx"}
         )
     except Exception as e:
+        print(f"HR export error: {e}")
         raise HTTPException(status_code=500, detail=f"HR export failed: {str(e)}")
-
-@app.get("/api/v1/users/recipients-list")
-@app.get("/api/v1/communications/recipients-list")
-def get_recipients_list(
-    db: Session = Depends(get_db), 
-    current_user: models.Users = Depends(get_current_user)
-):
-    try:
-        users = db.query(models.Users).filter(
-            models.Users.role != 'REVOKED',
-            models.Users.is_approved == True
-        ).all()
-        
-        return [
-            {
-                "fnum": u.fnum,
-                "name": u.name,
-                "rank": u.rank,
-                "region": u.region,
-                "station": u.station,
-                "position": u.position,
-                "role": u.role
-            } for u in users
-        ]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch recipients: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run("api_backend:app", host="0.0.0.0", port=8000, reload=True)

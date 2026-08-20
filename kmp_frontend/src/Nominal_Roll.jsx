@@ -109,7 +109,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       isFilterInitialized.current = true;
     }
-  }, [canViewGlobal, currentUser?.station]);
+  }, [canViewGlobal, currentUser?.station, currentUser?.region]);
 
   const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
   const [archiveDetails, setArchiveDetails] = useState(null);
@@ -196,7 +196,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           ipps: formData.ipps, tin: formData.tin, nin: formData.nin, home_dist: formData.homedist, tribe: formData.tribe, acc_no: formData.accno,         
           bank_branch: formData.bankbranch, station: formData.station, district: formData.district, region: formData.region, section: formData.section,
           dir: formData.dir, status: "ARCHIVED", last_updated_by: `${currentUser.name} (${currentUser.fnum})`, archive_reason: archiveReason,
-          archive_date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]
+          archive_date: new Date().toISOString().split('T')[0]
       };
       
       setNominal_Roll_archives([archivedRecord, ...(Array.isArray(Nominal_Roll_archives) ? Nominal_Roll_archives : [])]);
@@ -233,13 +233,13 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         if (response.ok) {
           successCount++;
           archivedFnums.add(targetFnum);
-          const officer = Nominal_Rolls.find(n => (n.f_num || n.fnum) === targetFnum);
+          const officer = (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).find(n => (n.f_num || n.fnum) === targetFnum);
           if (officer) {
             newArchives.push({
               ...officer,
               status: "ARCHIVED",
               archive_reason: bulkArchiveReason,
-              archive_date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
+              archive_date: new Date().toISOString().split('T')[0],
               last_updated_by: `${currentUser.name} (${currentUser.fnum})`
             });
           }
@@ -335,7 +335,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const selStation = (filterStation || '').trim().toUpperCase();
 
       if (canViewGlobal && selRegion === 'ALL REGIONS') {
-        // Allow all regions
+        // Global viewing active
       } else if (selRegion !== 'ALL REGIONS' && selRegion !== '' && dbRegion !== selRegion) {
         return false;
       }
@@ -369,7 +369,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const selStation = (filterStation || '').trim().toUpperCase();
 
       if (canViewGlobal && selRegion === 'ALL REGIONS') {
-        // Allow all regions
+        // Global viewing active
       } else if (selRegion !== 'ALL REGIONS' && selRegion !== '' && dbRegion !== selRegion) {
         return false;
       }

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Eye, Filter } from 'lucide-react';
+import { Eye, Filter, X } from 'lucide-react';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -26,7 +26,7 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   return cleanDbRegion || 'KMP GENERAL';
 };
 
-const ConsolidatedLedger = ({ reports, stats, stories, onClose, currentUser, canViewGlobal = false }) => {
+const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUser, canViewGlobal = false }) => {
   const today = new Date();
   const lastWeek = new Date(today);
   lastWeek.setDate(today.getDate() - 6);
@@ -35,10 +35,19 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose, currentUser, can
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
 
   // 🟢 Safely resolve global view active state matching other modules
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
+  const canViewGlobalActive = canViewGlobal || 
+    currentUser?.role === 'SUPER_ADMIN' || 
+    ['ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||
+    currentUser?.permissions?.view_global_roster === true || 
+    currentUser?.permissions?.global_observer === true;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+
+  // 🟢 Normalize incoming datasets whether passed as individual props or inside data container
+  const rawReports = Array.isArray(reports) ? reports : (data?.crimes || data?.reports || []);
+  const rawStats = Array.isArray(stats) ? stats : (data?.statistics || data?.stats || []);
+  const rawStories = Array.isArray(stories) ? stories : (data?.stories || data?.successStories || []);
 
   const getRoman = (num) => {
     const romans = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi', 'xvii', 'xviii', 'xix', 'xx'];
@@ -52,23 +61,22 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose, currentUser, can
 
   // 🟢 Helper to identify purely administrative lock-up logs
   const isLockupLog = (item) => {
-    return item.is_hq_general_total || 
-           (item.station || '').includes('HEADQUARTERS GENERAL TOTAL') || 
-           (item.daily_lock_up !== undefined && item.daily_lock_up !== null && Number(item.daily_lock_up) > 0);
+    return Boolean(
+      item.is_hq_general_total || 
+      (item.station || '').includes('HEADQUARTERS GENERAL TOTAL') || 
+      (item.daily_lock_up !== undefined && item.daily_lock_up !== null && Number(item.daily_lock_up) > 0 && !item.offence)
+    );
   };
 
   const dataMapping = useMemo(() => {
-    // 1. Variables for Crime Data
     const crimeRegional = {};
     const crimeGeneral = {};
     let grandCrimeCases = 0;
     let grandCrimeSuspects = 0;
 
-    // 2. Variables for Operational Stats Data
     const opsRegional = {};
     const opsGeneral = { arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0 };
 
-    // 3. Variables for Success Stories
     const storyRegional = {};
     let grandStories = 0;
 
@@ -83,21 +91,19 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose, currentUser, can
     };
 
     // --- Process Crimes ---
-    (reports || []).filter(r => isWithinWeek(r.date)).forEach(r => {
-      // 🟢 Intercept and completely ignore Lock-up Administrative Logs
+    rawReports.filter(r => isWithinWeek(r.date)).forEach(r => {
       if (isLockupLog(r)) return;
 
       const stn = (r.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, r.region);
 
-      // Jurisdiction filtering check
       if (!(canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS')) {
         if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return;
         if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return;
       }
 
       const off = r.offence ? r.offence.toUpperCase() : 'UNSPECIFIED INCIDENT';
-      const suspects = parseInt(r.suspects) || 0;
+      const suspects = parseInt(r.suspects, 10) || 0;
 
       if (!crimeRegional[reg]) crimeRegional[reg] = {};
       if (!crimeRegional[reg][off]) crimeRegional[reg][off] = { cases: 0, suspects: 0 };
@@ -114,11 +120,10 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose, currentUser, can
     });
 
     // --- Process Operational Statistics ---
-    (stats || []).filter(s => isWithinWeek(s.date)).forEach(s => {
+    rawStats.filter(s => isWithinWeek(s.date)).forEach(s => {
       const stn = (s.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, s.region);
 
-      // Jurisdiction filtering check
       if (!(canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS')) {
         if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return;
         if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return;
@@ -130,18 +135,17 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose, currentUser, can
 
       const keys = ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted'];
       keys.forEach(key => {
-        const val = parseInt(s[key]) || 0;
+        const val = parseInt(s[key], 10) || 0;
         opsRegional[reg][key] += val;
         opsGeneral[key] += val;
       });
     });
 
     // --- Process Success Stories ---
-    (stories || []).filter(s => isWithinWeek(s.date)).forEach(s => {
+    rawStories.filter(s => isWithinWeek(s.date)).forEach(s => {
       const stn = (s.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, s.region);
 
-      // Jurisdiction filtering check
       if (!(canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS')) {
         if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return;
         if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return;
@@ -156,9 +160,11 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose, currentUser, can
     const regionOrder = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"];
     
     const sorter = (a, b) => {
-       const idxA = regionOrder.indexOf(a); const idxB = regionOrder.indexOf(b);
+       const idxA = regionOrder.indexOf(a); 
+       const idxB = regionOrder.indexOf(b);
        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-       if (idxA !== -1) return -1; if (idxB !== -1) return 1;
+       if (idxA !== -1) return -1; 
+       if (idxB !== -1) return 1;
        return a.localeCompare(b);
     };
 
@@ -171,7 +177,7 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose, currentUser, can
       opsRegional, opsGeneral, sortedOpsRegions,
       storyRegional, sortedStoryRegions, grandStories
     };
-  }, [reports, stats, stories, startDate, endDate, filterRegion, filterStation, canViewGlobalActive]);
+  }, [rawReports, rawStats, rawStories, startDate, endDate, filterRegion, filterStation, canViewGlobalActive]);
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto space-y-10 relative z-10 animate-in fade-in duration-300">
@@ -260,28 +266,32 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose, currentUser, can
             <tbody>
               {dataMapping.sortedCrimeRegions.map(region => {
                 const offences = Object.keys(dataMapping.crimeRegional[region]);
-                let regCases = 0; let regSuspects = 0;
+                let regCases = 0; 
+                let regSuspects = 0;
+                
                 const rows = offences.map((off, idx) => {
-                    const data = dataMapping.crimeRegional[region][off];
-                    regCases += data.cases; regSuspects += data.suspects;
-                    return (
-                      <tr key={`crime-${region}-${off}`} className="hover:bg-slate-50 transition-colors">
-                        {idx === 0 && (
-                          <td rowSpan={offences.length} className="px-3 py-2 border-2 border-slate-400 align-middle font-bold text-center bg-white text-slate-900">{region}</td>
-                        )}
-                        <td className="px-3 py-1.5 border border-slate-400 text-center text-slate-600 font-medium">{getRoman(idx + 1)}.</td>
-                        <td className="px-3 py-1.5 border border-slate-400 text-slate-800 text-xs font-semibold uppercase">{off}</td>
-                        <td className="px-3 py-1.5 border border-slate-400 text-center font-bold">{data.cases}</td>
-                        <td className="px-3 py-1.5 border border-slate-400 text-center font-bold">{data.suspects}</td>
-                      </tr>
-                    );
-                });
-                rows.push(
-                    <tr key={`crime-${region}-subtotal`} className="bg-[#d9d9d9] font-extrabold text-slate-900 border-2 border-slate-400">
-                      <td colSpan="3" className="px-3 py-2 border border-slate-400 text-left pl-12 uppercase tracking-wide text-xs">SUB-TOTAL</td>
-                      <td className="px-3 py-2 border border-slate-400 text-center text-sm">{regCases}</td>
-                      <td className="px-3 py-2 border border-slate-400 text-center text-sm">{regSuspects}</td>
+                  const item = dataMapping.crimeRegional[region][off];
+                  regCases += item.cases; 
+                  regSuspects += item.suspects;
+                  return (
+                    <tr key={`crime-${region}-${off}`} className="hover:bg-slate-50 transition-colors">
+                      {idx === 0 && (
+                        <td rowSpan={offences.length} className="px-3 py-2 border-2 border-slate-400 align-middle font-bold text-center bg-white text-slate-900">{region}</td>
+                      )}
+                      <td className="px-3 py-1.5 border border-slate-400 text-center text-slate-600 font-medium">{getRoman(idx + 1)}.</td>
+                      <td className="px-3 py-1.5 border border-slate-400 text-slate-800 text-xs font-semibold uppercase">{off}</td>
+                      <td className="px-3 py-1.5 border border-slate-400 text-center font-bold">{item.cases}</td>
+                      <td className="px-3 py-1.5 border border-slate-400 text-center font-bold">{item.suspects}</td>
                     </tr>
+                  );
+                });
+                
+                rows.push(
+                  <tr key={`crime-${region}-subtotal`} className="bg-[#d9d9d9] font-extrabold text-slate-900 border-2 border-slate-400">
+                    <td colSpan="3" className="px-3 py-2 border border-slate-400 text-left pl-12 uppercase tracking-wide text-xs">SUB-TOTAL</td>
+                    <td className="px-3 py-2 border border-slate-400 text-center text-sm">{regCases}</td>
+                    <td className="px-3 py-2 border border-slate-400 text-center text-sm">{regSuspects}</td>
+                  </tr>
                 );
                 return rows;
               })}
@@ -310,14 +320,14 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose, currentUser, can
               </thead>
               <tbody>
                 {Object.keys(dataMapping.crimeGeneral).map((off, idx) => {
-                  const data = dataMapping.crimeGeneral[off];
+                  const item = dataMapping.crimeGeneral[off];
                   return (
-                      <tr key={`gen-crime-${off}`} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-3 py-1.5 border border-slate-400 text-center text-slate-600 font-medium">{idx + 1}</td>
-                        <td className="px-3 py-1.5 border border-slate-400 text-slate-800 text-xs font-semibold uppercase">{off}</td>
-                        <td className="px-3 py-1.5 border border-slate-400 text-center font-bold">{data.cases}</td>
-                        <td className="px-3 py-1.5 border border-slate-400 text-center font-bold">{data.suspects}</td>
-                      </tr>
+                    <tr key={`gen-crime-${off}`} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-3 py-1.5 border border-slate-400 text-center text-slate-600 font-medium">{idx + 1}</td>
+                      <td className="px-3 py-1.5 border border-slate-400 text-slate-800 text-xs font-semibold uppercase">{off}</td>
+                      <td className="px-3 py-1.5 border border-slate-400 text-center font-bold">{item.cases}</td>
+                      <td className="px-3 py-1.5 border border-slate-400 text-center font-bold">{item.suspects}</td>
+                    </tr>
                   );
                 })}
               </tbody>
@@ -359,18 +369,18 @@ const ConsolidatedLedger = ({ reports, stats, stories, onClose, currentUser, can
             </thead>
             <tbody>
               {dataMapping.sortedOpsRegions.map((region) => {
-                const data = dataMapping.opsRegional[region];
+                const item = dataMapping.opsRegional[region];
                 return (
                   <tr key={`ops-${region}`} className="hover:bg-slate-50 transition-colors">
                     <td className="px-2 py-2 border border-slate-400 text-center font-bold text-slate-900 text-xs">{region}</td>
-                    <td className="px-2 py-2 border border-slate-400 text-center font-bold">{data.arrested}</td>
-                    <td className="px-2 py-2 border border-slate-400 text-center font-bold">{data.given_bond}</td>
-                    <td className="px-2 py-2 border border-slate-400 text-center font-bold">{data.cautioned}</td>
-                    <td className="px-2 py-2 border border-slate-400 text-center font-bold">{data.pending_court}</td>
-                    <td className="px-2 py-2 border border-slate-400 text-center font-bold">{data.taken_to_court}</td>
-                    <td className="px-2 py-2 border border-slate-400 text-center font-bold">{data.released}</td>
-                    <td className="px-2 py-2 border border-slate-400 text-center font-bold text-red-700">{data.remanded}</td>
-                    <td className="px-2 py-2 border border-slate-400 text-center font-bold text-purple-700">{data.convicted}</td>
+                    <td className="px-2 py-2 border border-slate-400 text-center font-bold">{item.arrested}</td>
+                    <td className="px-2 py-2 border border-slate-400 text-center font-bold">{item.given_bond}</td>
+                    <td className="px-2 py-2 border border-slate-400 text-center font-bold">{item.cautioned}</td>
+                    <td className="px-2 py-2 border border-slate-400 text-center font-bold">{item.pending_court}</td>
+                    <td className="px-2 py-2 border border-slate-400 text-center font-bold">{item.taken_to_court}</td>
+                    <td className="px-2 py-2 border border-slate-400 text-center font-bold">{item.released}</td>
+                    <td className="px-2 py-2 border border-slate-400 text-center font-bold text-red-700">{item.remanded}</td>
+                    <td className="px-2 py-2 border border-slate-400 text-center font-bold text-purple-700">{item.convicted}</td>
                   </tr>
                 );
               })}

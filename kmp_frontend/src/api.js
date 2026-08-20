@@ -1,37 +1,46 @@
 // src/api.js
 const BASE_URL = import.meta.env.VITE_API_URL || 'https://kmp-tracker-system-centralised-security.onrender.com';
 
-// 🟢 Secure In-Memory Session Storage (Zero persistence to localStorage/sessionStorage)
-let inMemoryToken = null;
-let inMemoryUserFNum = null;
+// 🟢 In-Memory Token with Tab-Scoped Ephemeral Fallback (No permanent disk/localStorage persistence)
+let inMemoryToken = typeof window !== 'undefined' ? sessionStorage.getItem('__kmp_sec_token') : null;
+let inMemoryUserFNum = typeof window !== 'undefined' ? sessionStorage.getItem('__kmp_sec_fnum') : null;
 
 export const setAuthSession = (token, fnum) => {
   inMemoryToken = token;
   inMemoryUserFNum = fnum;
+  if (token) {
+    sessionStorage.setItem('__kmp_sec_token', token);
+  }
+  if (fnum) {
+    sessionStorage.setItem('__kmp_sec_fnum', fnum);
+  }
 };
 
 export const clearAuthSession = () => {
   inMemoryToken = null;
   inMemoryUserFNum = null;
+  sessionStorage.removeItem('__kmp_sec_token');
+  sessionStorage.removeItem('__kmp_sec_fnum');
 };
 
-export const getAuthToken = () => inMemoryToken;
-export const getAuthUserFNum = () => inMemoryUserFNum;
+export const getAuthToken = () => inMemoryToken || sessionStorage.getItem('__kmp_sec_token');
+export const getAuthUserFNum = () => inMemoryUserFNum || sessionStorage.getItem('__kmp_sec_fnum');
+export const hasValidSession = () => Boolean(getAuthToken());
 
 export async function authFetch(endpoint, options = {}) {
-  // 🟢 Defend against double-domain prepending
   const url = (endpoint.startsWith('http://') || endpoint.startsWith('https://'))
     ? endpoint
     : `${BASE_URL}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
 
   const headers = { ...options.headers };
+  const currentFNum = getAuthUserFNum();
+  const currentToken = getAuthToken();
 
-  // Attach Officer Signature Header from volatile RAM
-  if (inMemoryUserFNum) {
-    headers['X-User-FNum'] = inMemoryUserFNum;
+  if (currentFNum) {
+    headers['X-User-FNum'] = currentFNum;
   }
 
-  // --- FASTAPI OAUTH2 COMPLIANCE INTERCEPTOR ---
+  // --- FASTAPI LOGIN PAYLOAD CONVERSION ---
   if (url.includes('/api/auth/login') && typeof options.body === 'string') {
     try {
       const parsedBody = JSON.parse(options.body);
@@ -40,7 +49,7 @@ export async function authFetch(endpoint, options = {}) {
       formData.append("password", parsedBody.password || "");
       options.body = formData;
     } catch (e) {
-      // Body is not a JSON string, retain original payload
+      // Retain original body
     }
   }
 
@@ -53,30 +62,26 @@ export async function authFetch(endpoint, options = {}) {
     }
   }
 
-  // Attach Bearer Token from in-memory store
-  if (inMemoryToken) {
-    headers['Authorization'] = `Bearer ${inMemoryToken}`;
+  if (currentToken) {
+    headers['Authorization'] = `Bearer ${currentToken}`;
   }
 
   const response = await fetch(url, {
     ...options,
     headers,
-    credentials: 'include' // Transmit secure HttpOnly cookies across origins
+    credentials: 'include'
   });
 
-  // --- SECURITY ENFORCEMENT PROTOCOLS ---
-
-  // 1. Token Expired or Session Terminated
+  // --- ERROR INTERCEPTORS ---
   if (response.status === 401 && !url.includes('/api/auth/login')) {
-    console.warn("🔒 Secure In-Memory Session Expired. Purging memory references...");
+    console.warn("🔒 Secure Session Expired. Dispatched auth-expired event.");
     clearAuthSession();
     window.dispatchEvent(new Event('auth-expired'));
     throw new Error("UNAUTHORIZED");
   }
 
-  // 2. Privilege Violation / Insufficient Command Rank
   if (response.status === 403) {
-    console.warn("🛡️ Security Restriction: Sovereign Clearance Denied.");
+    console.warn("🛡️ Security Restriction: Access Denied.");
     throw new Error("Clearance Denied");
   }
 
