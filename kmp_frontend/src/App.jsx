@@ -1489,7 +1489,7 @@ const WorkspaceSecurityCurtain = () => {
 
   // 🟢 1. ROBUST USER ACTIVITY DETECTOR
   React.useEffect(() => {
-    const IDLE_TIMEOUT_MS = 60000;         
+    const IDLE_TIMEOUT_MS = 60000;          
     const SESSION_TIMEOUT_MS = 29 * 60 * 1000; 
 
     const handleUserActivity = () => {
@@ -1596,7 +1596,7 @@ return (
 
         <div className="idle-center-container relative z-20 flex items-center justify-center mx-auto my-auto" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
           <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
-            
+           
           <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
             {"KAMPALA METROPOLITAN POLICE TRACKER SYSTEM • CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
               <span 
@@ -2263,6 +2263,422 @@ const DashboardLayout = ({
           <img src={viewingProfileImage} alt="Full Profile" className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
+    </>
+  );
+};
+
+export const stripHtmlTags = (html) => {
+  if (!html) return '';
+  return String(html).replace(/<[^>]*>?/gm, '').trim();
+};
+
+export const formatWorksheetAutoFit = (ws, maxLongColWidth = 55) => {
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+  const colWidths = [];
+
+  for (let C = range.s.c; C <= range.e.c; ++C) {
+    let maxLength = 10;
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+      const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
+      if (ws[cellRef] && ws[cellRef].v !== undefined) {
+        const valStr = String(ws[cellRef].v);
+        if (valStr.length > maxLength) {
+          maxLength = valStr.length;
+        }
+      }
+    }
+    colWidths.push({ wch: Math.min(maxLength + 4, maxLongColWidth) });
+  }
+
+  ws['!cols'] = colWidths;
+
+  for (let R = range.s.r; R <= range.e.r; ++R) {
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+      const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
+      if (ws[cellRef]) {
+        if (!ws[cellRef].s) ws[cellRef].s = {};
+        ws[cellRef].s.alignment = { wrapText: true, vertical: 'top' };
+      }
+    }
+  }
+};
+
+// ====================================================================
+// --- MAIN APP COMPONENT ---
+// ====================================================================
+const App = () => {
+  const [activeComponent, setActiveComponent] = useState('DASHBOARD');
+  const [targetCommTab, setTargetCommTab] = useState('INBOX');
+  const [commDefaultTab, setCommDefaultTab] = useState('INBOX');
+
+  const [currentUser, setCurrentUser] = usePersistentState('kmp_currentUser', null);
+  const [currentPage, setCurrentPage] = usePersistentState('kmp_currentPage', 'home');
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [targetRegion, setTargetRegion] = useState('KMP HEADQUARTERS');
+  const [targetStation, setTargetStation] = useState('KMP HEADQUARTERS');
+  const [overrideRegion, setOverrideRegion] = useState(currentUser?.region || 'KMP HEADQUARTERS');
+  const [overrideStation, setOverrideStation] = useState(currentUser?.station || 'KMP HEADQUARTERS');
+
+  const [reports, setReports] = useState([]);
+  const [stats, setStats] = useState([]);
+  const [stories, setStories] = useState([]);
+  const [establishments, setEstablishments] = useState([]);
+  const [Nominal_Rolls, setNominal_Rolls] = useState([]);
+  const [Nominal_Roll_archives, setNominal_Roll_archives] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [pendingUsers, setPendingUsers] = useState([]);
+
+  const [hrLedgerData, setHrLedgerData] = useState(null);
+  const [isViewingHR, setIsViewingHR] = useState(false);
+  const [isViewingConsolidated, setIsViewingConsolidated] = useState(false);
+  const [consolidatedData, setConsolidatedData] = useState(null);
+  const [adminCommsData, setAdminCommsData] = useState([]);  
+
+  // Regional/Station filters for Grand Totals computation
+  const [filterRegion, setFilterRegion] = useState('ALL REGIONS');
+  const [filterStation, setFilterStation] = useState('ALL STATIONS');
+
+  // 🟢 COMPUTE GRAND TOTALS MEMOIZED HOOK
+  const grandTotals = useMemo(() => {
+    return calculateGrandTotals(reports, currentUser, filterRegion, filterStation);
+  }, [reports, currentUser, filterRegion, filterStation]);
+
+  // 🟢 BACKGROUND AUTO-SYNC LISTENER
+  useEffect(() => {
+    const handleOnlineStatus = async () => {
+      if (navigator.onLine) {
+        const token = localStorage.getItem('kmp_authToken');
+        if (token) {
+          const remaining = await syncOfflineQueue(token);
+          if (remaining === 0 && getOfflineQueueCount() === 0) {
+            console.log('All offline queue records successfully synced with central database.');
+          }
+        }
+      }
+    };
+
+    window.addEventListener('online', handleOnlineStatus);
+    
+    const syncInterval = setInterval(() => {
+      if (navigator.onLine) {
+        handleOnlineStatus();
+      }
+    }, 30000); 
+
+    return () => {
+      window.removeEventListener('online', handleOnlineStatus);
+      clearInterval(syncInterval);
+    };
+  }, []);
+
+  // 🟢 INITIAL CLEARANCE & SESSION TIMEOUT CHECK
+  useEffect(() => {
+    const initApp = () => {
+      const token = localStorage.getItem('kmp_authToken');
+      const cachedUser = localStorage.getItem('kmp_currentUser');
+      const params = new URLSearchParams(window.location.search);
+
+      // If redirected after session timeout or missing credentials, reset state cleanly
+      if (params.get('session_expired') === 'true' || !token || !cachedUser) {
+        localStorage.removeItem('kmp_authToken');
+        localStorage.removeItem('kmp_currentUser');
+        if (params.get('session_expired') === 'true') {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        setIsInitializing(false);
+        return;
+      }
+
+      try {
+        setCurrentUser(JSON.parse(cachedUser));
+      } catch (error) {
+        localStorage.removeItem('kmp_authToken');
+        localStorage.removeItem('kmp_currentUser');
+      }
+      setIsInitializing(false);
+    };
+
+    initApp();
+  }, [setCurrentUser]);
+
+  // 🟢 REAL-TIME LISTENER & SYNC: Polls server every 5 seconds to sync AdminApprovals matrix changes live
+  useEffect(() => {
+    if (!currentUser?.fnum) return; 
+    const controller = new AbortController();
+    
+    const fetchAllData = async () => {
+      const token = localStorage.getItem('kmp_authToken');
+      if (!token) return;
+      try {
+        const [resReports, resStats, resStories, resNom, resComms, resEst, resArchives, resUsers] = await Promise.all([
+          authFetch(`${API_URL}/api/v1/reports`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/stats`, { signal: controller.signal }),
+          authFetch(`${API_URL}/api/v1/stories`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/nominal-roll`, { signal: controller.signal }),
+          authFetch(`${API_URL}/api/v1/Admin_Communication`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/establishments`, { signal: controller.signal }),
+          authFetch(`${API_URL}/api/v1/nominal-roll-archive`, { signal: controller.signal }), 
+          authFetch(`${API_URL}/api/v1/users`, { signal: controller.signal })
+        ]);
+
+        if (!controller.signal.aborted) {
+          if (resReports.status === 401) {
+             window.dispatchEvent(new Event('auth-expired'));
+             return;
+          }
+
+          if (resReports.ok) {
+             setReports(await resReports.json());
+          }
+
+          if (resStats.ok) setStats(await resStats.json());
+          if (resStories.ok) setStories(await resStories.json());
+          if (resNom.ok) setNominal_Rolls(await resNom.json());
+          if (resComms.ok) setAdminCommsData(await resComms.json());
+          if (resEst.ok) setEstablishments(await resEst.json());
+          if (resArchives.ok) setNominal_Roll_archives(await resArchives.json());
+          
+          if (resUsers.ok) {
+            const allUsers = await resUsers.json();
+            setUsers(allUsers);
+            const me = allUsers.find(u => u.fnum === currentUser.fnum);
+            if (me) {
+              const mergedPermissions = {
+                ...(me.permissions || {}),
+                ...(currentUser.permissions || {}),
+                view_global_roster: currentUser.role === 'SUPER_ADMIN' || me.permissions?.view_global_roster === true || currentUser.permissions?.view_global_roster === true,
+                global_observer: currentUser.role === 'SUPER_ADMIN' || me.permissions?.global_observer === true || currentUser.permissions?.global_observer === true
+              };
+
+              const resolvedRole = currentUser.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : (me.role || currentUser.role);
+
+              if (JSON.stringify(mergedPermissions) !== JSON.stringify(currentUser.permissions) || resolvedRole !== currentUser.role) {
+                const updatedUser = { ...currentUser, permissions: mergedPermissions, role: resolvedRole };
+                setCurrentUser(updatedUser);
+                localStorage.setItem('kmp_currentUser', JSON.stringify(updatedUser));
+                console.log("🛡️ Sovereign permissions securely synchronized live.");
+              }
+            }
+          }
+        }
+      } catch (error) { 
+        if (error.name !== 'AbortError') {
+          console.error("Network/Fetch Error:", error);
+        }
+      } 
+    };    
+
+    fetchAllData();
+    
+    const pollingInterval = setInterval(fetchAllData, 5000);
+
+    return () => {
+      controller.abort();
+      clearInterval(pollingInterval);
+    };
+  }, [currentUser?.fnum]); 
+
+  const handleMasterExport = async (scope, value) => {
+    let url = `/api/v1/reports/export?timeframe=all`; 
+    if (scope && value) url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
+    downloadWithAuth(url, `KMP_Master_Ledger_${value || "General"}_${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]}.zip`);
+  };
+
+  const handleAcknowledgeComm = async (commId) => {
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const response = await fetch(`${API_URL}/api/v1/communications/${commId}/acknowledge`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+      if (response.ok) setAdminCommsData(prevData => prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c));
+    } catch (err) { console.error("Failed to acknowledge receipt", err); }
+  };
+
+  const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
+
+  const renderPage = () => {
+    const canViewGlobal = currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true;
+
+    switch (currentPage) {
+      case 'home':  
+        return checkClearance(currentUser, 'acc_home', true) ? <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} /> : null;
+      case 'reports':  
+        return checkClearance(currentUser, 'acc_crime', true) ? <CrimeIncidentRegistry currentUser={currentUser} canViewGlobal={canViewGlobal} reports={reports} setReports={setReports} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+      case 'statistics':  
+        return checkClearance(currentUser, 'acc_ops', true) ? <Statistics currentUser={currentUser} canViewGlobal={canViewGlobal} stats={stats} setStats={setStats} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+      case 'success':  
+        return checkClearance(currentUser, 'acc_stories', true) ? <SuccessStories currentUser={currentUser} canViewGlobal={canViewGlobal} stories={stories} setStories={setStories} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+      case 'establishments':  
+        return checkClearance(currentUser, 'acc_est', true) ? (
+          <Establishments 
+            currentUser={currentUser} 
+            canViewGlobal={canViewGlobal}
+            establishments={establishments} 
+            setEstablishments={setEstablishments} 
+          />
+        ) : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+      case 'analytics':  
+        return checkClearance(currentUser, 'acc_analytics', true) ? (
+          <AnalyticsDashboard nominalRolls={Nominal_Rolls} crimeRegistry={reports} successStories={stories} operationalStats={stats} />
+        ) : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+      case 'nominal-roll':  
+        return checkClearance(currentUser, 'acc_hr', true) ? (
+          <Nominal_Roll 
+            currentUser={currentUser} 
+            canViewGlobal={canViewGlobal}
+            Nominal_Rolls={Nominal_Rolls} 
+            setNominal_Rolls={setNominal_Rolls} 
+            Nominal_Roll_archives={Nominal_Roll_archives} 
+            setNominal_Roll_archives={setNominal_Roll_archives} 
+          />
+        ) : (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        );
+      case 'reports_hub':  
+        return checkClearance(currentUser, 'acc_tripartite', true) ? <WordReportUpload currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />; 
+      case 'approvals':  
+        return checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role)) ? <AdminApprovals pendingUsers={pendingUsers} setPendingUsers={setPendingUsers} users={users} setUsers={setUsers} currentUser={currentUser} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />; 
+      case 'profile':  
+        return checkClearance(currentUser, 'acc_profile', true) ? <AdminProfile currentUser={currentUser} setCurrentUser={setCurrentUser} setCurrentPage={handlePageChange} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+      case 'Admin_Communication':  
+        return checkClearance(currentUser, 'acc_comms', true) ? <Admin_Communication currentUser={currentUser} users={users} setCurrentPage={handlePageChange} onAcknowledgeComm={handleAcknowledgeComm} initialTab={commDefaultTab} /> : <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+      default:  
+        return <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} onMasterExport={handleMasterExport} onViewConsolidated={handleViewConsolidated} adminCommsData={adminCommsData} onAcknowledgeComm={handleAcknowledgeComm} onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} />;
+    }
+  };
+
+  const handleViewHRReport = async () => {
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const res = await authFetch(`${API_URL}/api/v1/reports/establishments-json`);
+      if (!res.ok) throw new Error("Security clearance rejected or server error.");
+      const data = await res.json(); setHrLedgerData(data); setIsViewingHR(true);
+    } catch (err) { alert("Cannot load HR ledger data. Ensure your session is active and you have network connectivity."); }
+  };
+
+  const handleViewConsolidated = async () => {
+      setIsViewingHR(false);
+      const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+      const lastWeek = new Date(); lastWeek.setDate(lastWeek.getDate() - 7);
+      const start = lastWeek.toISOString().split('T')[0];
+
+      try {
+          const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+          const response = await authFetch(`${API_URL}/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
+          if (!response.ok) throw new Error("Backend failed to compile ledger.");
+          const data = await response.json(); setConsolidatedData(data); setIsViewingConsolidated(true);
+      } catch (err) { alert("Failed to load Consolidated Ledger. Check Python terminal for errors."); }
+  };
+
+  if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
+
+  if (currentUser && !currentUser.region) {
+    localStorage.removeItem('kmp_currentUser'); 
+    localStorage.removeItem('kmp_authToken');
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+        <h2 className="text-2xl font-bold text-red-600 mb-2">Ghost Session Detected</h2>
+        <p className="text-slate-600 mb-6">Corrupted local data is blocking the dashboard. Click below to wipe it.</p>
+        <button onClick={() => window.location.reload()} className="px-6 py-3 bg-blue-700 text-white font-bold rounded-lg shadow-md hover:bg-blue-800">Force Clear & Restart App</button>
+      </div>
+    );
+  }
+
+  if (!currentUser) return <LoginScreen 
+    onLogin={(user) => {
+      localStorage.removeItem('kmp_currentPage'); setCurrentPage('home'); setCurrentUser(user);
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      fetch(`${API_URL}/api/v1/system/log-session`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fnum: user.fnum }) }).catch(e => console.error(e));
+    }} 
+    onForgot={() => {}} onSignup={(u) => setPendingUsers([...pendingUsers, u])} pendingUsers={pendingUsers} activeUsers={users} 
+  />;
+
+  const handleGenerateHRReport = () => downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
+
+  const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
+    setUsers(users.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: newPermissions } : u));
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      await fetch(`${API_URL}/api/v1/users/${fnum}/access`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify({ role: newRole, permissions: newPermissions }) });
+    } catch (err) { console.error("Failed to save permissions to database:", err); }
+  };
+
+  const handleRevokeUser = async (fnum) => {
+    const reason = window.prompt(`Please state the official reason for revoking access for ${fnum}:`);
+    if (reason === null) return; 
+    if (reason.trim() === '') return alert("An official reason is mandatory to revoke a user's access.");
+
+    try {
+      const token = localStorage.getItem('kmp_authToken');
+      const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      await fetch(`${API_URL}/api/v1/users/${encodeURIComponent(fnum)}/revoke?reason=${encodeURIComponent(reason)}`, {
+        method: "DELETE", headers: { "Authorization": `Bearer ${token}` }
+      });
+      setUsers(users.filter(u => u.fnum !== fnum));
+      alert(`Access revoked for ${fnum}. Reason logged in Audit Trail.`);
+    } catch (err) { console.error("Failed to revoke user:", err); }
+  };
+
+  return (
+    <>
+      <DashboardLayout 
+        currentUser={currentUser} 
+        currentPage={currentPage} 
+        setCurrentPage={handlePageChange} 
+        onLogout={() => { 
+          localStorage.removeItem('kmp_authToken'); 
+          localStorage.removeItem('kmp_currentUser'); 
+          localStorage.removeItem('kmp_currentPage'); 
+          window.location.reload(); 
+        }}
+        onUpdateUserRole={handleUpdateUserRole} 
+        onRevokeUser={handleRevokeUser} 
+        users={users} 
+        Admin_Communication={adminCommsData}
+        onViewConsolidated={handleViewConsolidated} 
+        onViewHRReport={handleViewHRReport} 
+        onGenerateHRReport={handleGenerateHRReport}
+      >
+        {isViewingConsolidated && (
+          <ConsolidatedLedger 
+            data={consolidatedData} 
+            reports={reports} 
+            stats={stats} 
+            stories={stories} 
+            onClose={() => setIsViewingConsolidated(false)} 
+          />
+        )}
+        
+        {isViewingHR && hrLedgerData && (
+          <HrEstablishmentsLedger 
+            data={hrLedgerData} 
+            onClose={() => setIsViewingHR(false)} 
+            currentUser={currentUser} 
+            onUploadSuccess={() => window.location.reload()} 
+          />
+        )}
+        
+        <div className={(isViewingConsolidated || isViewingHR) ? 'hidden' : 'block w-full h-full'}>
+          {renderPage()}
+        </div>
+
+        {/* 🟢 FLOATING AI INTELLIGENCE ASSISTANT */}
+        <SystemAssistant 
+          currentUser={currentUser} 
+          canViewGlobal={currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true} 
+          onClose={() => {}} 
+        />
+      </DashboardLayout>
+
+      <WorkspaceSecurityCurtain />
     </>
   );
 };
