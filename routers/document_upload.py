@@ -6,6 +6,7 @@ import urllib.parse
 from docx import Document
 from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+import openpyxl
 import os
 import boto3
 from typing import Optional
@@ -48,7 +49,6 @@ def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, chang
 @router.get("/reports/archive")
 def get_document_archive(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
-        # Fetch from DocumentArchive table in NeonDB
         docs = db.query(models.DocumentArchive).order_by(models.DocumentArchive.upload_date.desc()).all()
         return [
             {
@@ -73,9 +73,9 @@ def get_command_templates(db: Session = Depends(get_db), current_user = Depends(
             {
                 "id": t.id,
                 "name": t.file_name,
-                "type": "Command Template",  # Aligns with frontend filter checks
+                "type": "Command Template", 
                 "date": t.last_updated.strftime("%Y-%m-%d") if t.last_updated else "",
-                "size": "N/A",  # Since command_templates table doesn't track file size
+                "size": "N/A", 
                 "file_path": t.s3_url,
                 "region": "KMP HEADQUARTERS",
                 "station": "HQ"
@@ -83,6 +83,101 @@ def get_command_templates(db: Session = Depends(get_db), current_user = Depends(
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch templates: {str(e)}")
+
+@router.get("/reports/download/{doc_id}")
+def download_archive_file(
+    doc_id: int, 
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    # Unified lookup checking DocumentArchive first, then CommandTemplate as fallback
+    doc_record = db.query(models.DocumentArchive).filter(models.DocumentArchive.id == doc_id).first()
+    is_template_record = False
+
+    if not doc_record:
+        doc_record = db.query(models.CommandTemplate).filter(models.CommandTemplate.id == doc_id).first()
+        is_template_record = True
+
+    if not doc_record:
+        raise HTTPException(status_code=404, detail="Document record not found in system database.")
+        
+    file_path = doc_record.file_path if not is_template_record else doc_record.s3_url
+    file_name = doc_record.file_name
+
+    if not str(file_path).startswith("http"):
+        raise HTTPException(status_code=404, detail="Local files cannot be dynamically stamped. Please use S3 uploads.")
+
+    parsed_url = urllib.parse.urlparse(file_path)
+    original_s3_key = parsed_url.path.lstrip('/') 
+    file_extension = file_name.lower().split('.')[-1]
+
+    try:
+        file_stream = io.BytesIO()
+        s3_client.download_fileobj(BUCKET_NAME, original_s3_key, file_stream)
+        file_stream.seek(0)
+        raw_bytes = file_stream.getvalue()
+
+        eat_time = datetime.utcnow() + timedelta(hours=3)
+        timestamp_eat = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
+        processed_date_str = eat_time.strftime("%Y-%m-%d")
+        
+        receipt_text = (
+            "========================================================\n"
+            "         KAMPALA METROPOLITAN POLICE HEADQUARTERS         \n"
+            "         SECURE DOCUMENT & TEMPLATES ACCESS         \n"
+            "--------------------------------------------------------\n"
+            f"ACCESSED BY    : {current_user.fnum} - {current_user.rank} {current_user.name}\n"
+            f"CLEARANCE      : {current_user.role} | STATION: {current_user.station}\n"
+            f"PROCESSED DATE : {processed_date_str}\n"
+            f"TIMESTAMP      : {timestamp_eat}\n"
+            "========================================================"
+        )
+
+        output_stream = io.BytesIO()
+        content_type = "application/octet-stream"
+
+        if file_extension == 'docx':
+            word_doc = Document(io.BytesIO(raw_bytes))
+            section = word_doc.sections[0]
+            footer = section.footer
+            footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+            footer_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            run = footer_p.add_run(receipt_text)
+            run.font.name = 'Courier New' 
+            run.font.size = Pt(7.5) 
+            run.font.bold = True
+            run.font.color.rgb = RGBColor(139, 0, 0) 
+            word_doc.save(output_stream)
+            content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif file_extension in ['xlsx', 'xls']:
+            wb = openpyxl.load_workbook(io.BytesIO(raw_bytes))
+            for ws in wb.worksheets:
+                if hasattr(ws, 'sheet_footer'):
+                    ws.sheet_footer.center.text = receipt_text
+                elif hasattr(ws, 'odd_footer'):
+                    ws.odd_footer.center.text = receipt_text
+            wb.save(output_stream)
+            content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        else:
+            output_stream.write(raw_bytes)
+
+        output_stream.seek(0)
+
+        stamped_s3_key = f"forensic_cache/{current_user.fnum}_DOC_{doc_id}.{file_extension}"
+        s3_client.upload_fileobj(
+            output_stream, 
+            BUCKET_NAME, 
+            stamped_s3_key,
+            ExtraArgs={"ContentType": content_type}
+        )
+
+        aws_region = os.getenv("AWS_REGION", "eu-central-1")
+        stamped_url = f"https://{BUCKET_NAME}.s3.{aws_region}.amazonaws.com/{stamped_s3_key}"
+
+        return {"download_url": stamped_url}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Universal Forensic Stamping Error: {str(e)}")
 
 @router.post("/reports/upload-word-report")
 async def upload_word_report(
@@ -131,7 +226,6 @@ async def upload_word_report(
         
         full_s3_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
         
-        # Map category names precisely to what frontend filters expect
         if doc_type == "weekly_report":
             display_type = "Weekly Report"
         elif doc_type == "general_doc":
