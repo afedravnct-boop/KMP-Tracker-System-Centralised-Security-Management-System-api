@@ -5,15 +5,14 @@ import re
 import html
 import uuid
 import asyncio
-import secrets  # 🟢 NEW: For secure random password generation
-import string    # 🟢 NEW: For alphanumeric character mapping
+import secrets  
+import string    
 from datetime import datetime, timedelta
 from typing import Optional, List, Union
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import urllib.parse
 import fitz
-
 
 import pytz
 import uvicorn
@@ -26,12 +25,11 @@ from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks, Request
-from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from fastapi.responses import JSONResponse
 from ai_router import router as ai_router
 
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
@@ -42,12 +40,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy import Column, Integer
-from sqlalchemy import text
+from sqlalchemy import Column, Integer, text
 from docx.shared import Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 import openpyxl
-from openpyxl.styles import Alignment  # 🟢 Added for Excel cell text wrapping & vertical top alignment
+from openpyxl.styles import Alignment 
 from pptx import Presentation
 from pptx.util import Inches, Pt as PPTXPt
 from pptx.dml.color import RGBColor as PPTXRGBColor
@@ -59,7 +55,7 @@ from slowapi.errors import RateLimitExceeded
 
 # Internal Imports
 from app import models, schemas, database
-from app.database import engine, get_db, get_logs_db
+from app.database import engine, get_db, get_logs_db, DATABASE_URL
 from app.database import LogsSessionLocal as SessionLogsLocal
 from app.core import security
 from auth import router as auth_router
@@ -73,12 +69,27 @@ load_dotenv()
 
 app = FastAPI(title="KMP Centralised Security Data Management System")
 
-# 🟢 Initialize Rate Limiter
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print(f"Internal Command Error Traceback: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal command processing error occurred. Please try again later."},
+    )
+
+timeouts)
+engine = create_engine(
+    DATABASE_URL, 
+    pool_size=20, 
+    max_overflow=30, 
+    pool_pre_ping=True, 
+    pool_recycle=300
+)
+
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# 🟢 Include Admin Users Router
 from routers import admin_users
 app.include_router(admin_users.router)
 
