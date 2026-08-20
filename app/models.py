@@ -345,25 +345,28 @@ class DocumentArchive(Base):
     __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
-    file_name = Column(String, index=True, nullable=False)
-    doc_type = Column(String, nullable=False)  
-    file_size = Column(String)  
-    file_path = Column(String, nullable=False) 
+    file_name = Column(String, nullable=False)
+    doc_type = Column(String, nullable=False)
+    file_size = Column(String, nullable=True)
+    file_path = Column(String, nullable=False)
     region = Column(String, nullable=True)
-    station = Column(String)
-    uploaded_by = Column(String)
+    station = Column(String, nullable=True)
+    uploaded_by = Column(String, nullable=True)
     upload_date = Column(DateTime, default=datetime.utcnow)
 
-class CommandTemplates(Base):
+class CommandTemplate(Base):
     __tablename__ = "command_templates"
     __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
-    template_id = Column(String, unique=True, index=True, nullable=False) 
     file_name = Column(String, nullable=False)
-    s3_url = Column(String, nullable=False)
-    updated_by = Column(String, nullable=True) 
-    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    doc_type = Column(String, nullable=False, default="Command Template")
+    file_size = Column(String, nullable=True)
+    file_path = Column(String, nullable=False)  # Acts as s3_url equivalent
+    region = Column(String, nullable=True, default="KMP HEADQUARTERS")
+    station = Column(String, nullable=True, default="HQ")
+    uploaded_by = Column(String, nullable=True)
+    upload_date = Column(DateTime, default=datetime.utcnow)
 
 class LockupMatrix(Base):
     __tablename__ = "lockup_matrix"

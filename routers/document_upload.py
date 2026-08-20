@@ -54,7 +54,7 @@ def get_document_archive(db: Session = Depends(get_db), current_user = Depends(g
             {
                 "id": doc.id,
                 "name": doc.file_name,
-                "type": doc.doc_type,
+                "type": doc.doc_type or "General Document",
                 "date": doc.upload_date.strftime("%Y-%m-%d") if doc.upload_date else "",
                 "size": doc.file_size or "N/A",
                 "file_path": doc.file_path,
@@ -63,7 +63,8 @@ def get_document_archive(db: Session = Depends(get_db), current_user = Depends(g
             } for doc in docs
         ]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch document archive: {str(e)}")
+        print(f"Archive fetch error: {str(e)}")
+        return []
 
 @router.get("/templates/list")
 def get_command_templates(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
@@ -71,10 +72,10 @@ def get_command_templates(db: Session = Depends(get_db), current_user = Depends(
         if not hasattr(models, 'CommandTemplate'):
             return []
             
-        templates = db.query(models.CommandTemplate).all()
+        templates = db.query(models.CommandTemplate).order_by(models.CommandTemplate.upload_date.desc()).all()
         results = []
         for t in templates:
-            filename = getattr(t, 'file_name', None) or getattr(t, 's3_url', '') or "document"
+            filename = getattr(t, 'file_name', None) or getattr(t, 'file_path', '') or "document"
             ext = filename.split('.')[-1].lower() if '.' in filename else "unknown"
             
             if ext in ['docx', 'doc']:
@@ -86,25 +87,68 @@ def get_command_templates(db: Session = Depends(get_db), current_user = Depends(
             elif ext == 'pdf':
                 file_type = "PDF Document"
             else:
-                file_type = "Command Template"
+                file_type = getattr(t, 'doc_type', 'Command Template')
 
-            last_up = getattr(t, 'last_updated', None)
-            date_str = last_up.strftime("%Y-%m-%d") if isinstance(last_up, datetime) else str(last_up or "")
+            upload_dt = getattr(t, 'upload_date', None)
+            date_str = upload_dt.strftime("%Y-%m-%d") if isinstance(upload_dt, datetime) else str(upload_dt or "")
 
             results.append({
                 "id": getattr(t, 'id', 1),
                 "name": filename,
                 "type": file_type,
                 "date": date_str,
-                "size": "N/A",
-                "file_path": getattr(t, 's3_url', ''),
-                "region": "KMP HEADQUARTERS",
-                "station": "HQ"
+                "size": getattr(t, 'file_size', 'N/A'),
+                "file_path": getattr(t, 'file_path', ''),
+                "region": getattr(t, 'region', 'KMP HEADQUARTERS'),
+                "station": getattr(t, 'station', 'HQ')
             })
         return results
     except Exception as e:
         print(f"Templates List Error Traceback: {str(e)}")
         return []
+
+@router.post("/templates/upload/{template_id_key}")
+async def upload_command_template(
+    template_id_key: str,
+    file: UploadFile = File(...),
+    doc_type: str = Form("Command Template"),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    try:
+        contents = await file.read()
+        file_size_kb = max(1, round(len(contents) / 1024))
+        file_size_str = f"{file_size_kb} KB" if file_size_kb < 1024 else f"{round(file_size_kb / 1024, 1)} MB"
+
+        eat_time = datetime.utcnow() + timedelta(hours=3)
+        timestamp = eat_time.strftime("%Y%m%d_%H%M%S")
+        safe_filename = f"{timestamp}_{file.filename.replace(' ', '_')}"
+        s3_key = f"command_templates/{safe_filename}"
+        
+        s3_client.put_object(
+            Bucket=BUCKET_NAME, Key=s3_key, Body=contents,
+            ContentType=file.content_type, ServerSideEncryption="AES256"
+        )
+        
+        full_s3_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
+        
+        new_template = models.CommandTemplate(
+            file_name=file.filename,
+            doc_type=doc_type,
+            file_size=file_size_str,
+            file_path=full_s3_url,
+            region=current_user.region or "KMP HEADQUARTERS",
+            station=current_user.station or "HQ",
+            uploaded_by=current_user.fnum,
+            upload_date=eat_time
+        )
+        db.add(new_template)
+        db.commit()
+
+        return {"status": "success", "message": f"Successfully uploaded template {file.filename}."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to upload template: {str(e)}")
 
 @router.get("/reports/download/{doc_id}")
 def download_archive_file(
@@ -115,14 +159,14 @@ def download_archive_file(
     doc_record = db.query(models.DocumentArchive).filter(models.DocumentArchive.id == doc_id).first()
     is_template_record = False
 
-    if not doc_record:
+    if not doc_record and hasattr(models, 'CommandTemplate'):
         doc_record = db.query(models.CommandTemplate).filter(models.CommandTemplate.id == doc_id).first()
         is_template_record = True
 
     if not doc_record:
         raise HTTPException(status_code=404, detail="Document record not found in system database.")
         
-    file_path = doc_record.file_path if not is_template_record else doc_record.s3_url
+    file_path = doc_record.file_path
     file_name = doc_record.file_name
 
     if not str(file_path).startswith("http"):
