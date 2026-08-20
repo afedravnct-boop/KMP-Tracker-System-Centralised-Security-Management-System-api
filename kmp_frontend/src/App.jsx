@@ -1554,8 +1554,14 @@ const WorkspaceSecurityCurtain = () => {
         isolation: 'isolate'
       }}
     >
-      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
-        <div className="absolute inset-0 opacity-15 pointer-events-none flex flex-col justify-between z-0">
+      <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
+        {/* Spinning Globe / Radar Animation Effect */}
+        <div className="absolute w-[600px] h-[600px] rounded-full border border-slate-800/60 animate-[spin_30s_linear_infinite] flex items-center justify-center pointer-events-none">
+          <div className="w-[450px] h-[450px] rounded-full border border-dashed border-slate-700/40 animate-[spin_20s_linear_infinite_reverse] flex items-center justify-center">
+            <div className="w-[300px] h-[300px] rounded-full border border-slate-800/80"></div>
+          </div>
+        </div>
+        <div className="absolute inset-0 opacity-10 pointer-events-none flex flex-col justify-between z-0">
           <div className="h-1/3 w-full bg-black"></div>
           <div className="h-1/3 w-full bg-[#FCD116]"></div>
           <div className="h-1/3 w-full bg-[#D91B23]"></div>
@@ -1581,7 +1587,7 @@ const WorkspaceSecurityCurtain = () => {
               <button 
                 type="button"
                 onClick={() => {
-                  clearAuthSession();
+                  if (typeof clearAuthSession === 'function') clearAuthSession();
                   window.location.replace('/');
                 }}
                 className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer transition-colors"
