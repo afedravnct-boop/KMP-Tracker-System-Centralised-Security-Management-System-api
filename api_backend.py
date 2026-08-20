@@ -91,7 +91,7 @@ from routers import (
     establishments, 
     success_stories, 
     admin_communication,
-    document_upload  # 🟢 Added document upload router
+    document_upload 
 )
 
 app.include_router(admin_users.router)
@@ -101,7 +101,7 @@ app.include_router(lockup_matrix.router)
 app.include_router(establishments.router)
 app.include_router(success_stories.router)
 app.include_router(admin_communication.router)
-app.include_router(document_upload.router)  # 🟢 Included document upload router
+app.include_router(document_upload.router) 
 
 app.include_router(auth_router, prefix="/api/auth")
 app.include_router(ai_router)
@@ -242,6 +242,109 @@ def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, chang
     except Exception as e:
         print(f"Audit Log Failed: {e}")
         db.rollback()
+
+# ==========================================
+# 4. USERS, HEARTBEAT & ACTIVITY LOGS ENDPOINTS
+# ==========================================
+@app.get("/api/v1/users")
+def get_all_active_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        users = db.query(models.Users).filter(models.Users.is_approved == True).all()
+        return [
+            {
+                "fnum": u.fnum, "name": u.name, "rank": u.rank, "role": u.role, 
+                "station": u.station, "region": u.region, "division": u.division,
+                "position": u.position, "email": u.email, "phone": u.phone,
+                "ipps": u.ipps, "sex": u.sex, "profile_photo_path": u.profile_photo_path,
+                "permissions": u.permissions
+            } for u in users
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/users/heartbeat")
+@app.post("/api/v1/users/heartbeat/")
+def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        eat_tz = pytz.timezone('Africa/Nairobi')
+        current_time = datetime.now(eat_tz).replace(tzinfo=None)
+        current_user.last_active_at = current_time
+        db.commit()
+        return {"status": "alive"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/users/online")
+def get_online_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    eat_tz = pytz.timezone('Africa/Nairobi')
+    now_eat = datetime.now(eat_tz).replace(tzinfo=None)
+    threshold = now_eat - timedelta(minutes=2)
+    
+    active_users = db.query(models.Users).filter(
+        models.Users.is_approved == True,
+        models.Users.last_active_at >= threshold
+    ).all()
+    
+    return [
+        {
+            "fnum": u.fnum,
+            "name": u.name,
+            "station": u.station,
+            "profile_photo_path": u.profile_photo_path
+        } for u in active_users
+    ]
+
+@app.get("/api/v1/activity-logs")
+def get_system_activity_logs(db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
+            raise HTTPException(status_code=403, detail="Unauthorized access.")
+        
+        logs = db.query(models.Activity_Logs).order_by(models.Activity_Logs.id.desc()).limit(100).all()
+        return [
+            {
+                "id": log.id,
+                "created_at": log.created_at.isoformat() if log.created_at else None,
+                "fnum": log.fnum or '',
+                "action": log.action or '',
+                "module": log.module or '',
+                "details": log.details or ''
+            } for log in logs
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch activity logs: {str(e)}")
+
+@app.post("/api/v1/activity-logs")
+def create_system_activity_log(data: dict, db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        page = data.get("module", data.get("page_accessed", "UNKNOWN"))
+        act = data.get("action", "PAGE_ACCESS")
+        details = data.get("details", f"Officer {current_user.name} ({current_user.fnum}) accessed {page}")
+        
+        new_activity = models.Activity_Logs(
+            fnum=current_user.fnum,
+            action=act,
+            module=page,
+            details=details,
+            created_at=get_eat_time()
+        )
+        db.add(new_activity)
+        db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "detail": str(e)}
+
+@app.post("/api/v1/system/log-session")
+def log_user_session(data: dict, db: Session = Depends(get_db)):
+    fnum = data.get("fnum")
+    if hasattr(models, 'Audit_Logs') and fnum:
+        log_semantic_audit(
+            db=db, fnum=fnum, action="OFFICER_AUTHENTICATION", 
+            target_identifier="SYSTEM", changes={}, remarks="Secure session initiated via Dashboard Gateway"
+        )
+    return {"status": "success"}
 
 if __name__ == "__main__":
     uvicorn.run("api_backend:app", host="0.0.0.0", port=8000, reload=True)
