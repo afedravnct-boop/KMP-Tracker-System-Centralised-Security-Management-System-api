@@ -47,7 +47,7 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
     return (
       <button 
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-[99999] bg-slate-900 hover:bg-black text-amber-400 p-4 rounded-full shadow-2xl transition flex items-center space-x-2 cursor-pointer border border-slate-700"
+        className="fixed bottom-6 left-6 z-[99999] bg-slate-900 hover:bg-black text-amber-400 p-2 rounded-full shadow-2xl transition flex items-center space-x-2 cursor-pointer border border-slate-700"
         title="Open KMP Intelligence Assistant"
       >
         <Sparkles size={20} className="animate-pulse" />
