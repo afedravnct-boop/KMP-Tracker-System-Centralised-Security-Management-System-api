@@ -190,3 +190,23 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/reports/consolidated-ledger")
+def get_consolidated_ledger(
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None, 
+    db: Session = Depends(get_db), 
+    current_user = Depends(get_current_user)
+):
+    try:
+        crimes = db.query(models.Crime_Reports).all() if hasattr(models, 'Crime_Reports') else []
+        stats = db.query(models.Operational_Statistics).all() if hasattr(models, 'Operational_Statistics') else []
+        stories = db.query(models.Success_Stories).all() if hasattr(models, 'Success_Stories') else []
+        
+        return {
+            "crimes": [c.__dict__ for c in crimes if hasattr(c, '__dict__')],
+            "statistics": [s.__dict__ for s in stats if hasattr(s, '__dict__')],
+            "stories": [st.__dict__ for st in stories if hasattr(st, '__dict__')]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Consolidated ledger compilation error: {str(e)}")
