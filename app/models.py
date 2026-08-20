@@ -160,7 +160,6 @@ class NominalRoll(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     sn = Column(Integer, nullable=True)
     f_num = Column(String, index=True)
-    fnum = Column(String, nullable=True) # Secondary alias for compatibility
     rank = Column(String)
     name = Column(String)
     sex = Column(String)
