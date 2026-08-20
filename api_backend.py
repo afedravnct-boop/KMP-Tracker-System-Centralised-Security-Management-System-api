@@ -90,7 +90,8 @@ from routers import (
     lockup_matrix, 
     establishments, 
     success_stories, 
-    admin_communication
+    admin_communication,
+    document_upload  # 🟢 Added document upload router
 )
 
 app.include_router(admin_users.router)
@@ -100,6 +101,7 @@ app.include_router(lockup_matrix.router)
 app.include_router(establishments.router)
 app.include_router(success_stories.router)
 app.include_router(admin_communication.router)
+app.include_router(document_upload.router)  # 🟢 Included document upload router
 
 app.include_router(auth_router, prefix="/api/auth")
 app.include_router(ai_router)
