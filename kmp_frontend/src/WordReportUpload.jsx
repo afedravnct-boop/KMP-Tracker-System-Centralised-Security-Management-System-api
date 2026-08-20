@@ -436,7 +436,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                     onChange={handleFileChange} 
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                   />
-                  <UploadCloud className={`w-8 h-8 mx-auto mb-2 ${activeCategory === 'templates' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <UploadCloud className={`w-8 h-3 mx-auto mb-2 ${activeCategory === 'templates' ? 'text-amber-500' : 'text-slate-400'}`} />
                   <p className="text-sm font-bold text-slate-600">Click or drop multiple files here</p>
                 </div>
 

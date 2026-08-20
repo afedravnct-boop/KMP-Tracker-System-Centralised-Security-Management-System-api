@@ -146,7 +146,16 @@ async def upload_word_report(
         )
         
         full_s3_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
-        display_type = "Formatted Weekly Report" if doc_type == "weekly_report" else "General Document"
+        
+        # 🟢 Clean display type mapping matching frontend filters exactly
+        if doc_type == "weekly_report":
+            display_type = "Weekly Report"
+        elif doc_type == "general_doc":
+            display_type = "General Document"
+        elif doc_type == "templates":
+            display_type = "Command Template"
+        else:
+            display_type = doc_type
         
         new_archive = models.DocumentArchive(
             file_name=file.filename,
@@ -179,7 +188,6 @@ async def upload_word_report(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to process document: {str(e)}")
 
-@app.delete("/reports/archive/{doc_id}") # Note: use router.delete instead of app.delete
 @router.delete("/reports/archive/{doc_id}")
 def delete_archive_file(
     doc_id: int, 
