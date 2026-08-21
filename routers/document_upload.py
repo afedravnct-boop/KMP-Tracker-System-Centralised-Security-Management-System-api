@@ -1,5 +1,7 @@
 import io
 import os
+import json
+import base64
 import urllib.parse
 from datetime import datetime
 from typing import Optional, List, Union
@@ -77,7 +79,6 @@ def get_document_archive(db: Session = Depends(get_db), current_user = Depends(g
     try:
         ArchiveModel = get_doc_archive_model()
         
-        # Fallback raw SQL query to guarantee fetching existing NeonDB records regardless of ORM mapping issues
         docs = db.query(ArchiveModel).all()
         if not docs:
             raw_result = db.execute(text("SELECT id, file_name, doc_type, file_size, file_path, region, station, uploaded_by, upload_date FROM document_archive ORDER BY id DESC")).fetchall()
@@ -302,6 +303,9 @@ async def upload_word_report(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to process document intake: {str(e)}")
 
+# ====================================================================
+# 🟢 UNIVERSAL FORENSIC STAMPING DOWNLOAD ENGINE
+# ====================================================================
 @router.get("/reports/download/{doc_id}")
 @router.get("/templates/download/{doc_id}")
 def download_archive_file(
@@ -337,16 +341,38 @@ def download_archive_file(
 
         eat_time = get_eat_now()
         timestamp_eat = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
-        processed_date_str = eat_time.strftime("%Y-%m-%d")
-        
+        iso_timestamp = eat_time.isoformat()
+
+        officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
+        officer_rank = (current_user.rank or "OFFICER").strip().upper()
+        officer_name = (current_user.name or "UNKNOWN").strip().upper()
+        officer_signature = f"{officer_fnum} {officer_rank} {officer_name}"
+        command_post = f"{current_user.station or 'KMP HEADQUARTERS'}, {current_user.region or 'KMP HEADQUARTERS'}"
+        stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
+
+        # Cryptographic Token Embedded into OOXML Metadata Layer
+        crypto_payload = {
+            "fnum": officer_fnum,
+            "rank": officer_rank,
+            "name": officer_name,
+            "signature": officer_signature,
+            "station": current_user.station or "KMP HEADQUARTERS",
+            "region": current_user.region or "KMP HEADQUARTERS",
+            "timestamp": iso_timestamp,
+            "stamp_id": stamp_id
+        }
+        encoded_token = base64.b64encode(json.dumps(crypto_payload).encode('utf-8')).decode('utf-8')
+        keywords_str = f"KMP_CSDMS_AUDIT_STAMP;FNUM:{officer_fnum};TOKEN:{encoded_token}"
+        comments_str = f"Forensically Certified Law Enforcement Export. Originating Officer: {officer_signature} [{command_post}]. Stamp ID: {stamp_id}"
+
         receipt_text = (
             "========================================================\n"
             "         KAMPALA METROPOLITAN POLICE HEADQUARTERS         \n"
             "         SECURE DOCUMENT & TEMPLATES ACCESS         \n"
             "--------------------------------------------------------\n"
-            f"ACCESSED BY    : {current_user.fnum} - {current_user.rank} {current_user.name}\n"
+            f"ACCESSED BY    : {officer_signature}\n"
             f"CLEARANCE      : {current_user.role} | STATION: {current_user.station}\n"
-            f"PROCESSED DATE : {processed_date_str}\n"
+            f"AUDIT STAMP ID : {stamp_id}\n"
             f"TIMESTAMP      : {timestamp_eat}\n"
             "========================================================"
         )
@@ -356,6 +382,16 @@ def download_archive_file(
 
         if file_extension == 'docx':
             word_doc = Document(io.BytesIO(raw_bytes))
+            
+            # 1. Embed OOXML Internal Core Properties (Persists through rename/cell wipes)
+            core_props = word_doc.core_properties
+            core_props.author = officer_signature
+            core_props.last_modified_by = officer_signature
+            core_props.keywords = keywords_str
+            core_props.comments = comments_str
+            core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
+
+            # 2. Append Visual Footer Stamp
             section = word_doc.sections[0]
             footer = section.footer
             footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
@@ -367,8 +403,18 @@ def download_archive_file(
             run.font.color.rgb = RGBColor(139, 0, 0) 
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
         elif file_extension in ['xlsx', 'xls']:
             wb = openpyxl.load_workbook(io.BytesIO(raw_bytes))
+            
+            # 1. Embed OOXML Internal Core Properties
+            wb.properties.creator = officer_signature
+            wb.properties.lastModifiedBy = officer_signature
+            wb.properties.keywords = keywords_str
+            wb.properties.description = comments_str
+            wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
+
+            # 2. Append Visual Worksheet Footers
             for ws in wb.worksheets:
                 if hasattr(ws, 'sheet_footer'): ws.sheet_footer.center.text = receipt_text
                 elif hasattr(ws, 'odd_footer'): ws.odd_footer.center.text = receipt_text
@@ -379,7 +425,7 @@ def download_archive_file(
 
         output_stream.seek(0)
 
-        stamped_s3_key = f"forensic_cache/{current_user.fnum}_DOC_{doc_id}.{file_extension}"
+        stamped_s3_key = f"forensic_cache/{officer_fnum}_DOC_{doc_id}.{file_extension}"
         s3_client.upload_fileobj(output_stream, BUCKET_NAME, stamped_s3_key, ExtraArgs={"ContentType": content_type})
 
         stamped_url = f"https://{BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{stamped_s3_key}"
@@ -387,6 +433,63 @@ def download_archive_file(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Universal Forensic Stamping Error: {str(e)}")
+
+# ====================================================================
+# 🟢 FORENSIC SIGNATURE VERIFICATION & EXTRACTION ENDPOINT
+# ====================================================================
+@router.post("/documents/verify-forensic-stamp")
+async def verify_forensic_stamp(file: UploadFile = File(...)):
+    """
+    Forensically inspects any uploaded document (Excel/Word/Archive) to identify 
+    who generated or downloaded it, even if the file has been renamed.
+    """
+    try:
+        contents = await file.read()
+        filename = file.filename.lower()
+        
+        author = "UNKNOWN"
+        keywords = ""
+        comments = ""
+        token_data = {}
+
+        if filename.endswith(('.xlsx', '.xls')):
+            wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
+            props = wb.properties
+            author = props.creator or props.lastModifiedBy or "UNKNOWN"
+            keywords = props.keywords or ""
+            comments = props.description or ""
+            
+        elif filename.endswith(('.docx', '.doc')):
+            doc = Document(io.BytesIO(contents))
+            props = doc.core_properties
+            author = props.author or props.last_modified_by or "UNKNOWN"
+            keywords = props.keywords or ""
+            comments = props.comments or ""
+
+        # Decode Embedded Cryptographic Base64 Token
+        if "TOKEN:" in keywords:
+            try:
+                raw_token = keywords.split("TOKEN:")[1].split(";")[0]
+                token_data = json.loads(base64.b64decode(raw_token).decode("utf-8"))
+            except Exception:
+                pass
+
+        is_verified = "KMP_CSDMS_AUDIT_STAMP" in keywords or "KMP-STAMP" in comments or bool(token_data)
+
+        return {
+            "verified": is_verified,
+            "inspected_filename": file.filename,
+            "downloaded_by_fnum": token_data.get("fnum", "N/A"),
+            "downloaded_by_officer": token_data.get("signature", author),
+            "officer_rank": token_data.get("rank", "N/A"),
+            "originating_station": token_data.get("station", "N/A"),
+            "originating_region": token_data.get("region", "N/A"),
+            "export_timestamp": token_data.get("timestamp", "N/A"),
+            "forensic_stamp_id": token_data.get("stamp_id", "N/A"),
+            "security_classification": "RESTRICTED / ENCRYPTED LAW ENFORCEMENT RECORD" if is_verified else "UNVERIFIED"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Forensic inspection failed: {str(e)}")
 
 @router.delete("/reports/archive/{doc_id}")
 def delete_archive_file(

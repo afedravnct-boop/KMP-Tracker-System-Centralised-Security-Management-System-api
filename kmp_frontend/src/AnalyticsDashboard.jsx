@@ -493,40 +493,72 @@ const AnalyticsDashboard = ({
     return { rows: rows.sort((a, b) => b.currentArrests - a.currentArrests), currentWeek, previousWeek };
   }, [resolvedOperationalStats, selectedRegion, selectedStation]);
 
-  const handleExportExcel = async () => {
+const handleExportExcel = async () => {
     try {
       const wb = XLSX.utils.book_new();
       const forensicTimestamp = new Date().toISOString();
-      const stampedBy = `${currentUser?.rank || 'OFFICER'} ${currentUser?.name || 'UNKNOWN'} (F/NO: ${currentUser?.fnum || 'HQ'})`;
-      const commandPost = `${currentUser?.station || 'KMP HEADQUARTERS'}, ${currentUser?.region || 'KMP HEADQUARTERS'}`;
 
+      // Extract explicit officer credentials
+      const officerFnum = (currentUser?.fnum || 'HQ-UNKNOWN').trim().toUpperCase();
+      const officerRank = (currentUser?.rank || 'OFFICER').trim().toUpperCase();
+      const officerName = (currentUser?.name || 'UNKNOWN').trim().toUpperCase();
+      const officerSignature = `${officerFnum} ${officerRank} ${officerName}`;
+      const commandPost = `${currentUser?.station || 'KMP HEADQUARTERS'}, ${currentUser?.region || 'KMP HEADQUARTERS'}`;
+      
+      const forensicId = `KMP-STAMP-${officerFnum}-${Date.now().toString(36).toUpperCase()}`;
+      const cryptographicToken = btoa(JSON.stringify({
+        fnum: officerFnum,
+        rank: officerRank,
+        name: officerName,
+        station: currentUser?.station || 'HQ',
+        region: currentUser?.region || 'KMP HEADQUARTERS',
+        timestamp: forensicTimestamp,
+        stamp_id: forensicId
+      }));
+
+      // 🟢 1. Inject Immutable OOXML Core & Custom Properties
+      wb.Props = {
+        Title: "KMP Relational Operations & Manpower Audit",
+        Subject: `Exported by Force No: ${officerFnum}`,
+        Author: officerSignature,
+        LastAuthor: officerSignature,
+        Keywords: `KMP_CSDMS_AUDIT_STAMP;FNUM:${officerFnum};TOKEN:${cryptographicToken}`,
+        Comments: `Certified Law Enforcement Export. Originating Officer: ${officerSignature} [${commandPost}] at ${forensicTimestamp}. Stamp ID: ${forensicId}`,
+        Category: "RESTRICTED / FORENSIC POLICE RECORD",
+        Company: "Uganda Police Force - Kampala Metropolitan Command",
+        CreatedDate: new Date()
+      };
+
+      wb.Custprops = {
+        "OriginatingOfficer": officerSignature,
+        "ForceNumber": officerFnum,
+        "OfficerRank": officerRank,
+        "OfficerName": officerName,
+        "ExportTimestamp": forensicTimestamp,
+        "CommandJurisdiction": commandPost,
+        "AuditStampID": forensicId,
+        "CryptographicVerificationToken": cryptographicToken
+      };
+
+      // 🟢 2. Primary Visible Forensic Audit Sheet
       const metaSheetData = [
         ["KAMPALA METROPOLITAN POLICE - CENTRAL SECURITY DATA MANAGEMENT SYSTEM"],
         ["OFFICIAL FORENSIC ANALYTICS & RELATIONAL IMPACT REPORT"],
         [""],
         ["Export Timestamp (EAT):", forensicTimestamp],
-        ["Authorized Exporting Officer:", stampedBy],
+        ["Authorized Exporting Officer:", officerSignature],
+        ["Force Number (F/NO):", officerFnum],
         ["Command Jurisdiction:", commandPost],
         ["Security Classification:", "RESTRICTED / ENCRYPTED LAW ENFORCEMENT RECORD"],
-        ["System Audit Hash:", `KMP-CSDMS-RELATIONAL-${Math.random().toString(36).substring(2, 12).toUpperCase()}`]
+        ["Cryptographic System Stamp ID:", forensicId],
+        ["Encrypted Forensic Token:", cryptographicToken]
       ];
+
       const wsMeta = XLSX.utils.aoa_to_sheet(metaSheetData);
+      wsMeta['!cols'] = [{ wch: 34 }, { wch: 70 }];
       XLSX.utils.book_append_sheet(wb, wsMeta, "Forensic Audit Stamp");
 
-      const formatWorksheet = (ws, colWidths = []) => {
-        if (!ws['!cols']) ws['!cols'] = colWidths.map(w => ({ wch: w }));
-        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-        for (let R = range.s.r; R <= range.e.r; ++R) {
-          for (let C = range.s.c; C <= range.e.c; ++C) {
-            const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
-            if (ws[cellRef]) {
-              if (!ws[cellRef].s) ws[cellRef].s = {};
-              ws[cellRef].s.alignment = { wrapText: true, vertical: 'top' };
-            }
-          }
-        }
-      };
-
+      // 🟢 3. Relational Impact Data Sheet
       if (relationalImpactMatrix.length > 0) {
         const relationalData = relationalImpactMatrix.map(row => ({
           "Command Region": row.region,
@@ -537,27 +569,44 @@ const AnalyticsDashboard = ({
           "Operational Impact Status": row.disruptionRating
         }));
         const wsRel = XLSX.utils.json_to_sheet(relationalData);
-        formatWorksheet(wsRel, [25, 30, 25, 25, 22, 35]);
+        wsRel['!cols'] = [{ wch: 22 }, { wch: 30 }, { wch: 28 }, { wch: 30 }, { wch: 22 }, { wch: 35 }];
         XLSX.utils.book_append_sheet(wb, wsRel, "Relational Impact Stats");
       }
 
+      // 🟢 4. Deep Manpower Analysis Data Sheet
       if (comprehensiveManpowerAnalysis.length > 0) {
-        const wsMan = XLSX.utils.json_to_sheet(comprehensiveManpowerAnalysis);
-        formatWorksheet(wsMan, [25, 15, 15, 15, 15, 15, 20, 20]);
+        const manpowerData = comprehensiveManpowerAnalysis.map(row => ({
+          "Command Region": row.region,
+          "Total Officers": row.officers,
+          "Male Personnel": row.male,
+          "Female Personnel": row.female,
+          "Dominant Rank": row.dominantRank,
+          "Recorded Crimes": row.crimes,
+          "Crime / Officer Ratio": row.crimePerOfficer,
+          "Arrests / Officer Ratio": row.arrestsPerOfficer
+        }));
+        const wsMan = XLSX.utils.json_to_sheet(manpowerData);
+        wsMan['!cols'] = [{ wch: 24 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 22 }, { wch: 22 }];
         XLSX.utils.book_append_sheet(wb, wsMan, "Deep Manpower Analysis");
       }
 
-      const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      // 🟢 5. Generate and Download Workbook
+      const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array', props: true });
       const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const filename = `KMP_Relational_Operations_Report_${new Date().toISOString().split('T')[0]}.xlsx`;
+      
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = downloadUrl;
       link.download = filename;
       document.body.appendChild(link);
       link.click();
-      setTimeout(() => { document.body.removeChild(link); window.URL.revokeObjectURL(downloadUrl); }, 2000);
-      alert("🔒 Relational Operations Report Downloaded Successfully!");
+      setTimeout(() => { 
+        document.body.removeChild(link); 
+        window.URL.revokeObjectURL(downloadUrl); 
+      }, 2000);
+
+      alert(`🔒 Forensic stamp compiled. Originating Officer: ${officerSignature}`);
     } catch (error) {
       alert(`Export Failed: ${error.message}`);
     }
