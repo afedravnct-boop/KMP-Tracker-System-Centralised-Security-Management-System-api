@@ -13,6 +13,8 @@ import {
   CornerDownLeft 
 } from 'lucide-react';
 
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
 const AICommandConsole = ({ currentUser }) => {
   const [messages, setMessages] = useState([
     {
@@ -50,8 +52,8 @@ const AICommandConsole = ({ currentUser }) => {
     setIsLoading(true);
 
     try {
-      // Direct in-memory fetch using backend route
-      const response = await fetch('/api/v1/ai/query', {
+      // 🟢 CORRECTED: Direct in-memory fetch using backend route with API_URL
+      const response = await fetch(`${API_URL}/api/v1/ai/query`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -216,7 +218,7 @@ const AICommandConsole = ({ currentUser }) => {
           <button
             key={i}
             onClick={() => setInputQuery(prompt)}
-            className="text-xs bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 text-slate-300 px-3 py-1 rounded-full whitespace-nowrap transition-colors"
+            className="text-xs bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 text-slate-300 px-3 py-1 rounded-full whitespace-nowrap transition-colors cursor-pointer"
           >
             {prompt}
           </button>
@@ -236,7 +238,7 @@ const AICommandConsole = ({ currentUser }) => {
         <button
           type="submit"
           disabled={isLoading || !inputQuery.trim()}
-          className="px-5 py-3 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-colors flex items-center gap-2 shrink-0 shadow-lg shadow-sky-950"
+          className="px-5 py-3 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-colors flex items-center gap-2 shrink-0 shadow-lg shadow-sky-950 cursor-pointer"
         >
           {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           Execute
