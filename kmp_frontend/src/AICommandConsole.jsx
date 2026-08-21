@@ -1,3 +1,4 @@
+import { authFetch } from './api';
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Send, 
@@ -52,13 +53,11 @@ const AICommandConsole = ({ currentUser }) => {
     setIsLoading(true);
 
     try {
-      // 🟢 CORRECTED: Direct in-memory fetch using backend route with API_URL
-      const response = await fetch(`${API_URL}/api/v1/ai/query`, {
+// 🟢 CORRECTED: Using centralized authFetch to guarantee token delivery
+      const response = await authFetch('/api/v1/ai/query', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          // Optional bearer header if passing from RAM
-          ...(currentUser?.token ? { 'Authorization': `Bearer ${currentUser.token}` } : {})
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           prompt: cleanPrompt,

@@ -6,6 +6,7 @@ import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import LockupMatrixLedger from './LockupMatrixLedger';
 import { stripHtmlTags } from './App';
+import { authFetch } from './api'; // 🟢 Added centralized loop-proof API import
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -83,29 +84,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const authFetch = async (url, options = {}) => {
-  const token = localStorage.getItem('kmp_authToken');
-  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-  
-  const existingHeaders = options.headers || {};
-  
-  const response = await fetch(`${API_URL}${url}`, { 
-    ...options, 
-    headers: { 
-      ...existingHeaders, 
-      "Authorization": `Bearer ${token}` 
-    } 
-  });
-
-  if (response.status === 401) {
-    console.warn("Session expired. Automatically logging out...");
-    localStorage.removeItem('kmp_authToken');
-    localStorage.removeItem('kmp_currentUser'); 
-    window.location.href = '/'; 
-  }
-
-  return response;
-};
+// 🔴 THE ROGUE AUTHFETCH FUNCTION WAS REMOVED FROM HERE 🔴
 
 const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, setReports, setSidebarOpen }) => {
   const [lockupData, setLockupData] = useState([]);
@@ -168,6 +147,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
 
   useEffect(() => {
     const fetchLockupData = async () => {
+      // Emergency check to prevent early misfires
+      if (!localStorage.getItem('kmp_authToken') && !sessionStorage.getItem('kmp_authToken')) return;
+
       try {
         const response = await authFetch('/api/v1/lockup-matrix');
         if (response.ok) {
@@ -420,7 +402,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       uploadData.append("case_id", stripHtmlTags(formData.sd_ref || "NEW_CASE"));
 
       try {
-        const token = localStorage.getItem('kmp_authToken');
+        const token = localStorage.getItem('kmp_authToken') || sessionStorage.getItem('kmp_authToken');
         const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
         const response = await fetch(`${API_URL}/api/v1/investigation/upload/`, { method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: uploadData });
         const data = await response.json();
@@ -590,8 +572,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem('kmp_authToken');
-    if (!token) return setNotification("Error: Security token missing.");
     
     let formattedTime = stripHtmlTags(formData.time || '');
     if (formattedTime && !/hrs$/i.test(formattedTime.trim())) formattedTime = `${formattedTime.trim()}Hrs`;
@@ -657,8 +637,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       delete updatedRecord.updateText; delete updatedRecord.ref_type; delete updatedRecord.ref_number;
       
       try {
-        const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-        const response = await fetch(`${API_URL}/api/v1/reports/${formData.sn}`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(updatedRecord) });
+        const response = await authFetch(`/api/v1/reports/${formData.sn}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord) });
         if (!response.ok) throw new Error("Failed to update record in database.");
 
         setReports(reports.map(r => r.sn === formData.sn ? updatedRecord : r));

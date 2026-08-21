@@ -27,6 +27,8 @@ export const clearAuthSession = () => {
   sessionStorage.removeItem('kmp_currentUser_fnum');
   sessionStorage.removeItem('kmp_currentUser');
   sessionStorage.removeItem('kmp_loginTime');
+  localStorage.removeItem('kmp_authToken'); // Just in case remnants exist
+  localStorage.removeItem('kmp_currentUser');
 };
 
 export const getAuthToken = () => inMemoryToken || sessionStorage.getItem('kmp_authToken');
@@ -38,9 +40,16 @@ export async function authFetch(endpoint, options = {}) {
     ? endpoint
     : `${BASE_URL}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
 
-  const headers = { ...options.headers };
   const currentFNum = getAuthUserFNum();
   const currentToken = getAuthToken();
+
+  // 🛑 1. EMERGENCY BRAKE: Block outgoing requests if there is no token (unless it's an auth route)
+  if (!currentToken && !url.includes('/login') && !url.includes('/signup') && !url.includes('/auth/')) {
+    console.warn("Missing token. Blocking request to prevent loops:", url);
+    return new Response(JSON.stringify({ detail: "No session token" }), { status: 401 });
+  }
+
+  const headers = { ...options.headers };
 
   if (currentFNum) {
     headers['X-User-FNum'] = currentFNum;
@@ -78,16 +87,23 @@ export async function authFetch(endpoint, options = {}) {
     credentials: 'include'
   });
 
-  // --- ERROR INTERCEPTORS ---
+  // 🛑 2. ANTI-LOOP INTERCEPTOR: Handle gracefully without throwing a crash error
   if (response.status === 401 && !url.includes('/api/auth/login')) {
-    console.warn("🔒 Secure Session Expired. Dispatched auth-expired event.");
+    console.warn("🔒 Secure Session Expired. Halting loops and routing to login.");
     clearAuthSession();
     window.dispatchEvent(new Event('auth-expired'));
-    throw new Error("UNAUTHORIZED");
+
+    // Safely route to root if not already there, using replace so the back button doesn't trigger loops
+    if (window.location.pathname !== '/' && window.location.pathname !== '') {
+      window.location.replace('/?session_expired=true');
+    }
+    
+    return response; // Return the 401 response gracefully instead of throwing
   }
 
   if (response.status === 403) {
     console.warn("🛡️ Security Restriction: Access Denied.");
+    // We can still throw on 403 because it means they are logged in but lack permission, not an infinite auth loop.
     throw new Error("Clearance Denied");
   }
 

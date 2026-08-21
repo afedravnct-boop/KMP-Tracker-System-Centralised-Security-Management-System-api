@@ -123,5 +123,5 @@ async def upload_command_template(
         db.commit()
         return {"status": "success", "message": f"Successfully uploaded {uploaded_count} template(s)."}
     except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to upload template: {str(e)}")
+        print(f"Fetch error: {e}")
+        raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")

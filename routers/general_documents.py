@@ -96,5 +96,5 @@ async def upload_general_document(
         db.commit()
         return {"status": "success", "message": f"Successfully uploaded {uploaded_count} general document(s)."}
     except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        print(f"Fetch error: {e}")
+        raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
