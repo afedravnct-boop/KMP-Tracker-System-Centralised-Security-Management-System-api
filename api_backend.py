@@ -12,7 +12,7 @@ from typing import Optional, List, Union
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import urllib.parse
-import fitz
+import pymupdf
 import zipfile
 
 import pytz
@@ -73,13 +73,33 @@ load_dotenv()
 
 app = FastAPI(title="KMP Centralised Security Data Management System")
 
-from routers import document_upload, general_documents, command_templates, ai_router
+from routers import (
+    document_upload,
+    general_documents,
+    command_templates,
+    nominal_roll,
+    crime_registry,
+    lockup_matrix,
+    establishments,
+    success_stories,
+    admin_communication,
+    ai_router,
+)
 
+# Include them once
 app.include_router(document_upload.router)
 app.include_router(general_documents.router)
 app.include_router(command_templates.router)
-app.include_router(ai_router.router)
+app.include_router(nominal_roll.router)
+app.include_router(crime_registry.router)
+app.include_router(lockup_matrix.router)
+app.include_router(establishments.router)
+app.include_router(success_stories.router)
+app.include_router(admin_communication.router)
+app.include_router(auth_router, prefix="/api/auth")
 
+# Include the AI router properly as an APIRouter instance
+app.include_router(ai_router.router)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     print(f"Internal Command Error Traceback: {str(exc)}")
@@ -114,7 +134,7 @@ app.include_router(admin_communication.router)
 app.include_router(document_upload.router) 
 
 app.include_router(auth_router, prefix="/api/auth")
-app.include_router(ai_router)
+app.include_router(ai_router.router)
 
 conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
