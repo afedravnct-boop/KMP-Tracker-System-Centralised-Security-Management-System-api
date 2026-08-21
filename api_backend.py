@@ -243,13 +243,27 @@ app.add_middleware(
 # ==========================================
 # 3. SECURITY & DEPENDENCIES (RAM-ONLY SECURE)
 # ==========================================
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 def get_eat_time():
     eat_tz = pytz.timezone('Africa/Nairobi')
     return datetime.now(eat_tz).strftime('%Y-%m-%d %H:%M:%S')
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def get_current_user(request: Request, db: Session = Depends(get_db)):
+    token = None
+    
+    # 1. Try extracting token from Authorization header
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    
+    # 2. Fallback: Try extracting token from secure cookies if header is missing
+    if not token:
+        token = request.cookies.get("access_token") or request.cookies.get("kmp_authToken")
+
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
     try:
         payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
         fnum: str = payload.get("sub")
