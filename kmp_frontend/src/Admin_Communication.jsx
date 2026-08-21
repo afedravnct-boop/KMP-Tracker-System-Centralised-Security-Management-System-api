@@ -90,11 +90,10 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     }
   }, [initialTab]);
 
-  const fetchRecipientsList = async () => {
+const fetchRecipientsList = async () => {
     try {
-      const token = localStorage.getItem('kmp_authToken');
       const res = await fetch(`${API_URL}/api/v1/users/recipients-list`, {
-        headers: { "Authorization": `Bearer ${token}` }
+        credentials: 'include' // 🟢 Updated to support cookie session
       });
       if (res.ok) {
         const data = await res.json();
@@ -160,7 +159,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       const token = localStorage.getItem('kmp_authToken');
       const response = await fetch(`${API_URL}/api/v1/communications`, {
         method: "POST", 
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
+        credentials: 'include', // 🟢 Updated to support cookie session
         body: JSON.stringify({
           sender_fnum: currentUser.fnum, 
           sender_name: currentUser.name, 
@@ -208,7 +208,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 const fetchMessages = async () => {
     setIsLoadingInbox(true);
     try {
-      const token = localStorage.getItem('kmp_authToken');
       const today = new Date();
       let start = ''; let end = '';
 
@@ -217,7 +216,6 @@ const fetchMessages = async () => {
       else if (dateFilter === 'old') { const sevenDaysAgo = new Date(today); sevenDaysAgo.setDate(today.getDate() - 7); end = sevenDaysAgo.toISOString().split('T')[0];  } 
       else if (dateFilter === 'custom') { start = customStartDate; end = customEndDate; }
 
-      // 🟢 CORRECTED ENDPOINT HERE
       let url = `${API_URL}/api/v1/communications`;
       
       const params = new URLSearchParams();
@@ -225,61 +223,86 @@ const fetchMessages = async () => {
       if (end) params.append('end_date', end);
       if (params.toString()) url += `?${params.toString()}`;
 
-      const response = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+      // 🟢 Use authFetch or include credentials so the session cookie is passed
+      const response = await fetch(url, { 
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include' // Crucial for cookie-based sessions!
+      });
 
       if (response.ok) {
         const rawData = await response.json();
-        const data = rawData.map(msg => ({
+        const messageArray = Array.isArray(rawData) ? rawData : (rawData.messages || []);
+        
+        const data = messageArray.map(msg => ({
             ...msg,
             created_at: adjustTimeOffset(msg.created_at)
         }));
 
-        setInboxMessages(data.filter(msg => msg.sender_fnum !== currentUser.fnum || (msg.target_fnum && msg.target_fnum.includes(currentUser.fnum))));
-        setOutboxMessages(data.filter(msg => msg.sender_fnum === currentUser.fnum));
+        const userFnum = currentUser?.fnum || "";
+        setInboxMessages(data.filter(msg => msg.sender_fnum !== userFnum || (msg.target_fnum && msg.target_fnum.includes(userFnum))));
+        setOutboxMessages(data.filter(msg => msg.sender_fnum === userFnum));
+      } else {
+        console.error("Server error fetching communications:", await response.text());
       }
-    } catch (err) { console.error("Network error fetching messages:", err); } 
-    finally { setIsLoadingInbox(false); }
+    } catch (err) { 
+      console.error("Network error fetching messages:", err); 
+    } finally { 
+      setIsLoadingInbox(false); 
+    }
   };
 
-  const fetchReceipts = async (msg) => {
+const fetchReceipts = async (msg) => {
     setViewingReceiptsFor(msg.id);
     setLoadingReceipts(true);
     try {
-      const token = localStorage.getItem('kmp_authToken');
-      const res = await fetch(`${API_URL}/api/v1/communications/${msg.id}/readers`, { headers: { 'Authorization': `Bearer ${token}` } });
-      if(res.ok) {
-          const rawData = await res.json();
-          const readers = rawData.map(r => ({
-              ...r,
-              read_at: adjustTimeOffset(r.read_at)
-          }));
+      const res = await fetch(`${API_URL}/api/v1/communications/${msg.id}/readers`, { 
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+      });
+      
+      if (res.ok) {
+        const rawData = await res.json();
+        const readers = rawData.map(r => ({
+            ...r,
+            read_at: adjustTimeOffset(r.read_at)
+        }));
 
-          const allSystemUsers = filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || []);
-          let targetPool = [];
+        const allSystemUsers = filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || []);
+        let targetPool = []; // 🟢 Declared correctly here
 
-          const audience = msg.target_audience;
-          const region = msg.target_region;
+        const audience = msg.target_audience;
+        const region = msg.target_region;
 
-          if (audience === 'ALL_USERS' || audience === 'ALL') {
-              targetPool = allSystemUsers;
-          } else if (audience === 'ADMINS_ONLY') {
-              targetPool = allSystemUsers.filter(u => ['ADMIN', 'SUPER_ADMIN'].includes(u.role));
-          } else if (audience === 'RPC_ONLY') {
-              targetPool = allSystemUsers.filter(u => ['RPC', 'ADMIN', 'SUPER_ADMIN'].includes(u.role) || (u.position || '').toUpperCase().includes('RPC'));
-          } else if (audience === 'DEPUTY RPC_ONLY') {
-              targetPool = allSystemUsers.filter(u => (u.position || '').toUpperCase().includes('DEPUTY'));
-          } else if (audience === 'SPECIFIC_REGION') {
-              targetPool = allSystemUsers.filter(u => (u.region || '').toUpperCase() === (region || '').toUpperCase());
-          } else if (audience === 'SPECIFIC_USER' && msg.target_fnum) {
-              targetPool = allSystemUsers.filter(u => msg.target_fnum.includes(u.fnum));
-          }
+        if (audience === 'ALL_USERS' || audience === 'ALL') {
+            targetPool = allSystemUsers;
+        } else if (audience === 'ADMINS_ONLY') {
+            targetPool = allSystemUsers.filter(u => ['ADMIN', 'SUPER_ADMIN'].includes(u.role));
+        } else if (audience === 'RPC_ONLY') {
+            targetPool = allSystemUsers.filter(u => ['RPC', 'ADMIN', 'SUPER_ADMIN'].includes(u.role) || (u.position || '').toUpperCase().includes('RPC'));
+        } else if (audience === 'DEPUTY RPC_ONLY') {
+            targetPool = allSystemUsers.filter(u => (u.position || '').toUpperCase().includes('DEPUTY'));
+        } else if (audience === 'SPECIFIC_REGION') {
+            targetPool = allSystemUsers.filter(u => (u.region || '').toUpperCase() === (region || '').toUpperCase());
+        } else if (audience === 'SPECIFIC_USER' && msg.target_fnum) {
+            // 🟢 Robust check handling both arrays and comma-separated strings
+            const targetFnumsArray = Array.isArray(msg.target_fnum) 
+              ? msg.target_fnum 
+              : String(msg.target_fnum).split(',').map(f => f.trim());
+            
+            targetPool = allSystemUsers.filter(u => targetFnumsArray.includes(u.fnum));
+        }
 
-          const readerFnums = new Set(readers.map(r => r.fnum));
-          const pending = targetPool.filter(u => !readerFnums.has(u.fnum) && u.fnum !== msg.sender_fnum);
+        const readerFnums = new Set(readers.map(r => r.fnum));
+        const pending = targetPool.filter(u => !readerFnums.has(u.fnum) && u.fnum !== msg.sender_fnum);
 
-          setReceiptsData({ readers, pending });
+        setReceiptsData({ readers, pending });
       }
-    } catch(e) { console.error(e); } finally { setLoadingReceipts(false); }
+    } catch(e) { 
+      console.error(e); 
+    } finally { 
+      setLoadingReceipts(false); 
+    }
   };
 
   useEffect(() => {
@@ -293,10 +316,10 @@ const fetchMessages = async () => {
   const handleManualAcknowledge = async (e, msg) => {
     e.stopPropagation(); 
     try {
-      const token = localStorage.getItem('kmp_authToken');
       const res = await fetch(`${API_URL}/api/v1/communications/${msg.id}/acknowledge`, { 
         method: 'POST', 
-        headers: { 'Authorization': `Bearer ${token}` } 
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include' // 🟢 Updated to support cookie session
       });
       
       if (res.ok) {
