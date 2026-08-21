@@ -290,23 +290,24 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     return acc;
   }, { station: 0, sub: 0, post: 0, booth: 0 });
 
-  const renderAgeBlock = (stats) => (
-    <div className="text-[9px] text-slate-600 font-medium space-y-0.5 w-full max-w-[90px] mx-auto">
-      <div className="flex justify-between"><span>18-29yrs:</span> <strong className="text-slate-900">{stats.twenties}</strong></div>
-      <div className="flex justify-between"><span>30-39yrs:</span> <strong className="text-slate-900">{stats.thirties}</strong></div>
-      <div className="flex justify-between"><span>40-49yrs:</span> <strong className="text-slate-900">{stats.forties}</strong></div>
-      <div className="flex justify-between border-t border-slate-200 pt-0.5 mt-0.5"><span>50+ yrs:</span> <strong className="text-slate-900">{stats.fifties}</strong></div>
-      {stats.unknown > 0 && <div className="flex justify-between text-red-500 italic mt-0.5"><span>Unrecorded:</span> <strong>{stats.unknown}</strong></div>}
+  // 🟢 FIX: Added `isDark` parameter so these blocks can invert their colors automatically when inside the Totals row
+  const renderAgeBlock = (stats, isDark = false) => (
+    <div className={`text-[9px] font-medium space-y-0.5 w-full max-w-[90px] mx-auto ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+      <div className="flex justify-between"><span>18-29yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.twenties}</strong></div>
+      <div className="flex justify-between"><span>30-39yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.thirties}</strong></div>
+      <div className="flex justify-between"><span>40-49yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.forties}</strong></div>
+      <div className={`flex justify-between border-t pt-0.5 mt-0.5 ${isDark ? 'border-slate-600' : 'border-slate-200'}`}><span>50+ yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.fifties}</strong></div>
+      {stats.unknown > 0 && <div className={`flex justify-between italic mt-0.5 ${isDark ? 'text-red-400' : 'text-red-500'}`}><span>Unrecorded:</span> <strong>{stats.unknown}</strong></div>}
     </div>
   );
 
-  const renderEduBlock = (stats) => (
-    <div className="text-[9px] text-slate-600 font-medium space-y-0.5 w-full max-w-[90px] mx-auto">
-      <div className="flex justify-between"><span>Degree:</span> <strong className="text-slate-900">{stats.degree}</strong></div>
-      <div className="flex justify-between"><span>Diploma:</span> <strong className="text-slate-900">{stats.diploma}</strong></div>
-      <div className="flex justify-between"><span>Certificate:</span> <strong className="text-slate-900">{stats.cert}</strong></div>
-      <div className="flex justify-between border-t border-slate-200 pt-0.5 mt-0.5"><span>High Sch:</span> <strong className="text-slate-900">{stats.highschool}</strong></div>
-      <div className="flex justify-between"><span>Others:</span> <strong className="text-slate-900">{stats.others}</strong></div>
+  const renderEduBlock = (stats, isDark = false) => (
+    <div className={`text-[9px] font-medium space-y-0.5 w-full max-w-[90px] mx-auto ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+      <div className="flex justify-between"><span>Degree:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.degree}</strong></div>
+      <div className="flex justify-between"><span>Diploma:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.diploma}</strong></div>
+      <div className="flex justify-between"><span>Certificate:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.cert}</strong></div>
+      <div className={`flex justify-between border-t pt-0.5 mt-0.5 ${isDark ? 'border-slate-600' : 'border-slate-200'}`}><span>High Sch:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.highschool}</strong></div>
+      <div className="flex justify-between"><span>Others:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.others}</strong></div>
     </div>
   );
 
@@ -371,10 +372,10 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 sm:p-8 custom-scrollbar space-y-8 bg-slate-50">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-8 custom-scrollbar bg-slate-50">
         
-        {/* NOMINAL ROLL AGGREGATES MATRIX */}
-        <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px]">
+        {/* NOMINAL ROLL AGGREGATES MATRIX - 🟢 FIX: Added mb-12 to push the next table down */}
+        <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px] mb-12">
           <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
              <h3 className="font-extrabold text-blue-900 text-sm uppercase tracking-wider flex items-center">
                 <Users className="mr-2 w-5 h-5" /> Nominal Roll Aggregates (Manpower Summary)
@@ -439,19 +440,21 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                          <td className="p-3 text-center text-base font-bold text-slate-900 bg-slate-100 shadow-inner">{row.regionTotal}</td>
                       </tr>
                    ))}
+
                    {/* KMP MASTER TOTALS ROW */}
-                   <tr className="bg-slate-800 border-t-[3px] border-slate-900 text-yellow">
+                   <tr className="bg-slate-800 border-t-[3px] border-slate-900">
                       <td colSpan="2" className="p-4 text-center text-[11px] font-black text-yellow-400 uppercase tracking-widest border-r border-slate-700 shadow-inner">
                           KMP MASTER TOTALS:
                       </td>
-                      <td className="p-4 text-center text-base font-white text-blue-300 border-r border-slate-700">{masterTotals.totalOff}</td>
+                      <td className="p-4 text-center text-base font-bold text-blue-300 border-r border-slate-700">{masterTotals.totalOff}</td>
                       <td className="p-4 text-center text-base font-bold text-green-400 border-r border-slate-700">{masterTotals.totalNco}</td>
                       
+                      {/* 🟢 FIX: Passed 'true' as the second parameter (isDark) so the text stays bright white on this dark row */}
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-500/40">
-                        {renderAgeBlock(masterTotals.offAge)}
+                        {renderAgeBlock(masterTotals.offAge, true)}
                       </td>
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
-                        {renderAgeBlock(masterTotals.ncoAge)}
+                        {renderAgeBlock(masterTotals.ncoAge, true)}
                       </td>
 
                       <td className="p-2 text-center align-middle border-r border-slate-700 bg-slate-700/50">
@@ -467,11 +470,12 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                          </div>
                       </td>
                       
+                      {/* 🟢 FIX: Passed 'true' as the second parameter for education block too */}
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-500/40">
-                        {renderEduBlock(masterTotals.offEdu)}
+                        {renderEduBlock(masterTotals.offEdu, true)}
                       </td>
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-500/40">
-                        {renderEduBlock(masterTotals.ncoEdu)}
+                        {renderEduBlock(masterTotals.ncoEdu, true)}
                       </td>
 
                       <td className="p-4 text-center text-lg font-black text-white bg-blue-800 border-r border-blue-900 shadow-inner">{masterTotals.totalOff}</td>
