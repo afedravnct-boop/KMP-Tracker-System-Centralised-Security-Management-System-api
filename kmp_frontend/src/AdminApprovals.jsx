@@ -76,6 +76,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  
   const isSuperAdminOrTopCommand = (
     canViewGlobalActive ||
     userRoleClean === 'SUPER_ADMIN' ||
@@ -84,6 +85,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     userPosClean.includes('STAFF OFFICER ADMIN') ||
     userPosClean.includes('SO ADMIN')
   );
+
+  // 🟢 NEW EXPLICIT HIGH COMMAND RULE FOR BULK ACTIONS
+  const isExplicitHighCommand = [
+    'IGP', 'DEPUTY IGP', 'DIRECTOR OPERATIONS', 'DEPUTY DIRECTOR OPERATIONS', 
+    'KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN'
+  ].some(pos => userPosClean.includes(pos)) || userRoleClean === 'SUPER_ADMIN';
 
   const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
   const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
@@ -253,12 +260,20 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
 
   const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
-    if (currentUser?.role === 'SYSTEM_ADMIN') {
-      alert("Security Restriction: SYSTEM ADMIN is restricted from modifying user permissions.");
+    const cleanFnum = stripHtmlTags(fnum);
+    
+    // 🟢 ENFORCE SELF-EDIT RESTRICTION
+    if (cleanFnum === currentUser?.fnum) {
+      alert("Security Restriction: You cannot bulk-modify your own clearance access.");
+      return;
+    }
+    
+    // 🟢 ENFORCE HIGH COMMAND RESTRICTION
+    if (!isExplicitHighCommand) {
+      alert("Security Restriction: Only High Command or Super Admins are authorized to perform bulk clearance modifications.");
       return;
     }
 
-    const cleanFnum = stripHtmlTags(fnum);
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser) return;
 
@@ -286,6 +301,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const executePermissionChange = async (fnum, permissionKey, value, reason = '') => {
     const cleanFnum = stripHtmlTags(fnum);
+    
+    // 🟢 ENFORCE SELF-EDIT RESTRICTION
+    if (cleanFnum === currentUser?.fnum) {
+      alert("Security Restriction: You cannot modify your own access clearance.");
+      return;
+    }
+
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser) return;
 
@@ -325,6 +347,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const executeRoleChange = async (fnum, newRole, reason = '') => {
     const cleanFnum = stripHtmlTags(fnum);
+    
+    // 🟢 ENFORCE SELF-EDIT RESTRICTION
+    if (cleanFnum === currentUser?.fnum) {
+      alert("Security Restriction: You cannot modify your own access role or tier.");
+      return;
+    }
+
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser) return;
 
@@ -358,12 +387,19 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
+    const cleanFnum = stripHtmlTags(fnum);
+    
+    // 🟢 ENFORCE SELF-EDIT RESTRICTION
+    if (cleanFnum === currentUser?.fnum) {
+      alert("Security Restriction: You cannot modify your own access clearance.");
+      return;
+    }
+
     if (currentUser?.role === 'SYSTEM_ADMIN') {
       alert("Security Restriction: SYSTEM ADMIN has viewing and diagnostic access only and is strictly barred from modifying user permissions or access levels.");
       return;
     }
 
-    const cleanFnum = stripHtmlTags(fnum);
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser) return;
 
@@ -415,12 +451,19 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleRoleTierChange = async (fnum, newRole) => {
+    const cleanFnum = stripHtmlTags(fnum);
+    
+    // 🟢 ENFORCE SELF-EDIT RESTRICTION
+    if (cleanFnum === currentUser?.fnum) {
+      alert("Security Restriction: You cannot modify your own access role or tier.");
+      return;
+    }
+
     if (currentUser?.role === 'SYSTEM_ADMIN') {
       alert("Security Restriction: SYSTEM ADMIN cannot manage or modify access clearance tiers.");
       return;
     }
 
-    const cleanFnum = stripHtmlTags(fnum);
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser) return;
 
@@ -645,14 +688,23 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                     const p = u.permissions || {};
                     const isSuperAdmin = u.role === 'SUPER_ADMIN';
                     const isRevoked = u.role === 'REVOKED';
-                    const isRoleSelectDisabled = isSuperAdmin && currentUser?.role !== 'SUPER_ADMIN';
+                    
+                    // 🟢 VISUAL LOCKS FOR SELF-EDITING
+                    const isSelf = u.fnum === currentUser?.fnum;
+                    const isRoleSelectDisabled = isSelf || (isSuperAdmin && currentUser?.role !== 'SUPER_ADMIN');
+                    const isBulkActionDisabled = isSelf || !isExplicitHighCommand;
 
                     return (
-                      <tr key={u.fnum} className={`transition-colors ${isRevoked ? 'bg-red-50/40' : 'hover:bg-slate-50'}`}>
+                      <tr key={u.fnum} className={`transition-colors ${isRevoked ? 'bg-red-50/40' : 'hover:bg-slate-50'} ${isSelf ? 'bg-blue-50/30 ring-1 ring-inset ring-blue-100' : ''}`}>
                         <td className="p-2.5 sticky left-0 z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[240px]">
                           <div className={`font-extrabold text-[11px] flex items-center ${isRevoked ? 'text-red-900' : 'text-slate-900'}`}>
                             {formatOfficerHeader(u)}
-                            {isSuperAdmin && (
+                            {isSelf && (
+                              <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-blue-100 text-blue-700 font-bold rounded-full border border-blue-200" title="You cannot modify your own row.">
+                                YOU
+                              </span>
+                            )}
+                            {isSuperAdmin && !isSelf && (
                               <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-red-100 text-red-700 font-bold rounded-full border border-red-200">
                                 GOD-MODE
                               </span>
@@ -674,7 +726,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             value={u.role || 'USER'}
                             onChange={(e) => handleRoleTierChange(u.fnum, stripHtmlTags(e.target.value))}
                             disabled={isRoleSelectDisabled}
-                            className={`border rounded-md px-2 py-1 font-bold outline-none cursor-pointer text-[10px] uppercase w-full ${
+                            className={`border rounded-md px-2 py-1 font-bold outline-none uppercase w-full text-[10px] ${isRoleSelectDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${
                               u.role === 'SUPER_ADMIN' ? 'bg-red-50 text-red-700 border-red-300' :
                               u.role === 'ASSISTANT_SUPER_ADMIN' ? 'bg-rose-50 text-rose-700 border-rose-300' :
                               u.role === 'SYSTEM_ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-300' :
@@ -698,15 +750,21 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           <div className="flex items-center justify-center space-x-1.5">
                             <button 
                               onClick={() => handleBulkMatrixAction(u.fnum, true)}
-                              title="Check All Modules"
-                              className="p-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded border border-emerald-300 transition shadow-xs cursor-pointer"
+                              disabled={isBulkActionDisabled}
+                              title={isSelf ? "You cannot self-modify" : !isExplicitHighCommand ? "Only High Command can Bulk Update" : "Check All Modules"}
+                              className={`p-1 rounded border transition shadow-xs ${
+                                isBulkActionDisabled ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300 cursor-pointer'
+                              }`}
                             >
                               <CheckSquare size={13} />
                             </button>
                             <button 
                               onClick={() => handleBulkMatrixAction(u.fnum, false)}
-                              title="Uncheck All Modules (Deny Access)"
-                              className="p-1 bg-red-50 text-red-700 hover:bg-red-100 rounded border border-red-300 transition shadow-xs cursor-pointer"
+                              disabled={isBulkActionDisabled}
+                              title={isSelf ? "You cannot self-modify" : !isExplicitHighCommand ? "Only High Command can Bulk Update" : "Uncheck All Modules (Deny Access)"}
+                              className={`p-1 rounded border transition shadow-xs ${
+                                isBulkActionDisabled ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-red-50 text-red-700 hover:bg-red-100 border-red-300 cursor-pointer'
+                              }`}
                             >
                               <Square size={13} />
                             </button>
@@ -721,6 +779,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           const isStrictSuperAdminOnly = col.key === 'global_observer';
 
                           const isDisabled = 
+                            isSelf ||
                             isSuperAdmin || 
                             isRevoked || 
                             currentUser?.role === 'SYSTEM_ADMIN' || 
@@ -735,9 +794,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                                   checked={isSuperAdmin || Boolean(p[col.key])} 
                                   disabled={isDisabled}
                                   onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
-                                  className={`w-3.5 h-3.5 rounded cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed accent-${col.color}-600`} 
+                                  className={`w-3.5 h-3.5 rounded accent-${col.color}-600 ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`} 
                                 />
-                                {(isLockedVisually || isSuperAdmin) && <Lock size={9} className="absolute -top-1.5 -right-2 text-red-600 drop-shadow-xs" title={isSuperAdmin ? "Super Admin Access Locked" : "Locked by High Command"} />}
+                                {(isLockedVisually || isSuperAdmin) && !isSelf && <Lock size={9} className="absolute -top-1.5 -right-2 text-red-600 drop-shadow-xs" title={isSuperAdmin ? "Super Admin Access Locked" : "Locked by High Command"} />}
                               </div>
                             </td>
                           );
@@ -955,7 +1014,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               <AlertTriangle className="text-white mr-3 animate-pulse" size={22} />
               <h3 className="text-white font-extrabold text-sm uppercase tracking-wider">Mandatory Justification Required</h3>
             </div>
-             
+              
             <div className="p-6 space-y-4">
               <p className="text-sm font-bold text-slate-700 leading-relaxed">
                 You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${stripHtmlTags(revokePrompt.permissionKey)}" clearance`}</span> for this officer. By command directive, you must state an official operational reason to proceed.
@@ -967,7 +1026,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 className="w-full border border-slate-300 rounded-xl p-3 text-sm font-medium outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 resize-none h-32 bg-white"
               />
             </div>
-             
+              
             <div className="bg-slate-50 px-6 py-4 flex justify-end space-x-3 border-t border-slate-200 shrink-0">
               <button 
                 onClick={() => setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' })}

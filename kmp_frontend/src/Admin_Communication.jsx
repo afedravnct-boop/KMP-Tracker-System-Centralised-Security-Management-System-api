@@ -211,7 +211,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     }
   };
 
-  const fetchMessages = async () => {
+const fetchMessages = async () => {
     setIsLoadingInbox(true);
     try {
       const token = localStorage.getItem('kmp_authToken');
@@ -223,7 +223,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       else if (dateFilter === 'old') { const sevenDaysAgo = new Date(today); sevenDaysAgo.setDate(today.getDate() - 7); end = sevenDaysAgo.toISOString().split('T')[0];  } 
       else if (dateFilter === 'custom') { start = customStartDate; end = customEndDate; }
 
-      let url = `${API_URL}/api/v1/Admin_Communication`;
+      // 🟢 CORRECTED ENDPOINT HERE
+      let url = `${API_URL}/api/v1/communications`;
+      
       const params = new URLSearchParams();
       if (start) params.append('start_date', start);
       if (end) params.append('end_date', end);
