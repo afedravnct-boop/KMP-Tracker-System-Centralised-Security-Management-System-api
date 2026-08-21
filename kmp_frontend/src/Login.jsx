@@ -34,17 +34,17 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
       console.log("Server response data:", data);
 
       if (response.ok) {
-        console.log("Saving token:", data.access_token);
+        console.log("Saving token to sessionStorage:", data.access_token);
 
-        // 4. Save the token exactly where your app expects to find it
-        localStorage.setItem('kmp_authToken', data.access_token);
+        // 4. Save the token securely to sessionStorage (wipes when tab closes)
+        sessionStorage.setItem('kmp_authToken', data.access_token);
         
         const userObj = data.user || data;
         const fnumVal = userObj.fnum || userObj.username || fileOrForceNumber.trim().toUpperCase();
         
-        localStorage.setItem('kmp_currentUser_fnum', fnumVal);
-        localStorage.setItem('kmp_currentUser', JSON.stringify(userObj));
-        localStorage.setItem('kmp_loginTime', Date.now().toString());
+        sessionStorage.setItem('kmp_currentUser_fnum', fnumVal);
+        sessionStorage.setItem('kmp_currentUser', JSON.stringify(userObj));
+        sessionStorage.setItem('kmp_loginTime', Date.now().toString());
 
         if (typeof onLoginSuccess === 'function') {
           onLoginSuccess(userObj);

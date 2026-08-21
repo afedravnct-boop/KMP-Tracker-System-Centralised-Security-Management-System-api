@@ -1,30 +1,36 @@
 // src/api.js
 const BASE_URL = import.meta.env.VITE_API_URL || 'https://kmp-tracker-system-centralised-security.onrender.com';
 
-// 🟢 In-Memory Token with Tab-Scoped Ephemeral Fallback (No permanent disk/localStorage persistence)
-let inMemoryToken = typeof window !== 'undefined' ? sessionStorage.getItem('__kmp_sec_token') : null;
-let inMemoryUserFNum = typeof window !== 'undefined' ? sessionStorage.getItem('__kmp_sec_fnum') : null;
+// 🟢 Synchronized with Login.jsx and app expectations
+let inMemoryToken = typeof window !== 'undefined' ? sessionStorage.getItem('kmp_authToken') : null;
+let inMemoryUserFNum = typeof window !== 'undefined' ? sessionStorage.getItem('kmp_currentUser_fnum') : null;
 
 export const setAuthSession = (token, fnum) => {
   inMemoryToken = token;
   inMemoryUserFNum = fnum;
   if (token) {
-    sessionStorage.setItem('__kmp_sec_token', token);
+    sessionStorage.setItem('kmp_authToken', token);
+  } else {
+    sessionStorage.removeItem('kmp_authToken');
   }
   if (fnum) {
-    sessionStorage.setItem('__kmp_sec_fnum', fnum);
+    sessionStorage.setItem('kmp_currentUser_fnum', fnum);
+  } else {
+    sessionStorage.removeItem('kmp_currentUser_fnum');
   }
 };
 
 export const clearAuthSession = () => {
   inMemoryToken = null;
   inMemoryUserFNum = null;
-  sessionStorage.removeItem('__kmp_sec_token');
-  sessionStorage.removeItem('__kmp_sec_fnum');
+  sessionStorage.removeItem('kmp_authToken');
+  sessionStorage.removeItem('kmp_currentUser_fnum');
+  sessionStorage.removeItem('kmp_currentUser');
+  sessionStorage.removeItem('kmp_loginTime');
 };
 
-export const getAuthToken = () => inMemoryToken || sessionStorage.getItem('__kmp_sec_token');
-export const getAuthUserFNum = () => inMemoryUserFNum || sessionStorage.getItem('__kmp_sec_fnum');
+export const getAuthToken = () => inMemoryToken || sessionStorage.getItem('kmp_authToken');
+export const getAuthUserFNum = () => inMemoryUserFNum || sessionStorage.getItem('kmp_currentUser_fnum');
 export const hasValidSession = () => Boolean(getAuthToken());
 
 export async function authFetch(endpoint, options = {}) {
