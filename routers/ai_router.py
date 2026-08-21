@@ -42,5 +42,7 @@ async def process_tactical_query(payload: QueryPayload, current_user = Depends(g
         return {"response": response.text}
 
     except Exception as e:
-        print(f"Gemini API Error: {str(e)}")
+        import traceback
+        traceback.print_exc() # <--- Prints full error to Render logs
+        print(f"Gemini API Error Detail: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Tactical Processing Error: {str(e)}")
