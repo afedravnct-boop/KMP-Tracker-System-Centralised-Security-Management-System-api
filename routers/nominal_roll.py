@@ -90,7 +90,7 @@ def auto_infer_geography(station_name, current_region=None, current_district=Non
     return inferred_region or "KMP HEADQUARTERS", inferred_district or "KAMPALA"
 
 # ====================================================================
-# 1. RETRIEVE ACTIVE AND ARCHIVED NOMINAL ROLL
+# 1. RETRIEVE ACTIVE AND ARCHIVED NOMINAL ROLL WITH DYNAMIC SERIALS
 # ====================================================================
 @router.get("/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -115,13 +115,19 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         active_query = active_query.filter(func.upper(ActiveModel.station) == user_station)
         archive_query = archive_query.filter(func.upper(ArchiveModel.station) == user_station)
         
-    pk_act = getattr(ActiveModel, 'id', getattr(ActiveModel, 'sn', None))
-    pk_arc = getattr(ArchiveModel, 'id', getattr(ArchiveModel, 'sn', None))
+    # Sort chronologically by creation date or database ID descending/ascending
+    sort_col = getattr(ActiveModel, 'created_at', getattr(ActiveModel, 'id', None))
+    if sort_col is not None:
+        active_query = active_query.order_by(sort_col.asc())
+        archive_query = archive_query.order_by(sort_col.asc())
 
-    active_records = active_query.order_by(pk_act.desc()).all() if pk_act is not None else active_query.all()
-    archive_records = archive_query.order_by(pk_arc.desc()).all() if pk_arc is not None else archive_query.all()
+    active_records = active_query.all()
+    archive_records = archive_query.all()
     
     clean_results = []
+    sequence_counter = 1  # 🟢 Dynamic chronological counter
+
+    # 1. Process Active Records
     for r in active_records:
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
@@ -135,12 +141,17 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         r_dict['home_dist'] = r_dict.get('home_dist') or r_dict.get('homedist') or ''
         r_dict['acc_no'] = r_dict.get('acc_no') or r_dict.get('accno') or ''
         r_dict['bank_branch'] = r_dict.get('bank_branch') or r_dict.get('bankbranch') or ''
-        r_dict['sn'] = getattr(r, 'id', getattr(r, 'sn', 1))
-        r_dict['dbAuditId'] = getattr(r, 'id', getattr(r, 'sn', 1))
+        
+        # 🟢 Assign clean chronological serial number
+        r_dict['sn'] = sequence_counter
+        r_dict['dbAuditId'] = getattr(r, 'id', sequence_counter)
         r_dict['is_archived'] = False
         r_dict['status'] = r_dict.get('status') or 'ACTIVE'
+        
         clean_results.append(r_dict)
+        sequence_counter += 1
 
+    # 2. Process Archive Records
     for r in archive_records:
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
@@ -154,11 +165,15 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         r_dict['home_dist'] = r_dict.get('homedist') or r_dict.get('home_dist') or ''
         r_dict['acc_no'] = r_dict.get('accno') or r_dict.get('acc_no') or ''
         r_dict['bank_branch'] = r_dict.get('bankbranch') or r_dict.get('bank_branch') or ''
-        r_dict['sn'] = getattr(r, 'id', getattr(r, 'sn', 1))
-        r_dict['dbAuditId'] = f"ARC-{getattr(r, 'id', getattr(r, 'sn', 1))}"
+        
+        # 🟢 Assign clean chronological serial number for archives too
+        r_dict['sn'] = sequence_counter
+        r_dict['dbAuditId'] = f"ARC-{getattr(r, 'id', sequence_counter)}"
         r_dict['is_archived'] = True
         r_dict['status'] = r_dict.get('status') or 'ARCHIVED'
+        
         clean_results.append(r_dict)
+        sequence_counter += 1
         
     return clean_results
 

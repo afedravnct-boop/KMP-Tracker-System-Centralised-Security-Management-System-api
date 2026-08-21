@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart, Clock, Users, Award, MapPin, Zap, CheckCircle2, GitCommit, Network, Loader2, BookOpen } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart, Clock, Users, Award, MapPin, Zap, CheckCircle2, GitCommit, Network, Loader2, BookOpen, ChevronDown, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { authFetch, hasValidSession } from './api';
 
@@ -31,11 +31,6 @@ const normalizeOffenceCategory = (rawOffence) => {
   const words = clean.replace(/[^A-Z0-9\s]/g, '').split(/\s+/).filter(Boolean);
   words.sort();
   return words.join(' ') || clean;
-};
-
-const stripHtmlTags = (html) => {
-  if (!html) return '';
-  return String(html).replace(/<[^>]*>?/gm, '').trim();
 };
 
 const getOfficialRegionForStation = (stationName, dbRegion) => {
@@ -74,10 +69,19 @@ const AnalyticsDashboard = ({
   const [fetchedOps, setFetchedOps] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // 🟢 Collapsible state for Manpower regional breakdown
+  const [expandedManpowerRegions, setExpandedManpowerRegions] = useState({});
+
+  const toggleManpowerRegion = (regionName) => {
+    setExpandedManpowerRegions(prev => ({
+      ...prev,
+      [regionName]: !prev[regionName]
+    }));
+  };
+
   useEffect(() => {
     let isMounted = true;
     const fetchNeonData = async () => {
-      // 🟢 GUARD: Abort fetch if session token is missing or expired
       if (!hasValidSession()) return;
 
       setLoading(true);
@@ -133,7 +137,7 @@ const AnalyticsDashboard = ({
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : (currentUser?.region || 'KMP HEADQUARTERS'));
   const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : (currentUser?.station || 'KMP HEADQUARTERS'));
 
-  // 🟢 Comprehensive Multi-Relational Manpower Analysis Engine
+  // 🟢 Comprehensive Multi-Relational Manpower Analysis Engine with Child Stations
   const comprehensiveManpowerAnalysis = useMemo(() => {
     const rolls = Array.isArray(resolvedNominalRolls) ? resolvedNominalRolls : [];
     const crimes = Array.isArray(resolvedCrimeRegistry) ? resolvedCrimeRegistry.filter(r => !isLockupLog(r)) : [];
@@ -141,45 +145,91 @@ const AnalyticsDashboard = ({
 
     const regionSummary = {};
     Object.keys(REGIONAL_HIERARCHY).forEach(reg => {
-      regionSummary[reg] = { region: reg, officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0 };
+      regionSummary[reg] = { region: reg, officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0, stations: {} };
+      REGIONAL_HIERARCHY[reg].forEach(stn => {
+        regionSummary[reg].stations[stn] = { station: stn, officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0 };
+      });
     });
-    regionSummary["GENERAL / OTHER"] = { region: "GENERAL / OTHER", officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0 };
+    regionSummary["GENERAL / OTHER"] = { region: "GENERAL / OTHER", officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0, stations: {} };
 
     rolls.forEach(o => {
-      const stn = (o.station || '').trim().toUpperCase();
+      const stn = (o.station || 'UNKNOWN').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, o.region);
-      const target = regionSummary[reg] || regionSummary["GENERAL / OTHER"];
+      const targetReg = regionSummary[reg] || regionSummary["GENERAL / OTHER"];
       
-      target.officers += 1;
+      targetReg.officers += 1;
       const sex = (o.sex || '').trim().toUpperCase();
-      if (sex.startsWith('F')) target.female += 1;
-      else target.male += 1;
+      if (sex.startsWith('F')) targetReg.female += 1;
+      else targetReg.male += 1;
 
       const rank = (o.rank || 'UNRANKED').trim().toUpperCase();
-      target.ranks[rank] = (target.ranks[rank] || 0) + 1;
+      targetReg.ranks[rank] = (targetReg.ranks[rank] || 0) + 1;
+
+      if (!targetReg.stations[stn]) {
+        targetReg.stations[stn] = { station: stn, officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0 };
+      }
+      targetReg.stations[stn].officers += 1;
+      if (sex.startsWith('F')) targetReg.stations[stn].female += 1;
+      else targetReg.stations[stn].male += 1;
+      targetReg.stations[stn].ranks[rank] = (targetReg.stations[stn].ranks[rank] || 0) + 1;
     });
 
     crimes.forEach(c => {
-      const stn = (c.station || '').trim().toUpperCase();
+      const stn = (c.station || 'UNKNOWN').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, c.region);
-      const target = regionSummary[reg] || regionSummary["GENERAL / OTHER"];
-      target.crimes += 1;
+      const targetReg = regionSummary[reg] || regionSummary["GENERAL / OTHER"];
+      targetReg.crimes += 1;
+
+      if (!targetReg.stations[stn]) {
+        targetReg.stations[stn] = { station: stn, officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0 };
+      }
+      targetReg.stations[stn].crimes += 1;
     });
 
     ops.forEach(op => {
-      const stn = (op.station || '').trim().toUpperCase();
+      const stn = (op.station || 'UNKNOWN').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, op.region);
-      const target = regionSummary[reg] || regionSummary["GENERAL / OTHER"];
-      target.arrests += Number(op.arrests || op.suspects || 1);
+      const targetReg = regionSummary[reg] || regionSummary["GENERAL / OTHER"];
+      const arrestsCount = Number(op.arrests || op.suspects || 1);
+      targetReg.arrests += arrestsCount;
+
+      if (!targetReg.stations[stn]) {
+        targetReg.stations[stn] = { station: stn, officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0 };
+      }
+      targetReg.stations[stn].arrests += arrestsCount;
     });
 
     return Object.values(regionSummary).map(item => ({
       ...item,
       crimePerOfficer: item.officers > 0 ? (item.crimes / item.officers).toFixed(2) : '0.00',
       arrestsPerOfficer: item.officers > 0 ? (item.arrests / item.officers).toFixed(2) : '0.00',
-      dominantRank: Object.entries(item.ranks).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A'
+      dominantRank: Object.entries(item.ranks).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A',
+      stationList: Object.values(item.stations).map(stn => ({
+        ...stn,
+        crimePerOfficer: stn.officers > 0 ? (stn.crimes / stn.officers).toFixed(2) : '0.00',
+        arrestsPerOfficer: stn.officers > 0 ? (stn.arrests / stn.officers).toFixed(2) : '0.00',
+        dominantRank: Object.entries(stn.ranks).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A'
+      }))
     }));
   }, [resolvedNominalRolls, resolvedCrimeRegistry, resolvedOperationalStats]);
+
+  // 🟢 Computed Totals for Deep Manpower Grand Total Footer
+  const manpowerGrandTotals = useMemo(() => {
+    const totalOfficers = comprehensiveManpowerAnalysis.reduce((sum, r) => sum + r.officers, 0);
+    const totalMale = comprehensiveManpowerAnalysis.reduce((sum, r) => sum + r.male, 0);
+    const totalFemale = comprehensiveManpowerAnalysis.reduce((sum, r) => sum + r.female, 0);
+    const totalCrimes = comprehensiveManpowerAnalysis.reduce((sum, r) => sum + r.crimes, 0);
+    const totalArrests = comprehensiveManpowerAnalysis.reduce((sum, r) => sum + r.arrests, 0);
+
+    return {
+      totalOfficers,
+      totalMale,
+      totalFemale,
+      totalCrimes,
+      crimePerOfficer: totalOfficers > 0 ? (totalCrimes / totalOfficers).toFixed(2) : '0.00',
+      arrestsPerOfficer: totalOfficers > 0 ? (totalArrests / totalOfficers).toFixed(2) : '0.00'
+    };
+  }, [comprehensiveManpowerAnalysis]);
 
   const currentDataset = useMemo(() => {
     let baseData = [];
@@ -668,7 +718,7 @@ const AnalyticsDashboard = ({
               <Users className="mr-3 text-[#C5A880] w-6 h-6" /> Deep Manpower Multi-Relational Analysis
             </h2>
             <p className="text-xs text-[#b8ab97] mt-1 leading-relaxed">
-              Analyzing force distribution across multiple parameters: Regional strength, Gender ratios, Dominant ranks, Crime workload per officer, and Arrest efficiency per officer.
+              Analyzing force distribution across multiple parameters: Regional strength, Gender ratios, Dominant ranks, Crime workload per officer, and Arrest efficiency per officer. Click any command region to expand or collapse divisional units.
             </p>
           </div>
 
@@ -676,7 +726,7 @@ const AnalyticsDashboard = ({
             <table className="min-w-full divide-y divide-[#e2d6c3]">
               <thead className="bg-[#efece6]">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase">Command Region</th>
+                  <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase">Command Region / Division</th>
                   <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase">Total Officers</th>
                   <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase">Male / Female</th>
                   <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase">Dominant Rank</th>
@@ -686,18 +736,63 @@ const AnalyticsDashboard = ({
                 </tr>
               </thead>
               <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
-                {comprehensiveManpowerAnalysis.map((row, index) => (
-                  <tr key={index} className="hover:bg-[#e9eedf]/30">
-                    <td className="px-6 py-3 text-xs font-bold text-[#3a3225] uppercase">{row.region}</td>
-                    <td className="px-6 py-3 text-xs text-center font-black text-[#596E47]">{row.officers}</td>
-                    <td className="px-6 py-3 text-xs text-center font-bold text-[#736450]">👨‍✈️ {row.male} | 👩‍✈️ {row.female}</td>
-                    <td className="px-6 py-3 text-xs text-center font-bold text-amber-900 uppercase">{row.dominantRank}</td>
-                    <td className="px-6 py-3 text-xs text-center font-bold text-slate-800">{row.crimes}</td>
-                    <td className="px-6 py-3 text-xs text-center font-extrabold text-blue-800">{row.crimePerOfficer}</td>
-                    <td className="px-6 py-3 text-xs text-center font-extrabold text-emerald-800">{row.arrestsPerOfficer}</td>
-                  </tr>
-                ))}
+                {comprehensiveManpowerAnalysis.map((row, index) => {
+                  const isExpanded = !!expandedManpowerRegions[row.region];
+                  const hasStations = row.stationList && row.stationList.length > 0;
+
+                  return (
+                    <React.Fragment key={index}>
+                      {/* Region Level Row */}
+                      <tr 
+                        onClick={() => toggleManpowerRegion(row.region)}
+                        className="hover:bg-[#e9eedf]/50 cursor-pointer transition-colors border-t border-[#e2d6c3] select-none"
+                      >
+                        <td className="px-6 py-3.5 text-xs font-extrabold text-[#3a3225] uppercase flex items-center space-x-2">
+                          <span className="text-[#596E47]">
+                            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                          </span>
+                          <span>{row.region}</span>
+                        </td>
+                        <td className="px-6 py-3.5 text-xs text-center font-black text-[#596E47]">{row.officers}</td>
+                        <td className="px-6 py-3.5 text-xs text-center font-bold text-[#736450]">👨‍✈️ {row.male} | 👩‍✈️ {row.female}</td>
+                        <td className="px-6 py-3.5 text-xs text-center font-bold text-amber-900 uppercase">{row.dominantRank}</td>
+                        <td className="px-6 py-3.5 text-xs text-center font-bold text-slate-800">{row.crimes}</td>
+                        <td className="px-6 py-3.5 text-xs text-center font-extrabold text-blue-800">{row.crimePerOfficer}</td>
+                        <td className="px-6 py-3.5 text-xs text-center font-extrabold text-emerald-800">{row.arrestsPerOfficer}</td>
+                      </tr>
+
+                      {/* Expandable Station Rows */}
+                      {isExpanded && hasStations && row.stationList.map((stn, sIdx) => (
+                        <tr key={`stn-sub-${sIdx}`} className="bg-[#f7f3eb] hover:bg-[#ece6d8] transition-colors border-t border-[#e2d6c3]/60">
+                          <td className="px-6 py-2.5 pl-12 text-xs font-semibold text-[#594d3c] uppercase flex items-center space-x-2">
+                            <span className="text-xs text-[#8c7b65]">↳</span>
+                            <span>{stn.station}</span>
+                          </td>
+                          <td className="px-6 py-2.5 text-xs text-center font-bold text-[#596E47]">{stn.officers}</td>
+                          <td className="px-6 py-2.5 text-xs text-center text-[#736450]">👨‍✈️ {stn.male} | 👩‍✈️ {stn.female}</td>
+                          <td className="px-6 py-2.5 text-xs text-center text-amber-900 uppercase">{stn.dominantRank}</td>
+                          <td className="px-6 py-2.5 text-xs text-center text-slate-700">{stn.crimes}</td>
+                          <td className="px-6 py-2.5 text-xs text-center font-semibold text-blue-700">{stn.crimePerOfficer}</td>
+                          <td className="px-6 py-2.5 text-xs text-center font-semibold text-emerald-700">{stn.arrestsPerOfficer}</td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
+
+              {/* 🟢 Grand Total Summary Row */}
+              <tfoot className="bg-[#efece6] border-t-2 border-[#d3c2a8]">
+                <tr className="font-extrabold text-[#3a3225]">
+                  <td className="px-6 py-4 text-xs uppercase tracking-wider">GRAND TOTAL</td>
+                  <td className="px-6 py-4 text-xs text-center font-black text-[#596E47]">{manpowerGrandTotals.totalOfficers}</td>
+                  <td className="px-6 py-4 text-xs text-center font-bold text-[#736450]">👨‍✈️ {manpowerGrandTotals.totalMale} | 👩‍✈️ {manpowerGrandTotals.totalFemale}</td>
+                  <td className="px-6 py-4 text-xs text-center font-bold text-amber-900 uppercase">OVERALL</td>
+                  <td className="px-6 py-4 text-xs text-center font-bold text-slate-800">{manpowerGrandTotals.totalCrimes}</td>
+                  <td className="px-6 py-4 text-xs text-center font-black text-blue-900">{manpowerGrandTotals.crimePerOfficer}</td>
+                  <td className="px-6 py-4 text-xs text-center font-black text-emerald-900">{manpowerGrandTotals.arrestsPerOfficer}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
