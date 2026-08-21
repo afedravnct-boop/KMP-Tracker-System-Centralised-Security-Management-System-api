@@ -44,6 +44,16 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUse
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
 
+  React.useEffect(() => {
+    if (canViewGlobalActive) {
+      setFilterRegion('ALL REGIONS');
+      setFilterStation('ALL STATIONS');
+    } else if (currentUser) {
+      setFilterRegion(currentUser.region || 'ALL REGIONS');
+      setFilterStation(currentUser.station || 'ALL STATIONS');
+    }
+  }, [currentUser, canViewGlobalActive]);
+
   // 🟢 Normalize incoming datasets whether passed as individual props or inside data container
   const rawReports = Array.isArray(reports) ? reports : (data?.crimes || data?.reports || []);
   const rawStats = Array.isArray(stats) ? stats : (data?.statistics || data?.stats || []);

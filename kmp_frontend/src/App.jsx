@@ -2728,6 +2728,7 @@ const App = () => {
             reports={reports} 
             stats={stats} 
             stories={stories} 
+            currentUser={currentUser}
             onClose={() => setIsViewingConsolidated(false)} 
           />
         )}
