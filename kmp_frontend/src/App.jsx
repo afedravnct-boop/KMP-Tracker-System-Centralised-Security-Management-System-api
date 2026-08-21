@@ -1495,36 +1495,7 @@ const WorkspaceSecurityCurtain = () => {
     window.location.replace('/');
   };
 
-  // If completely timed out, render an un-skippable, high-priority full-screen modal
-  if (isTimedOut) {
-    return (
-      <div 
-        className="fixed inset-0 flex items-center justify-center bg-slate-950/95 backdrop-blur-md"
-        style={{ zIndex: 2147483647, pointerEvents: 'auto' }}
-      >
-        <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-red-200 text-center animate-in zoom-in-95 duration-200">
-          <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
-            <AlertTriangle className="w-8 h-8 text-red-600" />
-          </div>
-          <h4 className="text-xl font-extrabold text-slate-900 mb-2">
-            Session Expired Due to Inactivity
-          </h4>
-          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
-            Your security session has expired because the system was left unattended. You have been securely logged out.
-          </p>
-          <button 
-            type="button"
-            onClick={handleForceLogout}
-            className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer transition-colors"
-          >
-            Acknowledge & Return to Login
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isWorkspaceIdle && !showIdleWarning) {
+  if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
     return (
       <div className="fixed bottom-6 right-6 z-[99990]">
         <div
@@ -1558,6 +1529,7 @@ const WorkspaceSecurityCurtain = () => {
 
   const orbitText = "KAMPALA METROPOLITAN POLICE • CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('');
 
+  // 🟢 SINGLE RETURN BLOCK - Keeps Background Animation Alive
   return (
     <div 
       className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
@@ -1565,7 +1537,7 @@ const WorkspaceSecurityCurtain = () => {
         position: 'fixed',
         top: 0, left: 0, right: 0, bottom: 0,
         zIndex: 2147483646,
-        pointerEvents: showIdleWarning ? 'auto' : 'none',
+        pointerEvents: (showIdleWarning || isTimedOut) ? 'auto' : 'none',
         isolation: 'isolate'
       }}
     >
@@ -1576,7 +1548,7 @@ const WorkspaceSecurityCurtain = () => {
         }
         @keyframes continuous-globe-spin {
           0% { background-position-x: 0px; }
-          100% { background-position-x: -400px; }
+          100% { background-position-x: -800px; }
         }
       `}</style>
 
@@ -1624,31 +1596,56 @@ const WorkspaceSecurityCurtain = () => {
         </div>
       </div>
 
-      {/* Interactive Warning Modal */}
-      {showIdleWarning && (
+      {/* Interactive Modal (Swaps seamlessly between Warning and Locked Out) */}
+      {(showIdleWarning || isTimedOut) && (
         <div 
           onClick={(e) => e.stopPropagation()}
           className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto"
         >
-          <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
-            <AlertTriangle className="w-8 h-8 text-amber-600" />
-          </div>
-          <h4 className="text-xl font-extrabold text-slate-900 mb-2">
-            Session Timeout Warning
-          </h4>
-          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
-            Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Click below to continue working.
-          </p>
-          <button 
-            type="button"
-            onClick={() => {
-              setShowIdleWarning(false);
-              setIsWorkspaceIdle(false);
-            }}
-            className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
-          >
-            Continue Session
-          </button>
+          {isTimedOut ? (
+            // 🔴 RENDERED AT 0 SECONDS (TIMED OUT)
+            <>
+              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
+                <AlertTriangle className="w-8 h-8 text-red-600" />
+              </div>
+              <h4 className="text-xl font-extrabold text-slate-900 mb-2">
+                Session Expired Due to Inactivity
+              </h4>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
+                Your security session has expired because the system was left unattended. You have been securely logged out.
+              </p>
+              <button 
+                type="button"
+                onClick={handleForceLogout}
+                className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer transition-colors"
+              >
+                Acknowledge & Return to Login
+              </button>
+            </>
+          ) : (
+            // 🟡 RENDERED DURING 60-SECOND COUNTDOWN
+            <>
+              <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
+                <AlertTriangle className="w-8 h-8 text-amber-600" />
+              </div>
+              <h4 className="text-xl font-extrabold text-slate-900 mb-2">
+                Session Timeout Warning
+              </h4>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
+                Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Click below to continue working.
+              </p>
+              <button 
+                type="button"
+                onClick={() => {
+                  setShowIdleWarning(false);
+                  setIsWorkspaceIdle(false);
+                }}
+                className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
+              >
+                Continue Session
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -2240,23 +2237,21 @@ const App = () => {
     const controller = new AbortController();
     
     const fetchAllData = async () => {
-      // 🟢 1. Skip network fetch if browser tab is minimized or hidden
       if (document.hidden) return;
 
-      // 🟢 2. Skip network fetch if user has been inactive for > 60 seconds (Idle Curtain active)
       const isUserIdle = (Date.now() - lastActivityRef.current) > 60000;
       if (isUserIdle) return;
 
       try {
-        // 🟢 3. Network fetch requests
-        const [resUsers, resReports, resStats, resStories, resEst, resNom, resComms] = await Promise.all([
+        const [resUsers, resReports, resStats, resStories, resEst, resNom, resComms, resDocs] = await Promise.all([
           authFetch('/api/v1/users', { signal: controller.signal }),
           authFetch('/api/v1/reports', { signal: controller.signal }),
           authFetch('/api/v1/stats', { signal: controller.signal }),
           authFetch('/api/v1/stories', { signal: controller.signal }),
           authFetch('/api/v1/establishments', { signal: controller.signal }),
           authFetch('/api/v1/nominal-roll', { signal: controller.signal }),
-          authFetch('/api/v1/communications', { signal: controller.signal })
+          authFetch('/api/v1/communications', { signal: controller.signal }),
+          authFetch('/api/v1/general-documents', { signal: controller.signal })
         ]);
 
         if (resReports && resReports.ok) setReports(await resReports.json());
@@ -2265,8 +2260,9 @@ const App = () => {
         if (resEst && resEst.ok) setEstablishments(await resEst.json());
         if (resNom && resNom.ok) setNominal_Rolls(await resNom.json());
         if (resComms && resComms.ok) setAdminCommsData(await resComms.json());
+        if (resDocs && resDocs.ok) setGeneralDocs(await resDocs.json());
 
-        // 🟢 4. Sync dynamic matrix permissions in RAM only
+        // Sync dynamic matrix permissions in RAM only
         if (resUsers && resUsers.ok) {
           const allUsers = await resUsers.json();
           setUsers(allUsers);
@@ -2275,23 +2271,37 @@ const App = () => {
           const me = allUsers.find(u => u.fnum === myFnum);
 
           if (me) {
+            // 🟢 CRITICAL FIX: Safely parse permissions to prevent string-spread corruption
+            let serverPerms = me.permissions;
+            if (typeof serverPerms === 'string') {
+              try { serverPerms = JSON.parse(serverPerms); } catch (e) { serverPerms = {}; }
+            }
+            serverPerms = serverPerms || {};
+
             setCurrentUser(prev => {
               if (!prev) return prev;
 
+              let prevPerms = prev.permissions;
+              if (typeof prevPerms === 'string') {
+                try { prevPerms = JSON.parse(prevPerms); } catch (e) { prevPerms = {}; }
+              }
+              prevPerms = prevPerms || {};
+
               const isSuperAdmin = prev.role === 'SUPER_ADMIN' || me.role === 'SUPER_ADMIN';
-              const hasGlobalRoster = isSuperAdmin || me.permissions?.view_global_roster === true || prev.permissions?.view_global_roster === true;
-              const hasGlobalObserver = isSuperAdmin || me.permissions?.global_observer === true || prev.permissions?.global_observer === true;
+              const hasGlobalRoster = isSuperAdmin || serverPerms.view_global_roster === true || prevPerms.view_global_roster === true;
+              const hasGlobalObserver = isSuperAdmin || serverPerms.global_observer === true || prevPerms.global_observer === true;
 
               const mergedPermissions = {
-                ...(prev.permissions || {}),
-                ...(me.permissions || {}),
+                ...prevPerms,
+                ...serverPerms,
                 view_global_roster: hasGlobalRoster,
                 global_observer: hasGlobalObserver
               };
 
               const resolvedRole = isSuperAdmin ? 'SUPER_ADMIN' : (me.role || prev.role);
 
-              const permissionsUnchanged = JSON.stringify(mergedPermissions) === JSON.stringify(prev.permissions);
+              // Prevent infinite re-renders by doing a deep comparison
+              const permissionsUnchanged = JSON.stringify(mergedPermissions) === JSON.stringify(prevPerms);
               const roleUnchanged = resolvedRole === prev.role;
 
               if (permissionsUnchanged && roleUnchanged) {
@@ -2313,13 +2323,9 @@ const App = () => {
       } 
     };    
 
-    // Initial immediate fetch on mount
     fetchAllData();
-    
-    // Polling interval
     const pollingInterval = setInterval(fetchAllData, 5000);
 
-    // 🟢 5. Instantly resync the moment user switches back into the browser tab
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         lastActivityRef.current = Date.now();

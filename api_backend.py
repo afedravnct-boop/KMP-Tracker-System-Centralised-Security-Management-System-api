@@ -31,7 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from ai_router import router as ai_router
+from routers import ai_router
 
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from jose import jwt, JWTError
@@ -73,8 +73,10 @@ load_dotenv()
 
 app = FastAPI(title="KMP Centralised Security Data Management System")
 
-from routers import general_documents
+from routers import general_documents, ai_router
+
 app.include_router(general_documents.router)
+app.include_router(ai_router.router)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
