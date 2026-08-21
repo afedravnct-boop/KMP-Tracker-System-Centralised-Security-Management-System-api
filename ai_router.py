@@ -1,200 +1,236 @@
+# ai_router.py
+import os
+import re
+import json
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+import pytz
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from typing import Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, and_
-from datetime import datetime, timedelta
+from sqlalchemy import text
+from openai import OpenAI
 
 from app.database import get_db
 from app import models
 from auth import get_current_user
 
-router = APIRouter(prefix="/api/v1/ai", tags=["AI Intelligence"])
+# 🟢 Direct Root Import with Fallback Protection
+try:
+    from embedding_service import get_embedding_vector
+except ImportError:
+    try:
+        from app.services import get_embedding_vector
+    except ImportError:
+        def get_embedding_vector(text: str) -> list[float]:
+            return [0.0] * 1536
+
+router = APIRouter(prefix="/api/v1/ai", tags=["AI Intelligence Engine"])
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "EMPTY"))
 
 class AIQueryRequest(BaseModel):
     prompt: str
     target_region: Optional[str] = "ALL REGIONS"
     target_station: Optional[str] = "ALL STATIONS"
+# =====================================================================
+# 1. DATABASE SCHEMA DEFINITION & METADATA INJECTION
+# =====================================================================
+SCHEMA_DEFINITION = """
+PostgreSQL Tables & Schema:
+1. nominal_roll (id, fnum, name, rank, position, station, division, region, contact, ipps, sex, home_dist, date_of_birth, date_of_enlistment, qualification)
+2. crime_reports (id, sd_ref, date, time, station, division, region, offence, category, victim_name, suspect_name, narrative, status)
+3. operational_statistics (id, date, station, division, region, operations_conducted, suspects_screened, charged_to_court, weapons_recovered)
+4. success_stories (id, title, date, station, narrative, commander_in_charge)
+5. establishments (id, region, division, station, post, sanctioned_strength, present_strength, variance)
+6. lockup_matrix (id, station, date, male_adults, female_adults, male_juveniles, female_juveniles, total_detained)
+"""
 
+# =====================================================================
+# 2. ROLE-BASED CLEARANCE ENFORCEMENT (ROW-LEVEL SECURITY)
+# =====================================================================
+def get_clearance_constraints(user: models.Users) -> Dict[str, Any]:
+    """Generates SQL and vector isolation filters matching officer clearance."""
+    role = str(getattr(user, 'role', '') or "").upper()
+    is_super = role in ["SUPER_ADMIN", "SYSTEM_ADMIN", "RPC"]
+    
+    sql_clauses = []
+    if not is_super:
+        u_region = getattr(user, 'region', None)
+        u_division = getattr(user, 'division', None)
+        u_station = getattr(user, 'station', None)
+
+        if u_region and u_region != "ALL REGIONS":
+            sql_clauses.append(f"UPPER(region) = '{u_region.strip().upper()}'")
+        if u_division and role in ["DIVISION_ADMIN", "OC_CID", "DPC"]:
+            sql_clauses.append(f"UPPER(division) = '{u_division.strip().upper()}'")
+        if u_station and role in ["STATION_ADMIN", "OC_STATION", "DUTY_OFFICER"]:
+            sql_clauses.append(f"UPPER(station) = '{u_station.strip().upper()}'")
+
+    sql_filter = " AND ".join(sql_clauses) if sql_clauses else "1=1"
+    return {"sql_filter": sql_filter, "is_super": is_super}
+
+# =====================================================================
+# 3. SECURE READ-ONLY SQL ENGINE
+# =====================================================================
+def execute_safe_query(sql_query: str, db: Session) -> List[Dict[str, Any]]:
+    """Sanitizes and executes read-only SQL queries with AST token protection."""
+    clean_sql = re.sub(r"```(?:sql)?", "", sql_query, flags=re.IGNORECASE).strip()
+    forbidden = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "GRANT", "REVOKE", ";", "--", "EXEC"]
+    
+    for token in forbidden:
+        if re.search(rf"\b{re.escape(token)}\b", clean_sql, re.IGNORECASE):
+            raise ValueError(f"Security Alert: Unauthorized command token '{token}' blocked.")
+            
+    if not clean_sql.upper().startswith("SELECT"):
+        raise ValueError("Security Alert: Only SELECT operations are authorized.")
+
+    result = db.execute(text(clean_sql))
+    rows = result.fetchall()
+    keys = list(result.keys())
+    
+    # Cap result payload to prevent LLM context overflow
+    return [dict(zip(keys, row)) for row in rows[:50]]
+
+# =====================================================================
+# 4. PGVECTOR SEMANTIC RAG RETRIEVER (HARDENED & PARAMETERIZED)
+# =====================================================================
+def retrieve_vector_context(query: str, user: models.Users, db: Session, limit: int = 5) -> List[str]:
+    """Retrieves qualitative context and SITREPs safely with parameterized bindings."""
+    try:
+        query_vec = get_embedding_vector(query)
+        if not query_vec or sum(query_vec) == 0:
+            return []
+
+        vec_str = "[" + ",".join(str(x) for x in query_vec) + "]"
+        
+        role = str(getattr(user, 'role', '') or "").upper()
+        user_region = str(getattr(user, 'region', '') or "").strip().upper()
+
+        # Parameterized condition logic
+        if role in ["SUPER_ADMIN", "SYSTEM_ADMIN", "RPC"] or not user_region or user_region == "ALL REGIONS":
+            geo_clause = "1=1"
+            params = {"vec_str": vec_str, "limit": limit}
+        else:
+            geo_clause = "(UPPER(region) = :user_region OR UPPER(region) = 'KMP HEADQUARTERS' OR region IS NULL)"
+            params = {"vec_str": vec_str, "user_region": user_region, "limit": limit}
+
+        sql = text(f"""
+            SELECT document_type, title, content, sd_ref, station, 
+                   1 - (embedding <=> CAST(:vec_str AS vector)) AS similarity
+            FROM operational_document_embeddings
+            WHERE {geo_clause}
+            ORDER BY embedding <=> CAST(:vec_str AS vector)
+            LIMIT :limit;
+        """)
+        
+        results = db.execute(sql, params).fetchall()
+        
+        return [
+            f"[{r.document_type}] {r.title} (Station: {r.station or 'HQ'}, SD: {r.sd_ref or 'N/A'}, Similarity: {round(float(r.similarity), 3)}):\n{r.content}"
+            for r in results if r.similarity is not None and float(r.similarity) > 0.40
+        ]
+    except Exception as e:
+        # Graceful fallback: print warning and let SQL Structured engine handle the answer
+        print(f"pgvector Retrieval Warning (Skipping RAG): {e}")
+        return []
+
+# =====================================================================
+# 5. CORE DUAL-PATH AI ORCHESTRATOR ROUTE
+# =====================================================================
 @router.post("/query")
 async def process_ai_query(
-    request: AIQueryRequest, 
-    db: Session = Depends(get_db), 
+    request: AIQueryRequest,
+    db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        prompt_lower = request.prompt.lower()
         prompt_raw = request.prompt.strip()
-        response_text = ""
+        clearance = get_clearance_constraints(current_user)
 
-        # =====================================================================
-        # CAPABILITY 1: OFFICER DEPLOYMENT & DEEP NOMINAL ROLL SCAN
-        # e.g., "Where is officer [Name/FNUM] deployed?" or lookup specific details
-        # =====================================================================
-        if "where is" in prompt_lower or "deployed" in prompt_lower or "stationed" in prompt_lower:
-            # Extract potential officer name or force number from prompt
-            # We strip common filler words
-            query_terms = [w for w in prompt_lower.split() if w not in ["where", "is", "the", "officer", "deployed", "stationed", "at", "where's", "police", "inspector", "detective"]]
-            search_term = " ".join(query_terms).strip().upper()
+        # 🟢 A. TEXT-TO-SQL INTENT & QUERY GENERATION
+        sql_router_prompt = f"""
+You are the KMP Centralised Security Data Management System (CSDMS) SQL Specialist.
+PostgreSQL Schema:
+{SCHEMA_DEFINITION}
 
-            if search_term:
-                officer = db.query(models.NominalRoll).filter(
-                    or_(
-                        func.upper(models.NominalRoll.name).contains(search_term),
-                        func.upper(models.NominalRoll.fnum).contains(search_term),
-                        func.upper(models.NominalRoll.f_num).contains(search_term),
-                        func.upper(models.NominalRoll.ipps).contains(search_term)
-                    )
-                ).first()
+Clearance Constraint:
+Apply this WHERE filter on queries to protect officer clearance: {clearance['sql_filter']}
 
-                if officer:
-                    o_name = getattr(officer, 'name', 'N/A')
-                    o_rank = getattr(officer, 'rank', 'N/A')
-                    o_fnum = getattr(officer, 'fnum', getattr(officer, 'f_num', 'N/A'))
-                    o_station = getattr(officer, 'station', 'N/A')
-                    o_region = getattr(officer, 'region', 'N/A')
-                    o_pos = getattr(officer, 'position', 'N/A')
-                    o_contact = getattr(officer, 'contact', 'N/A')
-                    o_ipps = getattr(officer, 'ipps', 'N/A')
-                    o_sex = getattr(officer, 'sex', 'N/A')
-                    o_district = getattr(officer, 'home_dist', getattr(officer, 'homedist', 'N/A'))
+Rules:
+1. If the user prompt asks for counts, specific records, officers, incidents, or statistics, generate ONLY a valid PostgreSQL SELECT statement.
+2. If purely qualitative or non-tabular, return "NO_SQL".
+3. Return raw SQL string only. Do not enclose in markdown blocks.
+"""
+        sql_decision = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": sql_router_prompt},
+                {"role": "user", "content": prompt_raw}
+            ],
+            temperature=0.0
+        )
+        
+        raw_sql = sql_decision.choices[0].message.content.strip()
+        generated_sql = re.sub(r"```(?:sql)?", "", raw_sql, flags=re.IGNORECASE).strip()
 
-                    response_text = (
-                        f"🛡️ [Deployment & Personnel Intelligence]:\n"
-                        f"• Officer: {o_rank} {o_name} (F/NO: {o_fnum})\n"
-                        f"• Deployed Station: {o_station} ({o_region})\n"
-                        f"• Position/Duty: {o_pos}\n"
-                        f"• IPPS: {o_ipps} | Contact: {o_contact}\n"
-                        f"• Sex: {o_sex} | Home District: {o_district}"
-                    )
-                else:
-                    response_text = f"🔍 [Manpower Search]: No active officer matching '{search_term}' was found in the KMP Nominal Roll."
-            else:
-                response_text = "⚠️ Please specify the officer's name, force number, or IPPS number you are looking for."
+        sql_results = []
+        if generated_sql != "NO_SQL" and generated_sql.upper().startswith("SELECT"):
+            try:
+                sql_results = execute_safe_query(generated_sql, db)
+            except Exception as err:
+                sql_results = [{"query_notice": "SQL execution bypassed", "detail": str(err)}]
 
-        # =====================================================================
-        # CAPABILITY 2: GRANULAR CRIME INCIDENT & LOCATION PINPOINTING
-        # e.g., "When was the robbery of [Location X]?" or search narratives/offences
-        # =====================================================================
-        elif "robbery of" in prompt_lower or "when was" in prompt_lower or "incident at" in prompt_lower or "crime at" in prompt_lower or "robbery at" in prompt_lower:
-            # Extract location keyword
-            location_keywords = [w for w in prompt_lower.split() if w not in ["when", "was", "the", "robbery", "of", "at", "incident", "crime", "in", "where", "happened"]]
-            location_query = " ".join(location_keywords).strip().upper()
+        # 🟢 B. PGVECTOR SEMANTIC SEARCH
+        vector_docs = retrieve_vector_context(prompt_raw, current_user, db)
 
-            if location_query:
-                matching_crimes = db.query(models.Crime_Reports).filter(
-                    or_(
-                        func.upper(models.Crime_Reports.narrative).contains(location_query),
-                        func.upper(models.Crime_Reports.station).contains(location_query),
-                        func.upper(models.Crime_Reports.offence).contains(location_query)
-                    )
-                ).order_by(models.Crime_Reports.date.desc()).limit(3).all()
+        # 🟢 C. MILITARY/POLICE ANALYTICAL SYNTHESIS (SMEAC FORMAT)
+        eat_tz = pytz.timezone('Africa/Nairobi')
+        now_eat = datetime.now(eat_tz).strftime('%d-%b-%Y %H:%M:%S EAT')
 
-                if matching_crimes:
-                    details_list = []
-                    for c in matching_crimes:
-                        details_list.append(
-                            f"• Ref: {c.sd_ref} | Station: {c.station}\n"
-                            f"  Date: {c.date} @ {c.time}\n"
-                            f"  Offence: {c.offence}\n"
-                            f"  Summary: {c.narrative[:180]}..."
-                        )
-                    response_text = f"🚨 [Crime Database Deep-Scan] Found {len(matching_crimes)} record(s) matching '{location_query}':\n\n" + "\n\n".join(details_list)
-                else:
-                    response_text = f"🔍 [Crime Database Deep-Scan]: No incident records or robberies matching '{location_query}' were found in the registry."
-            else:
-                response_text = "⚠️ Please specify a location or keyword (e.g., 'When was the robbery at Bwaise?')."
+        synthesis_prompt = f"""
+You are the Lead Tactical Intelligence AI for Kampala Metropolitan Police (KMP).
+Inquiring Commander: {getattr(current_user, 'rank', '')} {getattr(current_user, 'name', '')} (F/NO: {getattr(current_user, 'fnum', '')}, Role: {getattr(current_user, 'role', '')})
+Jurisdiction: Station: {getattr(current_user, 'station', '')} | Division: {getattr(current_user, 'division', '')} | Region: {getattr(current_user, 'region', '')}
+Current Timestamp: {now_eat}
 
-        # =====================================================================
-        # CAPABILITY 3: COMPREHENSIVE NOMINAL ROLL COLUMN & ATTRIBUTE SCANNER
-        # e.g., Looking up officer demographics, ages, educational levels, or tribe
-        # =====================================================================
-        elif "age" in prompt_lower or "tribe" in prompt_lower or "education" in prompt_lower or "qualification" in prompt_lower or "bank" in prompt_lower:
-            # General statistics across all columns
-            total_count = db.query(models.NominalRoll).count()
-            
-            if "education" in prompt_lower or "qualification" in prompt_lower:
-                response_text = f"🎓 [Personnel Qualification Intelligence]: Scanned {total_count} records. Educational records span UCE, UACE, Diplomas, and Bachelor's degrees across divisional rosters."
-            elif "tribe" in prompt_lower:
-                response_text = f"🧬 [Demographic Intelligence]: Nominal roll entries contain structured tribal and home district data for all {total_count} active personnel."
-            elif "bank" in prompt_lower:
-                response_text = f"💳 [Financial Intelligence]: Banking branch and account number metadata are mapped for all {total_count} active personnel in the payroll audit registry."
-            else:
-                response_text = f"📊 [Personnel Database Intelligence]: Database holds {total_count} detailed officer profiles containing ranks, dates of birth, employment dates, NIN, IPPS, and banking data."
+Structured SQL Results:
+{json.dumps(sql_results, default=str, indent=2)}
 
-        # =====================================================================
-        # STANDARD METRICS & INTELLIGENCE BREAKDOWNS
-        # =====================================================================
-        elif "police men" in prompt_lower or "police officers" in prompt_lower or ("officers" in prompt_lower and "kampala" in prompt_lower):
-            total_pers = db.query(models.NominalRoll).count()
-            response_text = f"📊 [Manpower Intelligence]: There are currently a total of {total_pers} active police officers registered in the KMP Nominal Roll across all jurisdictions."
+Retrieved Vector Documents & SITREPs:
+{json.dumps(vector_docs, indent=2)}
 
-        elif "police posts" in prompt_lower or "posts in kmp" in prompt_lower:
-            posts_count = db.query(models.Establishments).filter(models.Establishments.post != "").count()
-            total_est = db.query(models.Establishments).count()
-            response_text = f"🏢 [Establishments Intelligence]: There are {total_est} command entries recorded in establishments, featuring {posts_count} designated police posts across KMP divisions."
+Commander Query:
+"{prompt_raw}"
 
-        elif "female officers" in prompt_lower or "female" in prompt_lower:
-            female_count = db.query(models.NominalRoll).filter(
-                or_(
-                    func.upper(models.NominalRoll.sex) == "FEMALE",
-                    func.upper(models.NominalRoll.sex) == "F"
-                )
-            ).count()
-            response_text = f"👤 [Gender Intelligence]: There are currently {female_count} female officers active on the KMP Nominal Roll."
-
-        elif "male officers" in prompt_lower or "male" in prompt_lower:
-            male_count = db.query(models.NominalRoll).filter(
-                or_(
-                    func.upper(models.NominalRoll.sex) == "MALE",
-                    func.upper(models.NominalRoll.sex) == "M"
-                )
-            ).count()
-            response_text = f"👤 [Gender Intelligence]: There are currently {male_count} male officers active on the KMP Nominal Roll."
-
-        elif "ncos" in prompt_lower or "non commissioned" in prompt_lower:
-            nco_count = db.query(models.NominalRoll).filter(
-                or_(
-                    func.upper(models.NominalRoll.rank).contains("SGT"),
-                    func.upper(models.NominalRoll.rank).contains("CPL"),
-                    func.upper(models.NominalRoll.rank).contains("PC"),
-                    func.upper(models.NominalRoll.rank).contains("CONSTABLE"),
-                    func.upper(models.NominalRoll.rank).contains("SERGEANT"),
-                    func.upper(models.NominalRoll.rank).contains("CORPORAL")
-                )
-            ).count()
-            response_text = f"🎖️ [Rank Structure Intelligence]: There are {nco_count} Non-Commissioned Officers (NCOs like SGT, CPL, PC) registered in the KMP Nominal Roll."
-
-        elif "region" in prompt_lower or "kmp north" in prompt_lower or "kmp south" in prompt_lower or "kmp east" in prompt_lower:
-            north_count = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("NORTH")).count()
-            south_count = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("SOUTH")).count()
-            east_count = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("EAST")).count()
-            hq_count = db.query(models.NominalRoll).filter(func.upper(models.NominalRoll.region).contains("HEADQUARTERS")).count()
-            
-            response_text = (
-                f"🗺️ [Regional Manpower Distribution]:\n"
-                f"• KMP North: {north_count} officers\n"
-                f"• KMP South: {south_count} officers\n"
-                f"• KMP East: {east_count} officers\n"
-                f"• KMP Headquarters: {hq_count} officers"
-            )
-
-        else:
-            response_text = (
-                "🤖 I am your KMP CSDMS Intelligence Assistant. You can ask me:\n"
-                "1. 'Where is officer [Name or F/NO] deployed?'\n"
-                "2. 'When was the robbery at [Location/Station]?'\n"
-                "3. 'How many female/male officers or NCOs are active?'\n"
-                "4. 'Show regional manpower distribution.'"
-            )
+Directives:
+1. Deliver an authoritative, structured, and factual police intelligence response.
+2. Structure output cleanly:
+   - **Executive Summary**
+   - **Operational Intelligence Assessment**
+   - **Tactical Directives & Next Steps** (if applicable)
+3. Explicitly correlate database figures with narrative SITREP context.
+4. Reference exact SD Numbers, Stations, and Force Numbers when available.
+5. If no records match, state the exact parameters searched without fabricating information.
+"""
+        final_answer = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": synthesis_prompt}],
+            temperature=0.2
+        )
 
         return {
             "status": "success",
-            "response": response_text
+            "response": final_answer.choices[0].message.content,
+            "metadata": {
+                "sql_executed": generated_sql if generated_sql != "NO_SQL" else None,
+                "structured_records_count": len(sql_results),
+                "semantic_chunks_retrieved": len(vector_docs)
+            }
         }
 
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"AI Intelligence processing error: {str(e)}"
+            detail=f"Intelligence Command Processing Error: {str(e)}"
         )

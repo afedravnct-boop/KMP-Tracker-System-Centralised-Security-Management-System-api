@@ -21,6 +21,16 @@ from app import models
 from app.database import get_db
 from auth import get_current_user
 
+# Try safe import for embedding ingestion
+try:
+    from embedding_service import ingest_document_vector
+except ImportError:
+    try:
+        from app.embedding_service import ingest_document_vector
+    except ImportError:
+        def ingest_document_vector(*args, **kwargs):
+            pass
+
 router = APIRouter(prefix="/api/v1", tags=["Document Upload & Archive"])
 
 # AWS S3 Client Configuration
@@ -295,6 +305,24 @@ async def upload_word_report(
                 upload_date=eat_time 
             )
             db.add(new_archive)
+            db.flush() # Flush to get the ID for vector ingestion if needed
+
+            # Safely trigger vector embedding ingestion if available
+            try:
+                ingest_document_vector(
+                    db=db,
+                    document_id=new_archive.id,
+                    document_type=display_type,
+                    title=single_file.filename,
+                    raw_text=contents.decode('utf-8', errors='ignore') if single_file.filename.endswith('.txt') else f"Document: {single_file.filename}",
+                    region=effective_region,
+                    division=getattr(current_user, 'division', 'KMP HEADQUARTERS'),
+                    station=effective_station,
+                    sd_ref="N/A"
+                )
+            except Exception as vec_err:
+                print(f"Vector ingestion notice: {vec_err}")
+
             uploaded_count += 1
 
         db.commit()
@@ -303,9 +331,6 @@ async def upload_word_report(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to process document intake: {str(e)}")
 
-# ====================================================================
-# 🟢 UNIVERSAL FORENSIC STAMPING DOWNLOAD ENGINE
-# ====================================================================
 @router.get("/reports/download/{doc_id}")
 @router.get("/templates/download/{doc_id}")
 def download_archive_file(
@@ -350,7 +375,6 @@ def download_archive_file(
         command_post = f"{current_user.station or 'KMP HEADQUARTERS'}, {current_user.region or 'KMP HEADQUARTERS'}"
         stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
 
-        # Cryptographic Token Embedded into OOXML Metadata Layer
         crypto_payload = {
             "fnum": officer_fnum,
             "rank": officer_rank,
@@ -383,7 +407,6 @@ def download_archive_file(
         if file_extension == 'docx':
             word_doc = Document(io.BytesIO(raw_bytes))
             
-            # 1. Embed OOXML Internal Core Properties (Persists through rename/cell wipes)
             core_props = word_doc.core_properties
             core_props.author = officer_signature
             core_props.last_modified_by = officer_signature
@@ -391,7 +414,6 @@ def download_archive_file(
             core_props.comments = comments_str
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
-            # 2. Append Visual Footer Stamp
             section = word_doc.sections[0]
             footer = section.footer
             footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
@@ -407,14 +429,12 @@ def download_archive_file(
         elif file_extension in ['xlsx', 'xls']:
             wb = openpyxl.load_workbook(io.BytesIO(raw_bytes))
             
-            # 1. Embed OOXML Internal Core Properties
             wb.properties.creator = officer_signature
             wb.properties.lastModifiedBy = officer_signature
             wb.properties.keywords = keywords_str
             wb.properties.description = comments_str
             wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
 
-            # 2. Append Visual Worksheet Footers
             for ws in wb.worksheets:
                 if hasattr(ws, 'sheet_footer'): ws.sheet_footer.center.text = receipt_text
                 elif hasattr(ws, 'odd_footer'): ws.odd_footer.center.text = receipt_text
@@ -434,15 +454,8 @@ def download_archive_file(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Universal Forensic Stamping Error: {str(e)}")
 
-# ====================================================================
-# 🟢 FORENSIC SIGNATURE VERIFICATION & EXTRACTION ENDPOINT
-# ====================================================================
 @router.post("/documents/verify-forensic-stamp")
 async def verify_forensic_stamp(file: UploadFile = File(...)):
-    """
-    Forensically inspects any uploaded document (Excel/Word/Archive) to identify 
-    who generated or downloaded it, even if the file has been renamed.
-    """
     try:
         contents = await file.read()
         filename = file.filename.lower()
@@ -466,7 +479,6 @@ async def verify_forensic_stamp(file: UploadFile = File(...)):
             keywords = props.keywords or ""
             comments = props.comments or ""
 
-        # Decode Embedded Cryptographic Base64 Token
         if "TOKEN:" in keywords:
             try:
                 raw_token = keywords.split("TOKEN:")[1].split(";")[0]

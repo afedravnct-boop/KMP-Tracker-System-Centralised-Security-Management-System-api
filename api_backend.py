@@ -157,16 +157,26 @@ def sanitize_df_for_excel(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def serialize_model_row(row):
-    """Safely converts an SQLAlchemy instance into a JSON-serializable dictionary."""
+    """Safely converts an SQLAlchemy instance or dictionary into a JSON-serializable dict."""
     if not row:
         return {}
-    d = row.__dict__.copy()
-    d.pop('_sa_instance_state', None)
+        
+    if isinstance(row, dict):
+        d = row.copy()
+    elif hasattr(row, '__dict__'):
+        d = row.__dict__.copy()
+        d.pop('_sa_instance_state', None)
+    else:
+        return {}
+
     for k, v in d.items():
         if isinstance(v, datetime):
             d[k] = v.strftime("%Y-%m-%d %H:%M:%S")
         elif hasattr(v, 'isoformat'):
             d[k] = v.isoformat()
+        # Safely catch Decimal/Numeric fields from PostgreSQL NeonDB
+        elif hasattr(v, '__float__') and not isinstance(v, (int, float, str, bool)):
+            d[k] = float(v)
     return d
 
 # ==========================================
@@ -671,21 +681,44 @@ def get_consolidated_ledger(
     current_user = Depends(get_current_user)
 ):
     try:
-        crime_model = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
-        stats_model = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', None))
-        story_model = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', None))
+        # Dynamic model resolution for both camelCase and snake_case models
+        CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
+        StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', None))
+        StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', None))
+        EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
+        NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
 
-        crimes = db.query(crime_model).all() if crime_model else []
-        stats = db.query(stats_model).all() if stats_model else []
-        stories = db.query(story_model).all() if story_model else []
+        crimes = db.query(CrimeModel).all() if CrimeModel else []
+        stats = db.query(StatsModel).all() if StatsModel else []
+        stories = db.query(StoryModel).all() if StoryModel else []
+        establishments = db.query(EstModel).all() if EstModel else []
+        nominal_roll = db.query(NomModel).all() if NomModel else []
         
         return {
+            "status": "success",
             "crimes": [serialize_model_row(c) for c in crimes],
             "statistics": [serialize_model_row(s) for s in stats],
-            "stories": [serialize_model_row(st) for st in stories]
+            "stories": [serialize_model_row(st) for st in stories],
+            "establishments": [serialize_model_row(e) for e in establishments],
+            "nominal_rolls": [serialize_model_row(n) for n in nominal_roll]
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Consolidated ledger compilation error: {str(e)}")
+        print(f"Consolidated Ledger DB Query Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch consolidated data: {str(e)}")
+
+@app.get("/api/v1/general-documents")
+@app.get("/api/v1/documents/list")
+def get_general_documents(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    try:
+        DocModel = getattr(models, 'GeneralDocuments', getattr(models, 'General_Documents', getattr(models, 'CommandTemplate', None)))
+        if not DocModel:
+            return []
+            
+        docs = db.query(DocModel).order_by(DocModel.id.desc()).all()
+        return [serialize_model_row(d) for d in docs]
+    except Exception as e:
+        print(f"General Documents Fetch Error: {e}")
+        return []
 
 # ====================================================================
 # 6. MASTER DATABASE & HR EXPORTS (TIMEZONE-SAFE EXCEL EXPORTS)

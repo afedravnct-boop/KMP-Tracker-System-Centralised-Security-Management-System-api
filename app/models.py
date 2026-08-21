@@ -1,3 +1,4 @@
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Column, Integer, String, Text, Date, DateTime, Boolean, ForeignKey, UniqueConstraint, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -428,6 +429,21 @@ class GeneralDocuments(Base):
 # Add compatibility alias at the bottom
 General_Documents = GeneralDocuments
 
+class OperationalDocumentEmbedding(Base):
+    __tablename__ = "operational_document_embeddings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(String(100), nullable=False, index=True)
+    document_type = Column(String(50), nullable=False)
+    title = Column(String(255))
+    chunk_index = Column(Integer, default=0)
+    content = Column(Text, nullable=False)
+    embedding = Column(Vector(1536))
+    region = Column(String(100), index=True)
+    division = Column(String(100), index=True)
+    station = Column(String(100), index=True)
+    sd_ref = Column(String(100), index=True)
+    created_at = Column(DateTime)
 
 # =====================================================================
 # 11. CROSS-ROUTER COMPATIBILITY ALIASES

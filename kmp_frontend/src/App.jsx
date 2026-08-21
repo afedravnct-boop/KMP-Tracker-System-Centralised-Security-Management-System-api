@@ -5,7 +5,7 @@ import {
   Award, Maximize2, Minimize2, Activity, User, Lock, 
   AlertTriangle, RadioReceiver, Eye, X, Building, Image, 
   Camera, Users, Home, Unlock, Send, Archive, PieChart,
-  Bell, MessageSquare, Upload, ArrowLeft, ArrowRight, Globe, WifiOff, Wifi, FileText
+  Bell, MessageSquare, Upload, ArrowLeft, ArrowRight, Globe, WifiOff, Wifi, FileText, Sparkles
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReactQuill from 'react-quill-new';
@@ -28,6 +28,7 @@ import Nominal_Roll from './Nominal_Roll';
 import Establishments from './Establishments';
 import SuccessStories from './SuccessStories';
 import SystemAssistant from './SystemAssistant';
+import AICommandConsole from "./AICommandConsole";
 import { authFetch, hasValidSession, getAuthToken, setAuthSession, clearAuthSession } from './api';
 
 // ====================================================================
@@ -62,7 +63,6 @@ const POSITIONS = {
 // 2. CORE UTILITY FUNCTIONS & ENGINES
 // ====================================================================
 
-// 🟢 SOVEREIGN OVERRIDE & ENFORCEMENT ENGINE
 export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = true) => {
   if (!currentUser) return false;
   if (currentUser.role === 'SUPER_ADMIN') return true;
@@ -101,7 +101,6 @@ export const stripHtmlTags = (str) => {
   return str.toString().replace(/<[^>]*>?/gm, '');
 };
 
-// 🟢 MASTER GLOBAL VIEW HELPER (Centralized Control for All Modules)
 export const canViewGlobalJurisdiction = (user) => {
   if (!user) return false;
   if (['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(user.role)) return true;
@@ -267,7 +266,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
           <div className="bg-slate-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
              <h3 className="text-gray-800 font-bold text-sm uppercase tracking-wider">{title}</h3>
              <button onClick={openFullScreen} className="text-gray-500 hover:text-blue-700 hover:bg-blue-50 p-1.5 rounded transition-colors" title="Expand to Full Screen">
-               <Maximize2 size={18}/>
+                <Maximize2 size={18}/>
              </button>
           </div>
           <div className="p-0 overflow-auto max-h-[500px] custom-scrollbar w-full">
@@ -508,7 +507,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 
 // 🟢 Official UPF Command Seniority Weighting (Lower index = Higher rank)
 const RANK_SENIORITY = {
-  // Officers
   "IGP": 1,
   "DIGP": 2,
   "AIGP": 3,
@@ -517,23 +515,23 @@ const RANK_SENIORITY = {
   "ACP": 6,
   "SSP": 7,
   "SP": 8,
-  "ASP": 9,
-  "IP": 10,
-  "AIP": 11,
-  // NCOs & Enlisted Men
-  "HCM": 12,
-  "HC": 13,
-  "S/SGT": 14,
-  "SSGT": 14,
-  "SGT": 15,
-  "CPL": 16,
-  "L/CPL": 17,
-  "LCPL": 17,
-  "PC": 18,
-  "SPC": 19
+  "SASP": 9,
+  "ASP": 10,
+  "IP": 11,
+  "AIP": 12,
+  "HCM": 13,
+  "HC": 14,
+  "S/SGT": 15,
+  "SSGT": 15,
+  "SGT": 16,
+  "CPL": 17,
+  "L/CPL": 18,
+  "LCPL": 18,
+  "PC": 19,
+  "PPC": 20, 
+  "SPC": 21
 };
 
-// Helper function to get rank weight (strips prefixes like D/ for Detectives)
 const getRankWeight = (rankStr) => {
   if (!rankStr) return 99;
   let cleanRank = rankStr.trim().toUpperCase();
@@ -541,7 +539,6 @@ const getRankWeight = (rankStr) => {
   return RANK_SENIORITY[cleanRank] !== undefined ? RANK_SENIORITY[cleanRank] : 50;
 };
 
-// 🟢 Helper function to categorize and extract qualifications and specific courses
 const parseEducationLevel = (rawVal) => {
   if (!rawVal) return "UNEDUCATED / NOT SPECIFIED";
   const str = rawVal.toString().trim().toUpperCase();
@@ -550,7 +547,6 @@ const parseEducationLevel = (rawVal) => {
     return "UNEDUCATED";
   }
 
-  // --- 1. BACHELORS / DEGREES (Qualification + Specific Course) ---
   if (
     str.includes("BACHELOR") || str.includes("DEGREE") || str.includes("B.A") || 
     str.includes("B.SC") || str.includes("BSC") || str.includes("BED") || 
@@ -572,7 +568,6 @@ const parseEducationLevel = (rawVal) => {
       : `BACHELORS (${str})`;
   }
 
-  // --- 2. DIPLOMAS (Qualification + Specific Course) ---
   if (str.includes("DIPLOMA") || str.includes("DIP.")) {
     let course = str
       .replace(/DIPLOMA(\s+IN)?/g, '')
@@ -582,7 +577,6 @@ const parseEducationLevel = (rawVal) => {
     return course ? `DIPLOMA - ${course}` : `DIPLOMA (${str})`;
   }
 
-  // --- 3. CERTIFICATES (Qualification + Specific Course) ---
   if (str.includes("CERTIFICATE") || str.includes("CERT.")) {
     let course = str
       .replace(/CERTIFICATE(\s+IN)?/g, '')
@@ -592,17 +586,14 @@ const parseEducationLevel = (rawVal) => {
     return course ? `CERTIFICATE - ${course}` : `CERTIFICATE (${str})`;
   }
 
-  // --- 4. VOCATIONAL & HIGH SCHOOL STANDARDS ---
   if (str.includes("UBTEB") || str.includes("VOCATIONAL") || str.includes("TECHNICAL")) return "UBTEB / TECHNICAL";
   if (str.includes("UACE") || str.includes("A LEVEL") || str.includes("A-LEVEL") || str.includes("S.6") || str.includes("S6") || str.includes("SENIOR 6")) return "UACE (A-LEVEL)";
   if (str.includes("UCE") || str.includes("O LEVEL") || str.includes("O-LEVEL") || str.includes("S.4") || str.includes("S4") || str.includes("SENIOR 4")) return "UCE (O-LEVEL)";
   
-  // --- 5. LOWER SECONDARY LEVELS ---
   if (str.includes("S.3") || str.includes("S3") || str.includes("SENIOR 3")) return "S.3";
   if (str.includes("S.2") || str.includes("S2") || str.includes("SENIOR 2")) return "S.2";
   if (str.includes("S.1") || str.includes("S1") || str.includes("SENIOR 1")) return "S.1";
 
-  // --- 6. PRIMARY SCHOOL LEVELS ---
   if (str.includes("P.7") || str.includes("P7") || str.includes("PLE") || str.includes("PRIMARY 7")) return "P.7 (PLE)";
   if (str.includes("P.6") || str.includes("P6") || str.includes("PRIMARY 6")) return "P.6";
   if (str.includes("P.5") || str.includes("P5") || str.includes("PRIMARY 5")) return "P.5";
@@ -615,7 +606,7 @@ const parseEducationLevel = (rawVal) => {
 };
 
 // ====================================================================
-// --- PROFILE UPDATE SYSTEM (COMMAND WORKFLOW ENABLED FOR ALL USERS) ---
+// --- PROFILE UPDATE SYSTEM ---
 // ====================================================================
 const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -902,63 +893,51 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
                   <button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg shadow-xs transition-colors text-xs cursor-pointer">Update Security Key</button>
                 </div>
               </form>
-
             </div>
           ) : (
-
             <div className="space-y-6">
               <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b pb-2 flex items-center">
                 <Shield size={14} className="mr-2 text-slate-400" /> Comprehensive Officer Profile
               </h4>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6 bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner">
-                
                 <div>
                   <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Force/File Number</label>
                   <div className="text-xs font-extrabold text-slate-900">{currentUser?.fnum}</div>
                 </div>
-                
                 <div>
                   <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">IPPS Number</label>
                   <div className="text-xs font-bold text-slate-800">{currentUser?.ipps || 'N/A'}</div>
                 </div>
-                
                 <div>
                   <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Sex</label>
                   <div className="text-xs font-bold text-slate-800">{currentUser?.sex || 'N/A'}</div>
                 </div>
-                
                 <div>
                   <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">System Role</label>
                   <div className={`text-xs font-extrabold ${canAutoApprove ? 'text-emerald-600' : 'text-blue-600'}`}>{currentUser?.role || 'USER'}</div>
                 </div>
-
                 <div className="col-span-2">
                   <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Official Title / Position</label>
                   <div className="text-xs font-bold text-slate-800">{currentUser?.position || 'N/A'}</div>
                 </div>
-                
                 <div className="col-span-2">
                   <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Command Chain (Region / Station)</label>
                   <div className="text-xs font-bold text-slate-800">{currentUser?.region || 'N/A'} / {currentUser?.station || 'N/A'}</div>
                 </div>
-
                 <div className="col-span-2">
                   <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Official Email</label>
                   <div className="text-xs font-bold text-slate-800 truncate">{currentUser?.email || 'N/A'}</div>
                 </div>
-                
                 <div className="col-span-2">
                   <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Contact Number</label>
                   <div className="text-xs font-bold text-slate-800">{currentUser?.phone || 'N/A'}</div>
                 </div>
-
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* FULL SCREEN IMAGE MODAL */}
       {viewingImage && (
         <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingImage(null)}>
           <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg cursor-pointer">
@@ -972,7 +951,6 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
           />
         </div>
       )}
-
     </div>
   );
 };
@@ -999,12 +977,11 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   const [lockoutEnd, setLockoutEnd] = useState(null);
   const [timeLeft, setTimeLeft] = useState(0);
 
-  // 🟢 LOGIN SCREEN IDLE CURTAIN STATE
   const [isLoginIdle, setIsLoginIdle] = useState(false);
   const idleTimerRef = useRef(null);
 
   useEffect(() => {
-    const IDLE_TIME = 30000; // 30 seconds of idle time
+    const IDLE_TIME = 30000;
 
     const resetIdle = () => {
       setIsLoginIdle(false);
@@ -1143,8 +1120,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative overflow-hidden">
-      
-      {/* 🟢 THE FULL-SCREEN LOGIN CURTAIN */}
       <div 
         className={`security-curtain-overlay fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center transition-opacity duration-700 ease-in-out ${
           isLoginIdle ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -1350,11 +1325,9 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   );
 };
 
-
 const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals }) => {
   if (!isOpen) return null;
 
-  // Group submissions by Region and Station to build the drill-down tree
   const breakdownTree = {};
   
   (Array.isArray(allSubmissions) ? allSubmissions : []).forEach(entry => {
@@ -1378,8 +1351,6 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-300 animate-in zoom-in-95 flex flex-col max-h-[85vh]">
-        
-        {/* Header */}
         <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
           <div>
             <h3 className="font-extrabold uppercase text-sm tracking-wider flex items-center">
@@ -1390,7 +1361,6 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
           <button onClick={onClose} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer"><X size={18}/></button>
         </div>
 
-        {/* Summary Banner */}
         <div className="bg-blue-50 border-b border-blue-100 p-4 px-6 flex justify-between items-center shrink-0">
           <div>
             <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Active Master Lockup</span>
@@ -1402,7 +1372,6 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
           </div>
         </div>
 
-        {/* Breakdown Content Tree */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar bg-slate-50">
           {Object.keys(breakdownTree).length === 0 ? (
             <p className="text-center text-xs text-slate-500 py-8">No station submissions found to aggregate.</p>
@@ -1428,20 +1397,18 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
           )}
         </div>
 
-        {/* Footer */}
         <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
           <button onClick={onClose} className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs uppercase tracking-wider shadow cursor-pointer">
             Close Breakdown
           </button>
         </div>
-
       </div>
     </div>
   );
 };
 
 // ====================================================================
-// --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN & SESSION TIMEOUT COMPONENT ---
+// --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN & SESSION TIMEOUT ---
 // ====================================================================
 const WorkspaceSecurityCurtain = () => {
   const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
@@ -1455,7 +1422,6 @@ const WorkspaceSecurityCurtain = () => {
   const idleTimerRef = useRef(null);
   const sessionTimerRef = useRef(null);
 
-  // 🟢 1. USER ACTIVITY LISTENER & INACTIVITY TIMERS
   useEffect(() => {
     if (isReadingMode || isTimedOut) {
       clearTimeout(idleTimerRef.current);
@@ -1465,8 +1431,8 @@ const WorkspaceSecurityCurtain = () => {
       return;
     }
 
-    const IDLE_TIMEOUT_MS = 60000;          // 1 Minute to visual backdrop
-    const SESSION_TIMEOUT_MS = 29 * 60 * 1000;  // 29 Minutes to Warning
+    const IDLE_TIMEOUT_MS = 60000;
+    const SESSION_TIMEOUT_MS = 29 * 60 * 1000;
 
     const handleUserActivity = () => {
       if (showIdleWarning || isTimedOut) return;
@@ -1501,7 +1467,6 @@ const WorkspaceSecurityCurtain = () => {
     };
   }, [isReadingMode, showIdleWarning, isTimedOut]);
 
-  // 🟢 2. DEDICATED 60-SECOND COUNTDOWN
   useEffect(() => {
     if (!showIdleWarning || isTimedOut) return;
 
@@ -1521,8 +1486,45 @@ const WorkspaceSecurityCurtain = () => {
     return () => clearInterval(countdownInterval);
   }, [showIdleWarning, isTimedOut]);
 
-  // Bottom Pill when active
-  if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
+  // Handle explicit session termination and reload
+  const handleForceLogout = () => {
+    localStorage.removeItem('kmp_authToken');
+    localStorage.removeItem('kmp_currentUser');
+    localStorage.removeItem('kmp_currentPage');
+    sessionStorage.clear();
+    window.location.replace('/');
+  };
+
+  // If completely timed out, render an un-skippable, high-priority full-screen modal
+  if (isTimedOut) {
+    return (
+      <div 
+        className="fixed inset-0 flex items-center justify-center bg-slate-950/95 backdrop-blur-md"
+        style={{ zIndex: 2147483647, pointerEvents: 'auto' }}
+      >
+        <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-red-200 text-center animate-in zoom-in-95 duration-200">
+          <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
+            <AlertTriangle className="w-8 h-8 text-red-600" />
+          </div>
+          <h4 className="text-xl font-extrabold text-slate-900 mb-2">
+            Session Expired Due to Inactivity
+          </h4>
+          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
+            Your security session has expired because the system was left unattended. You have been securely logged out.
+          </p>
+          <button 
+            type="button"
+            onClick={handleForceLogout}
+            className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer transition-colors"
+          >
+            Acknowledge & Return to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isWorkspaceIdle && !showIdleWarning) {
     return (
       <div className="fixed bottom-6 right-6 z-[99990]">
         <div
@@ -1554,7 +1556,7 @@ const WorkspaceSecurityCurtain = () => {
     );
   }
 
-  const orbitText = "KAMPALA METROPOLITAN POLICE • CENTRAL SECURITY DATA MANAGEMENT SYSTEM • ".split('');
+  const orbitText = "KAMPALA METROPOLITAN POLICE • CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('');
 
   return (
     <div 
@@ -1562,12 +1564,11 @@ const WorkspaceSecurityCurtain = () => {
       style={{
         position: 'fixed',
         top: 0, left: 0, right: 0, bottom: 0,
-        zIndex: 2147483647,
+        zIndex: 2147483646,
         pointerEvents: showIdleWarning ? 'auto' : 'none',
         isolation: 'isolate'
       }}
     >
-      {/* 🟢 CSS Animations */}
       <style>{`
         @keyframes spin-orbit-y {
           0% { transform: rotateY(0deg); }
@@ -1575,38 +1576,32 @@ const WorkspaceSecurityCurtain = () => {
         }
         @keyframes continuous-globe-spin {
           0% { background-position-x: 0px; }
-          100% { background-position-x: -800px; }
+          100% { background-position-x: -400px; }
         }
       `}</style>
 
       {/* Visual Background Layer */}
       <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
-        
-        {/* 🟢 Uganda Flag Tristriped Background */}
         <div className="absolute inset-0 opacity-20 pointer-events-none flex flex-col justify-between z-0">
           <div className="h-1/3 w-full bg-black"></div>
           <div className="h-1/3 w-full bg-[#FCD116]"></div>
           <div className="h-1/3 w-full bg-[#D91B23]"></div>
         </div>
 
-
-        {/* 3D Container */}
         <div 
           className="relative z-10 flex items-center justify-center w-72 h-72 rounded-full overflow-visible pointer-events-none"
           style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}
         >
-          {/* 🟢 Fast, True 360-Degree Continuous Panning Globe Sphere */}
           <div 
             className="w-56 h-56 rounded-full shadow-[inset_-25px_-20px_45px_rgba(0,0,0,0.95),0_0_50px_rgba(0,0,0,0.85)] border-2 border-slate-700/60 overflow-hidden flex items-center justify-center bg-slate-900"
             style={{ 
               backgroundImage: `url('/upf_kmp_map.png')`,
-              backgroundSize: '400px 100%',
+              backgroundSize: '200px 100%',
               backgroundRepeat: 'repeat-x',
-              animation: 'continuous-globe-spin 16s linear infinite'
+              animation: 'continuous-globe-spin 28s linear infinite'
             }}
           />
-           
-          {/* 🟢 Light Blue 3D Orbiting Text Ring */}
+          
           <div 
             className="absolute inset-0 flex items-center justify-center pointer-events-none"
             style={{ 
@@ -1629,68 +1624,36 @@ const WorkspaceSecurityCurtain = () => {
         </div>
       </div>
 
-      {/* Interactive Modal */}
+      {/* Interactive Warning Modal */}
       {showIdleWarning && (
         <div 
           onClick={(e) => e.stopPropagation()}
           className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto"
         >
-          {isTimedOut ? (
-            <>
-              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
-                <AlertTriangle className="w-8 h-8 text-red-600" />
-              </div>
-              <h4 className="text-xl font-extrabold text-slate-900 mb-2">
-                Session Expired Due to Inactivity
-              </h4>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
-                Your security session has expired because the system was left unattended. You have been securely logged out.
-              </p>
-              <button 
-                type="button"
-                onClick={() => {
-                  localStorage.removeItem('kmp_authToken');
-                  localStorage.removeItem('kmp_currentUser');
-                  localStorage.removeItem('kmp_currentPage');
-                  sessionStorage.clear();
-                  window.location.replace('/');
-                }}
-                className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer transition-colors"
-                style={{ position: 'relative', zIndex: 2147483647, pointerEvents: 'auto' }}
-              >
-                Acknowledge & Return to Login
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
-                <AlertTriangle className="w-8 h-8 text-amber-600" />
-              </div>
-              <h4 className="text-xl font-extrabold text-slate-900 mb-2">
-                Session Timeout Warning
-              </h4>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
-                Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Click below to continue working.
-              </p>
-              <button 
-                type="button"
-                onClick={() => {
-                  setShowIdleWarning(false);
-                  setIsWorkspaceIdle(false);
-                }}
-                className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
-                style={{ position: 'relative', zIndex: 2147483647, pointerEvents: 'auto' }}
-              >
-                Continue Session
-              </button>
-            </>
-          )}
+          <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
+            <AlertTriangle className="w-8 h-8 text-amber-600" />
+          </div>
+          <h4 className="text-xl font-extrabold text-slate-900 mb-2">
+            Session Timeout Warning
+          </h4>
+          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
+            Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Click below to continue working.
+          </p>
+          <button 
+            type="button"
+            onClick={() => {
+              setShowIdleWarning(false);
+              setIsWorkspaceIdle(false);
+            }}
+            className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
+          >
+            Continue Session
+          </button>
         </div>
       )}
     </div>
   );
 };
-
 
 // ====================================================================
 // --- MAIN LAYOUT COMPONENT ---
@@ -1810,7 +1773,12 @@ const DashboardLayout = ({
     checkClearance(currentUser, 'acc_est', true) ? { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> } : null,
     checkClearance(currentUser, 'acc_analytics', true) ? { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> } : null,
     checkClearance(currentUser, 'acc_hr', true) ? { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> } : null,
-    checkClearance(currentUser, 'acc_tripartite', true) ? { name: 'Tripartite Reports', id: 'reports_hub', icon: <FileText size={20} /> } : null
+    checkClearance(currentUser, 'acc_tripartite', true) ? { name: 'Tripartite Reports', id: 'reports_hub', icon: <FileText size={20} /> } : null,
+    checkClearance(currentUser, 'acc_ai', true) ? { 
+      name: 'AI Command Console', 
+      id: 'ai_console', 
+      icon: <Sparkles size={20} className="text-amber-400" /> 
+    } : null
   ].filter(Boolean);
 
   const handleExportLogs = async () => {
@@ -2196,18 +2164,15 @@ const App = () => {
   const [consolidatedData, setConsolidatedData] = useState(null);
   const [adminCommsData, setAdminCommsData] = useState([]);  
 
-  // Regional/Station filters for Grand Totals computation
   const [filterRegion, setFilterRegion] = useState('ALL REGIONS');
   const [filterStation, setFilterStation] = useState('ALL STATIONS');
 
   const lastActivityRef = useRef(Date.now());
 
-  // 🟢 COMPUTE GRAND TOTALS MEMOIZED HOOK
   const grandTotals = useMemo(() => {
     return calculateGrandTotals(reports, currentUser, filterRegion, filterStation);
   }, [reports, currentUser, filterRegion, filterStation]);
 
-  // 🟢 BACKGROUND AUTO-SYNC LISTENER
   useEffect(() => {
     const handleOnlineStatus = async () => {
       if (navigator.onLine) {
@@ -2235,13 +2200,11 @@ const App = () => {
     };
   }, []);
 
-  // 🟢 INITIAL CLEARANCE & SESSION TIMEOUT CHECK
   useEffect(() => {
     const initApp = () => {
       const token = getAuthToken();
       const params = new URLSearchParams(window.location.search);
 
-      // If redirected after session timeout or missing credentials, reset state cleanly
       if (params.get('session_expired') === 'true' || !token || !currentUser) {
         clearAuthSession();
         setCurrentUser(null);
@@ -2258,7 +2221,6 @@ const App = () => {
     initApp();
   }, [setCurrentUser]);
 
-// 🟢 Light listener to track physical presence
   useEffect(() => {
     const markActive = () => {
       lastActivityRef.current = Date.now();
@@ -2272,23 +2234,36 @@ const App = () => {
     };
   }, []);
 
-  // 🟢 REAL-TIME LISTENER & SYNC: Polls server every 5s ONLY when user is active
   useEffect(() => {
     if (!currentUser?.fnum || !hasValidSession()) return; 
     const controller = new AbortController();
     
     const fetchAllData = async () => {
-      // 🟢 1. Skip network fetch if browser tab is minimized or hidden
       if (document.hidden) return;
 
-      // 🟢 2. Skip network fetch if user has been inactive for > 60 seconds (Idle Curtain active)
       const isUserIdle = (Date.now() - lastActivityRef.current) > 60000;
       if (isUserIdle) return;
 
       try {
-        // ... your fetch requests (resUsers, etc.) ...
+        const [resUsers, resReports, resStats, resStories, resEst, resNom, resComms, resDocs] = await Promise.all([
+          authFetch('/api/v1/users', { signal: controller.signal }),
+          authFetch('/api/v1/reports', { signal: controller.signal }),
+          authFetch('/api/v1/stats', { signal: controller.signal }),
+          authFetch('/api/v1/stories', { signal: controller.signal }),
+          authFetch('/api/v1/establishments', { signal: controller.signal }),
+          authFetch('/api/v1/nominal-roll', { signal: controller.signal }),
+          authFetch('/api/v1/communications', { signal: controller.signal }),
+          authFetch('/api/v1/general-documents', { signal: controller.signal })
+        ]);
 
-        // 🟢 4. Sync dynamic matrix permissions in RAM only
+        if (resReports && resReports.ok) setReports(await resReports.json());
+        if (resStats && resStats.ok) setStats(await resStats.json());
+        if (resStories && resStories.ok) setStories(await resStories.json());
+        if (resEst && resEst.ok) setEstablishments(await resEst.json());
+        if (resNom && resNom.ok) setNominal_Rolls(await resNom.json());
+        if (resComms && resComms.ok) setAdminCommsData(await resComms.json());
+        if (resDocs && resDocs.ok) setGeneralDocs(await resDocs.json());
+
         if (resUsers && resUsers.ok) {
           const allUsers = await resUsers.json();
           setUsers(allUsers);
@@ -2335,13 +2310,9 @@ const App = () => {
       } 
     };    
 
-    // Initial immediate fetch on mount
     fetchAllData();
-    
-    // Polling interval
     const pollingInterval = setInterval(fetchAllData, 5000);
 
-    // 🟢 3. Instantly resync the moment user switches back into the browser tab
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         lastActivityRef.current = Date.now();
@@ -2373,7 +2344,6 @@ const App = () => {
   const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
 
   const renderPage = () => {
-    // 🟢 SOVEREIGN GLOBAL CLEARANCE ENGINE (Prevents 1-second filter reverts)
     const canViewGlobal = canViewGlobalJurisdiction(currentUser);
 
     switch (currentPage) {
@@ -2514,7 +2484,11 @@ const App = () => {
 
       case 'reports_hub':  
         return checkClearance(currentUser, 'acc_tripartite', true) ? (
-          <WordReportUpload currentUser={currentUser} generalDocs={generalDocs} />
+          <WordReportUpload 
+            currentUser={currentUser} 
+            generalDocs={generalDocs}
+            setGeneralDocs={setGeneralDocs}
+          />
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 
@@ -2526,6 +2500,15 @@ const App = () => {
             onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
           />
         ); 
+
+      case 'ai_console':
+        return (
+          <AICommandConsole 
+            currentUser={currentUser} 
+            canViewGlobal={canViewGlobal}
+            onBack={() => handlePageChange('home')}
+          />
+        );
 
       case 'approvals':  
         return checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role)) ? (
@@ -2619,17 +2602,28 @@ const App = () => {
     setIsViewingHR(false);
     const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
     const lastWeek = new Date(); 
-    lastWeek.setDate(lastWeek.getDate() - 7);
+    lastWeek.setDate(lastWeek.getDate() - 30);
     const start = lastWeek.toISOString().split('T')[0];
 
     try {
       const response = await authFetch(`/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
-      if (!response.ok) throw new Error("Backend failed to compile ledger.");
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server status ${response.status}`);
+      }
       const data = await response.json(); 
-      setConsolidatedData(data); 
+      
+      setConsolidatedData({
+        crimes: data.crimes || [],
+        statistics: data.statistics || [],
+        stories: data.stories || [],
+        establishments: data.establishments || [],
+        nominal_rolls: data.nominal_rolls || []
+      });
       setIsViewingConsolidated(true);
     } catch (err) { 
-      alert("Failed to load Consolidated Ledger. Check Python terminal for errors."); 
+      console.error("Consolidated Ledger load error:", err);
+      alert(`Failed to load Consolidated Ledger: ${err.message}`); 
     }
   };
 
