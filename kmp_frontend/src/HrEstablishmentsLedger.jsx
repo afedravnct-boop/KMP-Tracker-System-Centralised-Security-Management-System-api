@@ -440,14 +440,14 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                       </tr>
                    ))}
                    {/* KMP MASTER TOTALS ROW */}
-                   <tr className="bg-slate-800 border-t-[3px] border-slate-900 text-white">
+                   <tr className="bg-slate-800 border-t-[3px] border-slate-900 text-yellow">
                       <td colSpan="2" className="p-4 text-center text-[11px] font-black text-yellow-400 uppercase tracking-widest border-r border-slate-700 shadow-inner">
                           KMP MASTER TOTALS:
                       </td>
-                      <td className="p-4 text-center text-base font-black text-blue-300 border-r border-slate-700">{masterTotals.totalOff}</td>
+                      <td className="p-4 text-center text-base font-white text-blue-300 border-r border-slate-700">{masterTotals.totalOff}</td>
                       <td className="p-4 text-center text-base font-bold text-green-400 border-r border-slate-700">{masterTotals.totalNco}</td>
                       
-                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
+                      <td className="p-2 align-top border-r border-slate-700 bg-slate-500/40">
                         {renderAgeBlock(masterTotals.offAge)}
                       </td>
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
@@ -467,10 +467,10 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                          </div>
                       </td>
                       
-                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
+                      <td className="p-2 align-top border-r border-slate-700 bg-slate-500/40">
                         {renderEduBlock(masterTotals.offEdu)}
                       </td>
-                      <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
+                      <td className="p-2 align-top border-r border-slate-700 bg-slate-500/40">
                         {renderEduBlock(masterTotals.ncoEdu)}
                       </td>
 
