@@ -207,7 +207,7 @@ app.add_middleware(
 )
 
 # ==========================================
-# 3. SECURITY & DEPENDENCIES
+# 3. SECURITY & DEPENDENCIES (RAM-ONLY SECURE)
 # ==========================================
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
@@ -222,9 +222,9 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         if fnum is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
     
-    clean_fnum = fnum.strip().upper()
+    clean_fnum = str(fnum).strip().upper()
     user = db.query(models.Users).filter(
         func.trim(func.upper(models.Users.fnum)) == clean_fnum
     ).first()
@@ -232,15 +232,22 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+    # 🟢 PASSIVE HEARTBEAT: Any active in-memory API call automatically keeps user online
+    try:
+        eat_tz = pytz.timezone('Africa/Nairobi')
+        user.last_active_at = datetime.now(eat_tz).replace(tzinfo=None)
+        db.commit()
+    except Exception:
+        db.rollback()
+
     if user.role != "SUPER_ADMIN":
         config_check = db.query(models.SystemConfig).filter(
             models.SystemConfig.config_key == "peer_delegation_active"
         ).first()
-        
         if config_check and str(config_check.config_value).strip().upper() == "FALSE":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Application Lockdown: System access is currently restricted by command configuration."
+                detail="Application Lockdown: System access restricted."
             )
 
     return user
@@ -248,7 +255,6 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 def require_admin(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     valid_roles = ["SUPER_ADMIN", "SYSTEM_ADMIN", "REGIONAL_ADMIN", "DIVISION_ADMIN", "STATION_ADMIN", "ADMIN", "RPC"]
-    
     if user_role not in valid_roles:
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
     return current_user
@@ -266,16 +272,18 @@ def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, chang
             [f"{k}: {v[0]} -> {v[1]}" for k, v in changes.items()]
         ) + f" | Remarks: {remarks}"
         
-        new_audit = models.Audit_Logs(
-            event_type=action,
-            target_user=target_identifier,
-            status="SUCCESS",
-            details=formatted_details,
-            user_fnum=fnum,
-            created_at=get_eat_time()
-        )
-        db.add(new_audit)
-        db.commit()
+        audit_model = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
+        if audit_model:
+            new_audit = audit_model(
+                event_type=action,
+                target_user=target_identifier,
+                status="SUCCESS",
+                details=formatted_details,
+                user_fnum=fnum,
+                created_at=get_eat_time()
+            )
+            db.add(new_audit)
+            db.commit()
     except Exception as e:
         print(f"Audit Log Failed: {e}")
         db.rollback()
@@ -500,15 +508,45 @@ def execute_password_reset(
         db.commit()
         return {"status": "success", "message": "Password reset request rejected."}
 
+class HeartbeatPayload(BaseModel):
+    fnum: Optional[str] = None
+
 @app.post("/api/v1/users/heartbeat")
 @app.post("/api/v1/users/heartbeat/")
-def heartbeat(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def heartbeat(
+    payload: Optional[HeartbeatPayload] = None,
+    token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)),
+    db: Session = Depends(get_db)
+):
+    user = None
+
+    # 1. Primary Authentication: Validate JWT Bearer token if present
+    if token:
+        try:
+            jwt_data = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
+            token_fnum = jwt_data.get("sub")
+            if token_fnum:
+                user = db.query(models.Users).filter(
+                    func.trim(func.upper(models.Users.fnum)) == str(token_fnum).strip().upper()
+                ).first()
+        except JWTError:
+            pass
+
+    # 2. Fallback Identification: Recover via body payload if token is refreshing
+    if not user and payload and payload.fnum:
+        user = db.query(models.Users).filter(
+            func.trim(func.upper(models.Users.fnum)) == str(payload.fnum).strip().upper()
+        ).first()
+
+    # 3. Deny if neither token nor payload yields an active record
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session credentials")
+
     try:
         eat_tz = pytz.timezone('Africa/Nairobi')
-        current_time = datetime.now(eat_tz).replace(tzinfo=None)
-        current_user.last_active_at = current_time
+        user.last_active_at = datetime.now(eat_tz).replace(tzinfo=None)
         db.commit()
-        return {"status": "alive"}
+        return {"status": "alive", "user": user.fnum}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

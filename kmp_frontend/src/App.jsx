@@ -35,8 +35,6 @@ import { authFetch, hasValidSession, getAuthToken, setAuthSession, clearAuthSess
 // ====================================================================
 const API_URL = import.meta.env.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
 
-const lastActivityRef = useRef(Date.now());
-
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -2201,6 +2199,8 @@ const App = () => {
   // Regional/Station filters for Grand Totals computation
   const [filterRegion, setFilterRegion] = useState('ALL REGIONS');
   const [filterStation, setFilterStation] = useState('ALL STATIONS');
+
+  const lastActivityRef = useRef(Date.now());
 
   // 🟢 COMPUTE GRAND TOTALS MEMOIZED HOOK
   const grandTotals = useMemo(() => {
