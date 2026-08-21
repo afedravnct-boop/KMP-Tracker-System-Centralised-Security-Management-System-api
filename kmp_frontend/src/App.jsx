@@ -1459,62 +1459,79 @@ const WorkspaceSecurityCurtain = () => {
 
   // 🟢 1. ROBUST USER ACTIVITY DETECTOR
   React.useEffect(() => {
-    const IDLE_TIMEOUT_MS = 60000;         
-    const SESSION_TIMEOUT_MS = 29 * 60 * 1000; 
+    // If the user has explicitly paused the curtain (Reading Mode) or is already timed out, halt background timers
+    if (isReadingMode || isTimedOut) {
+      clearTimeout(idleTimerRef.current);
+      clearTimeout(sessionTimerRef.current);
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+      setIsWorkspaceIdle(false);
+      setShowIdleWarning(false);
+      return;
+    }
+
+    const IDLE_TIMEOUT_MS = 60000;         // 1 Minute to visual screen
+    const SESSION_TIMEOUT_MS = 29 * 60 * 1000; // 29 Minutes to Warning
+
+    const resetAllTimers = () => {
+      clearTimeout(idleTimerRef.current);
+      clearTimeout(sessionTimerRef.current);
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+    };
+
+    const startCountdown = () => {
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+      setIdleCountdown(60);
+      countdownTimerRef.current = setInterval(() => {
+        setIdleCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(countdownTimerRef.current);
+            setIsTimedOut(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    };
 
     const handleUserActivity = () => {
       if (isTimedOut) return;
-      
-      // Dismiss the idle visual screen immediately upon movement unless a warning modal is active
-      if (!showIdleWarning) {
-        setIsWorkspaceIdle(false);
-      }
 
-      clearTimeout(idleTimerRef.current);
+      // 🟢 Any interaction (mouse move, Tab key, click) confirms active presence
+      setIsWorkspaceIdle(false);
+      setShowIdleWarning(false);
+      resetAllTimers();
+
+      // Start Idle Screen Timer
       idleTimerRef.current = setTimeout(() => {
-        if (!isReadingMode && !showIdleWarning && !isTimedOut) {
+        if (!isReadingMode && !isTimedOut) {
           setIsWorkspaceIdle(true);
         }
       }, IDLE_TIMEOUT_MS);
 
-      if (!showIdleWarning) {
-        clearTimeout(sessionTimerRef.current);
-        sessionTimerRef.current = setTimeout(() => {
-          if (!isReadingMode && !isTimedOut) {
-            setShowIdleWarning(true);
-            setIsWorkspaceIdle(true);
-            setIdleCountdown(60);
-
-            if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-            countdownTimerRef.current = setInterval(() => {
-              setIdleCountdown((prev) => {
-                if (prev <= 1) {
-                  clearInterval(countdownTimerRef.current);
-                  setIsTimedOut(true);
-                  return 0;
-                }
-                return prev - 1;
-              });
-            }, 1000);
-          }
-        }, SESSION_TIMEOUT_MS);
-      }
+      // Start Session Warning Timer
+      sessionTimerRef.current = setTimeout(() => {
+        if (!isReadingMode && !isTimedOut) {
+          setShowIdleWarning(true);
+          setIsWorkspaceIdle(true);
+          startCountdown();
+        }
+      }, SESSION_TIMEOUT_MS);
     };
 
+    // Initial activation
     handleUserActivity();
 
-    const events = ['mousemove', 'mousedown', 'keydown', 'keyup', 'input', 'scroll', 'touchstart', 'click'];
-    events.forEach(event => window.addEventListener(event, handleUserActivity, true));
+    // 🟢 Listen to all forms of movement, Tab presses, and clicks
+    const events = ['mousemove', 'mousedown', 'keydown', 'keyup', 'touchstart', 'scroll', 'click'];
+    events.forEach(event => window.addEventListener(event, handleUserActivity, false));
 
     return () => {
-      clearTimeout(idleTimerRef.current);
-      clearTimeout(sessionTimerRef.current);
-      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-      events.forEach(event => window.removeEventListener(event, handleUserActivity, true));
+      resetAllTimers();
+      events.forEach(event => window.removeEventListener(event, handleUserActivity, false));
     };
-  }, [isReadingMode, showIdleWarning, isTimedOut]);
+  }, [isReadingMode, isTimedOut]);
 
-  // When active and awake, show the discrete pill in the bottom corner
+  // Bottom Pill when active
   if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
     return (
       <div className="fixed bottom-3 right-4 z-[99980]">
@@ -1522,8 +1539,9 @@ const WorkspaceSecurityCurtain = () => {
           onMouseEnter={() => setIsExpanded(true)}
           onMouseLeave={() => setIsExpanded(false)}
           onClick={() => {
-            setIsReadingMode(!isReadingMode);
+            setIsReadingMode(prev => !prev);
             setIsWorkspaceIdle(false);
+            setShowIdleWarning(false);
           }}
           className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-xl rounded-full border ${
             isExpanded ? 'px-3 py-1.5' : 'p-1.5'
@@ -1539,7 +1557,7 @@ const WorkspaceSecurityCurtain = () => {
           </span>
           {isExpanded && (
             <span className="font-extrabold text-[10px] uppercase tracking-wider whitespace-nowrap">
-              {isReadingMode ? 'Pause Idle Curtain' : '🛡️ Idle Guard Active'}
+              {isReadingMode ? 'Resume Idle Guard' : '🛡️ Pause Idle Curtain'}
             </span>
           )}
         </div>
@@ -1551,55 +1569,59 @@ const WorkspaceSecurityCurtain = () => {
 
   return (
     <div 
-      onClick={() => {
-        if (!showIdleWarning && !isTimedOut) {
-          setIsWorkspaceIdle(false);
-        }
-      }}
-      className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden cursor-pointer select-none"
+      className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
       style={{
         position: 'fixed',
         top: 0, left: 0, right: 0, bottom: 0,
         zIndex: 2147483640,
-        isolation: 'isolate'
+        pointerEvents: showIdleWarning ? 'auto' : 'none'
       }}
     >
-      {/* Background Dim & National Colors */}
-      <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
-        <div className="absolute inset-0 opacity-10 flex flex-col justify-between z-0">
+      <style>{`
+        @keyframes spin-orbit-y {
+          0% { transform: rotateY(0deg); }
+          100% { transform: rotateY(360deg); }
+        }
+      `}</style>
+
+      {/* Backdrop */}
+      <div 
+        onClick={() => {
+          if (!isTimedOut) {
+            setIsWorkspaceIdle(false);
+            setShowIdleWarning(false);
+          }
+        }}
+        className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto cursor-pointer select-none"
+      >
+        <div className="absolute inset-0 opacity-10 flex flex-col justify-between z-0 pointer-events-none">
           <div className="h-1/3 w-full bg-black"></div>
           <div className="h-1/3 w-full bg-[#FCD116]"></div>
           <div className="h-1/3 w-full bg-[#D91B23]"></div>
         </div>
 
-        {/* Tactical Radar / Emblem Circles */}
-        <div className="absolute w-[500px] h-[500px] rounded-full border border-slate-700/30 animate-[spin_40s_linear_infinite] flex items-center justify-center">
-          <div className="w-[380px] h-[380px] rounded-full border border-dashed border-slate-600/30 animate-[spin_25s_linear_infinite_reverse]"></div>
-        </div>
-
-        {/* 3D Map Globe & Floating Orbit Ring */}
+        {/* 3D Map Globe & Orbit Ring */}
         <div 
-          className="relative z-10 flex items-center justify-center w-72 h-72 rounded-full overflow-visible"
-          style={{ perspective: '1000px', transformStyle: 'preserve-3d' }}
+          className="relative z-10 flex items-center justify-center w-72 h-72 rounded-full overflow-visible pointer-events-none"
+          style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}
         >
-          {/* Central Map Sphere */}
           <div 
             className="w-56 h-56 rounded-full shadow-[0_0_40px_rgba(0,0,0,0.8)] border-2 border-slate-700/60 overflow-hidden flex items-center justify-center bg-slate-900"
+            style={{ transform: 'translateZ(0)' }}
           >
             <img 
               src="/upf_kmp_map.png" 
               alt="KMP Map" 
-              className="w-full h-full object-cover animate-pulse"
+              className="w-full h-full object-cover"
               onError={(e) => { e.target.style.display = 'none'; }}
             />
           </div>
            
-          {/* 3D Orbiting Ring with corrected radius (translateZ 160px) to prevent overlapping */}
           <div 
             className="absolute inset-0 flex items-center justify-center pointer-events-none"
             style={{ 
               transformStyle: 'preserve-3d', 
-              animation: 'spin 18s linear infinite' 
+              animation: 'spin-orbit-y 20s linear infinite' 
             }}
           >
             {orbitText.map((char, i, arr) => (
@@ -1607,7 +1629,7 @@ const WorkspaceSecurityCurtain = () => {
                 key={i} 
                 className="absolute text-amber-400 font-extrabold text-[11px] uppercase tracking-widest drop-shadow-[0_0_6px_rgba(245,158,11,0.8)]"
                 style={{ 
-                  transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(155px)` 
+                  transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(160px)` 
                 }}
               >
                 {char === ' ' ? '\u00A0' : char}
@@ -1616,18 +1638,18 @@ const WorkspaceSecurityCurtain = () => {
           </div>
         </div>
 
-        {!showIdleWarning && (
-          <p className="mt-8 text-xs font-bold text-slate-400 uppercase tracking-widest animate-pulse">
-            Click anywhere or move mouse to resume session
+        {!showIdleWarning && !isTimedOut && (
+          <p className="mt-8 text-xs font-bold text-slate-400 uppercase tracking-widest animate-pulse pointer-events-none">
+            Click anywhere, press Tab, or move mouse to resume session
           </p>
         )}
       </div>
 
-      {/* Session Timeout Warning / Expired Modal */}
+      {/* Session Modal */}
       {showIdleWarning && (
         <div 
           onClick={(e) => e.stopPropagation()}
-          className="relative z-[2147483647] bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto cursor-default"
+          className="relative z-[2147483647] bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto select-none"
         >
           {isTimedOut ? (
             <>
@@ -1635,10 +1657,10 @@ const WorkspaceSecurityCurtain = () => {
                 <span className="text-2xl">⚠️</span>
               </div>
               <h4 className="text-lg font-extrabold text-slate-900 mb-1">
-                Session Expired
+                Session Expired Due to Inactivity
               </h4>
               <p className="text-xs text-slate-600 leading-relaxed font-medium mb-5">
-                Your security session has timed out due to inactivity. Please log in again to continue.
+                Your security token has expired because the workstation was left unattended. You have been securely logged out.
               </p>
               <button 
                 type="button"
@@ -1660,16 +1682,15 @@ const WorkspaceSecurityCurtain = () => {
                 <span className="text-2xl">⏳</span>
               </div>
               <h4 className="text-lg font-extrabold text-slate-900 mb-1">
-                Inactivity Warning
+                Session Timeout Warning
               </h4>
               <p className="text-xs text-slate-600 leading-relaxed font-medium mb-5">
-                Session will lock in <span className="font-bold text-red-600">{idleCountdown}s</span>. Click below to keep working.
+                Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Move mouse, press any key, or click below.
               </p>
               <button 
                 type="button"
                 onClick={() => {
                   setShowIdleWarning(false);
-                  setIdleCountdown(60);
                   setIsWorkspaceIdle(false);
                 }}
                 className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
