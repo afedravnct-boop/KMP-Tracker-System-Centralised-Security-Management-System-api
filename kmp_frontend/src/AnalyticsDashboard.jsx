@@ -5,7 +5,7 @@ import { authFetch, hasValidSession } from './api';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
   "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
   "POLICE HEADQUARTERS": ["NAGURU"]
@@ -34,8 +34,13 @@ const normalizeOffenceCategory = (rawOffence) => {
 };
 
 const getOfficialRegionForStation = (stationName, dbRegion) => {
-  const cleanStation = (stationName || '').trim().toUpperCase();
+  let cleanStation = (stationName || '').trim().toUpperCase();
   const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
+
+  // Normalize Kira Division / Kira Div variants
+  if (cleanStation === "KIRA DIVISION" || cleanStation === "KIRA DIV" || cleanStation === "KIRA") {
+    cleanStation = "KIRA DIV";
+  }
 
   if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
     return cleanDbRegion;
@@ -45,6 +50,10 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
     if (stationsList.includes(cleanStation)) {
       return regionName;
     }
+  }
+
+  if (cleanStation.includes("KIRA") && !cleanStation.includes("KIRA ROAD")) {
+    return "KMP EAST";
   }
 
   return cleanDbRegion || 'KMP GENERAL';
@@ -69,7 +78,6 @@ const AnalyticsDashboard = ({
   const [fetchedOps, setFetchedOps] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // 🟢 Collapsible state for Manpower regional breakdown
   const [expandedManpowerRegions, setExpandedManpowerRegions] = useState({});
 
   const toggleManpowerRegion = (regionName) => {
@@ -137,7 +145,6 @@ const AnalyticsDashboard = ({
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : (currentUser?.region || 'KMP HEADQUARTERS'));
   const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : (currentUser?.station || 'KMP HEADQUARTERS'));
 
-  // 🟢 Comprehensive Multi-Relational Manpower Analysis Engine with Child Stations
   const comprehensiveManpowerAnalysis = useMemo(() => {
     const rolls = Array.isArray(resolvedNominalRolls) ? resolvedNominalRolls : [];
     const crimes = Array.isArray(resolvedCrimeRegistry) ? resolvedCrimeRegistry.filter(r => !isLockupLog(r)) : [];
@@ -153,7 +160,9 @@ const AnalyticsDashboard = ({
     regionSummary["GENERAL / OTHER"] = { region: "GENERAL / OTHER", officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0, stations: {} };
 
     rolls.forEach(o => {
-      const stn = (o.station || 'UNKNOWN').trim().toUpperCase();
+      let stn = (o.station || 'UNKNOWN').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+
       const reg = getOfficialRegionForStation(stn, o.region);
       const targetReg = regionSummary[reg] || regionSummary["GENERAL / OTHER"];
       
@@ -175,7 +184,9 @@ const AnalyticsDashboard = ({
     });
 
     crimes.forEach(c => {
-      const stn = (c.station || 'UNKNOWN').trim().toUpperCase();
+      let stn = (c.station || 'UNKNOWN').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+
       const reg = getOfficialRegionForStation(stn, c.region);
       const targetReg = regionSummary[reg] || regionSummary["GENERAL / OTHER"];
       targetReg.crimes += 1;
@@ -187,7 +198,9 @@ const AnalyticsDashboard = ({
     });
 
     ops.forEach(op => {
-      const stn = (op.station || 'UNKNOWN').trim().toUpperCase();
+      let stn = (op.station || 'UNKNOWN').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+
       const reg = getOfficialRegionForStation(stn, op.region);
       const targetReg = regionSummary[reg] || regionSummary["GENERAL / OTHER"];
       const arrestsCount = Number(op.arrests || op.suspects || 1);
@@ -213,7 +226,6 @@ const AnalyticsDashboard = ({
     }));
   }, [resolvedNominalRolls, resolvedCrimeRegistry, resolvedOperationalStats]);
 
-  // 🟢 Computed Totals for Deep Manpower Grand Total Footer
   const manpowerGrandTotals = useMemo(() => {
     const totalOfficers = comprehensiveManpowerAnalysis.reduce((sum, r) => sum + r.officers, 0);
     const totalMale = comprehensiveManpowerAnalysis.reduce((sum, r) => sum + r.male, 0);
@@ -239,7 +251,8 @@ const AnalyticsDashboard = ({
     else if (activeDomain === 'OPERATIONS') baseData = resolvedOperationalStats;
 
     baseData = baseData.filter(item => {
-      const stn = (item.station || '').trim().toUpperCase();
+      let stn = (item.station || '').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
       const reg = getOfficialRegionForStation(stn, item.region);
 
       if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
@@ -360,7 +373,9 @@ const AnalyticsDashboard = ({
     });
 
     ops.forEach(o => {
-      const stn = (o.station || '').trim().toUpperCase();
+      let stn = (o.station || '').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+
       const reg = getOfficialRegionForStation(stn, o.region);
       const arrestsCount = Number(o.arrests || o.suspects || o.suspects_arrested || 1);
       
@@ -371,7 +386,9 @@ const AnalyticsDashboard = ({
     });
 
     successes.forEach(s => {
-      const stn = (s.station || '').trim().toUpperCase();
+      let stn = (s.station || '').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+
       const reg = getOfficialRegionForStation(stn, s.region);
       if (regionMap[reg] && regionMap[reg].stations[stn]) {
         regionMap[reg].stations[stn].successes += 1;
@@ -380,7 +397,9 @@ const AnalyticsDashboard = ({
     });
 
     reports.forEach(r => {
-      const stn = (r.station || '').trim().toUpperCase();
+      let stn = (r.station || '').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+
       const reg = getOfficialRegionForStation(stn, r.region);
       if (regionMap[reg] && regionMap[reg].stations[stn]) {
         regionMap[reg].stations[stn].crimes += 1;
@@ -434,7 +453,9 @@ const AnalyticsDashboard = ({
     const allWeeksSet = new Set();
 
     ops.forEach(o => {
-      const stn = (o.station || 'UNKNOWN').trim().toUpperCase();
+      let stn = (o.station || 'UNKNOWN').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+
       const reg = getOfficialRegionForStation(stn, o.region);
 
       if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion) return;
@@ -543,38 +564,40 @@ const AnalyticsDashboard = ({
   };
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto space-y-6 animate-in fade-in duration-300 font-sans min-h-screen" style={{ backgroundColor: '#f4eee2' }}>
+    <div className="p-3 max-w-[1600px] mx-auto space-y-3 font-sans min-h-screen" style={{ backgroundColor: '#f4eee2' }}>
       
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#fbf8f3] p-6 rounded-2xl shadow-sm border border-[#e2d6c3] gap-4">
+      {/* Top Header Card */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#fbf8f3] px-4 py-2.5 rounded-xl shadow-xs border border-[#e2d6c3] gap-2">
         <div>
-          <h1 className="text-2xl font-extrabold text-[#3a3225] tracking-tight">KMP Relational Operations & Intelligence Dashboard</h1>
-          <p className="text-xs text-[#736450] mt-1 font-medium">Tracking the dependency matrix: Disruptive Snap Operations ➔ Information Acquisition ➔ Asset Recovery & Gang Dismantling.</p>
+          <h1 className="text-lg font-extrabold text-[#3a3225] tracking-tight">KMP Relational Operations & Intelligence Dashboard</h1>
+          <p className="text-[11px] text-[#736450] font-medium">Tracking the dependency matrix: Disruptive Snap Operations ➔ Information Acquisition ➔ Asset Recovery & Gang Dismantling.</p>
         </div>
-        <button onClick={handleExportExcel} className="bg-[#596E47] hover:bg-[#4A5D4E] text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-md transition flex items-center space-x-2 cursor-pointer">
-          <span>📥 Download Relational Audit Report (Excel)</span>
+        <button onClick={handleExportExcel} className="bg-[#596E47] hover:bg-[#4A5D4E] text-white px-3 py-1.5 rounded-lg font-bold text-[11px] shadow-xs transition flex items-center space-x-1.5 cursor-pointer shrink-0">
+          <span>📥 Download Relational Report (Excel)</span>
         </button>
       </div>
 
       {loading && (
-        <div className="flex items-center justify-center p-4 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-800 font-bold">
-          <Loader2 className="w-4 h-4 mr-2 animate-spin text-amber-600" /> Fetching live analytics data streams from NeonDB...
+        <div className="flex items-center justify-center py-2 px-3 bg-amber-50 rounded-lg border border-amber-200 text-[11px] text-amber-800 font-bold">
+          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin text-amber-600" /> Fetching live analytics data streams from NeonDB...
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
+      {/* Tabs */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-1.5">
         {[
-          { id: 'OPERATIONS', label: '⚡ Disruptive Operations' },
-          { id: 'RELATIONAL', label: '🔗 Relational Impact Matrix' },
-          { id: 'MANPOWER_DEEP', label: '🛡️ Deep Manpower Analysis' },
+          { id: 'OPERATIONS', label: '⚡ Disruptive Ops' },
+          { id: 'RELATIONAL', label: '🔗 Relational Matrix' },
+          { id: 'MANPOWER_DEEP', label: '🛡️ Manpower Analysis' },
           { id: 'SUCCESS', label: '🌟 Success Stories' },
           { id: 'CRIME', label: '📊 Crime Categories' },
-          { id: 'CRIME_SUMMARY', label: '📋 Crime Summary Table' },
-          { id: 'TRENDS', label: '📈 Week-to-Week Ops Trends' }
+          { id: 'CRIME_SUMMARY', label: '📋 Summary Table' },
+          { id: 'TRENDS', label: '📈 Ops Trends' }
         ].map(tab => (
           <button
             key={tab.id}
             onClick={() => { setActiveDomain(tab.id); setMetricCategory('CATEGORY'); }}
-            className={`p-4 rounded-xl font-bold text-xs transition border text-left shadow-sm cursor-pointer ${
+            className={`px-2.5 py-2 rounded-lg font-bold text-[11px] transition border text-left shadow-xs cursor-pointer truncate ${
               activeDomain === tab.id ? 'bg-[#3a3225] text-[#f4eee2] border-[#3a3225]' : 'bg-[#fbf8f3] text-[#594d3c] border-[#e2d6c3] hover:bg-[#f1ebd9]'
             }`}
           >
@@ -583,17 +606,18 @@ const AnalyticsDashboard = ({
         ))}
       </div>
 
-      <div className="bg-[#fbf8f3] p-4 rounded-xl shadow-sm border border-[#e2d6c3] flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          <span className="text-xs font-bold text-[#736450] uppercase flex items-center">
-            <Filter size={14} className="mr-1 text-[#596E47]" /> Jurisdiction Filters:
+      {/* Filter Toolbar */}
+      <div className="bg-[#fbf8f3] px-3 py-2 rounded-lg shadow-xs border border-[#e2d6c3] flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          <span className="text-[11px] font-bold text-[#736450] uppercase flex items-center">
+            <Filter size={12} className="mr-1 text-[#596E47]" /> Filters:
           </span>
 
           <select 
             value={selectedRegion} 
             onChange={(e) => { setSelectedRegion(e.target.value); setSelectedStation('ALL STATIONS'); }}
             disabled={!canViewGlobalActive}
-            className="border border-[#e2d6c3] rounded-lg p-2 text-xs font-bold text-[#3a3225] bg-white outline-none cursor-pointer disabled:bg-[#f4eee2] disabled:text-[#736450]"
+            className="border border-[#e2d6c3] rounded-md px-2 py-1 text-[11px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer disabled:bg-[#f4eee2] disabled:text-[#736450]"
           >
             {canViewGlobalActive ? (
               <>
@@ -611,7 +635,7 @@ const AnalyticsDashboard = ({
             value={selectedStation} 
             onChange={(e) => setSelectedStation(e.target.value)}
             disabled={!canViewGlobalActive}
-            className="border border-[#e2d6c3] rounded-lg p-2 text-xs font-bold text-[#3a3225] bg-white outline-none cursor-pointer disabled:bg-[#f4eee2] disabled:text-[#736450]"
+            className="border border-[#e2d6c3] rounded-md px-2 py-1 text-[11px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer disabled:bg-[#f4eee2] disabled:text-[#736450]"
           >
             {canViewGlobalActive ? (
               <>
@@ -629,7 +653,7 @@ const AnalyticsDashboard = ({
             <select 
               value={dateFilter} 
               onChange={(e) => setDateFilter(e.target.value)}
-              className="border border-[#e2d6c3] rounded-lg p-2 text-xs font-bold text-[#3a3225] bg-white outline-none cursor-pointer"
+              className="border border-[#e2d6c3] rounded-md px-2 py-1 text-[11px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer"
             >
               <option value="ALL">All Time</option>
               <option value="TODAY">Today Only</option>
@@ -640,68 +664,60 @@ const AnalyticsDashboard = ({
           )}
         </div>
 
-        <span className="text-xs font-extrabold text-[#596E47] bg-[#e9eedf] px-3 py-1.5 rounded-lg border border-[#cfe1b9]">
-          Total Analyzed Entries: {activeDomain === 'RELATIONAL' ? relationalImpactMatrix.length : activeDomain === 'MANPOWER_DEEP' ? comprehensiveManpowerAnalysis.length : activeDomain === 'CRIME_SUMMARY' ? crimeSummaryGrandTotal : totalRecords}
+        <span className="text-[11px] font-extrabold text-[#596E47] bg-[#e9eedf] px-2 py-0.5 rounded border border-[#cfe1b9]">
+          Total: {activeDomain === 'RELATIONAL' ? relationalImpactMatrix.length : activeDomain === 'MANPOWER_DEEP' ? comprehensiveManpowerAnalysis.length : activeDomain === 'CRIME_SUMMARY' ? crimeSummaryGrandTotal : totalRecords}
         </span>
       </div>
 
+      {/* Main View Area */}
       {activeDomain === 'RELATIONAL' ? (
-        <div className="space-y-6 animate-in fade-in duration-200">
-          <div className="bg-[#3a3225] rounded-2xl p-6 text-[#f4eee2] shadow-xl border border-[#534735]">
-            <h2 className="text-xl font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Network className="mr-3 text-[#C5A880] w-6 h-6" /> Operations ➔ Intelligence ➔ Crime Suppression Dependency Matrix
+        <div className="space-y-3">
+          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
+            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <Network className="mr-2 text-[#C5A880] w-4 h-4" /> Operations ➔ Intelligence ➔ Crime Suppression Dependency Matrix
             </h2>
-            <p className="text-xs text-[#b8ab97] mt-1 leading-relaxed">
-              Demonstrating operational impact: Snap sweeps in crime hotspots generate arrests. Interrogations answer pending cases, recover stolen property from hideouts, and dismantle entire syndicates, driving crime down.
+            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
+              Demonstrating operational impact: Snap sweeps in crime hotspots generate arrests, answer pending cases, and recover stolen property.
             </p>
           </div>
 
-          <div className="bg-[#fbf8f3] rounded-xl shadow-sm border border-[#e2d6c3] overflow-hidden">
-            <div className="bg-[#f4eee2] px-6 py-4 border-b border-[#e2d6c3] flex justify-between items-center">
-              <h3 className="font-extrabold text-[#3a3225] text-sm uppercase tracking-wider flex items-center">
-                <GitCommit size={16} className="mr-2 text-[#596E47]" /> Regional & Divisional Relational Breakdown
-              </h3>
-              <span className="text-xs font-bold text-[#736450] bg-[#fbf8f3] px-3 py-1 rounded-full border border-[#e2d6c3]">
-                Live Dependency Index
-              </span>
-            </div>
-
+          <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
             <div className="overflow-x-auto w-full">
               <table className="min-w-full divide-y divide-[#e2d6c3]">
                 <thead className="bg-[#efece6]">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase tracking-wider">Command Region</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase tracking-wider">Station / Hotspot Division</th>
-                    <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase tracking-wider">Snap Arrests / Disruptive Ops</th>
-                    <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase tracking-wider">Success Breakthroughs (Recoveries)</th>
-                    <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase tracking-wider">Active Crime Volume</th>
-                    <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase tracking-wider">Operational Impact Status</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Command Region</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Station / Hotspot Division</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Snap Arrests</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Recoveries</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Active Crime</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Impact Status</th>
                   </tr>
                 </thead>
                 <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
                   {relationalImpactMatrix.map((row, index) => {
                     if (row.isRegionHeader) {
                       return (
-                        <tr key={`reg-${index}`} className="bg-[#efece6] font-extrabold text-[#3a3225] border-t-2 border-[#d3c2a8]">
-                          <td className="px-6 py-3.5 text-xs uppercase tracking-wider" colSpan="2">🛡️ {row.station}</td>
-                          <td className="px-6 py-3.5 text-center font-black text-[#596E47]">{row.arrests} Arrests</td>
-                          <td className="px-6 py-3.5 text-center font-black text-amber-800">{row.successes} Breakthroughs</td>
-                          <td className="px-6 py-3.5 text-center font-bold">{row.crimes} Crimes</td>
-                          <td className="px-6 py-3.5 text-center">
-                            <span className="px-2.5 py-1 rounded text-[11px] font-bold bg-[#3a3225] text-[#f4eee2]">{row.disruptionRating}</span>
+                        <tr key={`reg-${index}`} className="bg-[#efece6] font-extrabold text-[#3a3225] border-t border-[#d3c2a8]">
+                          <td className="px-3 py-2 text-[11px] uppercase tracking-wider" colSpan="2">🛡️ {row.station}</td>
+                          <td className="px-3 py-2 text-center font-black text-[#596E47] text-[11px]">{row.arrests} Arrests</td>
+                          <td className="px-3 py-2 text-center font-black text-amber-800 text-[11px]">{row.successes} Breakthroughs</td>
+                          <td className="px-3 py-2 text-center font-bold text-[11px]">{row.crimes} Crimes</td>
+                          <td className="px-3 py-2 text-center">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#3a3225] text-[#f4eee2]">{row.disruptionRating}</span>
                           </td>
                         </tr>
                       );
                     }
                     return (
                       <tr key={`stn-${index}`} className="hover:bg-[#e9eedf]/30">
-                        <td className="px-6 py-3 pl-10 text-xs font-bold text-[#736450] uppercase">{row.region}</td>
-                        <td className="px-6 py-3 text-xs font-bold text-[#594d3c]">— {row.station}</td>
-                        <td className="px-6 py-3 text-xs text-center font-bold text-[#596E47]">{row.arrests}</td>
-                        <td className="px-6 py-3 text-xs text-center font-bold text-amber-800">{row.successes}</td>
-                        <td className="px-6 py-3 text-xs text-center font-bold text-[#3a3225]">{row.crimes}</td>
-                        <td className="px-6 py-3 text-center text-xs">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e9eedf] text-[#3b4c2e]">{row.disruptionRating}</span>
+                        <td className="px-3 py-1.5 pl-6 text-[11px] font-bold text-[#736450] uppercase">{row.region}</td>
+                        <td className="px-3 py-1.5 text-[11px] font-bold text-[#594d3c]">— {row.station}</td>
+                        <td className="px-3 py-1.5 text-[11px] text-center font-bold text-[#596E47]">{row.arrests}</td>
+                        <td className="px-3 py-1.5 text-[11px] text-center font-bold text-amber-800">{row.successes}</td>
+                        <td className="px-3 py-1.5 text-[11px] text-center font-bold text-[#3a3225]">{row.crimes}</td>
+                        <td className="px-3 py-1.5 text-center text-[11px]">
+                          <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-[#e9eedf] text-[#3b4c2e]">{row.disruptionRating}</span>
                         </td>
                       </tr>
                     );
@@ -712,27 +728,27 @@ const AnalyticsDashboard = ({
           </div>
         </div>
       ) : activeDomain === 'MANPOWER_DEEP' ? (
-        <div className="space-y-6 animate-in fade-in duration-200">
-          <div className="bg-[#3a3225] rounded-2xl p-6 text-[#f4eee2] shadow-xl border border-[#534735]">
-            <h2 className="text-xl font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Users className="mr-3 text-[#C5A880] w-6 h-6" /> Deep Manpower Multi-Relational Analysis
+        <div className="space-y-3">
+          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
+            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <Users className="mr-2 text-[#C5A880] w-4 h-4" /> Deep Manpower Multi-Relational Analysis
             </h2>
-            <p className="text-xs text-[#b8ab97] mt-1 leading-relaxed">
-              Analyzing force distribution across multiple parameters: Regional strength, Gender ratios, Dominant ranks, Crime workload per officer, and Arrest efficiency per officer. Click any command region to expand or collapse divisional units.
+            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
+              Analyzing force distribution across multiple parameters: Strength, Gender ratios, Dominant ranks, Crime workload, and Arrest efficiency. Click a region to view stations.
             </p>
           </div>
 
-          <div className="bg-[#fbf8f3] rounded-xl shadow-sm border border-[#e2d6c3] overflow-hidden">
+          <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
             <table className="min-w-full divide-y divide-[#e2d6c3]">
               <thead className="bg-[#efece6]">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase">Command Region / Division</th>
-                  <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase">Total Officers</th>
-                  <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase">Male / Female</th>
-                  <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase">Dominant Rank</th>
-                  <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase">Recorded Crimes</th>
-                  <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase">Crime / Officer</th>
-                  <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase">Arrests / Officer</th>
+                  <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Command Region / Division</th>
+                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Total Officers</th>
+                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Male / Female</th>
+                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Dominant Rank</th>
+                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Recorded Crimes</th>
+                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Crime / Officer</th>
+                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Arrests / Officer</th>
                 </tr>
               </thead>
               <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
@@ -742,38 +758,36 @@ const AnalyticsDashboard = ({
 
                   return (
                     <React.Fragment key={index}>
-                      {/* Region Level Row */}
                       <tr 
                         onClick={() => toggleManpowerRegion(row.region)}
                         className="hover:bg-[#e9eedf]/50 cursor-pointer transition-colors border-t border-[#e2d6c3] select-none"
                       >
-                        <td className="px-6 py-3.5 text-xs font-extrabold text-[#3a3225] uppercase flex items-center space-x-2">
+                        <td className="px-3 py-2 text-[11px] font-extrabold text-[#3a3225] uppercase flex items-center space-x-1.5">
                           <span className="text-[#596E47]">
-                            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                           </span>
                           <span>{row.region}</span>
                         </td>
-                        <td className="px-6 py-3.5 text-xs text-center font-black text-[#596E47]">{row.officers}</td>
-                        <td className="px-6 py-3.5 text-xs text-center font-bold text-[#736450]">👨‍✈️ {row.male} | 👩‍✈️ {row.female}</td>
-                        <td className="px-6 py-3.5 text-xs text-center font-bold text-amber-900 uppercase">{row.dominantRank}</td>
-                        <td className="px-6 py-3.5 text-xs text-center font-bold text-slate-800">{row.crimes}</td>
-                        <td className="px-6 py-3.5 text-xs text-center font-extrabold text-blue-800">{row.crimePerOfficer}</td>
-                        <td className="px-6 py-3.5 text-xs text-center font-extrabold text-emerald-800">{row.arrestsPerOfficer}</td>
+                        <td className="px-3 py-2 text-[11px] text-center font-black text-[#596E47]">{row.officers}</td>
+                        <td className="px-3 py-2 text-[11px] text-center font-bold text-[#736450]">👨‍✈️ {row.male} | 👩‍✈️ {row.female}</td>
+                        <td className="px-3 py-2 text-[11px] text-center font-bold text-amber-900 uppercase">{row.dominantRank}</td>
+                        <td className="px-3 py-2 text-[11px] text-center font-bold text-slate-800">{row.crimes}</td>
+                        <td className="px-3 py-2 text-[11px] text-center font-extrabold text-blue-800">{row.crimePerOfficer}</td>
+                        <td className="px-3 py-2 text-[11px] text-center font-extrabold text-emerald-800">{row.arrestsPerOfficer}</td>
                       </tr>
 
-                      {/* Expandable Station Rows */}
                       {isExpanded && hasStations && row.stationList.map((stn, sIdx) => (
                         <tr key={`stn-sub-${sIdx}`} className="bg-[#f7f3eb] hover:bg-[#ece6d8] transition-colors border-t border-[#e2d6c3]/60">
-                          <td className="px-6 py-2.5 pl-12 text-xs font-semibold text-[#594d3c] uppercase flex items-center space-x-2">
-                            <span className="text-xs text-[#8c7b65]">↳</span>
+                          <td className="px-3 py-1.5 pl-8 text-[11px] font-semibold text-[#594d3c] uppercase flex items-center space-x-1.5">
+                            <span className="text-[10px] text-[#8c7b65]">↳</span>
                             <span>{stn.station}</span>
                           </td>
-                          <td className="px-6 py-2.5 text-xs text-center font-bold text-[#596E47]">{stn.officers}</td>
-                          <td className="px-6 py-2.5 text-xs text-center text-[#736450]">👨‍✈️ {stn.male} | 👩‍✈️ {stn.female}</td>
-                          <td className="px-6 py-2.5 text-xs text-center text-amber-900 uppercase">{stn.dominantRank}</td>
-                          <td className="px-6 py-2.5 text-xs text-center text-slate-700">{stn.crimes}</td>
-                          <td className="px-6 py-2.5 text-xs text-center font-semibold text-blue-700">{stn.crimePerOfficer}</td>
-                          <td className="px-6 py-2.5 text-xs text-center font-semibold text-emerald-700">{stn.arrestsPerOfficer}</td>
+                          <td className="px-3 py-1.5 text-[11px] text-center font-bold text-[#596E47]">{stn.officers}</td>
+                          <td className="px-3 py-1.5 text-[11px] text-center text-[#736450]">👨‍✈️ {stn.male} | 👩‍✈️ {stn.female}</td>
+                          <td className="px-3 py-1.5 text-[11px] text-center text-amber-900 uppercase">{stn.dominantRank}</td>
+                          <td className="px-3 py-1.5 text-[11px] text-center text-slate-700">{stn.crimes}</td>
+                          <td className="px-3 py-1.5 text-[11px] text-center font-semibold text-blue-700">{stn.crimePerOfficer}</td>
+                          <td className="px-3 py-1.5 text-[11px] text-center font-semibold text-emerald-700">{stn.arrestsPerOfficer}</td>
                         </tr>
                       ))}
                     </React.Fragment>
@@ -781,49 +795,48 @@ const AnalyticsDashboard = ({
                 })}
               </tbody>
 
-              {/* 🟢 Grand Total Summary Row */}
               <tfoot className="bg-[#efece6] border-t-2 border-[#d3c2a8]">
                 <tr className="font-extrabold text-[#3a3225]">
-                  <td className="px-6 py-4 text-xs uppercase tracking-wider">GRAND TOTAL</td>
-                  <td className="px-6 py-4 text-xs text-center font-black text-[#596E47]">{manpowerGrandTotals.totalOfficers}</td>
-                  <td className="px-6 py-4 text-xs text-center font-bold text-[#736450]">👨‍✈️ {manpowerGrandTotals.totalMale} | 👩‍✈️ {manpowerGrandTotals.totalFemale}</td>
-                  <td className="px-6 py-4 text-xs text-center font-bold text-amber-900 uppercase">OVERALL</td>
-                  <td className="px-6 py-4 text-xs text-center font-bold text-slate-800">{manpowerGrandTotals.totalCrimes}</td>
-                  <td className="px-6 py-4 text-xs text-center font-black text-blue-900">{manpowerGrandTotals.crimePerOfficer}</td>
-                  <td className="px-6 py-4 text-xs text-center font-black text-emerald-900">{manpowerGrandTotals.arrestsPerOfficer}</td>
+                  <td className="px-3 py-2.5 text-[11px] uppercase tracking-wider">GRAND TOTAL</td>
+                  <td className="px-3 py-2.5 text-[11px] text-center font-black text-[#596E47]">{manpowerGrandTotals.totalOfficers}</td>
+                  <td className="px-3 py-2.5 text-[11px] text-center font-bold text-[#736450]">👨‍✈️ {manpowerGrandTotals.totalMale} | 👩‍✈️ {manpowerGrandTotals.totalFemale}</td>
+                  <td className="px-3 py-2.5 text-[11px] text-center font-bold text-amber-900 uppercase">OVERALL</td>
+                  <td className="px-3 py-2.5 text-[11px] text-center font-bold text-slate-800">{manpowerGrandTotals.totalCrimes}</td>
+                  <td className="px-3 py-2.5 text-[11px] text-center font-black text-blue-900">{manpowerGrandTotals.crimePerOfficer}</td>
+                  <td className="px-3 py-2.5 text-[11px] text-center font-black text-emerald-900">{manpowerGrandTotals.arrestsPerOfficer}</td>
                 </tr>
               </tfoot>
             </table>
           </div>
         </div>
       ) : activeDomain === 'TRENDS' ? (
-        <div className="space-y-6 animate-in fade-in duration-200">
-          <div className="bg-[#3a3225] rounded-2xl p-6 text-[#f4eee2] shadow-xl flex justify-between items-center">
+        <div className="space-y-3">
+          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm flex justify-between items-center">
             <div>
-              <h2 className="text-xl font-extrabold">Week-to-Week Disruptive Operations & Arrest Trends</h2>
-              <p className="text-xs text-[#b8ab97] mt-1">Comparing snap sweeps and suspect apprehensions ({operationsTrendsData.previousWeek} vs {operationsTrendsData.currentWeek})</p>
+              <h2 className="text-sm font-extrabold">Week-to-Week Disruptive Operations & Arrest Trends</h2>
+              <p className="text-[11px] text-[#b8ab97] mt-0.5">Comparing snap sweeps ({operationsTrendsData.previousWeek} vs {operationsTrendsData.currentWeek})</p>
             </div>
           </div>
 
-          <div className="bg-[#fbf8f3] rounded-xl shadow-sm border border-[#e2d6c3] overflow-hidden">
+          <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
             <table className="min-w-full divide-y divide-[#e2d6c3]">
               <thead className="bg-[#efece6]">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase">Region</th>
-                  <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase">Station / Post</th>
-                  <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase">Previous Arrests</th>
-                  <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase">Current Arrests</th>
-                  <th className="px-6 py-3 text-center text-xs font-bold text-[#594d3c] uppercase">Arrests Variance</th>
+                  <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Region</th>
+                  <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Station / Post</th>
+                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Previous Arrests</th>
+                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Current Arrests</th>
+                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Arrests Variance</th>
                 </tr>
               </thead>
               <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
                 {operationsTrendsData.rows.map((row, index) => (
                   <tr key={index} className="hover:bg-[#e9eedf]/30">
-                    <td className="px-6 py-3 text-xs font-bold text-[#736450] uppercase">{row.region}</td>
-                    <td className="px-6 py-3 text-xs font-bold text-[#3a3225]">{row.station}</td>
-                    <td className="px-6 py-3 text-xs text-center">{row.previousArrests}</td>
-                    <td className="px-6 py-3 text-xs text-center font-bold text-[#596E47]">{row.currentArrests}</td>
-                    <td className={`px-6 py-3 text-xs text-center font-extrabold ${row.diffArrests >= 0 ? 'text-[#596E47]' : 'text-amber-800'}`}>
+                    <td className="px-3 py-1.5 text-[11px] font-bold text-[#736450] uppercase">{row.region}</td>
+                    <td className="px-3 py-1.5 text-[11px] font-bold text-[#3a3225]">{row.station}</td>
+                    <td className="px-3 py-1.5 text-[11px] text-center">{row.previousArrests}</td>
+                    <td className="px-3 py-1.5 text-[11px] text-center font-bold text-[#596E47]">{row.currentArrests}</td>
+                    <td className={`px-3 py-1.5 text-[11px] text-center font-extrabold ${row.diffArrests >= 0 ? 'text-[#596E47]' : 'text-amber-800'}`}>
                       {row.diffArrests > 0 ? `+${row.diffArrests}` : row.diffArrests}
                     </td>
                   </tr>
@@ -833,37 +846,37 @@ const AnalyticsDashboard = ({
           </div>
         </div>
       ) : activeDomain === 'CRIME_SUMMARY' ? (
-        <div className="space-y-6 animate-in fade-in duration-200">
-          <div className="bg-[#3a3225] rounded-2xl p-6 text-[#f4eee2] shadow-xl border border-[#534735]">
-            <h2 className="text-xl font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <BarChart3 className="mr-3 text-[#C5A880] w-6 h-6" /> Standalone Crime Incident Summary Table
+        <div className="space-y-3">
+          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
+            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <BarChart3 className="mr-2 text-[#C5A880] w-4 h-4" /> Standalone Crime Incident Summary Table
             </h2>
-            <p className="text-xs text-[#b8ab97] mt-1 leading-relaxed">
-              Consolidated frequency count of crime incidents recorded across selected jurisdictions and timeframes.
+            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
+              Consolidated frequency count of crime incidents recorded across selected jurisdictions.
             </p>
           </div>
 
-          <div className="bg-[#fbf8f3] rounded-xl shadow-sm border border-[#e2d6c3] overflow-hidden">
+          <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
             <table className="min-w-full divide-y divide-[#e2d6c3]">
               <thead className="bg-[#3a3225]">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-[#f4eee2] uppercase tracking-wider w-16">SN</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-[#f4eee2] uppercase tracking-wider">Incident / Offence</th>
-                  <th className="px-4 py-3 text-right text-xs font-bold text-[#f4eee2] uppercase tracking-wider">Total Reported</th>
+                  <th className="px-3 py-2 text-left text-[11px] font-bold text-[#f4eee2] uppercase tracking-wider w-12">SN</th>
+                  <th className="px-3 py-2 text-left text-[11px] font-bold text-[#f4eee2] uppercase tracking-wider">Incident / Offence</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-bold text-[#f4eee2] uppercase tracking-wider">Total Reported</th>
                 </tr>
               </thead>
               <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
                 {crimeSummaryData.length > 0 ? (
                   crimeSummaryData.map((row) => (
                     <tr key={row.sn} className="hover:bg-[#e9eedf]/40 transition-colors">
-                      <td className="px-4 py-3 text-sm font-bold text-[#736450]">{row.sn}</td>
-                      <td className="px-4 py-3 text-sm font-bold text-[#3a3225] uppercase">{row.incident}</td>
-                      <td className="px-4 py-3 text-sm font-extrabold text-[#596E47] text-right">{row.total}</td>
+                      <td className="px-3 py-1.5 text-[11px] font-bold text-[#736450]">{row.sn}</td>
+                      <td className="px-3 py-1.5 text-[11px] font-bold text-[#3a3225] uppercase">{row.incident}</td>
+                      <td className="px-3 py-1.5 text-[11px] font-extrabold text-[#596E47] text-right">{row.total}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="3" className="px-4 py-8 text-center text-sm text-[#736450] font-medium">
+                    <td colSpan="3" className="px-3 py-4 text-center text-[11px] text-[#736450] font-medium">
                       No crimes reported for these specific filters.
                     </td>
                   </tr>
@@ -872,10 +885,10 @@ const AnalyticsDashboard = ({
               {crimeSummaryData.length > 0 && (
                 <tfoot className="bg-[#efece6] border-t-2 border-[#d3c2a8]">
                   <tr>
-                    <td colSpan="2" className="px-4 py-3 text-right text-sm font-extrabold text-[#3a3225] uppercase">
+                    <td colSpan="2" className="px-3 py-2 text-right text-[11px] font-extrabold text-[#3a3225] uppercase">
                       Grand Total
                     </td>
-                    <td className="px-4 py-3 text-right text-base font-extrabold text-amber-800">
+                    <td className="px-3 py-2 text-right text-xs font-extrabold text-amber-800">
                       {crimeSummaryGrandTotal}
                     </td>
                   </tr>
@@ -885,57 +898,57 @@ const AnalyticsDashboard = ({
           </div>
         </div>
       ) : (
-        <div className="space-y-6 animate-in fade-in duration-200">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             
-            <div className="bg-[#fbf8f3] p-6 rounded-2xl shadow-sm border border-[#e2d6c3] flex flex-col items-center justify-between">
-              <h3 className="text-sm font-bold text-[#3a3225] uppercase tracking-wide w-full text-left mb-4 flex items-center">
-                <PieChart size={16} className="mr-2 text-[#596E47]" /> Proportional Share (Proportions & Legend)
+            <div className="bg-[#fbf8f3] p-3.5 rounded-xl shadow-xs border border-[#e2d6c3] flex flex-col items-center justify-between">
+              <h3 className="text-xs font-bold text-[#3a3225] uppercase tracking-wide w-full text-left mb-2 flex items-center">
+                <PieChart size={14} className="mr-1.5 text-[#596E47]" /> Proportional Share
               </h3>
               
-              <div className="relative w-48 h-48 my-2">
+              <div className="relative w-36 h-36 my-1">
                 {totalRecords > 0 ? (
-                  <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90 drop-shadow-sm">
+                  <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90 drop-shadow-xs">
                     {pieSlices.map((slice, idx) => (
                       <path key={idx} d={slice.pathData} fill={slice.color} className="transition-all duration-300 hover:opacity-80 cursor-pointer" />
                     ))}
                   </svg>
                 ) : (
-                  <div className="w-full h-full rounded-full border-4 border-dashed border-[#e2d6c3] flex items-center justify-center text-xs text-[#736450] font-bold">No Data</div>
+                  <div className="w-full h-full rounded-full border-2 border-dashed border-[#e2d6c3] flex items-center justify-center text-[10px] text-[#736450] font-bold">No Data</div>
                 )}
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-xs text-[#736450] font-bold uppercase">Total</span>
-                  <span className="text-lg font-extrabold text-[#3a3225]">{totalRecords}</span>
+                  <span className="text-[10px] text-[#736450] font-bold uppercase">Total</span>
+                  <span className="text-sm font-extrabold text-[#3a3225]">{totalRecords}</span>
                 </div>
               </div>
 
-              <div className="w-full mt-4 max-h-36 overflow-y-auto custom-scrollbar space-y-1.5 pr-1 border-t border-[#e2d6c3] pt-3">
+              <div className="w-full mt-2 max-h-28 overflow-y-auto custom-scrollbar space-y-1 pr-1 border-t border-[#e2d6c3] pt-2">
                 {pieSlices.map((slice, idx) => (
-                  <div key={idx} className="flex items-center justify-between text-xs font-bold text-[#594d3c] px-2 py-1.5 bg-[#f4eee2] rounded border border-[#e2d6c3]/50">
-                    <div className="flex items-center space-x-2 truncate">
-                      <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: slice.color }}></span>
+                  <div key={idx} className="flex items-center justify-between text-[11px] font-bold text-[#594d3c] px-2 py-1 bg-[#f4eee2] rounded border border-[#e2d6c3]/50">
+                    <div className="flex items-center space-x-1.5 truncate">
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: slice.color }}></span>
                       <span className="truncate uppercase">{slice.label}</span>
                     </div>
-                    <span className="text-[#736450] font-mono shrink-0 ml-2">{slice.count} entries ({slice.percent}%)</span>
+                    <span className="text-[#736450] font-mono shrink-0 ml-2">{slice.count} ({slice.percent}%)</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="bg-[#fbf8f3] p-6 rounded-2xl shadow-sm border border-[#e2d6c3] space-y-4">
-              <h3 className="text-sm font-bold text-[#3a3225] uppercase tracking-wide flex items-center">
-                <BarChart3 size={16} className="mr-2 text-[#596E47]" /> Comparative Distribution & Volume
+            <div className="bg-[#fbf8f3] p-3.5 rounded-xl shadow-xs border border-[#e2d6c3] space-y-2">
+              <h3 className="text-xs font-bold text-[#3a3225] uppercase tracking-wide flex items-center">
+                <BarChart3 size={14} className="mr-1.5 text-[#596E47]" /> Comparative Distribution & Volume
               </h3>
-              <div className="space-y-3 max-h-[380px] overflow-y-auto pr-2 custom-scrollbar">
+              <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1 custom-scrollbar">
                 {aggregatedData.map((item, idx) => {
                   const percentage = totalRecords > 0 ? (item.count / totalRecords) * 100 : 0;
                   return (
-                    <div key={idx} className="space-y-1">
-                      <div className="flex justify-between text-xs font-bold text-[#594d3c]">
+                    <div key={idx} className="space-y-0.5">
+                      <div className="flex justify-between text-[11px] font-bold text-[#594d3c]">
                         <span className="truncate pr-2 uppercase">{item.label}</span>
                         <span className="text-[#596E47] shrink-0">{item.count} ({percentage.toFixed(1)}%)</span>
                       </div>
-                      <div className="w-full bg-[#efece6] h-3 rounded-full overflow-hidden shadow-inner">
+                      <div className="w-full bg-[#efece6] h-2 rounded-full overflow-hidden shadow-inner">
                         <div className="bg-[#596E47] h-full rounded-full transition-all duration-500" style={{ width: `${Math.max(percentage, 2)}%` }}></div>
                       </div>
                     </div>

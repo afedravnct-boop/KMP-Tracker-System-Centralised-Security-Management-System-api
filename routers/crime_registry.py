@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+from datetime import datetime, timedelta
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_
-from datetime import datetime, timedelta
 
 from app import models
 from app.database import get_db
-from auth import get_current_user  # Adjust if your auth import path differs
+from auth import get_current_user
 
 router = APIRouter(prefix="/api/v1", tags=["Crime Registry"])
 
@@ -16,6 +17,17 @@ def get_officer_signature(user):
     rank = (user.rank or "").strip()
     name = (user.name or "").strip()
     return f"{fnum} {rank} {name}".strip().upper()
+
+def clean_model_dict(obj):
+    """Safely converts a SQLAlchemy instance to a clean JSON-serializable dictionary."""
+    if not obj:
+        return {}
+    d = obj.__dict__.copy()
+    d.pop('_sa_instance_state', None)
+    for k, v in d.items():
+        if isinstance(v, (datetime, )):
+            d[k] = v.isoformat()
+    return d
 
 @router.get("/reports")
 def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -178,8 +190,12 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
             if s.get('name') not in existing_names:
                 new_suspect = models.Suspect_Lockup(
                     report_id=sn, 
-                    name=s.get('name'), sex=s.get('sex'), age=str(s.get('age')) if s.get('age') else None,
-                    tribe=s.get('tribe'), residence=s.get('residence'), contact=s.get('contact'),
+                    name=s.get('name'), 
+                    sex=s.get('sex'), 
+                    age=str(s.get('age')) if s.get('age') else None,
+                    tribe=s.get('tribe'), 
+                    residence=s.get('residence'), 
+                    contact=s.get('contact'),
                     mental_health_status=s.get('mental_health_status'),
                     photo_url=s.get('photo_url') 
                 )
@@ -191,12 +207,15 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
+# 🟢 Fixed query parameters with explicit Query(default=None) & clean dictionary serialization
 @router.get("/reports/consolidated-ledger")
 def get_consolidated_ledger(
-    start_date: Optional[str] = None, 
-    end_date: Optional[str] = None, 
+    start_date: Optional[str] = Query(default=None), 
+    end_date: Optional[str] = Query(default=None), 
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
     db: Session = Depends(get_db), 
-    current_user = Depends(get_current_user)
+    current_user: models.Users = Depends(get_current_user)
 ):
     try:
         crimes = db.query(models.Crime_Reports).all() if hasattr(models, 'Crime_Reports') else []
@@ -204,9 +223,9 @@ def get_consolidated_ledger(
         stories = db.query(models.Success_Stories).all() if hasattr(models, 'Success_Stories') else []
         
         return {
-            "crimes": [c.__dict__ for c in crimes if hasattr(c, '__dict__')],
-            "statistics": [s.__dict__ for s in stats if hasattr(s, '__dict__')],
-            "stories": [st.__dict__ for st in stories if hasattr(st, '__dict__')]
+            "crimes": [clean_model_dict(c) for c in crimes],
+            "statistics": [clean_model_dict(s) for s in stats],
+            "stories": [clean_model_dict(st) for st in stories]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Consolidated ledger compilation error: {str(e)}")
