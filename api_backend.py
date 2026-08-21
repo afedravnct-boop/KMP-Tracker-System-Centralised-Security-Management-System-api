@@ -73,8 +73,7 @@ load_dotenv()
 
 app = FastAPI(title="KMP Centralised Security Data Management System")
 
-from routers import document_upload, general_documents, command_templates
-import ai_router
+from routers import document_upload, general_documents, command_templates, ai_router
 
 app.include_router(document_upload.router)
 app.include_router(general_documents.router)
