@@ -35,6 +35,8 @@ import { authFetch, hasValidSession, getAuthToken, setAuthSession, clearAuthSess
 // ====================================================================
 const API_URL = import.meta.env.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
 
+const lastActivityRef = useRef(Date.now());
+
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -1589,12 +1591,6 @@ const WorkspaceSecurityCurtain = () => {
           <div className="h-1/3 w-full bg-[#D91B23]"></div>
         </div>
 
-        {/* Tactical Radar Rings */}
-        <div className="absolute w-[600px] h-[600px] rounded-full border border-slate-800/60 animate-[spin_30s_linear_infinite] flex items-center justify-center pointer-events-none z-5">
-          <div className="w-[450px] h-[450px] rounded-full border border-dashed border-slate-700/40 animate-[spin_20s_linear_infinite_reverse] flex items-center justify-center">
-            <div className="w-[300px] h-[300px] rounded-full border border-slate-800/80"></div>
-          </div>
-        </div>
 
         {/* 3D Container */}
         <div 
@@ -1606,9 +1602,9 @@ const WorkspaceSecurityCurtain = () => {
             className="w-56 h-56 rounded-full shadow-[inset_-25px_-20px_45px_rgba(0,0,0,0.95),0_0_50px_rgba(0,0,0,0.85)] border-2 border-slate-700/60 overflow-hidden flex items-center justify-center bg-slate-900"
             style={{ 
               backgroundImage: `url('/upf_kmp_map.png')`,
-              backgroundSize: '800px 100%',
+              backgroundSize: '400px 100%',
               backgroundRepeat: 'repeat-x',
-              animation: 'continuous-globe-spin 14s linear infinite'
+              animation: 'continuous-globe-spin 16s linear infinite'
             }}
           />
            
@@ -1617,7 +1613,7 @@ const WorkspaceSecurityCurtain = () => {
             className="absolute inset-0 flex items-center justify-center pointer-events-none"
             style={{ 
               transformStyle: 'preserve-3d', 
-              animation: 'spin-orbit-y 18s linear infinite' 
+              animation: 'spin-orbit-y 20s linear infinite' 
             }}
           >
             {orbitText.map((char, i, arr) => (
@@ -2262,12 +2258,33 @@ const App = () => {
     initApp();
   }, [setCurrentUser]);
 
-// 🟢 REAL-TIME LISTENER & SYNC: Polls server every 5 seconds to sync AdminApprovals matrix changes live
+// 🟢 Light listener to track physical presence
+  useEffect(() => {
+    const markActive = () => {
+      lastActivityRef.current = Date.now();
+    };
+
+    const events = ['mousedown', 'keydown', 'touchstart', 'scroll'];
+    events.forEach(e => window.addEventListener(e, markActive, { passive: true }));
+
+    return () => {
+      events.forEach(e => window.removeEventListener(e, markActive));
+    };
+  }, []);
+
+  // 🟢 REAL-TIME LISTENER & SYNC: Polls server every 5s ONLY when user is active
   useEffect(() => {
     if (!currentUser?.fnum || !hasValidSession()) return; 
     const controller = new AbortController();
     
-const fetchAllData = async () => {
+    const fetchAllData = async () => {
+      // 🟢 1. Skip network fetch if browser tab is minimized or hidden
+      if (document.hidden) return;
+
+      // 🟢 2. Skip network fetch if user has been inactive for > 60 seconds (Idle Curtain active)
+      const isUserIdle = (Date.now() - lastActivityRef.current) > 60000;
+      if (isUserIdle) return;
+
       try {
         // ... your fetch requests (resUsers, etc.) ...
 
@@ -2318,13 +2335,25 @@ const fetchAllData = async () => {
       } 
     };    
 
+    // Initial immediate fetch on mount
     fetchAllData();
     
+    // Polling interval
     const pollingInterval = setInterval(fetchAllData, 5000);
+
+    // 🟢 3. Instantly resync the moment user switches back into the browser tab
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        lastActivityRef.current = Date.now();
+        fetchAllData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       controller.abort();
       clearInterval(pollingInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [currentUser?.fnum]);
 
