@@ -2234,26 +2234,29 @@ const App = () => {
     };
   }, []);
 
+// 🟢 REAL-TIME LISTENER & SYNC: Polls server every 5s ONLY when user is active
   useEffect(() => {
     if (!currentUser?.fnum || !hasValidSession()) return; 
     const controller = new AbortController();
     
     const fetchAllData = async () => {
+      // 🟢 1. Skip network fetch if browser tab is minimized or hidden
       if (document.hidden) return;
 
+      // 🟢 2. Skip network fetch if user has been inactive for > 60 seconds (Idle Curtain active)
       const isUserIdle = (Date.now() - lastActivityRef.current) > 60000;
       if (isUserIdle) return;
 
       try {
-        const [resUsers, resReports, resStats, resStories, resEst, resNom, resComms, resDocs] = await Promise.all([
+        // 🟢 3. Network fetch requests
+        const [resUsers, resReports, resStats, resStories, resEst, resNom, resComms] = await Promise.all([
           authFetch('/api/v1/users', { signal: controller.signal }),
           authFetch('/api/v1/reports', { signal: controller.signal }),
           authFetch('/api/v1/stats', { signal: controller.signal }),
           authFetch('/api/v1/stories', { signal: controller.signal }),
           authFetch('/api/v1/establishments', { signal: controller.signal }),
           authFetch('/api/v1/nominal-roll', { signal: controller.signal }),
-          authFetch('/api/v1/communications', { signal: controller.signal }),
-          authFetch('/api/v1/general-documents', { signal: controller.signal })
+          authFetch('/api/v1/communications', { signal: controller.signal })
         ]);
 
         if (resReports && resReports.ok) setReports(await resReports.json());
@@ -2262,8 +2265,8 @@ const App = () => {
         if (resEst && resEst.ok) setEstablishments(await resEst.json());
         if (resNom && resNom.ok) setNominal_Rolls(await resNom.json());
         if (resComms && resComms.ok) setAdminCommsData(await resComms.json());
-        if (resDocs && resDocs.ok) setGeneralDocs(await resDocs.json());
 
+        // 🟢 4. Sync dynamic matrix permissions in RAM only
         if (resUsers && resUsers.ok) {
           const allUsers = await resUsers.json();
           setUsers(allUsers);
@@ -2310,9 +2313,13 @@ const App = () => {
       } 
     };    
 
+    // Initial immediate fetch on mount
     fetchAllData();
+    
+    // Polling interval
     const pollingInterval = setInterval(fetchAllData, 5000);
 
+    // 🟢 5. Instantly resync the moment user switches back into the browser tab
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         lastActivityRef.current = Date.now();
