@@ -1469,7 +1469,6 @@ const WorkspaceSecurityCurtain = () => {
     const SESSION_TIMEOUT_MS = 29 * 60 * 1000;  // 29 Minutes to Warning
 
     const handleUserActivity = () => {
-      // 🟢 Never reset timers if the warning countdown or timeout modal is active
       if (showIdleWarning || isTimedOut) return;
 
       setIsWorkspaceIdle(false);
@@ -1502,7 +1501,7 @@ const WorkspaceSecurityCurtain = () => {
     };
   }, [isReadingMode, showIdleWarning, isTimedOut]);
 
-  // 🟢 2. DEDICATED 60-SECOND COUNTDOWN (Isolated from activity listener loop)
+  // 🟢 2. DEDICATED 60-SECOND COUNTDOWN
   useEffect(() => {
     if (!showIdleWarning || isTimedOut) return;
 
@@ -1512,7 +1511,7 @@ const WorkspaceSecurityCurtain = () => {
       setIdleCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(countdownInterval);
-          setIsTimedOut(true); // 🟢 Hits 0 and triggers the red "Acknowledge & Return to Login" view
+          setIsTimedOut(true);
           return 0;
         }
         return prev - 1;
@@ -1555,6 +1554,8 @@ const WorkspaceSecurityCurtain = () => {
     );
   }
 
+  const orbitText = "KAMPALA METROPOLITAN POLICE • CENTRAL SECURITY DATA MANAGEMENT SYSTEM • ".split('');
+
   return (
     <div 
       className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
@@ -1566,17 +1567,71 @@ const WorkspaceSecurityCurtain = () => {
         isolation: 'isolate'
       }}
     >
-      {/* Visual Background */}
+      {/* 🟢 CSS Animations */}
+      <style>{`
+        @keyframes spin-orbit-y {
+          0% { transform: rotateY(0deg); }
+          100% { transform: rotateY(360deg); }
+        }
+        @keyframes continuous-globe-spin {
+          0% { background-position-x: 0px; }
+          100% { background-position-x: -800px; }
+        }
+      `}</style>
+
+      {/* Visual Background Layer */}
       <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
-        <div className="absolute w-[600px] h-[600px] rounded-full border border-slate-800/60 animate-[spin_30s_linear_infinite] flex items-center justify-center pointer-events-none">
+        
+        {/* 🟢 Uganda Flag Tristriped Background */}
+        <div className="absolute inset-0 opacity-20 pointer-events-none flex flex-col justify-between z-0">
+          <div className="h-1/3 w-full bg-black"></div>
+          <div className="h-1/3 w-full bg-[#FCD116]"></div>
+          <div className="h-1/3 w-full bg-[#D91B23]"></div>
+        </div>
+
+        {/* Tactical Radar Rings */}
+        <div className="absolute w-[600px] h-[600px] rounded-full border border-slate-800/60 animate-[spin_30s_linear_infinite] flex items-center justify-center pointer-events-none z-5">
           <div className="w-[450px] h-[450px] rounded-full border border-dashed border-slate-700/40 animate-[spin_20s_linear_infinite_reverse] flex items-center justify-center">
             <div className="w-[300px] h-[300px] rounded-full border border-slate-800/80"></div>
           </div>
         </div>
-        <div className="absolute inset-0 opacity-10 pointer-events-none flex flex-col justify-between z-0">
-          <div className="h-1/3 w-full bg-black"></div>
-          <div className="h-1/3 w-full bg-[#FCD116]"></div>
-          <div className="h-1/3 w-full bg-[#D91B23]"></div>
+
+        {/* 3D Container */}
+        <div 
+          className="relative z-10 flex items-center justify-center w-72 h-72 rounded-full overflow-visible pointer-events-none"
+          style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}
+        >
+          {/* 🟢 Fast, True 360-Degree Continuous Panning Globe Sphere */}
+          <div 
+            className="w-56 h-56 rounded-full shadow-[inset_-25px_-20px_45px_rgba(0,0,0,0.95),0_0_50px_rgba(0,0,0,0.85)] border-2 border-slate-700/60 overflow-hidden flex items-center justify-center bg-slate-900"
+            style={{ 
+              backgroundImage: `url('/upf_kmp_map.png')`,
+              backgroundSize: '800px 100%',
+              backgroundRepeat: 'repeat-x',
+              animation: 'continuous-globe-spin 14s linear infinite'
+            }}
+          />
+           
+          {/* 🟢 Light Blue 3D Orbiting Text Ring */}
+          <div 
+            className="absolute inset-0 flex items-center justify-center pointer-events-none"
+            style={{ 
+              transformStyle: 'preserve-3d', 
+              animation: 'spin-orbit-y 18s linear infinite' 
+            }}
+          >
+            {orbitText.map((char, i, arr) => (
+              <span 
+                key={i} 
+                className="absolute text-sky-400 font-extrabold text-[11px] uppercase tracking-widest drop-shadow-[0_0_6px_rgba(56,189,248,0.9)]"
+                style={{ 
+                  transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(160px)` 
+                }}
+              >
+                {char === ' ' ? '\u00A0' : char}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1599,9 +1654,7 @@ const WorkspaceSecurityCurtain = () => {
               </p>
               <button 
                 type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
+                onClick={() => {
                   localStorage.removeItem('kmp_authToken');
                   localStorage.removeItem('kmp_currentUser');
                   localStorage.removeItem('kmp_currentPage');
@@ -1627,9 +1680,7 @@ const WorkspaceSecurityCurtain = () => {
               </p>
               <button 
                 type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
+                onClick={() => {
                   setShowIdleWarning(false);
                   setIsWorkspaceIdle(false);
                 }}
@@ -1645,6 +1696,7 @@ const WorkspaceSecurityCurtain = () => {
     </div>
   );
 };
+
 
 // ====================================================================
 // --- MAIN LAYOUT COMPONENT ---
@@ -2215,77 +2267,66 @@ const App = () => {
     if (!currentUser?.fnum || !hasValidSession()) return; 
     const controller = new AbortController();
     
-    const fetchAllData = async () => {
-      // 🟢 1. Validate session token without touching localStorage
-      if (!hasValidSession() || !currentUser?.fnum) return;
-
+const fetchAllData = async () => {
       try {
-        // 🟢 2. Use relative endpoints (authFetch handles BASE_URL and Bearer headers automatically)
-        const [resReports, resGeneralDocs, resStats, resStories, resNom, resComms, resEst, resArchives, resUsers] = await Promise.all([
-          authFetch('/api/v1/reports', { signal: controller.signal }), 
-          authFetch('/api/v1/general-documents', { signal: controller.signal }),
-          authFetch('/api/v1/stats', { signal: controller.signal }),
-          authFetch('/api/v1/stories', { signal: controller.signal }), 
-          authFetch('/api/v1/nominal-roll', { signal: controller.signal }),
-          authFetch('/api/v1/Admin_Communication', { signal: controller.signal }), 
-          authFetch('/api/v1/establishments', { signal: controller.signal }),
-          authFetch('/api/v1/nominal-roll-archive', { signal: controller.signal }), 
-          authFetch('/api/v1/users', { signal: controller.signal })
-        ]);
+        // ... your fetch requests (resUsers, etc.) ...
 
-        if (!controller.signal.aborted) {
-          // 🟢 3. Update active data states
-          if (resReports.ok) setReports(await resReports.json());
-          if (resGeneralDocs.ok) setGeneralDocs(await resGeneralDocs.json());
-          if (resStats.ok) setStats(await resStats.json());
-          if (resStories.ok) setStories(await resStories.json());
-          if (resNom.ok) setNominal_Rolls(await resNom.json());
-          if (resComms.ok) setAdminCommsData(await resComms.json());
-          if (resEst.ok) setEstablishments(await resEst.json());
-          if (resArchives.ok) setNominal_Roll_archives(await resArchives.json());
+        // 🟢 4. Sync dynamic matrix permissions in RAM only
+        if (resUsers && resUsers.ok) {
+          const allUsers = await resUsers.json();
+          setUsers(allUsers);
           
-// 🟢 4. Sync dynamic matrix permissions in RAM only (Permanent Stale-Closure Fix)
-          if (resUsers && resUsers.ok) {
-            const allUsers = await resUsers.json();
-            setUsers(allUsers);
-            
-            const myFnum = currentUser?.fnum;
-            const me = allUsers.find(u => u.fnum === myFnum);
+          const myFnum = currentUser?.fnum;
+          const me = allUsers.find(u => u.fnum === myFnum);
 
-            if (me) {
-              setCurrentUser(prev => {
-                if (!prev) return prev;
+          if (me) {
+            setCurrentUser(prev => {
+              if (!prev) return prev;
 
-                const isSuperAdmin = prev.role === 'SUPER_ADMIN' || me.role === 'SUPER_ADMIN';
-                const hasGlobalRoster = isSuperAdmin || me.permissions?.view_global_roster === true || prev.permissions?.view_global_roster === true;
-                const hasGlobalObserver = isSuperAdmin || me.permissions?.global_observer === true || prev.permissions?.global_observer === true;
+              const isSuperAdmin = prev.role === 'SUPER_ADMIN' || me.role === 'SUPER_ADMIN';
+              const hasGlobalRoster = isSuperAdmin || me.permissions?.view_global_roster === true || prev.permissions?.view_global_roster === true;
+              const hasGlobalObserver = isSuperAdmin || me.permissions?.global_observer === true || prev.permissions?.global_observer === true;
 
-                const mergedPermissions = {
-                  ...(prev.permissions || {}),
-                  ...(me.permissions || {}),
-                  view_global_roster: hasGlobalRoster,
-                  global_observer: hasGlobalObserver
-                };
+              const mergedPermissions = {
+                ...(prev.permissions || {}),
+                ...(me.permissions || {}),
+                view_global_roster: hasGlobalRoster,
+                global_observer: hasGlobalObserver
+              };
 
-                const resolvedRole = isSuperAdmin ? 'SUPER_ADMIN' : (me.role || prev.role);
+              const resolvedRole = isSuperAdmin ? 'SUPER_ADMIN' : (me.role || prev.role);
 
-                // Exact equality check against live state to avoid unnecessary renders
-                const permissionsUnchanged = JSON.stringify(mergedPermissions) === JSON.stringify(prev.permissions);
-                const roleUnchanged = resolvedRole === prev.role;
+              const permissionsUnchanged = JSON.stringify(mergedPermissions) === JSON.stringify(prev.permissions);
+              const roleUnchanged = resolvedRole === prev.role;
 
-                if (permissionsUnchanged && roleUnchanged) {
-                  return prev; // No state mutation, prevents flickering
-                }
+              if (permissionsUnchanged && roleUnchanged) {
+                return prev;
+              }
 
-                console.log("🛡️ Sovereign permissions securely synchronized live.");
-                return {
-                  ...prev,
-                  permissions: mergedPermissions,
-                  role: resolvedRole
-                };
-              });
-            }
+              return {
+                ...prev,
+                permissions: mergedPermissions,
+                role: resolvedRole
+              };
+            });
           }
+        }
+      } catch (error) { 
+        if (error.name !== 'AbortError' && error.message !== 'UNAUTHORIZED') {
+          console.error("Data Sync Error:", error);
+        }
+      } 
+    };    
+
+    fetchAllData();
+    
+    const pollingInterval = setInterval(fetchAllData, 5000);
+
+    return () => {
+      controller.abort();
+      clearInterval(pollingInterval);
+    };
+  }, [currentUser?.fnum]);
 
   const handleMasterExport = async (scope, value) => {
     let url = `/api/v1/reports/export?timeframe=all`; 
