@@ -203,10 +203,19 @@ def get_admin_communications(
             
         query = query.filter(or_(*visibility_conditions))
 
-    if start_date: 
-        query = query.filter(CommModel.created_at >= start_date)
-    if end_date: 
-        query = query.filter(CommModel.created_at <= f"{end_date} 23:59:59")
+    if start_date:
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            query = query.filter(CommModel.created_at >= start_dt)
+        except ValueError:
+            pass # Ignore malformed date strings
+            
+    if end_date:
+        try:
+            end_dt = datetime.strptime(f"{end_date} 23:59:59", "%Y-%m-%d %H:%M:%S")
+            query = query.filter(CommModel.created_at <= end_dt)
+        except ValueError:
+            pass # Ignore malformed date strings  
 
     comms = query.order_by(CommModel.created_at.desc()).all()
  

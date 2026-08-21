@@ -17,23 +17,17 @@ const autoCapitalize = (text) => {
 const adjustTimeOffset = (dateStr) => {
   if (!dateStr || dateStr === "Unknown Time") return dateStr;
   try {
-    const parts = dateStr.match(/(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?/);
-    if (!parts) return dateStr;
+    // Check if it's already a clean ISO string or basic format
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr; // Fallback to original string if invalid
     
-    const year = parseInt(parts[1], 10);
-    const month = parseInt(parts[2], 10) - 1;
-    const day = parseInt(parts[3], 10);
-    const hour = parseInt(parts[4], 10);
-    const minute = parseInt(parts[5], 10);
-    const second = parts[6] ? parseInt(parts[6], 10) : 0;
-
-    const d = new Date(year, month, day, hour, minute, second);
     d.setHours(d.getHours() - 3); // 🟢 Re-calibrate time back 3 hours
     
     const pad = (n) => n.toString().padStart(2, '0');
     let adjusted = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     
-    if (parts[6]) {
+    // Only append seconds if they were present in the original string and parseable
+    if (dateStr.split(':').length > 2) {
       adjusted += `:${pad(d.getSeconds())}`;
     }
     
