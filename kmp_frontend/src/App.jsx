@@ -1448,7 +1448,6 @@ const WorkspaceSecurityCurtain = () => {
   const [isReadingMode, setIsReadingMode] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   
-  // Session Timeout States
   const [showIdleWarning, setShowIdleWarning] = useState(false);
   const [idleCountdown, setIdleCountdown] = useState(60);
   const [isTimedOut, setIsTimedOut] = useState(false);
@@ -1456,7 +1455,7 @@ const WorkspaceSecurityCurtain = () => {
   const idleTimerRef = useRef(null);
   const sessionTimerRef = useRef(null);
 
-  // 🟢 1. USER ACTIVITY & INACTIVITY TIMERS (Only mounts once per reading mode state)
+  // 🟢 1. USER ACTIVITY LISTENER & INACTIVITY TIMERS
   useEffect(() => {
     if (isReadingMode || isTimedOut) {
       clearTimeout(idleTimerRef.current);
@@ -1466,11 +1465,11 @@ const WorkspaceSecurityCurtain = () => {
       return;
     }
 
-    const IDLE_TIMEOUT_MS = 60 * 1000;         // 1 Minute to visual idle curtain
-    const SESSION_TIMEOUT_MS = 29 * 60 * 1000; // 29 Minutes to session warning popup
+    const IDLE_TIMEOUT_MS = 60000;          // 1 Minute to visual backdrop
+    const SESSION_TIMEOUT_MS = 29 * 60 * 1000;  // 29 Minutes to Warning
 
     const handleUserActivity = () => {
-      // If the timeout warning is active or already expired, ignore micro-movements
+      // 🟢 Never reset timers if the warning countdown or timeout modal is active
       if (showIdleWarning || isTimedOut) return;
 
       setIsWorkspaceIdle(false);
@@ -1491,10 +1490,8 @@ const WorkspaceSecurityCurtain = () => {
       }, SESSION_TIMEOUT_MS);
     };
 
-    // Initial timer setup
     handleUserActivity();
 
-    // Listen to physical activity
     const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
     events.forEach(event => window.addEventListener(event, handleUserActivity, false));
 
@@ -1505,7 +1502,7 @@ const WorkspaceSecurityCurtain = () => {
     };
   }, [isReadingMode, showIdleWarning, isTimedOut]);
 
-  // 🟢 2. DEDICATED 60s COUNTDOWN ENGINE (Runs independently without reset interference)
+  // 🟢 2. DEDICATED 60-SECOND COUNTDOWN (Isolated from activity listener loop)
   useEffect(() => {
     if (!showIdleWarning || isTimedOut) return;
 
@@ -1515,7 +1512,7 @@ const WorkspaceSecurityCurtain = () => {
       setIdleCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(countdownInterval);
-          setIsTimedOut(true); // 🟢 Transitions directly to "Acknowledge & Return to Login"
+          setIsTimedOut(true); // 🟢 Hits 0 and triggers the red "Acknowledge & Return to Login" view
           return 0;
         }
         return prev - 1;
@@ -1525,33 +1522,32 @@ const WorkspaceSecurityCurtain = () => {
     return () => clearInterval(countdownInterval);
   }, [showIdleWarning, isTimedOut]);
 
-  // 🟢 3. ACTIVE SESSION TOGGLE PILL (Bottom Right Corner)
+  // Bottom Pill when active
   if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
     return (
-      <div className="fixed bottom-3 right-4 z-[99980]">
+      <div className="fixed bottom-6 right-6 z-[99990]">
         <div
           onMouseEnter={() => setIsExpanded(true)}
           onMouseLeave={() => setIsExpanded(false)}
           onClick={() => {
-            setIsReadingMode(prev => !prev);
+            setIsReadingMode(!isReadingMode);
             setIsWorkspaceIdle(false);
-            setShowIdleWarning(false);
           }}
-          className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-xl rounded-full border ${
-            isExpanded ? 'px-3 py-1.5' : 'p-1.5'
+          className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-2xl rounded-full border ${
+            isExpanded ? 'px-4 py-2' : 'p-2'
           } ${
             isReadingMode 
-              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.5)]' 
+              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)]' 
               : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
           }`}
         >
-          <span className={`relative flex h-2.5 w-2.5 ${isExpanded ? 'mr-2' : ''}`}>
+          <span className={`relative flex h-3 w-3 ${isExpanded ? 'mr-2.5' : ''}`}>
             <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-400 animate-ping'}`}></span>
-            <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isReadingMode ? 'bg-slate-950' : 'bg-green-500'}`}></span>
+            <span className={`relative inline-flex rounded-full h-3 w-3 ${isReadingMode ? 'bg-slate-950' : 'bg-green-500'}`}></span>
           </span>
           {isExpanded && (
-            <span className="font-extrabold text-[10px] uppercase tracking-wider whitespace-nowrap">
-              {isReadingMode ? 'Resume Idle Guard' : '🛡️ Pause Idle Curtain'}
+            <span className="font-bold text-xs uppercase tracking-wider whitespace-nowrap">
+              {isReadingMode ? 'Click to stop curtain' : '🛡️ Standard Idle Guard'}
             </span>
           )}
         </div>
@@ -1559,152 +1555,96 @@ const WorkspaceSecurityCurtain = () => {
     );
   }
 
-  const orbitText = "KAMPALA METROPOLITAN POLICE • CENTRAL SECURITY DATA MANAGEMENT SYSTEM • ".split('');
-
   return (
-    <>
-      {/* 🟢 CSS Animation Keyframes */}
-      <style>{`
-        @keyframes spin-orbit-y {
-          0% { transform: rotateY(0deg); }
-          100% { transform: rotateY(360deg); }
-        }
-        @keyframes globe-spin-y {
-          0% { transform: rotateY(0deg); }
-          100% { transform: rotateY(360deg); }
-        }
-      `}</style>
-
-      {/* 🟢 LAYER 1: 3D ROTATING PLANETARY CURTAIN */}
-      <div 
-        onClick={() => {
-          if (!showIdleWarning && !isTimedOut) {
-            setIsWorkspaceIdle(false);
-          }
-        }}
-        className="fixed inset-0 z-[2147483640] bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center cursor-pointer select-none overflow-hidden"
-      >
-        <div className="absolute inset-0 opacity-10 flex flex-col justify-between z-0 pointer-events-none">
+    <div 
+      className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
+      style={{
+        position: 'fixed',
+        top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 2147483647,
+        pointerEvents: showIdleWarning ? 'auto' : 'none',
+        isolation: 'isolate'
+      }}
+    >
+      {/* Visual Background */}
+      <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
+        <div className="absolute w-[600px] h-[600px] rounded-full border border-slate-800/60 animate-[spin_30s_linear_infinite] flex items-center justify-center pointer-events-none">
+          <div className="w-[450px] h-[450px] rounded-full border border-dashed border-slate-700/40 animate-[spin_20s_linear_infinite_reverse] flex items-center justify-center">
+            <div className="w-[300px] h-[300px] rounded-full border border-slate-800/80"></div>
+          </div>
+        </div>
+        <div className="absolute inset-0 opacity-10 pointer-events-none flex flex-col justify-between z-0">
           <div className="h-1/3 w-full bg-black"></div>
           <div className="h-1/3 w-full bg-[#FCD116]"></div>
           <div className="h-1/3 w-full bg-[#D91B23]"></div>
         </div>
-
-        {/* 3D Container (Pointer events disabled to avoid click capturing) */}
-        <div 
-          className="relative z-10 flex items-center justify-center w-72 h-72 rounded-full pointer-events-none"
-          style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}
-        >
-          {/* Central Rotating Globe */}
-          <div 
-            className="w-56 h-56 rounded-full shadow-[0_0_40px_rgba(0,0,0,0.8)] border-2 border-slate-700/60 overflow-hidden flex items-center justify-center bg-slate-900"
-            style={{ 
-              transformStyle: 'preserve-3d', 
-              animation: 'globe-spin-y 30s linear infinite' 
-            }}
-          >
-            <img 
-              src="/upf_kmp_map.png" 
-              alt="KMP Map" 
-              className="w-full h-full object-cover"
-              onError={(e) => { e.target.style.display = 'none'; }}
-            />
-          </div>
-           
-          {/* Horizontal Text Orbit Ring */}
-          <div 
-            className="absolute inset-0 flex items-center justify-center pointer-events-none"
-            style={{ 
-              transformStyle: 'preserve-3d', 
-              animation: 'spin-orbit-y 20s linear infinite' 
-            }}
-          >
-            {orbitText.map((char, i, arr) => (
-              <span 
-                key={i} 
-                className="absolute text-amber-400 font-extrabold text-[11px] uppercase tracking-widest drop-shadow-[0_0_6px_rgba(245,158,11,0.8)]"
-                style={{ 
-                  transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(160px)` 
-                }}
-              >
-                {char === ' ' ? '\u00A0' : char}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {!showIdleWarning && !isTimedOut && (
-          <p className="mt-8 text-xs font-bold text-slate-400 uppercase tracking-widest animate-pulse pointer-events-none">
-            Click anywhere or move mouse to resume session
-          </p>
-        )}
       </div>
 
-      {/* 🟢 LAYER 2: INTERACTIVE 2D SESSION TIMEOUT DIALOG */}
+      {/* Interactive Modal */}
       {showIdleWarning && (
-        <div className="fixed inset-0 z-[2147483647] flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs select-none pointer-events-auto">
-          <div 
-            onClick={(e) => e.stopPropagation()}
-            className="relative bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200"
-          >
-            {isTimedOut ? (
-              /* 🔴 TIMED OUT STATE: Final Logout Confirmation */
-              <>
-                <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-3 border border-red-100 shadow-inner">
-                  <AlertTriangle className="w-7 h-7 text-red-600 animate-bounce" />
-                </div>
-                <h4 className="text-lg font-extrabold text-slate-900 mb-1">
-                  Session Expired Due to Inactivity
-                </h4>
-                <p className="text-xs text-slate-600 leading-relaxed font-medium mb-5">
-                  Your security session has expired because the workstation was left unattended. You have been safely logged out.
-                </p>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    localStorage.removeItem('kmp_authToken');
-                    localStorage.removeItem('kmp_currentUser');
-                    localStorage.removeItem('kmp_currentPage');
-                    sessionStorage.clear();
-                    window.location.replace('/');
-                  }}
-                  className="w-full py-3 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer transition"
-                >
-                  Acknowledge & Return to Login
-                </button>
-              </>
-            ) : (
-              /* 🟡 WARNING STATE: Active 60s Countdown */
-              <>
-                <div className="w-14 h-14 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-3 border border-amber-200 shadow-inner">
-                  <span className="text-2xl">⏳</span>
-                </div>
-                <h4 className="text-lg font-extrabold text-slate-900 mb-1">
-                  Session Timeout Warning
-                </h4>
-                <p className="text-xs text-slate-600 leading-relaxed font-medium mb-5">
-                  Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Click below to continue working.
-                </p>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setShowIdleWarning(false);
-                    setIsWorkspaceIdle(false);
-                  }}
-                  className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
-                >
-                  Continue Session
-                </button>
-              </>
-            )}
-          </div>
+        <div 
+          onClick={(e) => e.stopPropagation()}
+          className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto"
+        >
+          {isTimedOut ? (
+            <>
+              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
+                <AlertTriangle className="w-8 h-8 text-red-600" />
+              </div>
+              <h4 className="text-xl font-extrabold text-slate-900 mb-2">
+                Session Expired Due to Inactivity
+              </h4>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
+                Your security session has expired because the system was left unattended. You have been securely logged out.
+              </p>
+              <button 
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  localStorage.removeItem('kmp_authToken');
+                  localStorage.removeItem('kmp_currentUser');
+                  localStorage.removeItem('kmp_currentPage');
+                  sessionStorage.clear();
+                  window.location.replace('/');
+                }}
+                className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer transition-colors"
+                style={{ position: 'relative', zIndex: 2147483647, pointerEvents: 'auto' }}
+              >
+                Acknowledge & Return to Login
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
+                <AlertTriangle className="w-8 h-8 text-amber-600" />
+              </div>
+              <h4 className="text-xl font-extrabold text-slate-900 mb-2">
+                Session Timeout Warning
+              </h4>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
+                Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Click below to continue working.
+              </p>
+              <button 
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowIdleWarning(false);
+                  setIsWorkspaceIdle(false);
+                }}
+                className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
+                style={{ position: 'relative', zIndex: 2147483647, pointerEvents: 'auto' }}
+              >
+                Continue Session
+              </button>
+            </>
+          )}
         </div>
       )}
-    </>
+    </div>
   );
 };
-
-export default WorkspaceSecurityCurtain;
 
 // ====================================================================
 // --- MAIN LAYOUT COMPONENT ---
@@ -2304,48 +2244,48 @@ const App = () => {
           if (resEst.ok) setEstablishments(await resEst.json());
           if (resArchives.ok) setNominal_Roll_archives(await resArchives.json());
           
-          // 🟢 4. Sync dynamic matrix permissions in RAM only
-          if (resUsers.ok) {
+// 🟢 4. Sync dynamic matrix permissions in RAM only (Permanent Stale-Closure Fix)
+          if (resUsers && resUsers.ok) {
             const allUsers = await resUsers.json();
             setUsers(allUsers);
-            const me = allUsers.find(u => u.fnum === currentUser.fnum);
+            
+            const myFnum = currentUser?.fnum;
+            const me = allUsers.find(u => u.fnum === myFnum);
+
             if (me) {
-              const mergedPermissions = {
-                ...(me.permissions || {}),
-                ...(currentUser.permissions || {}),
-                view_global_roster: currentUser.role === 'SUPER_ADMIN' || me.permissions?.view_global_roster === true || currentUser.permissions?.view_global_roster === true,
-                global_observer: currentUser.role === 'SUPER_ADMIN' || me.permissions?.global_observer === true || currentUser.permissions?.global_observer === true
-              };
+              setCurrentUser(prev => {
+                if (!prev) return prev;
 
-              const resolvedRole = currentUser.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : (me.role || currentUser.role);
+                const isSuperAdmin = prev.role === 'SUPER_ADMIN' || me.role === 'SUPER_ADMIN';
+                const hasGlobalRoster = isSuperAdmin || me.permissions?.view_global_roster === true || prev.permissions?.view_global_roster === true;
+                const hasGlobalObserver = isSuperAdmin || me.permissions?.global_observer === true || prev.permissions?.global_observer === true;
 
-              if (JSON.stringify(mergedPermissions) !== JSON.stringify(currentUser.permissions) || resolvedRole !== currentUser.role) {
-                setCurrentUser(prev => ({
+                const mergedPermissions = {
+                  ...(prev.permissions || {}),
+                  ...(me.permissions || {}),
+                  view_global_roster: hasGlobalRoster,
+                  global_observer: hasGlobalObserver
+                };
+
+                const resolvedRole = isSuperAdmin ? 'SUPER_ADMIN' : (me.role || prev.role);
+
+                // Exact equality check against live state to avoid unnecessary renders
+                const permissionsUnchanged = JSON.stringify(mergedPermissions) === JSON.stringify(prev.permissions);
+                const roleUnchanged = resolvedRole === prev.role;
+
+                if (permissionsUnchanged && roleUnchanged) {
+                  return prev; // No state mutation, prevents flickering
+                }
+
+                console.log("🛡️ Sovereign permissions securely synchronized live.");
+                return {
                   ...prev,
                   permissions: mergedPermissions,
                   role: resolvedRole
-                }));
-                console.log("🛡️ Sovereign permissions securely synchronized live.");
-              }
+                };
+              });
             }
           }
-        }
-      } catch (error) { 
-        if (error.name !== 'AbortError' && error.message !== 'UNAUTHORIZED') {
-          console.error("Data Sync Error:", error);
-        }
-      } 
-    };    
-
-    fetchAllData();
-    
-    const pollingInterval = setInterval(fetchAllData, 5000);
-
-    return () => {
-      controller.abort();
-      clearInterval(pollingInterval);
-    };
-  }, [currentUser?.fnum]);
 
   const handleMasterExport = async (scope, value) => {
     let url = `/api/v1/reports/export?timeframe=all`; 
