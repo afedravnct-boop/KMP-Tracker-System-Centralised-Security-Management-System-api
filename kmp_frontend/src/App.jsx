@@ -1465,6 +1465,7 @@ const WorkspaceSecurityCurtain = () => {
     const handleUserActivity = () => {
       if (isTimedOut) return;
       
+      // Dismiss the idle visual screen immediately upon movement unless a warning modal is active
       if (!showIdleWarning) {
         setIsWorkspaceIdle(false);
       }
@@ -1513,9 +1514,10 @@ const WorkspaceSecurityCurtain = () => {
     };
   }, [isReadingMode, showIdleWarning, isTimedOut]);
 
+  // When active and awake, show the discrete pill in the bottom corner
   if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
     return (
-      <div className="fixed bottom-6 right-6 z-[99990]">
+      <div className="fixed bottom-3 right-4 z-[99980]">
         <div
           onMouseEnter={() => setIsExpanded(true)}
           onMouseLeave={() => setIsExpanded(false)}
@@ -1523,21 +1525,21 @@ const WorkspaceSecurityCurtain = () => {
             setIsReadingMode(!isReadingMode);
             setIsWorkspaceIdle(false);
           }}
-          className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-2xl rounded-full border ${
-            isExpanded ? 'px-4 py-2' : 'p-2'
+          className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-xl rounded-full border ${
+            isExpanded ? 'px-3 py-1.5' : 'p-1.5'
           } ${
             isReadingMode 
-              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)]' 
+              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.5)]' 
               : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
           }`}
         >
-          <span className={`relative flex h-3 w-3 ${isExpanded ? 'mr-2.5' : ''}`}>
+          <span className={`relative flex h-2.5 w-2.5 ${isExpanded ? 'mr-2' : ''}`}>
             <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-400 animate-ping'}`}></span>
-            <span className={`relative inline-flex rounded-full h-3 w-3 ${isReadingMode ? 'bg-slate-950' : 'bg-green-500'}`}></span>
+            <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isReadingMode ? 'bg-slate-950' : 'bg-green-500'}`}></span>
           </span>
           {isExpanded && (
-            <span className="font-bold text-xs uppercase tracking-wider whitespace-nowrap">
-              {isReadingMode ? 'Click to stop curtain' : '🛡️ Standard Idle Guard'}
+            <span className="font-extrabold text-[10px] uppercase tracking-wider whitespace-nowrap">
+              {isReadingMode ? 'Pause Idle Curtain' : '🛡️ Idle Guard Active'}
             </span>
           )}
         </div>
@@ -1545,96 +1547,132 @@ const WorkspaceSecurityCurtain = () => {
     );
   }
 
+  const orbitText = "KAMPALA METROPOLITAN POLICE • CENTRAL SECURITY DATA MANAGEMENT SYSTEM • ".split('');
+
   return (
     <div 
-      className="idle-curtain-bg fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
+      onClick={() => {
+        if (!showIdleWarning && !isTimedOut) {
+          setIsWorkspaceIdle(false);
+        }
+      }}
+      className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden cursor-pointer select-none"
       style={{
         position: 'fixed',
         top: 0, left: 0, right: 0, bottom: 0,
-        zIndex: 2147483647,
-        pointerEvents: showIdleWarning ? 'auto' : 'none', // 🟢 Allows click-through when background is just spinning, enables pointer when modal is active
+        zIndex: 2147483640,
         isolation: 'isolate'
       }}
     >
-      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md transition-opacity duration-700 ease-in-out flex flex-col items-center justify-center pointer-events-none">
-        <div className="absolute inset-0 opacity-15 pointer-events-none flex flex-col justify-between z-0">
+      {/* Background Dim & National Colors */}
+      <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 opacity-10 flex flex-col justify-between z-0">
           <div className="h-1/3 w-full bg-black"></div>
           <div className="h-1/3 w-full bg-[#FCD116]"></div>
           <div className="h-1/3 w-full bg-[#D91B23]"></div>
         </div>
-        <div className="idle-backdrop-emblem z-10 pointer-events-none"></div>
 
-        <div className="idle-center-container relative z-20 flex items-center justify-center mx-auto my-auto pointer-events-none" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
-          <div className="spinning-map-globe absolute inset-0 w-full h-full" style={{ backgroundImage: `url('/upf_kmp_map.png')`, transform: 'translateZ(0)' }}></div>
+        {/* Tactical Radar / Emblem Circles */}
+        <div className="absolute w-[500px] h-[500px] rounded-full border border-slate-700/30 animate-[spin_40s_linear_infinite] flex items-center justify-center">
+          <div className="w-[380px] h-[380px] rounded-full border border-dashed border-slate-600/30 animate-[spin_25s_linear_infinite_reverse]"></div>
+        </div>
+
+        {/* 3D Map Globe & Floating Orbit Ring */}
+        <div 
+          className="relative z-10 flex items-center justify-center w-72 h-72 rounded-full overflow-visible"
+          style={{ perspective: '1000px', transformStyle: 'preserve-3d' }}
+        >
+          {/* Central Map Sphere */}
+          <div 
+            className="w-56 h-56 rounded-full shadow-[0_0_40px_rgba(0,0,0,0.8)] border-2 border-slate-700/60 overflow-hidden flex items-center justify-center bg-slate-900"
+          >
+            <img 
+              src="/upf_kmp_map.png" 
+              alt="KMP Map" 
+              className="w-full h-full object-cover animate-pulse"
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+          </div>
            
-          <div className="absolute inset-0 z-30 pointer-events-none" style={{ transformStyle: 'preserve-3d', animation: 'spin-orbit-y 20s linear infinite' }}>
-            {"KAMPALA METROPOLITAN POLICE TRACKER SYSTEM • CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('').map((char, i, arr) => (
+          {/* 3D Orbiting Ring with corrected radius (translateZ 160px) to prevent overlapping */}
+          <div 
+            className="absolute inset-0 flex items-center justify-center pointer-events-none"
+            style={{ 
+              transformStyle: 'preserve-3d', 
+              animation: 'spin 18s linear infinite' 
+            }}
+          >
+            {orbitText.map((char, i, arr) => (
               <span 
                 key={i} 
-                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-black text-xs sm:text-sm tracking-widest drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]"
-                style={{ transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(38vmin)` }}
+                className="absolute text-amber-400 font-extrabold text-[11px] uppercase tracking-widest drop-shadow-[0_0_6px_rgba(245,158,11,0.8)]"
+                style={{ 
+                  transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(155px)` 
+                }}
               >
                 {char === ' ' ? '\u00A0' : char}
               </span>
             ))}
           </div>
         </div>
+
+        {!showIdleWarning && (
+          <p className="mt-8 text-xs font-bold text-slate-400 uppercase tracking-widest animate-pulse">
+            Click anywhere or move mouse to resume session
+          </p>
+        )}
       </div>
 
+      {/* Session Timeout Warning / Expired Modal */}
       {showIdleWarning && (
         <div 
-          className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto"
-          style={{ pointerEvents: 'auto', isolation: 'isolate' }}
+          onClick={(e) => e.stopPropagation()}
+          className="relative z-[2147483647] bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto cursor-default"
         >
           {isTimedOut ? (
             <>
-              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
-                <AlertTriangle className="w-8 h-8 text-red-600" />
+              <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-3 border border-red-100 shadow-inner">
+                <span className="text-2xl">⚠️</span>
               </div>
-              <h4 className="text-xl font-extrabold text-slate-900 mb-2">
-                Session Expired Due to Inactivity
+              <h4 className="text-lg font-extrabold text-slate-900 mb-1">
+                Session Expired
               </h4>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
-                Your security token has expired because the system was left unattended. You have been securely logged out.
+              <p className="text-xs text-slate-600 leading-relaxed font-medium mb-5">
+                Your security session has timed out due to inactivity. Please log in again to continue.
               </p>
               <button 
                 type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
+                onClick={() => {
                   localStorage.removeItem('kmp_authToken');
                   localStorage.removeItem('kmp_currentUser');
                   localStorage.removeItem('kmp_currentPage');
                   sessionStorage.clear();
                   window.location.replace('/');
                 }}
-                className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer"
-                style={{ position: 'relative', zIndex: 2147483647, pointerEvents: 'auto' }}
+                className="w-full py-3 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer transition"
               >
                 Acknowledge & Return to Login
               </button>
             </>
           ) : (
             <>
-              <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
-                <AlertTriangle className="w-8 h-8 text-amber-600" />
+              <div className="w-14 h-14 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-3 border border-amber-200 shadow-inner">
+                <span className="text-2xl">⏳</span>
               </div>
-              <h4 className="text-xl font-extrabold text-slate-900 mb-2">
-                Session Timeout Warning
+              <h4 className="text-lg font-extrabold text-slate-900 mb-1">
+                Inactivity Warning
               </h4>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
-                Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Click below to continue working.
+              <p className="text-xs text-slate-600 leading-relaxed font-medium mb-5">
+                Session will lock in <span className="font-bold text-red-600">{idleCountdown}s</span>. Click below to keep working.
               </p>
               <button 
                 type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
+                onClick={() => {
                   setShowIdleWarning(false);
                   setIdleCountdown(60);
+                  setIsWorkspaceIdle(false);
                 }}
-                className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
-                style={{ position: 'relative', zIndex: 2147483647, pointerEvents: 'auto' }}
+                className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
               >
                 Continue Session
               </button>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
-  Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square
+  Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -9,10 +9,10 @@ import { authFetch, hasValidSession } from './api';
 // 🟢 REGIONAL HIERARCHY CONSTANTS
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
   "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "POLICE HEADQUARTERS": ["NAGURU", "KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE", "KMP Headquarters", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"]
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
 // 🟢 EXPANDED SUPER CONTROL PANEL MODULES
@@ -37,31 +37,6 @@ const CLEARANCE_MATRIX_COLS = [
   { key: 'export_logs', label: 'Export Logs', color: 'red', bg: 'bg-red-50/50' },
   { key: 'acc_tripartite_download', label: 'Tripartite Download', color: 'indigo', bg: 'bg-indigo-50/50' }
 ];
-
-const autoCapitalize = (text) => {
-  if (!text) return text;
-  return stripHtmlTags(text).replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
-    return separator + letter.toUpperCase();
-  });
-};
-
-const formatEATDateTime = (dateStr) => {
-  if (!dateStr) return 'N/A';
-  const cleanDateStr = stripHtmlTags(dateStr);
-  const d = new Date(cleanDateStr);
-  if (isNaN(d.getTime())) return cleanDateStr;
-
-  return d.toLocaleString('en-GB', {
-    timeZone: 'Africa/Nairobi', 
-    hour12: false,              
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  });
-};
 
 const formatOfficerHeader = (user) => {
   const fnum = stripHtmlTags(user.fnum || user.f_num || 'NO-FNUM');
@@ -113,12 +88,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
   const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
 
+  // 🟢 STABLE DATA FETCHERS (No circular dependencies)
   const fetchPendingUsers = useCallback(async () => {
-    if (!hasValidSession() || loadingPending) return;
+    if (!hasValidSession()) return;
     setLoadingPending(true);
     try {
       const res = await authFetch("/api/v1/admin/pending-users");
-      if (res.ok) {
+      if (res && res.ok) {
         const data = await res.json();
         setRealPendingUsers(Array.isArray(data) ? data : []);
       }
@@ -127,14 +103,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     } finally { 
       setLoadingPending(false); 
     }
-  }, [loadingPending]);
+  }, []);
 
   const fetchResets = useCallback(async () => {
-    if (!hasValidSession() || loadingResets) return;
+    if (!hasValidSession()) return;
     setLoadingResets(true);
     try {
       const res = await authFetch("/api/v1/admin/reset-requests");
-      if (res.ok) {
+      if (res && res.ok) {
         const data = await res.json();
         setResetRequests(Array.isArray(data) ? data : []);
       }
@@ -143,14 +119,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     } finally { 
       setLoadingResets(false); 
     }
-  }, [loadingResets]);
+  }, []);
 
   const fetchAllSystemUsers = useCallback(async () => {
-    if (!hasValidSession() || loadingUsers) return;
+    if (!hasValidSession()) return;
     setLoadingUsers(true);
     try {
       const res = await authFetch("/api/v1/users");
-      if (res.ok) {
+      if (res && res.ok) {
         const data = await res.json();
         setAllSystemUsers(Array.isArray(data) ? data : []);
       }
@@ -159,54 +135,55 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     } finally { 
       setLoadingUsers(false); 
     }
-  }, [loadingUsers]);
+  }, []);
 
   const fetchModRequests = useCallback(async () => {
-    if (!hasValidSession() || loadingRequests) return;
+    if (!hasValidSession()) return;
     setLoadingRequests(true);
     try {
       const res = await authFetch("/api/v1/requests");
-      if (res.ok) {
+      if (res && res.ok) {
         const data = await res.json();
         setModRequests(Array.isArray(data) ? data : []);
       }
-    } catch (err) {
+    } catch (err) { 
       console.error("Failed to sync requests:", err);
-    } finally {
-      setLoadingRequests(false);
+    } finally { 
+      setLoadingRequests(false); 
     }
-  }, [loadingRequests]);
+  }, []);
 
   const fetchAuditLogs = useCallback(async () => {
-    if (!hasValidSession() || loadingLogs) return;
+    if (!hasValidSession()) return;
     setLoadingLogs(true);
     try {
       const res = await authFetch("/api/v1/audit-logs");
-      if (res.ok) {
+      if (res && res.ok) {
         const data = await res.json();
         setAuditLogs(Array.isArray(data) ? data : []);
       }
-    } catch (err) {
+    } catch (err) { 
       console.error("Failed to sync audit logs:", err);
-    } finally {
-      setLoadingLogs(false);
+    } finally { 
+      setLoadingLogs(false); 
     }
-  }, [loadingLogs]);
+  }, []);
 
+  // 🟢 CLEAN TAB SWITCH SYNC (Triggers once per active tab selection)
   useEffect(() => {
-    if (activeTab === 'approvals' && realPendingUsers.length === 0) {
+    if (activeTab === 'approvals') {
       fetchPendingUsers();
-    } else if (activeTab === 'matrix' && allSystemUsers.length === 0) {
+    } else if (activeTab === 'matrix') {
       fetchAllSystemUsers();
-    } else if (activeTab === 'requests' && modRequests.length === 0) {
+    } else if (activeTab === 'requests') {
       fetchModRequests();
-    } else if (activeTab === 'logs' && auditLogs.length === 0) {
+    } else if (activeTab === 'logs') {
       fetchAuditLogs();
-      if (allSystemUsers.length === 0) fetchAllSystemUsers();
-    } else if (activeTab === 'resets' && resetRequests.length === 0) {
+      fetchAllSystemUsers();
+    } else if (activeTab === 'resets') {
       fetchResets();
     }
-  }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, realPendingUsers.length, allSystemUsers.length, modRequests.length, auditLogs.length, resetRequests.length]);
+  }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets]);
 
   const filteredPending = useMemo(() => {
     return realPendingUsers.filter(u => {
@@ -409,11 +386,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
     let locks = { ...(targetUser.permissions?.super_admin_locks || {}) };
     if (isSuperAdminOrTopCommand) {
-      if (value === false) {
-        locks[permissionKey] = true;
-      } else {
-        locks[permissionKey] = false;
-      }
+      locks[permissionKey] = !value;
     }
 
     const updatedPermissions = {
@@ -570,20 +543,20 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   return (
-    <div className="p-6 max-w-[1800px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
-      <div className="text-center mb-6 flex flex-col items-center">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => e.target.style.display = 'none'} />
-        <h1 className="text-3xl font-black text-slate-900 tracking-tight">Access & Command Approvals</h1>
-        <h3 className="text-xs text-slate-500 mt-1 font-medium">Review pending officer signups, granular clearance tiers, HR transfers, and Audit Logs.</h3>
+    <div className="p-4 max-w-[1800px] mx-auto space-y-4 relative z-10 animate-in fade-in duration-300">
+      <div className="text-center mb-4 flex flex-col items-center">
+        <img src="/upf_badge.png" alt="UPF Logo" className="w-14 h-14 mb-2 object-contain contrast-200 brightness-75 drop-shadow-xs" onError={(e) => e.target.style.display = 'none'} />
+        <h1 className="text-2xl font-black text-slate-900 tracking-tight">Access & Command Approvals</h1>
+        <h3 className="text-[11px] text-slate-500 mt-0.5 font-medium">Review pending officer signups, granular clearance tiers, HR transfers, and Audit Logs.</h3>
       </div>
 
       {/* Global Filter States */}
-      <div className="flex flex-col sm:flex-row justify-center gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row justify-center gap-2 mb-3">
         <select 
           value={filterRegion} 
           onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} 
           disabled={!canViewGlobalActive} 
-          className="border border-slate-300 rounded-xl px-4 py-2 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
+          className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
         >
           {canViewGlobalActive ? (
             <><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY || {}).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
@@ -594,53 +567,67 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           value={filterStation} 
           onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} 
           disabled={!canViewGlobalActive && !['RPC', 'Deputy Commander'].includes(currentUser?.role)} 
-          className="border border-slate-300 rounded-xl px-4 py-2 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
+          className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
         >
           {canViewGlobalActive || ['RPC', 'Deputy Commander'].includes(currentUser?.role) ? (
             <><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
           ) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
         </select>
+
+        {/* 🟢 Manual Refresh Button */}
+        <button
+          onClick={() => {
+            if (activeTab === 'approvals') fetchPendingUsers();
+            else if (activeTab === 'matrix') fetchAllSystemUsers();
+            else if (activeTab === 'requests') fetchModRequests();
+            else if (activeTab === 'logs') fetchAuditLogs();
+            else if (activeTab === 'resets') fetchResets();
+          }}
+          className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center justify-center transition cursor-pointer shadow-xs"
+          title="Refresh Current Queue"
+        >
+          <RefreshCw size={13} className="mr-1.5" /> Refresh Queue
+        </button>
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex space-x-2 border-b border-slate-200 mb-6 bg-white/50 backdrop-blur rounded-t-xl px-4 pt-4 overflow-x-auto custom-scrollbar">
-        <button onClick={() => setActiveTab('approvals')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>New Account Authorizations ({loadingPending ? '...' : filteredPending.length})</button>
-        <button onClick={() => setActiveTab('matrix')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'matrix' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Active Roster & Clearance Matrix ({filteredSystemUsers.length})</button>
-        <button onClick={() => setActiveTab('requests')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'requests' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>HR Modification Requests ({filteredRequests.length})</button>
-        <button onClick={() => setActiveTab('logs')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Audit Logs ({filteredLogs.length})</button>
-        <button onClick={() => setActiveTab('resets')} className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Password Resets ({filteredResets.length})</button>
+      <div className="flex space-x-1 border-b border-slate-200 mb-4 bg-white/50 backdrop-blur rounded-t-xl px-3 pt-3 overflow-x-auto custom-scrollbar">
+        <button onClick={() => setActiveTab('approvals')} className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>New Account Authorizations ({loadingPending ? '...' : filteredPending.length})</button>
+        <button onClick={() => setActiveTab('matrix')} className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'matrix' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Active Roster & Clearance Matrix ({filteredSystemUsers.length})</button>
+        <button onClick={() => setActiveTab('requests')} className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'requests' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>HR Modification Requests ({filteredRequests.length})</button>
+        <button onClick={() => setActiveTab('logs')} className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Audit Logs ({filteredLogs.length})</button>
+        <button onClick={() => setActiveTab('resets')} className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Password Resets ({filteredResets.length})</button>
       </div>
 
       {/* ACTIVE ROSTER & EXPANDED GRANULAR MATRIX TAB */}
       {activeTab === 'matrix' && (
         <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden w-full">
-          <div className="bg-slate-900 text-white p-4 text-xs font-extrabold uppercase tracking-wider flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+          <div className="bg-slate-900 text-white p-3 text-xs font-extrabold uppercase tracking-wider flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
             <span className="flex items-center">
-              <Shield className="w-4 h-4 mr-2 text-indigo-400" /> Super Control Panel - Active Roster Matrix ({stripHtmlTags(filterRegion)} {filterStation !== 'ALL STATIONS' ? `/ ${stripHtmlTags(filterStation)}` : ''})
+              <Shield className="w-4 h-4 mr-1.5 text-indigo-400" /> Super Control Panel - Active Roster Matrix ({stripHtmlTags(filterRegion)} {filterStation !== 'ALL STATIONS' ? `/ ${stripHtmlTags(filterStation)}` : ''})
             </span>
             <span className="text-[10px] text-slate-400 font-mono text-right">
-              Tiers: USER | ADMIN_USER | STATION_ADMIN | SYSTEM_ADMIN | SUPER_ADMIN_USER | SUPER_ADMIN | REVOKED
+              Tiers: USER | ADMIN_USER | STATION_ADMIN | SYSTEM_ADMIN | SUPER_ADMIN | REVOKED
             </span>
           </div>
             
           {loadingUsers ? (
-            <div className="p-12 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
+            <div className="p-8 text-center text-slate-400 font-medium animate-pulse text-xs flex items-center justify-center">
+              <Loader2 size={16} className="animate-spin mr-2 text-indigo-600" /> Syncing user database roster...
+            </div>
           ) : filteredSystemUsers.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 text-xs font-medium">No registered system users found for this regional filter.</div>
+            <div className="p-8 text-center text-slate-400 text-xs font-medium">No registered system users found for this regional filter.</div>
           ) : (
             <div className="overflow-x-auto w-full custom-scrollbar">
               <table className="min-w-max divide-y divide-slate-200 text-xs">
                 <thead className="bg-slate-50 text-slate-700 uppercase font-extrabold text-[10px]">
                   <tr>
-                    <th className="p-3 text-left sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Officer Details</th>
-                    <th className="p-3 text-center sticky left-[240px] z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Administrative Tier</th>
-                    
-                    <th className="p-3 text-center sticky left-[360px] z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Quick Actions</th>
+                    <th className="p-2.5 text-left sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Officer Details</th>
+                    <th className="p-2.5 text-center sticky left-[240px] z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Administrative Tier</th>
+                    <th className="p-2.5 text-center sticky left-[360px] z-10 bg-slate-50 shadow-[1px_0_0_#e2e8f0]">Quick Actions</th>
 
                     {CLEARANCE_MATRIX_COLS.map((col, idx) => {
-                      if (col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN') {
-                        return null;
-                      }
+                      if (col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN') return null;
 
                       return (
                         <th key={idx} className={`p-2 text-center border-l border-white/50 ${col.bg || ''}`}>
@@ -658,12 +645,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                     const p = u.permissions || {};
                     const isSuperAdmin = u.role === 'SUPER_ADMIN';
                     const isRevoked = u.role === 'REVOKED';
-                      
                     const isRoleSelectDisabled = isSuperAdmin && currentUser?.role !== 'SUPER_ADMIN';
 
                     return (
                       <tr key={u.fnum} className={`transition-colors ${isRevoked ? 'bg-red-50/40' : 'hover:bg-slate-50'}`}>
-                        <td className="p-3 sticky left-0 z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[240px]">
+                        <td className="p-2.5 sticky left-0 z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[240px]">
                           <div className={`font-extrabold text-[11px] flex items-center ${isRevoked ? 'text-red-900' : 'text-slate-900'}`}>
                             {formatOfficerHeader(u)}
                             {isSuperAdmin && (
@@ -672,7 +658,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                               </span>
                             )}
                             {p.global_observer && !isSuperAdmin && (
-                              <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-fuchsia-100 text-fuchsia-700 font-bold rounded-full border border-fuchsia-200" title="Observer Mode Active">
+                              <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-fuchsia-100 text-fuchsia-700 font-bold rounded-full border border-fuchsia-200">
                                 OBSERVER
                               </span>
                             )}
@@ -683,7 +669,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           </div>
                         </td>
 
-                        <td className="p-3 text-center sticky left-[240px] z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[120px]">
+                        <td className="p-2.5 text-center sticky left-[240px] z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[120px]">
                           <select 
                             value={u.role || 'USER'}
                             onChange={(e) => handleRoleTierChange(u.fnum, stripHtmlTags(e.target.value))}
@@ -708,33 +694,30 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           </select>
                         </td>
 
-                        <td className="p-3 text-center sticky left-[360px] z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[90px]">
+                        <td className="p-2.5 text-center sticky left-[360px] z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[90px]">
                           <div className="flex items-center justify-center space-x-1.5">
                             <button 
                               onClick={() => handleBulkMatrixAction(u.fnum, true)}
                               title="Check All Modules"
-                              className="p-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded border border-emerald-300 transition shadow-sm cursor-pointer"
+                              className="p-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded border border-emerald-300 transition shadow-xs cursor-pointer"
                             >
-                              <CheckSquare size={14} />
+                              <CheckSquare size={13} />
                             </button>
                             <button 
                               onClick={() => handleBulkMatrixAction(u.fnum, false)}
                               title="Uncheck All Modules (Deny Access)"
-                              className="p-1.5 bg-red-50 text-red-700 hover:bg-red-100 rounded border border-red-300 transition shadow-sm cursor-pointer"
+                              className="p-1 bg-red-50 text-red-700 hover:bg-red-100 rounded border border-red-300 transition shadow-xs cursor-pointer"
                             >
-                              <Square size={14} />
+                              <Square size={13} />
                             </button>
                           </div>
                         </td>
 
                         {CLEARANCE_MATRIX_COLS.map((col, idx) => {
-                          if (col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN') {
-                            return null;
-                          }
+                          if (col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN') return null;
 
                           const hasSuperAdminLock = Boolean(p.super_admin_locks?.[col.key]);
                           const isLockedVisually = hasSuperAdminLock && !isSuperAdminOrTopCommand;
-
                           const isStrictSuperAdminOnly = col.key === 'global_observer';
 
                           const isDisabled = 
@@ -752,14 +735,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                                   checked={isSuperAdmin || Boolean(p[col.key])} 
                                   disabled={isDisabled}
                                   onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
-                                  className={`w-4 h-4 rounded cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed accent-${col.color}-600`} 
+                                  className={`w-3.5 h-3.5 rounded cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed accent-${col.color}-600`} 
                                 />
-                                {(isLockedVisually || isSuperAdmin) && <Lock size={10} className="absolute -top-1.5 -right-2 text-red-600 drop-shadow-sm" title={isSuperAdmin ? "Super Admin Access Locked" : "Locked by High Command"} />}
+                                {(isLockedVisually || isSuperAdmin) && <Lock size={9} className="absolute -top-1.5 -right-2 text-red-600 drop-shadow-xs" title={isSuperAdmin ? "Super Admin Access Locked" : "Locked by High Command"} />}
                               </div>
                             </td>
                           );
                         })}
-
                       </tr>
                     );
                   })}
@@ -774,40 +756,42 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       {activeTab === 'approvals' && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
           {loadingPending ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs">Syncing with Command Database...</div>
+            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs flex items-center justify-center">
+              <Loader2 size={16} className="animate-spin mr-2 text-blue-600" /> Syncing with Command Database...
+            </div>
           ) : filteredPending.length === 0 ? (
             <div className="p-8 text-center text-slate-500 font-medium text-xs">No active unapproved access requests pending in selected queue.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold">
+                <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold text-[10px]">
                   <tr>
-                    <th className="px-4 py-3 text-left">Officer Details</th>
-                    <th className="px-4 py-3 text-left">Command Post</th>
-                    <th className="px-4 py-3 text-left">Derived Role Tier</th>
-                    <th className="px-4 py-3 text-left">Action</th>
+                    <th className="px-4 py-2.5 text-left">Officer Details</th>
+                    <th className="px-4 py-2.5 text-left">Command Post</th>
+                    <th className="px-4 py-2.5 text-left">Derived Role Tier</th>
+                    <th className="px-4 py-2.5 text-left">Action</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                   {filteredPending.map((user) => (
                     <tr key={user.fnum} className="hover:bg-blue-50/50">
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-4 py-2.5 whitespace-nowrap">
                         <div className="font-bold text-slate-900">{formatOfficerHeader(user)}</div>
-                        <div className="text-[11px] text-slate-400">{stripHtmlTags(user.phone)}</div>
+                        <div className="text-[10px] text-slate-400">{stripHtmlTags(user.phone)}</div>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-4 py-2.5 whitespace-nowrap">
                         <div className="font-bold text-blue-700">{stripHtmlTags(user.station)}</div>
-                        <div className="text-[11px] text-slate-500">{stripHtmlTags(user.region)}</div>
-                        <div className="text-[10px] bg-slate-100 px-2 py-0.5 rounded mt-0.5 inline-block border font-bold text-slate-600">{stripHtmlTags(user.position)}</div>
+                        <div className="text-[10px] text-slate-500">{stripHtmlTags(user.region)}</div>
+                        <div className="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded mt-0.5 inline-block border font-bold text-slate-600">{stripHtmlTags(user.position)}</div>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`px-2 inline-flex text-[11px] font-bold rounded-full border ${user.role?.includes('ADMIN') ? 'bg-purple-100 text-purple-800 border-purple-200' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <span className={`px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full border ${user.role?.includes('ADMIN') ? 'bg-purple-100 text-purple-800 border-purple-200' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>
                           {stripHtmlTags(user.role)}
                         </span>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <button onClick={() => handleApproveUser(user.fnum)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-4 rounded-lg shadow-xs text-xs transition flex items-center cursor-pointer">
-                          <CheckCircle size={14} className="mr-1" /> Approve Access
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <button onClick={() => handleApproveUser(user.fnum)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-md shadow-xs text-[11px] transition flex items-center cursor-pointer">
+                          <CheckCircle size={13} className="mr-1" /> Approve Access
                         </button>
                       </td>
                     </tr>
@@ -822,40 +806,42 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       {/* HR MODIFICATION REQUESTS TAB */}
       {activeTab === 'requests' && (
         <div className="bg-white rounded-xl shadow-xs border border-amber-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider">
+          <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider">
             <Shield className="w-4 h-4 mr-2 text-amber-400" /> HR Modification Requests
           </div>
           {loadingRequests ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs">Loading pending modifications...</div>
+            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs flex items-center justify-center">
+              <Loader2 size={16} className="animate-spin mr-2 text-amber-600" /> Loading pending modifications...
+            </div>
           ) : filteredRequests.length === 0 ? (
             <div className="p-8 text-center text-slate-500 font-medium text-xs">No pending profile modification requests in selected queue.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold">
+                <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold text-[10px]">
                   <tr>
-                    <th className="px-4 py-3 text-left">Officer Details</th>
-                    <th className="px-4 py-3 text-left">Requested Changes</th>
-                    <th className="px-4 py-3 text-left">Action</th>
+                    <th className="px-4 py-2.5 text-left">Officer Details</th>
+                    <th className="px-4 py-2.5 text-left">Requested Changes</th>
+                    <th className="px-4 py-2.5 text-left">Action</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                   {filteredRequests.map((req) => (
                     <tr key={req.id || req.sn} className="hover:bg-amber-50/50">
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-4 py-2.5 whitespace-nowrap">
                         <div className="font-extrabold text-blue-700">
                           {formatOfficerHeader({ fnum: req.fnum, rank: req.current_rank, name: req.current_name })}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {req.requested_name && req.requested_name !== req.current_name && <div className="text-xs"><span className="font-bold text-slate-400">Name:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_name)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_name)}</span></div>}
-                        {req.requested_rank && req.requested_rank !== req.current_rank && <div className="text-xs"><span className="font-bold text-slate-400">Rank:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_rank)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_rank)}</span></div>}
-                        {req.requested_station && req.requested_station !== req.current_station && <div className="text-xs"><span className="font-bold text-slate-400">Station:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_station)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_station)}</span></div>}
+                      <td className="px-4 py-2.5 text-slate-700">
+                        {req.requested_name && req.requested_name !== req.current_name && <div className="text-[11px]"><span className="font-bold text-slate-400">Name:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_name)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_name)}</span></div>}
+                        {req.requested_rank && req.requested_rank !== req.current_rank && <div className="text-[11px]"><span className="font-bold text-slate-400">Rank:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_rank)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_rank)}</span></div>}
+                        {req.requested_station && req.requested_station !== req.current_station && <div className="text-[11px]"><span className="font-bold text-slate-400">Station:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_station)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_station)}</span></div>}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-4 py-2.5 whitespace-nowrap">
                         <div className="flex space-x-2">
-                          <button onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center cursor-pointer shadow-xs"><CheckCircle size={14} className="mr-1" /> Approve</button>
-                          <button onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center cursor-pointer shadow-xs"><X size={14} className="mr-1" /> Reject</button>
+                          <button onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center cursor-pointer shadow-xs"><CheckCircle size={13} className="mr-1" /> Approve</button>
+                          <button onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center cursor-pointer shadow-xs"><X size={13} className="mr-1" /> Reject</button>
                         </div>
                       </td>
                     </tr>
@@ -870,20 +856,20 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       {/* AUDIT LOGS TAB */}
       {activeTab === 'logs' && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center justify-between text-white font-semibold text-xs uppercase tracking-wider">
+          <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center justify-between text-white font-semibold text-xs uppercase tracking-wider">
             <span className="flex items-center">
               <Shield className="w-4 h-4 mr-2 text-blue-400" /> System Audit Logs ({stripHtmlTags(filterRegion)} {filterStation !== 'ALL STATIONS' ? `/ ${stripHtmlTags(filterStation)}` : ''})
             </span>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-xs">
-              <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold">
+              <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold text-[10px]">
                 <tr>
-                  <th className="px-4 py-3 text-left">Timestamp</th>
-                  <th className="px-4 py-3 text-left">User FNUM</th>
-                  <th className="px-4 py-3 text-left">Event</th>
-                  <th className="px-4 py-3 text-left">Target</th>
-                  <th className="px-4 py-3 text-left">Details</th>
+                  <th className="px-4 py-2.5 text-left">Timestamp</th>
+                  <th className="px-4 py-2.5 text-left">User FNUM</th>
+                  <th className="px-4 py-2.5 text-left">Event</th>
+                  <th className="px-4 py-2.5 text-left">Target</th>
+                  <th className="px-4 py-2.5 text-left">Details</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-200">
@@ -894,13 +880,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 ) : (
                   filteredLogs.map((log) => (
                     <tr key={log.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 whitespace-nowrap text-slate-500 font-mono text-[11px]">
+                      <td className="px-4 py-2 whitespace-nowrap text-slate-500 font-mono text-[10px]">
                         {stripHtmlTags(log.created_at || 'Unknown Time')}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap font-extrabold text-blue-700">{stripHtmlTags(log.user_fnum)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap"><span className="font-extrabold text-slate-800 uppercase text-[11px]">{stripHtmlTags(log.event_type)}</span></td>
-                      <td className="px-4 py-3 text-slate-600 font-medium">{stripHtmlTags(log.target_user || 'N/A')}</td>
-                      <td className="px-4 py-3 text-slate-600">{stripHtmlTags(log.details)}</td>
+                      <td className="px-4 py-2 whitespace-nowrap font-extrabold text-blue-700">{stripHtmlTags(log.user_fnum)}</td>
+                      <td className="px-4 py-2 whitespace-nowrap"><span className="font-extrabold text-slate-800 uppercase text-[10px]">{stripHtmlTags(log.event_type)}</span></td>
+                      <td className="px-4 py-2 text-slate-600 font-medium text-[11px]">{stripHtmlTags(log.target_user || 'N/A')}</td>
+                      <td className="px-4 py-2 text-slate-600 text-[11px]">{stripHtmlTags(log.details)}</td>
                     </tr>
                   ))
                 )}
@@ -913,41 +899,43 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       {/* PASSWORD RESETS TAB */}
       {activeTab === 'resets' && (        
         <div className="bg-white rounded-xl shadow-xs border border-red-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider">
+          <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider">
             <Lock className="w-4 h-4 mr-2 text-red-400" /> Authorized Password Recovery
           </div>
           {loadingResets ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs">Scanning jurisdiction for requests...</div>
+            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs flex items-center justify-center">
+              <Loader2 size={16} className="animate-spin mr-2 text-red-600" /> Scanning jurisdiction for requests...
+            </div>
           ) : filteredResets.length === 0 ? (
             <div className="p-8 text-center text-slate-500 font-medium text-xs">No pending password reset requests in selected queue.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold">
+                <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold text-[10px]">
                   <tr>
-                    <th className="px-4 py-3 text-left">Date Requested</th>
-                    <th className="px-4 py-3 text-left">Officer Details</th>
-                    <th className="px-4 py-3 text-left">Station / Division</th>
-                    <th className="px-4 py-3 text-left">Command Action</th>
+                    <th className="px-4 py-2.5 text-left">Date Requested</th>
+                    <th className="px-4 py-2.5 text-left">Officer Details</th>
+                    <th className="px-4 py-2.5 text-left">Station / Division</th>
+                    <th className="px-4 py-2.5 text-left">Command Action</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                   {filteredResets.map((req) => (
                     <tr key={req.id} className="hover:bg-red-50/50">
-                      <td className="px-4 py-3 whitespace-nowrap font-bold text-slate-500 text-[11px]">{stripHtmlTags(req.request_date)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-4 py-2.5 whitespace-nowrap font-bold text-slate-500 text-[10px]">{stripHtmlTags(req.request_date)}</td>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
                         <div className="font-extrabold text-blue-700">
                           {formatOfficerHeader({ fnum: req.fnum, rank: req.rank, name: req.name })}
                         </div>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-slate-700">
+                      <td className="px-4 py-2.5 whitespace-nowrap text-slate-700">
                         <div className="font-bold">{stripHtmlTags(req.station)}</div>
-                        <div className="text-[11px] text-slate-500">{stripHtmlTags(req.region)}</div>
+                        <div className="text-[10px] text-slate-500">{stripHtmlTags(req.region)}</div>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-4 py-2.5 whitespace-nowrap">
                         <div className="flex space-x-2">
-                          <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-xs cursor-pointer"><Unlock size={14} className="mr-1" /> Authorize Reset</button>
-                          <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold py-1.5 px-3 rounded text-xs transition flex items-center shadow-xs cursor-pointer"><X size={14} className="mr-1" /> Reject</button>
+                          <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs cursor-pointer"><Unlock size={13} className="mr-1" /> Authorize Reset</button>
+                          <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs cursor-pointer"><X size={13} className="mr-1" /> Reject</button>
                         </div>
                       </td>
                     </tr>
@@ -962,48 +950,48 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       {/* MANDATORY JUSTIFICATION MODAL FOR REVOKING ACCESS */}
       {revokePrompt.isOpen && (
         <div className="fixed inset-0 z-[99999] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-300 overflow-hidden flex flex-col">
-                <div className="bg-red-600 px-6 py-4 flex items-center shrink-0">
-                    <AlertTriangle className="text-white mr-3 animate-pulse" size={24} />
-                    <h3 className="text-white font-extrabold text-sm uppercase tracking-wider">Mandatory Justification Required</h3>
-                </div>
-                 
-                <div className="p-6 space-y-4">
-                    <p className="text-sm font-bold text-slate-700 leading-relaxed">
-                        You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${stripHtmlTags(revokePrompt.permissionKey)}" clearance`}</span> for this officer. By command directive, you must state an official operational reason to proceed.
-                    </p>
-                    <textarea 
-                        value={revokePrompt.reason}
-                        onChange={(e) => setRevokePrompt({...revokePrompt, reason: stripHtmlTags(e.target.value)})}
-                        placeholder="Type official reason for revocation here..."
-                        className="w-full border border-slate-300 rounded-xl p-3 text-sm font-medium outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 resize-none h-32 bg-white"
-                    />
-                </div>
-                 
-                <div className="bg-slate-50 px-6 py-4 flex justify-end space-x-3 border-t border-slate-200 shrink-0">
-                    <button 
-                        onClick={() => setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' })}
-                        className="px-5 py-2.5 font-bold text-slate-600 text-xs bg-white border border-slate-300 rounded-xl hover:bg-slate-100 transition cursor-pointer"
-                    >
-                        Cancel Action
-                    </button>
-                    {revokePrompt.reason.trim().length >= 5 && (
-                        <button 
-                            onClick={() => {
-                                if (revokePrompt.actionType === 'ROLE') {
-                                    executeRoleChange(revokePrompt.fnum, revokePrompt.targetValue, revokePrompt.reason);
-                                } else {
-                                    executePermissionChange(revokePrompt.fnum, revokePrompt.permissionKey, revokePrompt.targetValue, revokePrompt.reason);
-                                }
-                                setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' });
-                            }}
-                            className="px-5 py-2.5 font-bold text-white text-xs bg-red-600 rounded-xl hover:bg-red-700 shadow-md transition flex items-center cursor-pointer animate-in fade-in slide-in-from-right-4"
-                        >
-                            <CheckCircle size={16} className="mr-2" /> Confirm Revocation
-                        </button>
-                    )}
-                </div>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-300 overflow-hidden flex flex-col">
+            <div className="bg-red-600 px-6 py-4 flex items-center shrink-0">
+              <AlertTriangle className="text-white mr-3 animate-pulse" size={22} />
+              <h3 className="text-white font-extrabold text-sm uppercase tracking-wider">Mandatory Justification Required</h3>
             </div>
+             
+            <div className="p-6 space-y-4">
+              <p className="text-sm font-bold text-slate-700 leading-relaxed">
+                You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${stripHtmlTags(revokePrompt.permissionKey)}" clearance`}</span> for this officer. By command directive, you must state an official operational reason to proceed.
+              </p>
+              <textarea 
+                value={revokePrompt.reason}
+                onChange={(e) => setRevokePrompt({...revokePrompt, reason: stripHtmlTags(e.target.value)})}
+                placeholder="Type official reason for revocation here..."
+                className="w-full border border-slate-300 rounded-xl p-3 text-sm font-medium outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 resize-none h-32 bg-white"
+              />
+            </div>
+             
+            <div className="bg-slate-50 px-6 py-4 flex justify-end space-x-3 border-t border-slate-200 shrink-0">
+              <button 
+                onClick={() => setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' })}
+                className="px-4 py-2 font-bold text-slate-600 text-xs bg-white border border-slate-300 rounded-xl hover:bg-slate-100 transition cursor-pointer"
+              >
+                Cancel Action
+              </button>
+              {revokePrompt.reason.trim().length >= 5 && (
+                <button 
+                  onClick={() => {
+                    if (revokePrompt.actionType === 'ROLE') {
+                      executeRoleChange(revokePrompt.fnum, revokePrompt.targetValue, revokePrompt.reason);
+                    } else {
+                      executePermissionChange(revokePrompt.fnum, revokePrompt.permissionKey, revokePrompt.targetValue, revokePrompt.reason);
+                    }
+                    setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' });
+                  }}
+                  className="px-4 py-2 font-bold text-white text-xs bg-red-600 rounded-xl hover:bg-red-700 shadow-md transition flex items-center cursor-pointer animate-in fade-in slide-in-from-right-4"
+                >
+                  <CheckCircle size={15} className="mr-1.5" /> Confirm Revocation
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>  
