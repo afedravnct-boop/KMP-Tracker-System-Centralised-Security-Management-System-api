@@ -115,17 +115,20 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         active_query = active_query.filter(func.upper(ActiveModel.station) == user_station)
         archive_query = archive_query.filter(func.upper(ArchiveModel.station) == user_station)
         
-    # Sort chronologically by creation date or database ID descending/ascending
-    sort_col = getattr(ActiveModel, 'created_at', getattr(ActiveModel, 'id', None))
-    if sort_col is not None:
-        active_query = active_query.order_by(sort_col.asc())
-        archive_query = archive_query.order_by(sort_col.asc())
+    # 🟢 Use each model's own column for sorting
+    sort_act = getattr(ActiveModel, 'created_at', getattr(ActiveModel, 'id', getattr(ActiveModel, 'sn', None)))
+    if sort_act is not None:
+        active_query = active_query.order_by(sort_act.asc())
+
+    sort_arc = getattr(ArchiveModel, 'created_at', getattr(ArchiveModel, 'id', getattr(ArchiveModel, 'sn', None)))
+    if sort_arc is not None:
+        archive_query = archive_query.order_by(sort_arc.asc())
 
     active_records = active_query.all()
     archive_records = archive_query.all()
     
     clean_results = []
-    sequence_counter = 1  # 🟢 Dynamic chronological counter
+    sequence_counter = 1
 
     # 1. Process Active Records
     for r in active_records:
@@ -142,7 +145,6 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         r_dict['acc_no'] = r_dict.get('acc_no') or r_dict.get('accno') or ''
         r_dict['bank_branch'] = r_dict.get('bank_branch') or r_dict.get('bankbranch') or ''
         
-        # 🟢 Assign clean chronological serial number
         r_dict['sn'] = sequence_counter
         r_dict['dbAuditId'] = getattr(r, 'id', sequence_counter)
         r_dict['is_archived'] = False
@@ -166,7 +168,6 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         r_dict['acc_no'] = r_dict.get('accno') or r_dict.get('acc_no') or ''
         r_dict['bank_branch'] = r_dict.get('bankbranch') or r_dict.get('bank_branch') or ''
         
-        # 🟢 Assign clean chronological serial number for archives too
         r_dict['sn'] = sequence_counter
         r_dict['dbAuditId'] = f"ARC-{getattr(r, 'id', sequence_counter)}"
         r_dict['is_archived'] = True
