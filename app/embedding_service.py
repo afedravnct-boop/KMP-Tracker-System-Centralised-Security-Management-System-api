@@ -3,16 +3,15 @@ import os
 from typing import List, Optional
 from datetime import datetime
 import pytz
-import google.generativeai as genai
+from google import genai
 from sqlalchemy.orm import Session
 
 # Import models & db helpers
 from app import models
 
-# Configure Gemini using your existing API Key
+# Configure the new Gemini Client
 api_key = os.getenv("GEMINI_API_KEY")
-if api_key:
-    genai.configure(api_key=api_key)
+client = genai.Client(api_key=api_key) if api_key else None
 
 def get_embedding_vector(text: str) -> List[float]:
     """Generates a 768-dim embedding vector via Gemini text-embedding-004."""
@@ -21,12 +20,12 @@ def get_embedding_vector(text: str) -> List[float]:
         return [0.0] * 768
         
     try:
-        response = genai.embed_content(
-            model="models/text-embedding-004",
-            content=clean_text,
-            task_type="retrieval_document"
+        # Use the new embed_content structure
+        response = client.models.embed_content(
+            model="text-embedding-004",
+            contents=clean_text
         )
-        return response['embedding']
+        return response.embeddings[0].values
     except Exception as e:
         print(f"Gemini Embedding Error: {e}")
         return [0.0] * 768
