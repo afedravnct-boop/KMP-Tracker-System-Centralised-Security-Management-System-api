@@ -1468,7 +1468,8 @@ const WorkspaceSecurityCurtain = () => {
   }, [isReadingMode, showIdleWarning, isTimedOut]);
 
   useEffect(() => {
-    if (!showIdleWarning || isTimedOut) return;
+    if (isTimedOut) return; // Only stop if already timed out
+    if (!showIdleWarning) return; // If warning isn't active, do nothing
 
     setIdleCountdown(60);
 
@@ -1476,7 +1477,8 @@ const WorkspaceSecurityCurtain = () => {
       setIdleCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(countdownInterval);
-          setIsTimedOut(true);
+          setShowIdleWarning(false); // Close the warning modal
+          setIsTimedOut(true);       // Open the Acknowledge & Return to Login modal
           return 0;
         }
         return prev - 1;
