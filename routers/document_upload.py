@@ -61,6 +61,12 @@ def get_template_model():
             return getattr(models, model_name)
     return None
 
+def get_general_doc_model():
+    for name in ['GeneralDocuments', 'General_Documents', 'general_documents']:
+        if hasattr(models, name):
+            return getattr(models, name)
+    return None
+
 def log_semantic_audit(db: Session, fnum: str, action: str, target_identifier: str, changes: dict, remarks: str = ""):
     try:
         eat_time = get_eat_now()
@@ -248,16 +254,20 @@ def download_archive_file(
 ):
     ArchiveModel = get_doc_archive_model()
     TemplateModel = get_template_model()
+    GeneralDocModel = get_general_doc_model()
     
+    # 🟢 1. Search across Archive, Templates, AND General Documents
     doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
     if not doc_record and TemplateModel:
         doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
+    if not doc_record and GeneralDocModel:
+        doc_record = db.query(GeneralDocModel).filter(GeneralDocModel.id == doc_id).first()
 
     if not doc_record:
         raise HTTPException(status_code=404, detail="Document record not found in system database.")
         
-    file_path = doc_record.file_path
-    file_name = doc_record.file_name
+    file_path = getattr(doc_record, 'file_path', getattr(doc_record, 'url', ''))
+    file_name = getattr(doc_record, 'file_name', getattr(doc_record, 'name', 'document'))
 
     if not str(file_path).startswith("http"):
         raise HTTPException(status_code=404, detail="Local static files cannot be dynamically watermarked. S3 storage required.")
@@ -274,7 +284,6 @@ def download_archive_file(
 
         eat_time = get_eat_now()
         timestamp_eat = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
-        iso_timestamp = eat_time.isoformat()
 
         officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
         officer_rank = (current_user.rank or "OFFICER").strip().upper()
@@ -283,19 +292,11 @@ def download_archive_file(
         command_post = f"{current_user.station or 'KMP HEADQUARTERS'}, {current_user.region or 'KMP HEADQUARTERS'}"
         stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
 
-        crypto_payload = {
-            "fnum": officer_fnum,
-            "rank": officer_rank,
-            "name": officer_name,
-            "signature": officer_signature,
-            "station": current_user.station or "KMP HEADQUARTERS",
-            "region": current_user.region or "KMP HEADQUARTERS",
-            "timestamp": iso_timestamp,
-            "stamp_id": stamp_id
-        }
-        encoded_token = base64.b64encode(json.dumps(crypto_payload).encode('utf-8')).decode('utf-8')
-        keywords_str = f"KMP_CSDMS_AUDIT_STAMP;FNUM:{officer_fnum};TOKEN:{encoded_token}"
-        comments_str = f"Forensically Certified Law Enforcement Export. Originating Officer: {officer_signature} [{command_post}]. Stamp ID: {stamp_id}"
+        # 🟢 2. Compact payload to stay well under the 255-character XML metadata limit
+        compact_payload = {"f": officer_fnum, "s": stamp_id}
+        encoded_token = base64.b64encode(json.dumps(compact_payload).encode('utf-8')).decode('utf-8')
+        keywords_str = f"KMP_AUDIT;{encoded_token}"[:250]
+        comments_str = f"Export: {officer_signature} [{command_post}]. ID: {stamp_id}"
 
         receipt_text = (
             "========================================================\n"
@@ -422,17 +423,22 @@ def delete_archive_file(
         
     ArchiveModel = get_doc_archive_model()
     TemplateModel = get_template_model()
+    GeneralDocModel = get_general_doc_model()
     
+    # 🟢 3. Resolve record across Archive, Templates, AND General Documents
     doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
     if not doc_record and TemplateModel:
         doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
+    if not doc_record and GeneralDocModel:
+        doc_record = db.query(GeneralDocModel).filter(GeneralDocModel.id == doc_id).first()
 
     if not doc_record:
         raise HTTPException(status_code=404, detail="Document not found.")
         
     try:
-        if str(doc_record.file_path).startswith("http"):
-            parsed_url = urllib.parse.urlparse(doc_record.file_path)
+        file_path = getattr(doc_record, 'file_path', getattr(doc_record, 'url', ''))
+        if str(file_path).startswith("http"):
+            parsed_url = urllib.parse.urlparse(file_path)
             s3_key = parsed_url.path.lstrip('/')
             try:
                 s3_client.delete_object(Bucket=BUCKET_NAME, Key=s3_key)
@@ -443,5 +449,6 @@ def delete_archive_file(
         db.commit()
         return {"message": "Document successfully deleted from repository and database."}
     except Exception as e:
-        print(f"Fetch error: {e}")
+        print(f"Delete error: {e}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
