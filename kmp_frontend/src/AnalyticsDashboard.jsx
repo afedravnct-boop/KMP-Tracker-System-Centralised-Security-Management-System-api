@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart, Clock, Users, Award, MapPin, Zap, CheckCircle2, GitCommit, Network, Loader2, BookOpen, ChevronDown, ChevronRight } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart, Clock, Users, Award, MapPin, Zap, CheckCircle2, GitCommit, Network, Loader2, BookOpen, ChevronDown, ChevronRight, Download } from 'lucide-react';
 import { authFetch, hasValidSession } from './api';
 
 const REGIONAL_HIERARCHY = {
@@ -37,7 +36,6 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   let cleanStation = (stationName || '').trim().toUpperCase();
   const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
 
-  // Normalize Kira Division / Kira Div variants
   if (cleanStation === "KIRA DIVISION" || cleanStation === "KIRA DIV" || cleanStation === "KIRA") {
     cleanStation = "KIRA DIV";
   }
@@ -493,120 +491,23 @@ const AnalyticsDashboard = ({
     return { rows: rows.sort((a, b) => b.currentArrests - a.currentArrests), currentWeek, previousWeek };
   }, [resolvedOperationalStats, selectedRegion, selectedStation]);
 
-const handleExportExcel = async () => {
+  // 🟢 ROUTED SECURE BACKEND EXPORT (Clean Excel data sheets without redundant metadata sheet)
+  const handleExportExcel = async () => {
     try {
-      const wb = XLSX.utils.book_new();
-      const forensicTimestamp = new Date().toISOString();
+      const response = await authFetch('/api/v1/hr/export-ledger'); 
+      if (!response.ok) throw new Error("Failed to securely generate the report.");
 
-      // Extract explicit officer credentials
-      const officerFnum = (currentUser?.fnum || 'HQ-UNKNOWN').trim().toUpperCase();
-      const officerRank = (currentUser?.rank || 'OFFICER').trim().toUpperCase();
-      const officerName = (currentUser?.name || 'UNKNOWN').trim().toUpperCase();
-      const officerSignature = `${officerFnum} ${officerRank} ${officerName}`;
-      const commandPost = `${currentUser?.station || 'KMP HEADQUARTERS'}, ${currentUser?.region || 'KMP HEADQUARTERS'}`;
-      
-      const forensicId = `KMP-STAMP-${officerFnum}-${Date.now().toString(36).toUpperCase()}`;
-      const cryptographicToken = btoa(JSON.stringify({
-        fnum: officerFnum,
-        rank: officerRank,
-        name: officerName,
-        station: currentUser?.station || 'HQ',
-        region: currentUser?.region || 'KMP HEADQUARTERS',
-        timestamp: forensicTimestamp,
-        stamp_id: forensicId
-      }));
-
-      // 🟢 1. Inject Immutable OOXML Core & Custom Properties
-      wb.Props = {
-        Title: "KMP Relational Operations & Manpower Audit",
-        Subject: `Exported by Force No: ${officerFnum}`,
-        Author: officerSignature,
-        LastAuthor: officerSignature,
-        Keywords: `KMP_CSDMS_AUDIT_STAMP;FNUM:${officerFnum};TOKEN:${cryptographicToken}`,
-        Comments: `Certified Law Enforcement Export. Originating Officer: ${officerSignature} [${commandPost}] at ${forensicTimestamp}. Stamp ID: ${forensicId}`,
-        Category: "RESTRICTED / FORENSIC POLICE RECORD",
-        Company: "Uganda Police Force - Kampala Metropolitan Command",
-        CreatedDate: new Date()
-      };
-
-      wb.Custprops = {
-        "OriginatingOfficer": officerSignature,
-        "ForceNumber": officerFnum,
-        "OfficerRank": officerRank,
-        "OfficerName": officerName,
-        "ExportTimestamp": forensicTimestamp,
-        "CommandJurisdiction": commandPost,
-        "AuditStampID": forensicId,
-        "CryptographicVerificationToken": cryptographicToken
-      };
-
-      // 🟢 2. Primary Visible Forensic Audit Sheet
-      const metaSheetData = [
-        ["KAMPALA METROPOLITAN POLICE - CENTRAL SECURITY DATA MANAGEMENT SYSTEM"],
-        ["OFFICIAL FORENSIC ANALYTICS & RELATIONAL IMPACT REPORT"],
-        [""],
-        ["Export Timestamp (EAT):", forensicTimestamp],
-        ["Authorized Exporting Officer:", officerSignature],
-        ["Force Number (F/NO):", officerFnum],
-        ["Command Jurisdiction:", commandPost],
-        ["Security Classification:", "RESTRICTED / ENCRYPTED LAW ENFORCEMENT RECORD"],
-        ["Cryptographic System Stamp ID:", forensicId],
-        ["Encrypted Forensic Token:", cryptographicToken]
-      ];
-
-      const wsMeta = XLSX.utils.aoa_to_sheet(metaSheetData);
-      wsMeta['!cols'] = [{ wch: 34 }, { wch: 70 }];
-      XLSX.utils.book_append_sheet(wb, wsMeta, "Forensic Audit Stamp");
-
-      // 🟢 3. Relational Impact Data Sheet
-      if (relationalImpactMatrix.length > 0) {
-        const relationalData = relationalImpactMatrix.map(row => ({
-          "Command Region": row.region,
-          "Station / Division": row.station,
-          "Snap Arrests / Disruptive Ops": row.arrests,
-          "Success Breakthroughs": row.successes,
-          "Active Crime Volume": row.crimes,
-          "Operational Impact Status": row.disruptionRating
-        }));
-        const wsRel = XLSX.utils.json_to_sheet(relationalData);
-        wsRel['!cols'] = [{ wch: 22 }, { wch: 30 }, { wch: 28 }, { wch: 30 }, { wch: 22 }, { wch: 35 }];
-        XLSX.utils.book_append_sheet(wb, wsRel, "Relational Impact Stats");
-      }
-
-      // 🟢 4. Deep Manpower Analysis Data Sheet
-      if (comprehensiveManpowerAnalysis.length > 0) {
-        const manpowerData = comprehensiveManpowerAnalysis.map(row => ({
-          "Command Region": row.region,
-          "Total Officers": row.officers,
-          "Male Personnel": row.male,
-          "Female Personnel": row.female,
-          "Dominant Rank": row.dominantRank,
-          "Recorded Crimes": row.crimes,
-          "Crime / Officer Ratio": row.crimePerOfficer,
-          "Arrests / Officer Ratio": row.arrestsPerOfficer
-        }));
-        const wsMan = XLSX.utils.json_to_sheet(manpowerData);
-        wsMan['!cols'] = [{ wch: 24 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 22 }, { wch: 22 }];
-        XLSX.utils.book_append_sheet(wb, wsMan, "Deep Manpower Analysis");
-      }
-
-      // 🟢 5. Generate and Download Workbook
-      const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array', props: true });
-      const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const filename = `KMP_Relational_Operations_Report_${new Date().toISOString().split('T')[0]}.xlsx`;
-      
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = filename;
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'SECURE_RELATIONAL_REPORT.zip');
       document.body.appendChild(link);
       link.click();
-      setTimeout(() => { 
-        document.body.removeChild(link); 
-        window.URL.revokeObjectURL(downloadUrl); 
-      }, 2000);
-
-      alert(`🔒 Forensic stamp compiled. Originating Officer: ${officerSignature}`);
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      alert(`🔒 Secure report generated. Use your Force Number to decrypt the ZIP archive.`);
     } catch (error) {
       alert(`Export Failed: ${error.message}`);
     }
@@ -622,7 +523,8 @@ const handleExportExcel = async () => {
           <p className="text-[11px] text-[#736450] font-medium">Tracking the dependency matrix: Disruptive Snap Operations ➔ Information Acquisition ➔ Asset Recovery & Gang Dismantling.</p>
         </div>
         <button onClick={handleExportExcel} className="bg-[#596E47] hover:bg-[#4A5D4E] text-white px-3 py-1.5 rounded-lg font-bold text-[11px] shadow-xs transition flex items-center space-x-1.5 cursor-pointer shrink-0">
-          <span>📥 Download Relational Report (Excel)</span>
+          <Download size={14} className="mr-1" />
+          <span>Download Relational Report (ZIP)</span>
         </button>
       </div>
 

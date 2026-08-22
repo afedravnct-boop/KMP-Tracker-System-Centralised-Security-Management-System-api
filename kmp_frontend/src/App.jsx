@@ -1537,7 +1537,7 @@ const WorkspaceSecurityCurtain = () => {
         position: 'fixed',
         top: 0, left: 0, right: 0, bottom: 0,
         zIndex: 2147483646,
-        pointerEvents: (showIdleWarning || isTimedOut) ? 'auto' : 'none',
+        pointerEvents: 'auto', // Always active so modals can receive clicks
         isolation: 'isolate'
       }}
     >
@@ -1941,11 +1941,15 @@ const DashboardLayout = ({
                         <button onClick={onViewHRReport} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center cursor-pointer">
                           <Eye size={14} className="mr-1"/> View
                         </button>
-                        {checkClearance(currentUser, 'export_data', true) && (
-                          <button onClick={onGenerateHRReport} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded transition flex items-center justify-center cursor-pointer">
-                            <Download size={14} className="mr-1"/> Export
-                          </button>
-                        )}
+{checkClearance(currentUser, 'export_data', true) && (
+  <button 
+    onClick={onGenerateHRReport} 
+    className="flex-1 flex items-center justify-center text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded px-3 py-1.5 transition-colors cursor-pointer"
+  >
+    <Download className="w-3 h-3 mr-2" />
+    Export
+  </button>
+)}
                       </div>
                     </div>
                     {checkClearance(currentUser, 'acc_consolidated', true) && (
@@ -2673,7 +2677,34 @@ const App = () => {
     );
   }
 
-  const handleGenerateHRReport = () => downloadWithAuth("/api/v1/export/establishments", "HR_Establishment_Summary.zip");
+  const handleGenerateHRReport = async () => {
+    try {
+      const response = await authFetch('/api/v1/hr/export-ledger'); 
+      
+      if (!response.ok) {
+        throw new Error("Failed to securely generate the export.");
+      }
+
+      const blob = await response.blob();
+      
+      // Force the browser to download it as a .zip
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'SECURE_HR_LEDGER.zip'); 
+      
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      alert("Export successful. Please use your exact Force Number to decrypt the ZIP file.");
+      
+    } catch (error) {
+      console.error("Export Error:", error);
+      alert("Command Error: Failed to download the HR Ledger.");
+    }
+  };
 
   const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
     setUsers(users.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: newPermissions } : u));

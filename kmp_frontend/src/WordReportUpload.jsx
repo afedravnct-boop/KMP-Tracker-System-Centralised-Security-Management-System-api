@@ -85,7 +85,12 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       const generalData = generalRes && generalRes.ok ? await generalRes.json() : [];
       const templateData = templateRes && templateRes.ok ? await templateRes.json() : [];
 
-      setDocuments([...archiveData, ...generalData, ...templateData]);
+      // 🟢 STRICT CATEGORY TAGGING: Force a category tag on every document as it arrives
+      const taggedArchive = archiveData.map(doc => ({ ...doc, categoryKey: 'weekly_report' }));
+      const taggedGeneral = generalData.map(doc => ({ ...doc, categoryKey: 'general_doc' }));
+      const taggedTemplates = templateData.map(doc => ({ ...doc, categoryKey: 'templates', isTemplate: true }));
+
+      setDocuments([...taggedArchive, ...taggedGeneral, ...taggedTemplates]);
     } catch (err) {
       console.error("Archive fetch error:", err);
     } finally {
@@ -222,7 +227,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
         } else if (action === 'read') {
           const fileExtension = fileUrl.split('.').pop().split('?')[0].toLowerCase();
           
-          if (['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt'].includes(fileExtension)) {
+          if (['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'csv'].includes(fileExtension)) {
             const officeViewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(fileUrl)}`;
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
             
@@ -286,26 +291,9 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
   const filteredDocuments = useMemo(() => {
     return documents.filter(doc => {
-      const docType = (doc.type || '').trim().toLowerCase();
-
-      if (activeCategory === 'weekly_report') {
-        if (!docType.includes('weekly') && !docType.includes('report')) return false;
-      } else if (activeCategory === 'general_doc') {
-        if (!docType.includes('general') && !docType.includes('statement') && !docType.includes('document')) return false;
-      } else if (activeCategory === 'templates') {
-        if (docType === 'general document' || docType.includes('weekly')) return false;
-
-        const isMatch = docType.includes('template') || 
-                        docType.includes('command template') || 
-                        docType.includes('document') || 
-                        docType.includes('spreadsheet') || 
-                        docType.includes('presentation') || 
-                        docType.includes('file') ||
-                        docType.includes('pdf') ||
-                        docType.includes('word') ||
-                        docType.includes('excel') ||
-                        docType.includes('powerpoint');
-        if (!isMatch) return false;
+      // 🟢 BULLETPROOF CATEGORY FILTERING: Only match the exact tag assigned during fetch
+      if (doc.categoryKey !== activeCategory) {
+        return false;
       }
 
       const stn = (doc.station || '').trim().toUpperCase();
@@ -561,8 +549,9 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                     
                     <td className="px-4 py-4 whitespace-nowrap text-right">
                       <div className="flex justify-end space-x-2">
+                        {/* 🟢 ROUTING FIX: Added doc.isTemplate flag to trigger correct API endpoint */}
                         <button 
-                          onClick={() => handleFileAction(doc.id, 'read')}
+                          onClick={() => handleFileAction(doc.id, 'read', doc.isTemplate)}
                           disabled={actionLoading === `read-${doc.id}`}
                           className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
                         >
@@ -573,7 +562,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                         {hasDownloadClearance ? (
                           <>
                             <button 
-                              onClick={() => handleFileAction(doc.id, 'download')}
+                              onClick={() => handleFileAction(doc.id, 'download', doc.isTemplate)}
                               disabled={actionLoading === `download-${doc.id}`}
                               className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
                             >
