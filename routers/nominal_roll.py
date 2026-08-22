@@ -1,5 +1,6 @@
 import io
 import os
+import math
 from datetime import datetime
 from typing import Optional, List, Union
 from urllib.parse import unquote
@@ -229,7 +230,9 @@ async def bulk_upload_nominal_roll(
 
             for _, row in df.iterrows():
                 fnum_val = row.get("f_num") or row.get("fnum") or row.get("force_number") or row.get("file_number")
-                if not fnum_val:
+                
+                # Check for stray string 'nan'
+                if not fnum_val or str(fnum_val).strip().lower() in ['nan', 'nat', 'none', 'null', '']:
                     continue
 
                 clean_fnum = str(fnum_val).strip().upper()
@@ -262,6 +265,13 @@ async def bulk_upload_nominal_roll(
                     "status": str(row.get("status") or "ACTIVE").strip().upper(),
                     "last_updated_by": officer_sig
                 }
+
+                # 🟢 2. AGGRESSIVE SAFETY PASS: Destroy literal 'nan' strings & floats
+                for key, value in officer_payload.items():
+                    if isinstance(value, str) and value.strip().lower() in ['nan', 'nat', 'none', 'null', '']:
+                        officer_payload[key] = None
+                    elif isinstance(value, float) and math.isnan(value):
+                        officer_payload[key] = None
 
                 if hasattr(ActiveModel, 'f_num'):
                     officer_payload['f_num'] = clean_fnum
