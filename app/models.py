@@ -445,9 +445,23 @@ class OperationalDocumentEmbedding(Base):
     sd_ref = Column(String(100), index=True)
     created_at = Column(DateTime)
 
+# ==========================================
+# 11. AI COMMAND CONSOLE LOGS
+# ==========================================
+class AI_Command_Logs(Base):
+    __tablename__ = "ai_command_logs"
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    fnum = Column(String, index=True)
+    prompt = Column(Text, nullable=False)
+    response = Column(Text, nullable=True)
+    target_region = Column(String, default="ALL REGIONS")
+    target_station = Column(String, default="ALL STATIONS")
+    created_at = Column(DateTime, default=get_eat_time)
+
 # =====================================================================
-# 11. CROSS-ROUTER COMPATIBILITY ALIASES
-# (Prevents naming crashes across different modular routers)
+# 12. CROSS-ROUTER COMPATIBILITY ALIASES
 # =====================================================================
 CrimeReports = Crime_Reports
 OperationalStatistics = Operational_Statistics
@@ -458,3 +472,5 @@ ModificationRequests = Modification_Requests
 PasswordResetRequests = Password_Reset_Requests
 CommunicationReads = Communication_Reads
 AdminCommunication = Admin_Communication
+AICommandLogs = AI_Command_Logs # 🟢 Add the alias here
+

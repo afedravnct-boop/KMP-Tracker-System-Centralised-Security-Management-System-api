@@ -9,6 +9,7 @@ from google.genai import types
 
 from auth import get_current_user
 from app.database import get_db
+from app import models  # 🟢 Ensure models is imported
 
 try:
     from embedding_service import get_embedding_vector
@@ -105,6 +106,23 @@ async def process_tactical_query(
                 system_instruction=system_rules
             )
         )
+
+        # 🟢 FIX: Securely log the interaction into the dedicated AI Command Logs table
+        try:
+            AIModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
+            if AIModel:
+                new_ai_log = AIModel(
+                    fnum=current_user.fnum,
+                    prompt=payload.prompt,
+                    response=response.text,
+                    target_region=payload.target_region,
+                    target_station=payload.target_station
+                )
+                db.add(new_ai_log)
+                db.commit()
+        except Exception as log_err:
+            print(f"Failed to save AI log to database: {log_err}")
+            db.rollback()
 
         return {
             "response": response.text,

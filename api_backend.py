@@ -879,7 +879,7 @@ def get_consolidated_ledger(
 
 
 # ====================================================================
-# FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
+# 6 FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
 # ====================================================================
 def run_weekly_tactical_briefing_job():
     eat_tz = pytz.timezone('Africa/Nairobi')
@@ -1045,74 +1045,61 @@ def start_scheduler():
 def shutdown_scheduler():
     scheduler.shutdown()
 
+
 # ====================================================================
-# 6. MASTER DATABASE & HR EXPORTS (SINGLE MASTER WORKBOOK WITH DUAL SHEETS)
+# 8. MASTER DATABASE (FULL ENCRYPTED ZIP)
 # ====================================================================
 @app.get("/api/v1/reports/export")
-@app.get("/api/v1/hr/export-ledger")
-@app.get("/api/v1/analytics/export")
-def export_master_database(
-    timeframe: str = "all", 
-    scope: Optional[str] = None, 
-    value: Optional[str] = None, 
-    db: Session = Depends(get_db), 
-    current_user: models.Users = Depends(require_export_privilege)
-):
+def export_master_database(timeframe: str = "all", scope: Optional[str] = None, value: Optional[str] = None, db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):
     try:
         is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
         
-        # 🟢 1. Dynamically resolve actual table models
         CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
         StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', getattr(models, 'Stats', None)))
         StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', getattr(models, 'Stories', None)))
         NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
         EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
         DocsModel = getattr(models, 'DocumentArchive', getattr(models, 'Document_Archive', getattr(models, 'document_archive', None)))
-        AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
+        ActivityModel = getattr(models, 'Activity_Logs', getattr(models, 'ActivityLogs', None))
+        
+        # 🟢 Grab the newly created AI model
+        AIModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
 
-        # 🟢 2. Bulletproof ORM Fetcher (Never crashes on bad column names)
         def get_orm_data(ModelClass, columns):
             if not ModelClass: return []
             try:
                 query = db.query(ModelClass)
-                if not is_global and hasattr(ModelClass, 'region'):
-                    query = query.filter(ModelClass.region == current_user.region)
-                
-                extracted = []
-                for r in query.all():
-                    row = []
-                    for col in columns:
-                        val = getattr(r, col, '')
-                        if isinstance(val, datetime): val = val.strftime("%Y-%m-%d %H:%M")
-                        row.append(str(val) if val is not None else '')
-                    extracted.append(row)
-                return extracted
-            except Exception as e:
-                print(f"Export warning for {ModelClass}: {e}")
-                return []
+                if not is_global and hasattr(ModelClass, 'region'): query = query.filter(ModelClass.region == current_user.region)
+                return [[str(getattr(r, col, '') if not isinstance(getattr(r, col, ''), datetime) else getattr(r, col, '').strftime("%Y-%m-%d %H:%M")) for col in columns] for r in query.all()]
+            except: return []
 
-        # 🟢 3. Fetch data safely mapped to precise UI column names
         cr_records = get_orm_data(CrimeModel, ['sd_ref', 'region', 'station', 'date', 'time', 'offence', 'status', 'suspects', 'last_updated_by'])
         ops_records = get_orm_data(StatsModel, ['date', 'region', 'station', 'arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted'])
         ss_records = get_orm_data(StoryModel, ['date', 'time', 'region', 'station', 'status', 'narrative'])
-        nr_records = get_orm_data(NomModel, ['fnum', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status'])
+        nr_records = get_orm_data(NomModel, ['f_num', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status'])
         est_records = get_orm_data(EstModel, ['region', 'division', 'station', 'personnel_in_station', 'sub_station', 'personnel_in_sub_station', 'post', 'personnel_in_post', 'booths', 'personnel_in_booth'])
         docs_records = get_orm_data(DocsModel, ['file_name', 'doc_type', 'file_size', 'region', 'station', 'uploaded_by', 'upload_date'])
         
-        # AI Command Logs
-        ai_records = []
-        if AuditModel:
+        # 🟢 AI Records Extraction
+        ai_records = get_orm_data(AIModel, ['fnum', 'prompt', 'response', 'target_region', 'created_at'])
+        
+        # Fallback: Scrape old AI records trapped in the Activity table
+        if ActivityModel and not ai_records:
             try:
-                ai_logs = db.query(AuditModel).filter(AuditModel.event_type.ilike('%AI%')).all()
-                for r in ai_logs:
-                    v_time = r.created_at.strftime("%Y-%m-%d %H:%M") if isinstance(r.created_at, datetime) else str(getattr(r, 'created_at', ''))
-                    ai_records.append([getattr(r, 'event_type', ''), getattr(r, 'details', ''), getattr(r, 'user_fnum', ''), v_time])
+                ai_act = db.query(ActivityModel).filter(
+                    or_(
+                        ActivityModel.module.ilike('%Command%'), 
+                        ActivityModel.module.ilike('%AI%'), 
+                        ActivityModel.action.ilike('%Query%')
+                    )
+                ).all()
+                for r in ai_act:
+                    v_time = r.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(r.created_at, 'strftime') else str(getattr(r, 'created_at', ''))
+                    ai_records.append([getattr(r, 'fnum', ''), getattr(r, 'details', ''), "N/A (Archived in Activity Logs)", "ALL REGIONS", v_time])
             except: pass
 
-        # Build Single Master Workbook with Dual Sheets
         wb = openpyxl.Workbook()
         wb.remove(wb.active) 
-        
         header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
         header_align = Alignment(horizontal="center", vertical="center")
@@ -1121,71 +1108,34 @@ def export_master_database(
             ws_gen = wb.create_sheet(title=title)
             ws_gen.append(["SN"] + headers)
             for cell in ws_gen[1]:
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = header_align
-            for idx, row in enumerate(data, 1):
-                ws_gen.append([idx] + list(row))
-            
+                cell.fill = header_fill; cell.font = header_font; cell.alignment = header_align
+            for idx, row in enumerate(data, 1): ws_gen.append([idx] + list(row))
             for col in ws_gen.columns:
-                max_len = max((len(str(cell.value or '')) for cell in col), default=0)
-                col_letter = col[0].column_letter
-                ws_gen.column_dimensions[col_letter].width = min(max_len + 3, 50)
+                max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+                ws_gen.column_dimensions[col[0].column_letter].width = min(max_len + 3, 50)
 
-            ws_print = wb.create_sheet(title=f"{title} (Print)")
-            ws_print.append(["SN"] + headers)
-            for cell in ws_print[1]:
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = header_align
-            for idx, row in enumerate(data, 1):
-                ws_print.append([idx] + list(row))
-            
-            ws_print.page_setup.orientation = ws_print.ORIENTATION_LANDSCAPE
-            ws_print.page_setup.paperSize = ws_print.PAPERSIZE_A4
-            ws_print.sheet_properties.pageSetUpPr.fitToPage = True
-            ws_print.page_setup.fitToWidth = 1
-            ws_print.page_setup.fitToHeight = 0
-
-            for col in ws_print.columns:
-                max_len = max((len(str(cell.value or '')) for cell in col), default=0)
-                col_letter = col[0].column_letter
-                ws_print.column_dimensions[col_letter].width = min(max_len + 2, 40)
-
-        # Append all domains into the single file
         add_domain_sheets("Crime Registry", ["SD Ref", "Region", "Station", "Date", "Time", "Offence", "Status", "Suspects", "Logged By"], cr_records)
         add_domain_sheets("OPS Statistics", ["Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"], ops_records)
         add_domain_sheets("Success Stories", ["Date", "Time", "Region", "Station", "Status", "Narrative"], ss_records)
         add_domain_sheets("Nominal Roll", ["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status"], nr_records)
         add_domain_sheets("Establishments", ["Region", "Division", "Station", "Pers(Stn)", "Sub-Station", "Pers(Sub)", "Post", "Pers(Post)", "Booths", "Pers(Booth)"], est_records)
         add_domain_sheets("Tripartite Reports", ["File Name", "Doc Type", "Size", "Region", "Station", "Uploaded By", "Upload Date"], docs_records)
-        add_domain_sheets("AI Command", ["Interaction Type", "Prompt / Details", "Officer FNUM", "Timestamp"], ai_records)
+        add_domain_sheets("AI Command", ["Officer FNUM", "User Prompt", "AI Response", "Target Region", "Timestamp"], ai_records)
 
-        # Apply Forensic Metadata Watermark
         eat_tz = pytz.timezone("Africa/Nairobi")
         eat_time = datetime.now(eat_tz).replace(tzinfo=None)
         
         officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
-        officer_rank = (current_user.rank or "OFFICER").strip().upper()
-        officer_name = (current_user.name or "UNKNOWN").strip().upper()
-        officer_signature = f"{officer_fnum} {officer_rank} {officer_name}"
-        command_post = f"{current_user.station or 'KMP HEADQUARTERS'}, {current_user.region or 'KMP HEADQUARTERS'}"
         stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
+        encoded_token = base64.b64encode(json.dumps({"f": officer_fnum, "s": stamp_id}).encode('utf-8')).decode('utf-8')
         
-        compact_payload = {"f": officer_fnum, "s": stamp_id}
-        encoded_token = base64.b64encode(json.dumps(compact_payload).encode('utf-8')).decode('utf-8')
-        
-        wb.properties.creator = officer_signature
-        wb.properties.lastModifiedBy = officer_signature
         wb.properties.keywords = f"KMP_AUDIT;{encoded_token}"
-        wb.properties.description = f"Export: {officer_signature} [{command_post}]. ID: {stamp_id}"
         wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
 
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # Secure AES-256 Zip Encrypted
         zip_stream = io.BytesIO()
         zip_password = str(current_user.fnum).strip().encode('utf-8')
 
@@ -1198,17 +1148,13 @@ def export_master_database(
         zip_filename = f"SECURE_MASTER_DB_{eat_time.strftime('%Y%m%d')}.zip"
         
         return StreamingResponse(
-            zip_stream, 
-            media_type="application/zip",
-            headers={
-                'Content-Disposition': f'attachment; filename="{zip_filename}"',
-                'Access-Control-Expose-Headers': 'Content-Disposition'
-            }
+            zip_stream, media_type="application/zip",
+            headers={'Content-Disposition': f'attachment; filename="{zip_filename}"', 'Access-Control-Expose-Headers': 'Content-Disposition'}
         )
-        
     except Exception as e:
-        print(f"Master export error: {e}")
         raise HTTPException(status_code=500, detail=f"Master export failed: {str(e)}")
+
+
 @app.get("/api/v1/export/establishments")
 def export_establishments_summary(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:

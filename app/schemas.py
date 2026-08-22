@@ -350,3 +350,15 @@ class AIQueryResponse(BaseModel):
     jurisdiction: str
     response: str
     metadata: Optional[Dict[str, Any]] = None
+
+class AILogBase(BaseModel):
+    fnum: str
+    prompt: str
+    response: str
+    target_region: Optional[str] = "ALL REGIONS"
+    target_station: Optional[str] = "ALL STATIONS"
+
+class AILogResponse(AILogBase):
+    id: int
+    created_at: Optional[datetime] = None
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
