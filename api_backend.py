@@ -1027,17 +1027,6 @@ def export_master_database(
 ):
     try:
         is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
-
-@app.get("/api/v1/reports/export")
-def export_master_database(
-    timeframe: str = "all", 
-    scope: Optional[str] = None, 
-    value: Optional[str] = None, 
-    db: Session = Depends(get_db), 
-    current_user: models.Users = Depends(require_export_privilege)
-):
-    try:
-        is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
         
         def get_where(table_prefix=""):
             return "" if is_global else f" WHERE {table_prefix}region = '{current_user.region}'"

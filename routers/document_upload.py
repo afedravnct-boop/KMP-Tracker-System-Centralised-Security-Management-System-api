@@ -300,8 +300,8 @@ def download_archive_file(
 
         receipt_text = (
             "========================================================\n"
-            "         KAMPALA METROPOLITAN POLICE HEADQUARTERS         \n"
-            "         SECURE DOCUMENT & TEMPLATES ACCESS         \n"
+            "         KAMPALA METROPOLITAN POLICE HEADQUARTERS        \n"
+            "         SECURE DOCUMENT & TEMPLATES ACCESS        \n"
             "--------------------------------------------------------\n"
             f"ACCESSED BY    : {officer_signature}\n"
             f"CLEARANCE      : {current_user.role} | STATION: {current_user.station}\n"
@@ -313,7 +313,7 @@ def download_archive_file(
         output_stream = io.BytesIO()
         content_type = "application/octet-stream"
 
-if file_extension == 'docx':
+        if file_extension == 'docx':
             word_doc = Document(io.BytesIO(raw_bytes))
             
             core_props = word_doc.core_properties
