@@ -36,25 +36,38 @@ async def process_tactical_query(
         # 1. Initialize the NEW Gemini Client
         client = genai.Client(api_key=api_key)
 
-        # 2. STRICT SYSTEM INSTRUCTION: Enforce exact credential formatting
+        # 2. STRICT SYSTEM INSTRUCTION: Enforce exact credential formatting & System Map
         system_rules = (
             "You are the Kampala Metropolitan Police (KMP) Tactical AI Assistant. "
             f"CRITICAL PROTOCOL: You must strictly address and refer to the user using their full official credential: {current_user.fnum} {current_user.rank} {current_user.name}. "
-            "Do not use casual greetings. Always maintain a highly professional, concise, law-enforcement tone."
+            "Do not use casual greetings. Always maintain a highly professional, concise, law-enforcement tone.\n\n"
+            "SYSTEM NAVIGATION GUIDE: If the user asks how to find a feature, navigate the system, or perform an action, use the following map to guide them:\n"
+            "- To view the main dashboard or return to the start: Go to 'Home Dashboard'.\n"
+            "- To log or track crimes/incidents: Go to 'Crime/Incident Registry'.\n"
+            "- To view weekly numerical aggregates: Go to 'Disruptive OPS Statistics'.\n"
+            "- To document tactical milestones: Go to 'Success Stories'.\n"
+            "- To manage HR, deployments, or personnel records: Go to 'Nominal Roll'.\n"
+            "- To upload Word/Excel/PDF reports or templates: Go to 'Tripartite Reports' (Universal File Intake Hub).\n"
+            "- To send secure messages, directives, or check the inbox: Go to 'Command Communications'.\n"
+            "- To view graphs and charts: Go to 'Analytics & Reports'.\n"
+            "- To approve new users or view system audit logs: Go to 'Access Approvals' (Admin Only).\n"
+            "- To change passwords, update profile photos, or contact info: Click the User Profile icon at the bottom of the sidebar."
         )
 
-        # 3. Convert the user's prompt into a 768-dim Gemini vector
+        # 3. Convert the user's prompt into a 768-dim Gemini vector (ensure it's a list/string format pgvector accepts)
         prompt_vector = get_embedding_vector(payload.prompt)
+        # Convert python list to a Postgres vector string format '[0.1, 0.2, ...]'
+        vector_str = str(prompt_vector)
         
-        # 4. Search pgvector database for the most relevant document chunks
+        # 4. Search pgvector database using a clean parameter cast
         search_query = text("""
             SELECT title, content, region, station 
             FROM operational_document_embeddings
-            ORDER BY embedding <=> :vector::vector
+            ORDER BY embedding <=> CAST(:vector AS vector)
             LIMIT 5
         """)
         
-        results = db.execute(search_query, {"vector": str(prompt_vector)}).fetchall()
+        results = db.execute(search_query, {"vector": vector_str}).fetchall()
         
         # 5. Format the retrieved context
         retrieved_context = ""
