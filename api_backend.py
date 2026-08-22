@@ -355,29 +355,43 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ====================================================================
+# STRICTLY ISOLATED ROUTES: DOCUMENTS, TEMPLATES, & WEEKLY REPORTS
+# ====================================================================
+
+# 1. GENERAL DOCUMENTS (Strictly General Docs, No Fallbacks)
+@app.get("/api/v1/general-documents")
+def get_general_documents(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    try:
+        DocModel = getattr(models, 'GeneralDocuments', getattr(models, 'General_Documents', None))
+        if not DocModel:
+            return []
+            
+        docs = db.query(DocModel).order_by(DocModel.id.desc()).all()
+        return [serialize_model_row(d) for d in docs]
+    except Exception as e:
+        print(f"General Documents Fetch Error: {e}")
+        return []
+
+# 2. COMMAND TEMPLATES (Strictly Templates)
 @app.get("/api/v1/templates/list")
 def get_command_templates(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
-        target_model = getattr(models, 'CommandTemplate', getattr(models, 'command_templates', None))
-        if not target_model:
+        TemplateModel = getattr(models, 'CommandTemplate', getattr(models, 'command_templates', None))
+        if not TemplateModel:
             return []
             
-        templates = db.query(target_model).all()
+        templates = db.query(TemplateModel).order_by(TemplateModel.id.desc()).all()
         results = []
         for t in templates:
             filename = getattr(t, 'file_name', None) or getattr(t, 's3_url', '') or "document"
             ext = filename.split('.')[-1].lower() if '.' in filename else "unknown"
             
-            if ext in ['docx', 'doc']:
-                file_type = "Word Document"
-            elif ext in ['xlsx', 'xls']:
-                file_type = "Excel Spreadsheet"
-            elif ext in ['pptx', 'ppt']:
-                file_type = "PowerPoint Presentation"
-            elif ext == 'pdf':
-                file_type = "PDF Document"
-            else:
-                file_type = "Command Template"
+            if ext in ['docx', 'doc']: file_type = "Word Document"
+            elif ext in ['xlsx', 'xls']: file_type = "Excel Spreadsheet"
+            elif ext in ['pptx', 'ppt']: file_type = "PowerPoint Presentation"
+            elif ext == 'pdf': file_type = "PDF Document"
+            else: file_type = "Command Template"
 
             last_up = getattr(t, 'upload_date', getattr(t, 'created_at', None))
             date_str = last_up.strftime("%Y-%m-%d") if isinstance(last_up, datetime) else str(last_up or "")
@@ -395,6 +409,20 @@ def get_command_templates(db: Session = Depends(get_db), current_user = Depends(
         return results
     except Exception as e:
         print(f"Templates List Error Traceback: {str(e)}")
+        return []
+
+# 3. WEEKLY REPORTS / SITREPS (Strictly Reports)
+@app.get("/api/v1/weekly-reports/list")
+def get_weekly_reports_list(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    try:
+        ReportModel = getattr(models, 'WeeklyReports', getattr(models, 'weekly_reports', getattr(models, 'Reports', None)))
+        if not ReportModel:
+            return []
+            
+        reports = db.query(ReportModel).order_by(ReportModel.id.desc()).all()
+        return [serialize_model_row(r) for r in reports]
+    except Exception as e:
+        print(f"Weekly Reports Fetch Error: {e}")
         return []
 
 @app.get("/api/v1/admin/pending-users")
@@ -695,6 +723,11 @@ def get_recipients_list(db: Session = Depends(get_db), current_user: models.User
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch recipients: {str(e)}")
 
+@app.get("/api/v1/hr/export-ledger")
+def export_hr_ledger_alias(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    """Alias route to catch the HR export request and pass it to the master export workflow."""
+    return export_master_database(db=db, current_user=current_user)
+
 @app.get("/api/v1/reports/establishments-json")
 def get_establishments_json(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
@@ -744,19 +777,6 @@ def get_consolidated_ledger(
         print(f"Consolidated Ledger DB Query Error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch consolidated data: {str(e)}")
 
-@app.get("/api/v1/general-documents")
-@app.get("/api/v1/documents/list")
-def get_general_documents(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    try:
-        DocModel = getattr(models, 'GeneralDocuments', getattr(models, 'General_Documents', getattr(models, 'CommandTemplate', None)))
-        if not DocModel:
-            return []
-            
-        docs = db.query(DocModel).order_by(DocModel.id.desc()).all()
-        return [serialize_model_row(d) for d in docs]
-    except Exception as e:
-        print(f"General Documents Fetch Error: {e}")
-        return []
 
 # ====================================================================
 # FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
