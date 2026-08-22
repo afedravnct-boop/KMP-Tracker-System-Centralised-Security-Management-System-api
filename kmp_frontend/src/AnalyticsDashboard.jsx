@@ -491,10 +491,11 @@ const AnalyticsDashboard = ({
     return { rows: rows.sort((a, b) => b.currentArrests - a.currentArrests), currentWeek, previousWeek };
   }, [resolvedOperationalStats, selectedRegion, selectedStation]);
 
-  // 🟢 ROUTED SECURE BACKEND EXPORT (Clean Excel data sheets without redundant metadata sheet)
+// 🟢 ROUTED SECURE BACKEND EXPORT (Clean Analytics Relational Report)
   const handleExportExcel = async () => {
     try {
-      const response = await authFetch('/api/v1/hr/export-ledger'); 
+      // 🟢 FIX: Change from /api/v1/hr/export-ledger to /api/v1/analytics/export
+      const response = await authFetch('/api/v1/analytics/export'); 
       if (!response.ok) throw new Error("Failed to securely generate the report.");
 
       const blob = await response.blob();
@@ -512,7 +513,6 @@ const AnalyticsDashboard = ({
       alert(`Export Failed: ${error.message}`);
     }
   };
-
   return (
     <div className="p-3 max-w-[1600px] mx-auto space-y-3 font-sans min-h-screen" style={{ backgroundColor: '#f4eee2' }}>
       

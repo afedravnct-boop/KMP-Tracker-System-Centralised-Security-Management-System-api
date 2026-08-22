@@ -910,8 +910,16 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
             ws.append([log.id, getattr(log, 'event_type', ''), getattr(log, 'target_user', ''), getattr(log, 'status', ''), getattr(log, 'details', ''), str(getattr(log, 'created_at', '')), getattr(log, 'user_fnum', '')])
 
         for col in ws.columns:
+            col_letter = col[0].column_letter
             max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-            ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 70)
+            
+            # If it's the 'Details' column (Column E), cap its width and enable text wrapping
+            if col[0].value == "Details":
+                ws.column_dimensions[col_letter].width = 50
+                for cell in col:
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            else:
+                ws.column_dimensions[col_letter].width = min(max_len + 3, 30)
 
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
