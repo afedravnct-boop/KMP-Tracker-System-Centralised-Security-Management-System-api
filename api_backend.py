@@ -759,6 +759,179 @@ def get_general_documents(db: Session = Depends(get_db), current_user = Depends(
         return []
 
 # ====================================================================
+# FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
+# ====================================================================
+from datetime import datetime, timedelta
+import pytz
+from sqlalchemy import text
+
+def run_weekly_tactical_briefing_job():
+    eat_tz = pytz.timezone('Africa/Nairobi')
+    now_eat = datetime.now(eat_tz).replace(tzinfo=None)
+    one_week_ago = now_eat - timedelta(days=7)
+    
+    print(f"[{now_eat}] Starting Dynamic Weekly Intelligence Briefing Compilation...")
+    
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    db = SessionLocal()
+    
+    try:
+        active_users = db.query(models.Users).filter(
+            models.Users.is_approved == True,
+            models.Users.email != None,
+            models.Users.email != ""
+        ).all()
+        
+        for user in active_users:
+            station = user.station
+            region = user.region
+            
+            is_global = user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
+            
+            # Scoped SQL filters
+            crime_filter = "" if is_global else f" AND station = '{station}'"
+            stats_filter = "" if is_global else f" AND station = '{station}'"
+            comms_filter = f" WHERE (target_station = '{station}' OR target_region = '{region}' OR target_audience = 'ALL_USERS')"
+            
+            # 1. Pull Real Weekly Crime Entries & Specific Offenses
+            crimes = db.execute(text(f"SELECT offence, narrative, status FROM reports WHERE created_at >= :start {crime_filter}"), {"start": one_week_ago}).fetchall()
+            
+            # 2. Pull Real Operational Statistics & Arrest Totals
+            ops_stats = db.execute(text(f"SELECT arrests, given_bond, cautioned, remanded, convicted FROM stats WHERE date >= :start {stats_filter}"), {"start": one_week_ago.date()}).fetchall()
+            
+            # 3. Pull Unread / Active Command Messages & Directives
+            unread_comms = db.execute(text(f"SELECT title, sender_fnum FROM command_communications {comms_filter} ORDER BY id DESC LIMIT 5")).fetchall()
+            
+            # --- DYNAMIC EVENT ANALYSIS ---
+            total_crimes = len(crimes)
+            total_arrests = sum(row.arrests or 0 for row in ops_stats)
+            total_remanded = sum(row.remanded or 0 for row in ops_stats)
+            
+            # Extract specific keyword triggers from real crime narratives/offences
+            all_text = " ".join([f"{r.offence} {r.narrative}" for r in crimes]).upper()
+            has_robbery = "ROBBERY" in all_text or "GUN" in all_text
+            has_fire = "FIRE" in all_text or "ARSON" in all_text
+            has_accident = "ACCIDENT" in all_text or "FATAL" in all_text
+            has_murder = "MURDER" in all_text or "HOMICIDE" in all_text
+            
+            # Build Custom Action Items Based on Actual Weekly Events
+            custom_actions = []
+            
+            if has_murder or has_robbery:
+                custom_actions.append("🔴 <b>High-Priority Security Spike:</b> Violent crime indicators (Robbery/Homicide) identified in weekly entries. Immediate deployment of intelligence-led snap operations and heightened checkpoint patrols is directed.")
+            if has_fire:
+                custom_actions.append("🔥 <b>Public Safety Alert:</b> Fire or arson events logged. Ensure coordination with the Fire Directorate for forensic site reviews and public sensitization.")
+            if has_accident:
+                custom_actions.append("🚗 <b>Traffic Hazard Notice:</b> Traffic incidents/fatalities registered. Increase highway visibility and targeted motorist compliance checks.")
+            if total_arrests > 0:
+                custom_actions.append(f"⚖️ <b>Case Management:</b> {total_arrests} total arrests logged this week. Ensure expeditious file sanctioning with State Attorneys and timely court production.")
+            
+            if not custom_actions:
+                custom_actions.append("✅ Operations stable for the period. Maintain regular community policing and perimeter defense protocols.")
+                
+            # Unread messages reminder
+            comms_alert = ""
+            if unread_comms:
+                comms_list_html = "".join([f"<li><b>{c.title}</b></li>" for c in unread_comms])
+                comms_alert = f"""
+                <h4 style="color: #dc2626;">📬 Pending Command Communications / Directives:</h4>
+                <p>You have active command updates requiring attention:</p>
+                <ul>{comms_list_html}</ul>
+                """
+
+            # 4. Synthesize Custom HTML Briefing
+            html_content = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 650px; margin: auto; border: 1px solid #e2d6c3; padding: 25px; background-color: #fbf8f3;">
+                <h2 style="color: #002060; text-align: center; border-bottom: 2px solid #002060; padding-bottom: 10px;">UGANDA POLICE FORCE</h2>
+                <h3 style="color: #596E47; text-align: center;">KMP Automated Tactical Intelligence & Event Brief</h3>
+                
+            # 5. Pull Newly Uploaded Documents / Templates from the Past Week
+            doc_query = text("""
+                SELECT file_name, doc_type, uploaded_by 
+                FROM document_archive 
+                WHERE upload_date >= :start 
+                ORDER BY id DESC LIMIT 5
+            """)
+            recent_docs = db.execute(doc_query, {"start": one_week_ago}).fetchall()
+            
+            docs_alert = ""
+            if recent_docs:
+                doc_list_html = "".join([f"<li><b>{d.file_name}</b> ({d.doc_type or 'General Doc'}) - Uploaded by {d.uploaded_by}</li>" for d in recent_docs])
+                docs_alert = f"""
+                <h4 style="color: #596E47; margin-top: 20px;">📂 New Operational Documents & Templates Published:</h4>
+                <p>New files added to the secure archive this week:</p>
+                <ul style="margin: 0; padding-left: 15px;">{doc_list_html}</ul>
+                """
+
+                <p><b>Officer:</b> {user.rank} {user.name} ({user.fnum})</p>
+                <p><b>Station / Command:</b> {station} / {region}</p>
+                <p><b>Briefing Period:</b> {one_week_ago.strftime('%Y-%m-%d')} to {now_eat.strftime('%Y-%m-%d')}</p>
+                
+                <hr style="border: 0; border-top: 1px solid #e2d6c3; margin: 15px 0;">
+                
+                <h4 style="color: #3a3225;">📊 Weekly Database Activity Overview:</h4>
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 15px;">
+                    <tr style="background-color: #efece6;">
+                        <td style="padding: 8px; border: 1px solid #d3c2a8;"><b>Registered Incidents</b></td>
+                        <td style="padding: 8px; border: 1px solid #d3c2a8; text-align: center;">{total_crimes}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border: 1px solid #d3c2a8;"><b>Disruptive Arrests</b></td>
+                        <td style="padding: 8px; border: 1px solid #d3c2a8; text-align: center;">{total_arrests}</td>
+                    </tr>
+                    <tr style="background-color: #efece6;">
+                        <td style="padding: 8px; border: 1px solid #d3c2a8;"><b>Suspects Remanded / Court</b></td>
+                        <td style="padding: 8px; border: 1px solid #d3c2a8; text-align: center;">{total_remanded}</td>
+                    </tr>
+                </table>
+
+                {comms_alert}
+                
+                <h4 style="color: #3a3225;">🎯 Custom Tactical Actions Recommended for You:</h4>
+                <div style="background-color: #e9eedf; border-left: 4px solid #596E47; padding: 12px; margin-bottom: 15px;">
+                    <ul style="margin: 0; padding-left: 15px;">
+                        {"".join([f"<li style='margin-bottom: 6px;'>{act}</li>" for act in custom_actions])}
+                    </ul>
+                </div>
+                
+                <p style="font-size: 11px; color: #736450; text-align: center; margin-top: 30px;">
+                    Generated automatically by the KMP Centralised Security Data Management System intelligence engine.
+                </p>
+            </div>
+            """
+            
+            # Uncomment when ready to dispatch live via FastMail
+            # message = MessageSchema(
+            #     subject=f"KMP Custom Tactical Briefing - {station} ({now_eat.strftime('%b %d')})",
+            #     recipients=[user.email],
+            #     body=html_content,
+            #     subtype="html"
+            # )
+            # _fm = FastMail(conf)
+            # await _fm.send_message(message)
+            
+            print(f"-> Compiled custom event-driven briefing for {user.fnum} at {station}")
+
+    except Exception as e:
+        print(f"Dynamic scheduler error: {e}")
+    finally:
+        db.close()
+
+# Initialize Scheduler
+scheduler = BackgroundScheduler()
+scheduler.add_job(run_weekly_tactical_briefing_job, 'cron', day_of_week='mon', hour=6, minute=0)
+
+@app.on_event("startup")
+def start_scheduler():
+    if not scheduler.running:
+        scheduler.start()
+        print("Dynamic Intelligence Background Scheduler started successfully.")
+
+@app.on_event("shutdown")
+def shutdown_scheduler():
+    scheduler.shutdown()
+
+# ====================================================================
 # 6. MASTER DATABASE & HR EXPORTS (SINGLE MASTER WORKBOOK WITH DUAL SHEETS)
 # ====================================================================
 @app.get("/api/v1/reports/export")
