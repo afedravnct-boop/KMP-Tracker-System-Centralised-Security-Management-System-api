@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { BarChart3, PlusCircle, Edit, AlertTriangle, CheckCircle } from 'lucide-react';
+import { authFetch, getAuthToken } from './api';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -159,10 +160,12 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     setFormData({ ...statData, sn: recordIdentifier, id: recordIdentifier });
   };
 
-  const handleFormSubmit = async (e) => { 
+const handleFormSubmit = async (e) => {  
     e.preventDefault();
-    const token = localStorage.getItem('kmp_authToken');
-    if (!token) return setNotification("Error: Security token missing.");
+    
+    // 🟢 CORRECT: Pull from session storage/memory via helper
+    const token = getAuthToken();
+    if (!token) return setNotification("Error: Security token missing. Please re-authenticate.");
     
     const targetEndpoint = statsDomain === 'AGRICULTURAL' ? '/api/v1/agric-stats' : '/api/v1/stats';
 
@@ -170,8 +173,8 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     const activeStation = (canViewGlobalActive && filterStation && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
 
     if (operation === 'new') {
-      const isDuplicate = currentDomainStats.some(s => 
-        String(s.station || '').trim().toUpperCase() === String(activeStation || '').trim().toUpperCase() && 
+      const isDuplicate = currentDomainStats.some(s =>  
+        String(s.station || '').trim().toUpperCase() === String(activeStation || '').trim().toUpperCase() &&  
         String(s.date) === String(formData.date)
       );
       
@@ -181,12 +184,12 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
 
       const exactNextSN = currentDomainStats.length > 0 ? Math.max(...currentDomainStats.map(s => s.sn || s.id || 0)) + 1 : 1;
       
-      const newStat = { 
-        ...formData, 
-        region: activeRegion, 
-        station: activeStation, 
-        sn: exactNextSN, 
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})` 
+      const newStat = {  
+        ...formData,  
+        region: activeRegion,  
+        station: activeStation,  
+        sn: exactNextSN,  
+        last_updated_by: `${currentUser.name} (${currentUser.fnum})`  
       };
       
       try {
@@ -200,23 +203,23 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
         }
         
         const savedData = await response.json().catch(() => newStat);
-        activeSetter([savedData, ...currentDomainStats]); 
+        activeSetter([savedData, ...currentDomainStats]);  
         setNotification(`✅ Statistics recorded successfully for ${activeStation}!`);
-        setFormData({ 
-          ...formData, arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, 
-          taken_to_court: 0, released: 0, remanded: 0, convicted: 0, sn: null, id: null 
+        setFormData({  
+          ...formData, arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0,  
+          taken_to_court: 0, released: 0, remanded: 0, convicted: 0, sn: null, id: null  
         });
-      } catch (err) { 
-        setNotification(`❌ Error: ${err.message}`); 
+      } catch (err) {  
+        setNotification(`❌ Error: ${err.message}`);  
       }
       
     } else if (operation === 'update') {
       const recordKey = formData.id || formData.sn;
       if (!recordKey) return setNotification("Error: Please select a record from the list to update first.");
 
-      const isDuplicateConflict = currentDomainStats.some(s => 
-        (String(s.station || '').trim().toUpperCase() === String(activeStation || '').trim().toUpperCase() && 
-         String(s.date) === String(formData.date)) && 
+      const isDuplicateConflict = currentDomainStats.some(s =>  
+        (String(s.station || '').trim().toUpperCase() === String(activeStation || '').trim().toUpperCase() &&  
+         String(s.date) === String(formData.date)) &&  
         (s.id !== recordKey && s.sn !== recordKey)
       );
       
@@ -224,16 +227,16 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
         return setNotification(`❌ Error: Another record for station '${activeStation}' on date '${formData.date}' already exists.`);
       }
 
-      const updatedRecord = { 
-        ...formData, 
-        region: activeRegion, 
-        station: activeStation, 
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})` 
+      const updatedRecord = {  
+        ...formData,  
+        region: activeRegion,  
+        station: activeStation,  
+        last_updated_by: `${currentUser.name} (${currentUser.fnum})`  
       };
 
       try {
-        const response = await fetch(`${API_URL}${targetEndpoint}/${recordKey}`, {
-          method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(updatedRecord)
+        const response = await authFetch(`${targetEndpoint}/${recordKey}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord)
         });
 
         if (!response.ok) {
@@ -242,11 +245,11 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
         }
         
         const updatedStats = currentDomainStats.map(s => (s.id === recordKey || s.sn === recordKey) ? updatedRecord : s);
-        activeSetter(updatedStats); 
+        activeSetter(updatedStats);  
         setNotification(`✅ Statistics ID ${recordKey} successfully updated!`);
         handleOperationToggle('new');
-      } catch (err) { 
-        setNotification(`❌ Error: ${err.message}`); 
+      } catch (err) {  
+        setNotification(`❌ Error: ${err.message}`);  
       }
     }
   };
