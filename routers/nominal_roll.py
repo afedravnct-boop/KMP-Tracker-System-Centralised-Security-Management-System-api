@@ -539,6 +539,10 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
         for a in archives:
             d = a.__dict__.copy()
             d.pop("_sa_instance_state", None)
+            # 🟢 FIX: Stringify dates so JSON serialization doesn't crash
+            for k, v in d.items():
+                if hasattr(v, 'isoformat'):
+                    d[k] = str(v)
             clean_list.append(d)
         return clean_list
     except Exception as e:

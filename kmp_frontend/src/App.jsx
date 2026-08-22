@@ -2247,13 +2247,14 @@ const App = () => {
       if (isUserIdle) return;
 
       try {
-        const [resUsers, resReports, resStats, resStories, resEst, resNom, resComms, resDocs] = await Promise.all([
+        const [resUsers, resReports, resStats, resStories, resEst, resNom, resArc, resComms, resDocs] = await Promise.all([
           authFetch('/api/v1/users', { signal: controller.signal }),
           authFetch('/api/v1/reports', { signal: controller.signal }),
           authFetch('/api/v1/stats', { signal: controller.signal }),
           authFetch('/api/v1/stories', { signal: controller.signal }),
           authFetch('/api/v1/establishments', { signal: controller.signal }),
           authFetch('/api/v1/nominal-roll', { signal: controller.signal }),
+          authFetch('/api/v1/nominal-roll-archive', { signal: controller.signal }), // <-- ADD THIS
           authFetch('/api/v1/communications', { signal: controller.signal }),
           authFetch('/api/v1/general-documents', { signal: controller.signal })
         ]);
@@ -2263,6 +2264,7 @@ const App = () => {
         if (resStories && resStories.ok) setStories(await resStories.json());
         if (resEst && resEst.ok) setEstablishments(await resEst.json());
         if (resNom && resNom.ok) setNominal_Rolls(await resNom.json());
+        if (resArc && resArc.ok) setNominal_Roll_archives(await resArc.json());
         if (resComms && resComms.ok) setAdminCommsData(await resComms.json());
         if (resDocs && resDocs.ok) setGeneralDocs(await resDocs.json());
 

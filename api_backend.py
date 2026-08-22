@@ -938,6 +938,7 @@ def export_hr_ledger(db: Session = Depends(get_db), current_user: models.Users =
         is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
         NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
         EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
+        ArcModel = getattr(models, 'NominalRollArchive', getattr(models, 'Nominal_Roll_Archive', None))        
 
         def get_orm_data(ModelClass, columns):
             if not ModelClass: return []
@@ -949,6 +950,7 @@ def export_hr_ledger(db: Session = Depends(get_db), current_user: models.Users =
 
         nr_records = get_orm_data(NomModel, ['f_num', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status'])
         est_records = get_orm_data(EstModel, ['region', 'division', 'station', 'personnel_in_station', 'sub_station', 'personnel_in_sub_station', 'post', 'personnel_in_post', 'booths', 'personnel_in_booth', 'installed_by', 'location', 'status', 'comment', 'last_updated_by'])
+        arc_records = get_orm_data(ArcModel, ['fnum', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status', 'archive_reason', 'archive_date'])
 
         wb = openpyxl.Workbook()
         wb.remove(wb.active) 
@@ -967,6 +969,7 @@ def export_hr_ledger(db: Session = Depends(get_db), current_user: models.Users =
 
         add_sheet("Nominal Roll", ["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status"], nr_records)
         add_sheet("establishments", ["Region", "Division", "Station", "Personnel (Station)", "Sub-Station", "Personnel (Sub-Stn)", "Post", "Personnel (Post)", "Booths", "Personnel (Booth)", "Installed By", "Location", "Status", "Comment", "Last Updated By"], est_records)
+        add_sheet("Archived Personnel", ["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status", "Reason", "Archived On"], arc_records)
 
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
@@ -1057,8 +1060,8 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
         DocsModel = getattr(models, 'DocumentArchive', getattr(models, 'Document_Archive', getattr(models, 'document_archive', None)))
         ActivityModel = getattr(models, 'Activity_Logs', getattr(models, 'ActivityLogs', None))
-        
         AIModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
+        ArcModel = getattr(models, 'NominalRollArchive', getattr(models, 'Nominal_Roll_Archive', None))
 
         def get_orm_data(ModelClass, columns):
             if not ModelClass: return []
@@ -1074,6 +1077,7 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         nr_records = get_orm_data(NomModel, ['f_num', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status'])
         est_records = get_orm_data(EstModel, ['region', 'division', 'station', 'personnel_in_station', 'sub_station', 'personnel_in_sub_station', 'post', 'personnel_in_post', 'booths', 'personnel_in_booth'])
         docs_records = get_orm_data(DocsModel, ['file_name', 'doc_type', 'file_size', 'region', 'station', 'uploaded_by', 'upload_date'])
+        arc_records = get_orm_data(ArcModel, ['fnum', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status', 'archive_reason', 'archive_date'])
         
         ai_records = []
         if AIModel:
@@ -1111,6 +1115,7 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         add_domain_sheets("OPS Statistics", ["Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"], ops_records)
         add_domain_sheets("Success Stories", ["Date", "Time", "Region", "Station", "Status", "Narrative"], ss_records)
         add_domain_sheets("Nominal Roll", ["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status"], nr_records)
+        add_domain_sheets("Archived Personnel", ["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status", "Reason", "Archived On"], arc_records)
         add_domain_sheets("Establishments", ["Region", "Division", "Station", "Pers(Stn)", "Sub-Station", "Pers(Sub)", "Post", "Pers(Post)", "Booths", "Pers(Booth)"], est_records)
         add_domain_sheets("Tripartite Reports", ["File Name", "Doc Type", "Size", "Region", "Station", "Uploaded By", "Upload Date"], docs_records)
         add_domain_sheets("AI Command", ["Interaction Type", "Details", "Officer FNUM", "Timestamp"], ai_records)
