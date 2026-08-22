@@ -109,9 +109,9 @@ async def process_tactical_query(
         return {
             "response": response.text,
             "metadata": {
-                "semantic_chunks_retrieved": len(results),
-                "sql_executed": True,
-                "jurisdiction_filtered": not is_global_viewer
+                "semantic_chunks_retrieved": str(len(results)),
+                "sql_executed": str(search_query), 
+                "jurisdiction_filtered": "Enabled" if not is_global_viewer else "Disabled (Global Scope)"
             }
         }
 
