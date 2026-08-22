@@ -7,6 +7,8 @@ import uuid
 import asyncio
 import secrets  
 import string   
+import json
+import base64
 from datetime import datetime, timedelta
 from typing import Optional, List, Union
 from docx.shared import Pt
