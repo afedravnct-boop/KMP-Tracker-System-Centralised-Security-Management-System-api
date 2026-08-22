@@ -759,7 +759,7 @@ def get_general_documents(db: Session = Depends(get_db), current_user = Depends(
         return []
 
 # ====================================================================
-# 6. MASTER DATABASE & HR EXPORTS (TIMEZONE-SAFE EXCEL EXPORTS)
+# 6. MASTER DATABASE & HR EXPORTS (SINGLE MASTER WORKBOOK WITH DUAL SHEETS)
 # ====================================================================
 @app.get("/api/v1/reports/export")
 def export_master_database(
@@ -770,47 +770,128 @@ def export_master_database(
     current_user: models.Users = Depends(require_export_privilege)
 ):
     try:
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
+        
+        def get_where(table_prefix=""):
+            return "" if is_global else f" WHERE {table_prefix}region = '{current_user.region}'"
+
+        def fetch_data(query):
+            try:
+                return db.execute(text(query)).fetchall()
+            except Exception as e:
+                print(f"Export fetch warning: {e}")
+                return []
+
+        # Fetch data across all domains including Tripartite Reports and AI Command logs
+        cr_records = fetch_data(f"SELECT sd_ref, region, station, date, time, offence, status, suspects, last_updated_by FROM reports{get_where()}")
+        ops_records = fetch_data(f"SELECT date, region, station, arrests, given_bond, cautioned, pending_court, taken_to_court, released, remanded, convicted FROM stats{get_where()}")
+        ss_records = fetch_data(f"SELECT date, time, region, station, status, narrative FROM stories{get_where()}")
+        nr_records = fetch_data(f"SELECT fnum, name, rank, sex, region, station, position, status FROM nominal_roll{get_where()}")
+        est_records = fetch_data(f"SELECT region, division, station, personnel_in_station, sub_station, personnel_in_sub_station, post, personnel_in_post, booths, personnel_in_booth FROM establishments{get_where()}")
+        docs_records = fetch_data(f"SELECT file_name, doc_type, file_size, region, station, uploaded_by, upload_date FROM document_archive{get_where()}")
+        ai_records = fetch_data(f"SELECT event_type, details, user_fnum, created_at FROM audit_logs WHERE event_type LIKE '%AI%'")
+
+        # Build Single Master Workbook with Dual Sheets (General + Print)
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active) # Remove default sheet
+        
+        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid") # Dark Blue
+        header_font = Font(color="FFFFFF", bold=True)
+        header_align = Alignment(horizontal="center", vertical="center")
+
+        def add_domain_sheets(title, headers, data):
+            # Sheet 1: General Master Sheet
+            ws_gen = wb.create_sheet(title=title)
+            ws_gen.append(["SN"] + headers)
+            for cell in ws_gen[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_align
+            for idx, row in enumerate(data, 1):
+                ws_gen.append([idx] + list(row))
             
-            crime_model = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
-            if crime_model:
-                crimes = db.query(crime_model).all()
-                df_crimes = sanitize_df_for_excel(pd.DataFrame([serialize_model_row(c) for c in crimes]))
-                b1 = io.BytesIO()
-                df_crimes.to_excel(b1, index=False, engine='openpyxl')
-                zip_file.writestr("KMP_Crime_Incidents.xlsx", b1.getvalue())
+            for col in ws_gen.columns:
+                max_len = max((len(str(cell.value or '')) for cell in col), default=0)
+                col_letter = col[0].column_letter
+                ws_gen.column_dimensions[col_letter].width = min(max_len + 3, 50)
 
-            stats_model = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', None))
-            if stats_model:
-                stats = db.query(stats_model).all()
-                df_stats = sanitize_df_for_excel(pd.DataFrame([serialize_model_row(s) for s in stats]))
-                b2 = io.BytesIO()
-                df_stats.to_excel(b2, index=False, engine='openpyxl')
-                zip_file.writestr("KMP_Disruptive_Ops_Statistics.xlsx", b2.getvalue())
+            # Sheet 2: Print-Optimized Sheet
+            ws_print = wb.create_sheet(title=f"{title} (Print)")
+            ws_print.append(["SN"] + headers)
+            for cell in ws_print[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_align
+            for idx, row in enumerate(data, 1):
+                ws_print.append([idx] + list(row))
+            
+            ws_print.page_setup.orientation = ws_print.ORIENTATION_LANDSCAPE
+            ws_print.page_setup.paperSize = ws_print.PAPERSIZE_A4
+            ws_print.sheet_properties.pageSetUpPr.fitToPage = True
+            ws_print.page_setup.fitToWidth = 1
+            ws_print.page_setup.fitToHeight = 0
 
-            story_model = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', None))
-            if story_model:
-                stories = db.query(story_model).all()
-                df_stories = sanitize_df_for_excel(pd.DataFrame([serialize_model_row(st) for st in stories]))
-                b3 = io.BytesIO()
-                df_stories.to_excel(b3, index=False, engine='openpyxl')
-                zip_file.writestr("KMP_Success_Stories.xlsx", b3.getvalue())
+            for col in ws_print.columns:
+                max_len = max((len(str(cell.value or '')) for cell in col), default=0)
+                col_letter = col[0].column_letter
+                ws_print.column_dimensions[col_letter].width = min(max_len + 2, 40)
 
-            nom_model = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
-            if nom_model:
-                nominal = db.query(nom_model).all()
-                df_nominal = sanitize_df_for_excel(pd.DataFrame([serialize_model_row(n) for n in nominal]))
-                b4 = io.BytesIO()
-                df_nominal.to_excel(b4, index=False, engine='openpyxl')
-                zip_file.writestr("KMP_Nominal_Roll.xlsx", b4.getvalue())
+        # Append all domains into the single file
+        add_domain_sheets("Crime Registry", ["SD Ref", "Region", "Station", "Date", "Time", "Offence", "Status", "Suspects", "Logged By"], cr_records)
+        add_domain_sheets("OPS Statistics", ["Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"], ops_records)
+        add_domain_sheets("Success Stories", ["Date", "Time", "Region", "Station", "Status", "Narrative"], ss_records)
+        add_domain_sheets("Nominal Roll", ["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status"], nr_records)
+        add_domain_sheets("Establishments", ["Region", "Division", "Station", "Pers(Stn)", "Sub-Station", "Pers(Sub)", "Post", "Pers(Post)", "Booths", "Pers(Booth)"], est_records)
+        add_domain_sheets("Tripartite Reports", ["File Name", "Doc Type", "Size", "Region", "Station", "Uploaded By", "Upload Date"], docs_records)
+        add_domain_sheets("AI Command", ["Interaction Type", "Prompt / Details", "Officer FNUM", "Timestamp"], ai_records)
 
-        zip_buffer.seek(0)
+        # Apply Forensic Metadata Watermark
+        eat_tz = pytz.timezone("Africa/Nairobi")
+        eat_time = datetime.now(eat_tz).replace(tzinfo=None)
+        
+        officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
+        officer_rank = (current_user.rank or "OFFICER").strip().upper()
+        officer_name = (current_user.name or "UNKNOWN").strip().upper()
+        officer_signature = f"{officer_fnum} {officer_rank} {officer_name}"
+        command_post = f"{current_user.station or 'KMP HEADQUARTERS'}, {current_user.region or 'KMP HEADQUARTERS'}"
+        stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
+        
+        compact_payload = {"f": officer_fnum, "s": stamp_id}
+        encoded_token = base64.b64encode(json.dumps(compact_payload).encode('utf-8')).decode('utf-8')
+        
+        wb.properties.creator = officer_signature
+        wb.properties.lastModifiedBy = officer_signature
+        wb.properties.keywords = f"KMP_AUDIT;{encoded_token}"
+        wb.properties.description = f"Export: {officer_signature} [{command_post}]. ID: {stamp_id}"
+        wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
+
+        excel_stream = io.BytesIO()
+        wb.save(excel_stream)
+        excel_stream.seek(0)
+
+        # Secure AES-256 Zip Encrypted using the REQUESTING USER'S actual Force Number
+        zip_stream = io.BytesIO()
+        zip_password = str(current_user.fnum).strip().encode('utf-8')
+
+        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(zip_password)
+            excel_filename = f"{officer_fnum.replace('/', '_')}_Master_Database_{eat_time.strftime('%Y%m%d')}.xlsx"
+            zf.writestr(excel_filename, excel_stream.getvalue())
+
+        zip_stream.seek(0)
+
+        zip_filename = f"SECURE_MASTER_DB_{eat_time.strftime('%Y%m%d')}.zip"
+        headers = {
+            'Content-Disposition': f'attachment; filename="{zip_filename}"',
+            'Access-Control-Expose-Headers': 'Content-Disposition'
+        }
+        
         return StreamingResponse(
-            zip_buffer,
+            zip_stream, 
             media_type="application/zip",
-            headers={"Content-Disposition": "attachment; filename=KMP_Master_Database_Export.zip"}
+            headers=headers
         )
+        
     except Exception as e:
         print(f"Master export error: {e}")
         raise HTTPException(status_code=500, detail=f"Master export failed: {str(e)}")
