@@ -1782,7 +1782,7 @@ const DashboardLayout = ({
 
 const handleExportLogs = async () => {
     try {
-      // 🟢 1. Call the backend Excel export endpoint directly
+      // 1. Call the backend export endpoint directly
       const response = await authFetch('/api/v1/audit-logs/export', {
         method: 'GET'
       });
@@ -1792,16 +1792,16 @@ const handleExportLogs = async () => {
         throw new Error(errData.detail || "Security Clearance Denied or Export Failed");
       }
 
-      // 🟢 2. Force the browser to download the formatted .xlsx blob
+      // 2. Force the browser to download the secure .zip blob
       const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.style.display = 'none';
       link.href = downloadUrl;
       
-      // Ensure it saves as an Excel file, not a CSV!
+      // 🟢 ENSURE IT SAVES AS A .ZIP FILE
       const today = new Date().toISOString().split('T')[0];
-      link.download = `KMP_Command_Audit_Logs_${today}.xlsx`; 
+      link.download = `SECURE_AUDIT_LOGS_${today}.zip`; 
       
       document.body.appendChild(link);
       link.click();

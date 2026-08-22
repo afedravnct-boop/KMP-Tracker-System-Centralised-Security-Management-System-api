@@ -915,6 +915,7 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
 
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
+        excel_stream.seek(0)
         
         zip_stream = io.BytesIO()
         eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
