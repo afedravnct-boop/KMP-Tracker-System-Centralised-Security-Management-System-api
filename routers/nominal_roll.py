@@ -215,8 +215,17 @@ async def bulk_upload_nominal_roll(
             else:
                 continue
 
-            df = df.replace({np.nan: None})
+            # Standardize column headers first
             df.columns = [str(col).strip().lower().replace(" ", "_").replace("/", "_") for col in df.columns]
+
+            # 🟢 FIX: CONVERT DATES FROM DD-MM-YYYY to YYYY-MM-DD to prevent PostgreSQL overflow
+            date_columns = ['dob', 'doe', 'do_post', 'dopost', 'do_pro', 'dopro', 'date_of_birth', 'date_of_enlistment']
+            for col in date_columns:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce').dt.strftime('%Y-%m-%d')
+
+            # Safely nullify invalid values
+            df = df.replace({np.nan: None, 'NaT': None, 'NaN': None})
 
             for _, row in df.iterrows():
                 fnum_val = row.get("f_num") or row.get("fnum") or row.get("force_number") or row.get("file_number")

@@ -181,8 +181,13 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
 
   const populateUpdateCrimeForm = (caseData) => {
     setFormData({ 
-      ...caseData, sd_ref: stripHtmlTags(caseData.sdRef || caseData.sd_ref), offence: stripHtmlTags(caseData.offence || 'Other'),
-      customOffence: '', suspectDetails: caseData.suspectDetails || [], updateText: ''
+      ...caseData, 
+      sn: caseData.sn || caseData.id, // 🟢 Force explicit ID capture
+      sd_ref: stripHtmlTags(caseData.sdRef || caseData.sd_ref), 
+      offence: stripHtmlTags(caseData.offence || 'Other'),
+      customOffence: '', 
+      suspectDetails: caseData.suspectDetails || [], 
+      updateText: ''
     });
   };
 
@@ -445,7 +450,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
     }
   };
 
-  const handleStandalonePopSubmit = async () => {
+const handleStandalonePopSubmit = async () => {
     const totalVal = parseInt(standalonePopInput.total) || 0;
     const maleVal = parseInt(standalonePopInput.male) || 0;
     const maleJuvVal = parseInt(standalonePopInput.male_juvenile) || 0;
@@ -462,7 +467,16 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
     setNotification(isEditingLockup ? "⏳ Updating Daily Cell Population..." : "⏳ Logging Daily Cell Population to Independent Matrix...");
     
     try {
+      // 🟢 RESOLVE ACTIVE REGION REGARDLESS OF DROPDOWN SWAPS
+      const activeSubmissionRegion = canViewGlobalActive
+        ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
+        : getOfficialRegionForStation(formData.station, formData.region);
+
       if (isEditingLockup && editLockupTarget) {
+        // 🟢 GUARANTEE THE TARGET ID IS FOUND (ID OR SN)
+        const targetId = editLockupTarget.id || editLockupTarget.sn;
+        if (!targetId) throw new Error("Record ID lost. Please select the record again.");
+
         const updatePayload = {
           ...editLockupTarget,
           suspects: totalVal,
@@ -473,17 +487,20 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
           detention_1day: d1Val,
           detention_2days: d2Val,
           detention_3days_over: d3Val,
+          region: activeSubmissionRegion, // 🟢 EXPLICITLY CAPTURE NEW REGION
+          station: stripHtmlTags(formData.station), // 🟢 EXPLICITLY CAPTURE NEW STATION
           last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})`
         };
 
-        const response = await authFetch(`/api/v1/lockup-matrix/${editLockupTarget.id}`, {
+        // Pass explicitly captured targetId to URL
+        const response = await authFetch(`/api/v1/lockup-matrix/${targetId}`, {
           method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatePayload)
         });  
         
         if (!response.ok) throw new Error("Database rejected the lockup update.");
         
-        setLockupData(lockupData.map(l => l.id === editLockupTarget.id ? updatePayload : l));
-        setNotification(`✅ Daily Cell Population updated successfully for ${stripHtmlTags(formData.station)}!`);
+        setLockupData(lockupData.map(l => (l.id || l.sn) === targetId ? updatePayload : l));
+        setNotification(`✅ Daily Cell Population updated & reassigned successfully for ${stripHtmlTags(formData.station)}!`);
         setIsEditingLockup(false);
         setEditLockupTarget(null);
 
@@ -491,10 +508,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         const cleanStationSub = stripHtmlTags(formData.station).substring(0,3).toUpperCase();
         const popRef = `POP-${cleanStationSub}-${Date.now().toString().slice(-6)}`;
         
-        const activeSubmissionRegion = canViewGlobalActive
-          ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
-          : getOfficialRegionForStation(formData.station, formData.region);
-
         const apiPayload = {
           sd_ref: popRef, 
           region: activeSubmissionRegion, 

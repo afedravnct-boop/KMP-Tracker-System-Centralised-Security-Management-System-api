@@ -15,6 +15,7 @@ import urllib.parse
 import pymupdf
 import zipfile
 
+
 import pytz
 import uvicorn
 import pyzipper
@@ -44,7 +45,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import Column, Integer, text
 from docx.shared import Pt, RGBColor
 import openpyxl
-from openpyxl.styles import Alignment 
+from openpyxl.styles import Alignment, PatternFill, Font
 from pptx import Presentation
 from pptx.util import Inches, Pt as PPTXPt
 from pptx.dml.color import RGBColor as PPTXRGBColor
@@ -458,32 +459,98 @@ def get_system_requests(db: Session = Depends(get_db), current_user: models.User
     except Exception as e:
         return []
 
-@app.get("/api/v1/audit-logs")
-def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+# Make sure to import Alignment, PatternFill, and Font from openpyxl.styles if not already there
+from fastapi.responses import StreamingResponse
+import io
+
+@app.get("/api/v1/audit-logs/export")
+def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
     try:
-        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
-            raise HTTPException(status_code=403, detail="Unauthorized access.")
-        
-        # Fallback resolver for different table name casings
         AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
         if not AuditModel:
-            return []
+            raise HTTPException(status_code=404, detail="Audit Logs model not found.")
 
-        logs = db.query(AuditModel).order_by(AuditModel.id.desc()).limit(100).all()
-        return [
-            {
-                "id": log.id,
-                "event_type": getattr(log, 'event_type', 'ACTION'),
-                "target_user": getattr(log, 'target_user', ''),
-                "status": getattr(log, 'status', 'SUCCESS'),
-                "details": getattr(log, 'details', ''),
-                "user_fnum": getattr(log, 'user_fnum', ''),
-                "created_at": str(getattr(log, 'created_at', ''))
-            } for log in logs
-        ]
+        # Fetch all logs (or you can limit it if needed)
+        logs = db.query(AuditModel).order_by(AuditModel.id.desc()).all()
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Command Audit Logs"
+
+        headers = ["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"]
+        ws.append(headers)
+
+        # 🟢 Formatting Rules
+        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        header_align = Alignment(horizontal="center", vertical="center")
+        
+        # 🟢 THE MAGIC FIX: Force text wrapping and top vertical alignment
+        data_align = Alignment(wrap_text=True, vertical="top")
+
+        # Style Headers
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_align
+
+        # Append Data
+        for log in logs:
+            ws.append([
+                log.id,
+                getattr(log, 'event_type', ''),
+                getattr(log, 'target_user', ''),
+                getattr(log, 'status', ''),
+                getattr(log, 'details', ''),
+                str(getattr(log, 'created_at', '')),
+                getattr(log, 'user_fnum', '')
+            ])
+
+# Style Data Rows and Apply Wrapping
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=7):
+            for cell in row:
+                cell.alignment = data_align
+
+        # 🟢 SMART COLUMN SIZING: Auto-fit to text length, but cap it at 70 characters and wrap
+        for col in ws.columns:
+            max_length = 0
+            column_letter = col[0].column_letter # Get the letter (A, B, C, etc.)
+            
+            # Find the longest string in this specific column
+            for cell in col:
+                try:
+                    if cell.value:
+                        # Split by newline just in case there are already breaks
+                        lines = str(cell.value).split('\n')
+                        longest_line = max([len(line) for line in lines], default=0)
+                        if longest_line > max_length:
+                            max_length = longest_line
+                except:
+                    pass
+            
+            # Set width to match the longest text, BUT cap it at a maximum of 70
+            # Adding +2 gives a little breathing room so the text doesn't touch the borders
+            adjusted_width = min(max_length + 2, 70) 
+            ws.column_dimensions[column_letter].width = adjusted_width
+
+        excel_stream = io.BytesIO()
+        wb.save(excel_stream)
+        excel_stream.seek(0)
+
+        eat_tz = pytz.timezone("Africa/Nairobi")
+        eat_time = datetime.now(eat_tz).replace(tzinfo=None)
+        filename = f"KMP_Command_Audit_Logs_{eat_time.strftime('%Y-%m-%d')}.xlsx"
+
+        return StreamingResponse(
+            excel_stream, 
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Access-Control-Expose-Headers': 'Content-Disposition'
+            }
+        )
     except Exception as e:
-        print(f"Audit log fetch error: {e}")
-        return []
+        raise HTTPException(status_code=500, detail=f"Failed to export audit logs: {str(e)}")
 
 @app.put("/api/v1/users/{fnum}/access")
 @app.post("/api/v1/admin/bulk-permissions")
@@ -954,6 +1021,19 @@ def shutdown_scheduler():
 # ====================================================================
 # 6. MASTER DATABASE & HR EXPORTS (SINGLE MASTER WORKBOOK WITH DUAL SHEETS)
 # ====================================================================
+@app.get("/api/v1/reports/export")
+@app.get("/api/v1/hr/export-ledger")
+@app.get("/api/v1/analytics/export")
+def export_master_database(
+    timeframe: str = "all", 
+    scope: Optional[str] = None, 
+    value: Optional[str] = None, 
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(require_export_privilege)
+):
+    try:
+        is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
+
 @app.get("/api/v1/reports/export")
 def export_master_database(
     timeframe: str = "all", 

@@ -313,7 +313,7 @@ def download_archive_file(
         output_stream = io.BytesIO()
         content_type = "application/octet-stream"
 
-        if file_extension == 'docx':
+if file_extension == 'docx':
             word_doc = Document(io.BytesIO(raw_bytes))
             
             core_props = word_doc.core_properties
@@ -325,13 +325,23 @@ def download_archive_file(
 
             section = word_doc.sections[0]
             footer = section.footer
-            footer_p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
-            footer_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            run = footer_p.add_run(receipt_text)
+            
+            # 🟢 FIX 1: Create a brand new paragraph so we DO NOT touch the page numbers
+            stamp_p = footer.add_paragraph()
+            stamp_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            
+            # 🟢 FIX 2: Crush the spacing to keep the 9 lines extremely tight
+            stamp_p.paragraph_format.space_before = Pt(0)
+            stamp_p.paragraph_format.space_after = Pt(0)
+            stamp_p.paragraph_format.line_spacing = 0.7
+            
+            run = stamp_p.add_run(receipt_text)
             run.font.name = 'Courier New' 
-            run.font.size = Pt(7.5) 
+            # 🟢 FIX 3: Shrink to micro-font
+            run.font.size = Pt(5.5) 
             run.font.bold = True
             run.font.color.rgb = RGBColor(139, 0, 0) 
+            
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
