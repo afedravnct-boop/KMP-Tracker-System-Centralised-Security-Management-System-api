@@ -848,10 +848,6 @@ def get_consolidated_ledger(
 # ====================================================================
 # FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
 # ====================================================================
-from datetime import datetime, timedelta
-import pytz
-from sqlalchemy import text
-
 def run_weekly_tactical_briefing_job():
     eat_tz = pytz.timezone('Africa/Nairobi')
     now_eat = datetime.now(eat_tz).replace(tzinfo=None)
@@ -926,19 +922,9 @@ def run_weekly_tactical_briefing_job():
                 <ul>{comms_list_html}</ul>
                 """
 
-            # 4. Synthesize Custom HTML Briefing
-            html_content = f"""
-            <div style="font-family: Arial, sans-serif; max-width: 650px; margin: auto; border: 1px solid #e2d6c3; padding: 25px; background-color: #fbf8f3;">
-                <h2 style="color: #002060; text-align: center; border-bottom: 2px solid #002060; padding-bottom: 10px;">UGANDA POLICE FORCE</h2>
-                <h3 style="color: #596E47; text-align: center;">KMP Automated Tactical Intelligence & Event Brief</h3>
-                
-            # 5. Pull Newly Uploaded Documents / Templates from the Past Week
-            doc_query = text("""
-                SELECT file_name, doc_type, uploaded_by 
-                FROM document_archive 
-                WHERE upload_date >= :start 
-                ORDER BY id DESC LIMIT 5
-            """)
+            # 4. Pull Newly Uploaded Documents BEFORE opening the final HTML string
+            # 🟢 FIX: Flattened to a single line to completely prevent Python Indentation errors!
+            doc_query = text("SELECT file_name, doc_type, uploaded_by FROM document_archive WHERE upload_date >= :start ORDER BY id DESC LIMIT 5")
             recent_docs = db.execute(doc_query, {"start": one_week_ago}).fetchall()
             
             docs_alert = ""
@@ -949,6 +935,14 @@ def run_weekly_tactical_briefing_job():
                 <p>New files added to the secure archive this week:</p>
                 <ul style="margin: 0; padding-left: 15px;">{doc_list_html}</ul>
                 """
+
+            # 5. Synthesize Custom HTML Briefing
+            html_content = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 650px; margin: auto; border: 1px solid #e2d6c3; padding: 25px; background-color: #fbf8f3;">
+                <h2 style="color: #002060; text-align: center; border-bottom: 2px solid #002060; padding-bottom: 10px;">UGANDA POLICE FORCE</h2>
+                <h3 style="color: #596E47; text-align: center;">KMP Automated Tactical Intelligence & Event Brief</h3>
+                
+                {docs_alert}
 
                 <p><b>Officer:</b> {user.rank} {user.name} ({user.fnum})</p>
                 <p><b>Station / Command:</b> {station} / {region}</p>
