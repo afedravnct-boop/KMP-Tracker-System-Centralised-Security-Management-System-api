@@ -90,10 +90,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     }
   }, [initialTab]);
 
-const fetchRecipientsList = async () => {
+  const fetchRecipientsList = async () => {
     try {
+      const token = sessionStorage.getItem('kmp_authToken');
       const res = await fetch(`${API_URL}/api/v1/users/recipients-list`, {
-        credentials: 'include' // 🟢 Updated to support cookie session
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       if (res.ok) {
         const data = await res.json();
@@ -156,11 +159,13 @@ const fetchRecipientsList = async () => {
     setNotification({ type: 'info', text: 'Transmitting encrypted message...' });
 
     try {
-      const token = localStorage.getItem('kmp_authToken');
+      const token = sessionStorage.getItem('kmp_authToken');
       const response = await fetch(`${API_URL}/api/v1/communications`, {
         method: "POST", 
-        headers: { "Content-Type": "application/json" },
-        credentials: 'include', // 🟢 Updated to support cookie session
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({
           sender_fnum: currentUser.fnum, 
           sender_name: currentUser.name, 
@@ -205,7 +210,7 @@ const fetchRecipientsList = async () => {
     }
   };
 
-const fetchMessages = async () => {
+  const fetchMessages = async () => {
     setIsLoadingInbox(true);
     try {
       const today = new Date();
@@ -223,11 +228,13 @@ const fetchMessages = async () => {
       if (end) params.append('end_date', end);
       if (params.toString()) url += `?${params.toString()}`;
 
-      // 🟢 Use authFetch or include credentials so the session cookie is passed
+      const token = sessionStorage.getItem('kmp_authToken');
       const response = await fetch(url, { 
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include' // Crucial for cookie-based sessions!
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
       });
 
       if (response.ok) {
@@ -252,13 +259,16 @@ const fetchMessages = async () => {
     }
   };
 
-const fetchReceipts = async (msg) => {
+  const fetchReceipts = async (msg) => {
     setViewingReceiptsFor(msg.id);
     setLoadingReceipts(true);
     try {
+      const token = sessionStorage.getItem('kmp_authToken');
       const res = await fetch(`${API_URL}/api/v1/communications/${msg.id}/readers`, { 
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include'
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
       });
       
       if (res.ok) {
@@ -269,7 +279,7 @@ const fetchReceipts = async (msg) => {
         }));
 
         const allSystemUsers = filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || []);
-        let targetPool = []; // 🟢 Declared correctly here
+        let targetPool = [];
 
         const audience = msg.target_audience;
         const region = msg.target_region;
@@ -285,7 +295,6 @@ const fetchReceipts = async (msg) => {
         } else if (audience === 'SPECIFIC_REGION') {
             targetPool = allSystemUsers.filter(u => (u.region || '').toUpperCase() === (region || '').toUpperCase());
         } else if (audience === 'SPECIFIC_USER' && msg.target_fnum) {
-            // 🟢 Robust check handling both arrays and comma-separated strings
             const targetFnumsArray = Array.isArray(msg.target_fnum) 
               ? msg.target_fnum 
               : String(msg.target_fnum).split(',').map(f => f.trim());
@@ -316,10 +325,13 @@ const fetchReceipts = async (msg) => {
   const handleManualAcknowledge = async (e, msg) => {
     e.stopPropagation(); 
     try {
+      const token = sessionStorage.getItem('kmp_authToken');
       const res = await fetch(`${API_URL}/api/v1/communications/${msg.id}/acknowledge`, { 
         method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include' // 🟢 Updated to support cookie session
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
       });
       
       if (res.ok) {

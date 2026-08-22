@@ -117,9 +117,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     files.forEach((f) => {
       formData.append("files", f);
     });
-    if (files.length === 1) {
-      formData.append("file", files[0]);
-    }
 
     let endpoint = "";
     const targetRegionToSubmit = overrideRegion || (canViewGlobalActive && filterRegion !== 'ALL REGIONS' ? filterRegion : currentUser?.region);
@@ -296,6 +293,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       } else if (activeCategory === 'general_doc') {
         if (!docType.includes('general') && !docType.includes('statement') && !docType.includes('document')) return false;
       } else if (activeCategory === 'templates') {
+        if (docType === 'general document' || docType.includes('weekly')) return false;
+
         const isMatch = docType.includes('template') || 
                         docType.includes('command template') || 
                         docType.includes('document') || 

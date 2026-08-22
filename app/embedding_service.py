@@ -3,25 +3,33 @@ import os
 from typing import List, Optional
 from datetime import datetime
 import pytz
-from openai import OpenAI
+import google.generativeai as genai
 from sqlalchemy.orm import Session
 
 # Import models & db helpers
 from app import models
 
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "EMPTY"))
+# Configure Gemini using your existing API Key
+api_key = os.getenv("GEMINI_API_KEY")
+if api_key:
+    genai.configure(api_key=api_key)
 
 def get_embedding_vector(text: str) -> List[float]:
-    """Generates 1536-dim embedding vector via OpenAI text-embedding-3-small."""
+    """Generates a 768-dim embedding vector via Gemini text-embedding-004."""
     clean_text = text.replace("\n", " ").strip()
     if not clean_text:
-        return [0.0] * 1536
+        return [0.0] * 768
         
-    response = openai_client.embeddings.create(
-        input=[clean_text],
-        model="text-embedding-3-small"
-    )
-    return response.data[0].embedding
+    try:
+        response = genai.embed_content(
+            model="models/text-embedding-004",
+            content=clean_text,
+            task_type="retrieval_document"
+        )
+        return response['embedding']
+    except Exception as e:
+        print(f"Gemini Embedding Error: {e}")
+        return [0.0] * 768
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
     """Splits long text documents into overlapping semantic chunks."""
