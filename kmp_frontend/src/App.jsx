@@ -1780,42 +1780,40 @@ const DashboardLayout = ({
     } : null
   ].filter(Boolean);
 
-  const handleExportLogs = async () => {
+const handleExportLogs = async () => {
     try {
-      const response = await authFetch('/api/v1/audit-logs');
-      if (!response.ok) throw new Error("Security Clearance Denied");
+      // 🟢 1. Call the backend Excel export endpoint directly
+      const response = await authFetch('/api/v1/audit-logs/export', {
+        method: 'GET'
+      });
 
-      const logs = await response.json();
-      const headers = ["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"];
-      
-      const csvRows = logs.map(log => [
-          log.id, 
-          log.event_type || "N/A", 
-          log.target_user || "N/A", 
-          log.status || "N/A", 
-          `"${(log.details || "").replace(/"/g, '""')}"`, 
-          log.created_at || "Unknown Time", 
-          log.user_fnum || "SYSTEM"
-      ]);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Security Clearance Denied or Export Failed");
+      }
 
-      const csvContent = [headers, ...csvRows].map(e => e.join(",")).join("\n");
-      const blob = new Blob(['\uFEFF', csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
+      // 🟢 2. Force the browser to download the formatted .xlsx blob
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
       link.style.display = 'none';
-      link.setAttribute("href", url);
-      link.setAttribute("download", `KMP_Command_Audit_Logs_${new Date().toISOString().split('T')[0]}.csv`);
+      link.href = downloadUrl;
+      
+      // Ensure it saves as an Excel file, not a CSV!
+      const today = new Date().toISOString().split('T')[0];
+      link.download = `KMP_Command_Audit_Logs_${today}.xlsx`; 
+      
       document.body.appendChild(link);
       link.click();
       
       setTimeout(() => {
          document.body.removeChild(link);
-         window.URL.revokeObjectURL(url);
+         window.URL.revokeObjectURL(downloadUrl);
       }, 2000);
       
     } catch (error) {
-      console.error("Download failed:", error);
-      alert("Failed to download logs. Clearance denied.");
+      console.error("Export failed:", error);
+      alert(`Failed to export Audit Logs: ${error.message}`);
     }
   };
 

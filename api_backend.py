@@ -17,7 +17,6 @@ import urllib.parse
 import pymupdf
 import zipfile
 
-
 import pytz
 import uvicorn
 import pyzipper
@@ -166,28 +165,20 @@ def get_officer_signature(user):
     return f"{fnum} {rank} {name}".strip().upper()
 
 def sanitize_df_for_excel(df: pd.DataFrame) -> pd.DataFrame:
-    """Removes all timezone metadata from pandas DataFrames for openpyxl / Excel compatibility."""
     if df.empty:
         return df
-    
-    # 1. Strip timezone from any datetime-like columns
     for col in df.select_dtypes(include=['datetimetz', 'datetime', 'datetime64[ns, UTC]', 'datetime64[ns]']).columns:
         try:
             df[col] = df[col].dt.tz_localize(None)
         except Exception:
             df[col] = df[col].astype(str)
-            
-    # 2. Safety pass on object columns containing raw datetime objects
     for col in df.select_dtypes(include=['object']).columns:
         df[col] = df[col].apply(lambda x: x.replace(tzinfo=None) if isinstance(x, datetime) and x.tzinfo is not None else x)
-        
     return df
 
 def serialize_model_row(row):
-    """Safely converts an SQLAlchemy instance or dictionary into a JSON-serializable dict."""
     if not row:
         return {}
-        
     if isinstance(row, dict):
         d = row.copy()
     elif hasattr(row, '__dict__'):
@@ -195,13 +186,11 @@ def serialize_model_row(row):
         d.pop('_sa_instance_state', None)
     else:
         return {}
-
     for k, v in d.items():
         if isinstance(v, datetime):
             d[k] = v.strftime("%Y-%m-%d %H:%M:%S")
         elif hasattr(v, 'isoformat'):
             d[k] = v.isoformat()
-        # Safely catch Decimal/Numeric fields from PostgreSQL NeonDB
         elif hasattr(v, '__float__') and not isinstance(v, (int, float, str, bool)):
             d[k] = float(v)
     return d
@@ -254,13 +243,9 @@ def get_eat_time():
 
 def get_current_user(request: Request, db: Session = Depends(get_db)):
     token = None
-    
-    # 1. Try extracting token from Authorization header
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
-    
-    # 2. Fallback: Try extracting token from secure cookies if header is missing
     if not token:
         token = request.cookies.get("access_token") or request.cookies.get("kmp_authToken")
 
@@ -283,7 +268,6 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-    # 🟢 PASSIVE HEARTBEAT: Any active in-memory API call automatically keeps user online
     try:
         eat_tz = pytz.timezone('Africa/Nairobi')
         user.last_active_at = datetime.now(eat_tz).replace(tzinfo=None)
@@ -307,6 +291,7 @@ def require_admin(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
+    return current_user
 
 def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
@@ -359,35 +344,29 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
 # ====================================================================
 # STRICTLY ISOLATED ROUTES: DOCUMENTS, TEMPLATES, & WEEKLY REPORTS
 # ====================================================================
-
-# 1. GENERAL DOCUMENTS (Strictly General Docs, No Fallbacks)
 @app.get("/api/v1/general-documents")
 def get_general_documents(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
         DocModel = getattr(models, 'GeneralDocuments', getattr(models, 'General_Documents', None))
         if not DocModel:
             return []
-            
         docs = db.query(DocModel).order_by(DocModel.id.desc()).all()
         return [serialize_model_row(d) for d in docs]
     except Exception as e:
         print(f"General Documents Fetch Error: {e}")
         return []
 
-# 2. COMMAND TEMPLATES (Strictly Templates)
 @app.get("/api/v1/templates/list")
 def get_command_templates(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
         TemplateModel = getattr(models, 'CommandTemplate', getattr(models, 'command_templates', None))
         if not TemplateModel:
             return []
-            
         templates = db.query(TemplateModel).order_by(TemplateModel.id.desc()).all()
         results = []
         for t in templates:
             filename = getattr(t, 'file_name', None) or getattr(t, 's3_url', '') or "document"
             ext = filename.split('.')[-1].lower() if '.' in filename else "unknown"
-            
             if ext in ['docx', 'doc']: file_type = "Word Document"
             elif ext in ['xlsx', 'xls']: file_type = "Excel Spreadsheet"
             elif ext in ['pptx', 'ppt']: file_type = "PowerPoint Presentation"
@@ -412,14 +391,12 @@ def get_command_templates(db: Session = Depends(get_db), current_user = Depends(
         print(f"Templates List Error Traceback: {str(e)}")
         return []
 
-# 3. WEEKLY REPORTS / SITREPS (Strictly Reports)
 @app.get("/api/v1/weekly-reports/list")
 def get_weekly_reports_list(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
         ReportModel = getattr(models, 'WeeklyReports', getattr(models, 'weekly_reports', getattr(models, 'Reports', None)))
         if not ReportModel:
             return []
-            
         reports = db.query(ReportModel).order_by(ReportModel.id.desc()).all()
         return [serialize_model_row(r) for r in reports]
     except Exception as e:
@@ -428,12 +405,9 @@ def get_weekly_reports_list(db: Session = Depends(get_db), current_user = Depend
 
 @app.get("/api/v1/admin/pending-users")
 def get_pending_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # 🟢 1. Check sits OUTSIDE the try block
-    # 🟢 2. Flexible check allows "SUPER ADMIN" (space) or "SUPER_ADMIN" (underscore)
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Unauthorized access.")
-        
     try:
         pending = db.query(models.Users).filter(models.Users.is_approved == False).all()
         return [
@@ -449,11 +423,9 @@ def get_pending_users(db: Session = Depends(get_db), current_user: models.Users 
 
 @app.get("/api/v1/requests")
 def get_system_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # 🟢 Flexible check applied here
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Unauthorized access.")
-        
     try:
         requests = db.query(models.Users).filter(models.Users.is_approved == False).all()
         return [
@@ -468,20 +440,14 @@ def get_system_requests(db: Session = Depends(get_db), current_user: models.User
 
 @app.get("/api/v1/audit-logs")
 def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # 🟢 Flexible check applied here
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
-        
     try:
-        # Fallback resolver for different table name casings
         AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
         if not AuditModel:
             return []
-
-        # Fetch the latest 100 logs for the dashboard
         logs = db.query(AuditModel).order_by(AuditModel.id.desc()).limit(100).all()
-        
         return [
             {
                 "id": log.id,
@@ -496,94 +462,6 @@ def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = D
     except Exception as e:
         print(f"Audit log fetch error: {e}")
         return []
-
-@app.get("/api/v1/audit-logs/export")
-def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # 🟢 Explicitly clear both Admin and Super Admin roles
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    if user_role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
-        raise HTTPException(status_code=403, detail="Clearance Denied: Admin or Super Admin privileges required.")
-        
-    try:
-        AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
-        if not AuditModel:
-            raise HTTPException(status_code=404, detail="Audit Logs model not found.")
-
-        # Fetch all logs
-        logs = db.query(AuditModel).order_by(AuditModel.id.desc()).all()
-
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Command Audit Logs"
-
-        headers = ["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"]
-        ws.append(headers)
-
-        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
-        header_align = Alignment(horizontal="center", vertical="center")
-        
-        data_align = Alignment(wrap_text=True, vertical="top")
-
-        # Style Headers
-        for cell in ws[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = header_align
-
-        # Append Data
-        for log in logs:
-            ws.append([
-                log.id,
-                getattr(log, 'event_type', ''),
-                getattr(log, 'target_user', ''),
-                getattr(log, 'status', ''),
-                getattr(log, 'details', ''),
-                str(getattr(log, 'created_at', '')),
-                getattr(log, 'user_fnum', '')
-            ])
-
-        # Style Data Rows and Apply Wrapping
-        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=7):
-            for cell in row:
-                cell.alignment = data_align
-
-        # SMART COLUMN SIZING
-        for col in ws.columns:
-            max_length = 0
-            column_letter = col[0].column_letter
-            
-            for cell in col:
-                try:
-                    if cell.value:
-                        lines = str(cell.value).split('\n')
-                        longest_line = max([len(line) for line in lines], default=0)
-                        if longest_line > max_length:
-                            max_length = longest_line
-                except:
-                    pass
-            
-            adjusted_width = min(max_length + 2, 70) 
-            ws.column_dimensions[column_letter].width = adjusted_width
-
-        excel_stream = io.BytesIO()
-        wb.save(excel_stream)
-        excel_stream.seek(0)
-
-        eat_tz = pytz.timezone("Africa/Nairobi")
-        eat_time = datetime.now(eat_tz).replace(tzinfo=None)
-        filename = f"KMP_Command_Audit_Logs_{eat_time.strftime('%Y-%m-%d')}.xlsx"
-
-        return StreamingResponse(
-            excel_stream, 
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={
-                'Content-Disposition': f'attachment; filename="{filename}"',
-                'Access-Control-Expose-Headers': 'Content-Disposition'
-            }
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to export audit logs: {str(e)}")
 
 @app.put("/api/v1/users/{fnum}/access")
 @app.post("/api/v1/admin/bulk-permissions")
@@ -661,11 +539,8 @@ def execute_password_reset(
         raise HTTPException(status_code=404, detail="Password reset request not found.")
 
     if action.upper() == "APPROVE":
-        # 1. Generate temporary secure password
         temp_password = "UPF" + secrets.token_hex(3).upper()
         hashed_pw = pwd_context.hash(temp_password)
-
-        # 2. Update user's password in the users table
         target_user = db.query(models.Users).filter(
             func.trim(func.upper(models.Users.fnum)) == str(reset_req.fnum).strip().upper()
         ).first()
@@ -673,13 +548,11 @@ def execute_password_reset(
         if target_user:
             target_user.hashed_password = hashed_pw
 
-        # 3. Remove the reset request from the queue
         db.delete(reset_req)
         db.commit()
 
         return {"status": "success", "new_password": temp_password}
     else:
-        # Reject and remove request
         db.delete(reset_req)
         db.commit()
         return {"status": "success", "message": "Password reset request rejected."}
@@ -695,8 +568,6 @@ def heartbeat(
     db: Session = Depends(get_db)
 ):
     user = None
-
-    # 1. Primary Authentication: Validate JWT Bearer token if present
     if token:
         try:
             jwt_data = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
@@ -708,13 +579,11 @@ def heartbeat(
         except JWTError:
             pass
 
-    # 2. Fallback Identification: Recover via body payload if token is refreshing
     if not user and payload and payload.fnum:
         user = db.query(models.Users).filter(
             func.trim(func.upper(models.Users.fnum)) == str(payload.fnum).strip().upper()
         ).first()
 
-    # 3. Deny if neither token nor payload yields an active record
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session credentials")
 
@@ -823,11 +692,6 @@ def get_recipients_list(db: Session = Depends(get_db), current_user: models.User
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch recipients: {str(e)}")
 
-@app.get("/api/v1/hr/export-ledger")
-def export_hr_ledger_alias(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    """Alias route to catch the HR export request and pass it to the master export workflow."""
-    return export_master_database(db=db, current_user=current_user)
-
 @app.get("/api/v1/reports/establishments-json")
 def get_establishments_json(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
@@ -852,7 +716,6 @@ def get_consolidated_ledger(
     current_user = Depends(get_current_user)
 ):
     try:
-        # Dynamic model resolution for both camelCase and snake_case models
         CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
         StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', None))
         StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', None))
@@ -877,9 +740,8 @@ def get_consolidated_ledger(
         print(f"Consolidated Ledger DB Query Error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch consolidated data: {str(e)}")
 
-
 # ====================================================================
-# 6 FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
+# 6. FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
 # ====================================================================
 def run_weekly_tactical_briefing_job():
     eat_tz = pytz.timezone('Africa/Nairobi')
@@ -904,33 +766,24 @@ def run_weekly_tactical_briefing_job():
             
             is_global = user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
             
-            # Scoped SQL filters
             crime_filter = "" if is_global else f" AND station = '{station}'"
             stats_filter = "" if is_global else f" AND station = '{station}'"
             comms_filter = f" WHERE (target_station = '{station}' OR target_region = '{region}' OR target_audience = 'ALL_USERS')"
             
-            # 1. Pull Real Weekly Crime Entries & Specific Offenses
             crimes = db.execute(text(f"SELECT offence, narrative, status FROM reports WHERE created_at >= :start {crime_filter}"), {"start": one_week_ago}).fetchall()
-            
-            # 2. Pull Real Operational Statistics & Arrest Totals
             ops_stats = db.execute(text(f"SELECT arrests, given_bond, cautioned, remanded, convicted FROM stats WHERE date >= :start {stats_filter}"), {"start": one_week_ago.date()}).fetchall()
-            
-            # 3. Pull Unread / Active Command Messages & Directives
             unread_comms = db.execute(text(f"SELECT title, sender_fnum FROM command_communications {comms_filter} ORDER BY id DESC LIMIT 5")).fetchall()
             
-            # --- DYNAMIC EVENT ANALYSIS ---
             total_crimes = len(crimes)
             total_arrests = sum(row.arrests or 0 for row in ops_stats)
             total_remanded = sum(row.remanded or 0 for row in ops_stats)
             
-            # Extract specific keyword triggers from real crime narratives/offences
             all_text = " ".join([f"{r.offence} {r.narrative}" for r in crimes]).upper()
             has_robbery = "ROBBERY" in all_text or "GUN" in all_text
             has_fire = "FIRE" in all_text or "ARSON" in all_text
             has_accident = "ACCIDENT" in all_text or "FATAL" in all_text
             has_murder = "MURDER" in all_text or "HOMICIDE" in all_text
             
-            # Build Custom Action Items Based on Actual Weekly Events
             custom_actions = []
             
             if has_murder or has_robbery:
@@ -945,7 +798,6 @@ def run_weekly_tactical_briefing_job():
             if not custom_actions:
                 custom_actions.append("✅ Operations stable for the period. Maintain regular community policing and perimeter defense protocols.")
                 
-            # Unread messages reminder
             comms_alert = ""
             if unread_comms:
                 comms_list_html = "".join([f"<li><b>{c.title}</b></li>" for c in unread_comms])
@@ -955,8 +807,6 @@ def run_weekly_tactical_briefing_job():
                 <ul>{comms_list_html}</ul>
                 """
 
-            # 4. Pull Newly Uploaded Documents BEFORE opening the final HTML string
-            # 🟢 FIX: Flattened to a single line to completely prevent Python Indentation errors!
             doc_query = text("SELECT file_name, doc_type, uploaded_by FROM document_archive WHERE upload_date >= :start ORDER BY id DESC LIMIT 5")
             recent_docs = db.execute(doc_query, {"start": one_week_ago}).fetchall()
             
@@ -969,7 +819,6 @@ def run_weekly_tactical_briefing_job():
                 <ul style="margin: 0; padding-left: 15px;">{doc_list_html}</ul>
                 """
 
-            # 5. Synthesize Custom HTML Briefing
             html_content = f"""
             <div style="font-family: Arial, sans-serif; max-width: 650px; margin: auto; border: 1px solid #e2d6c3; padding: 25px; background-color: #fbf8f3;">
                 <h2 style="color: #002060; text-align: center; border-bottom: 2px solid #002060; padding-bottom: 10px;">UGANDA POLICE FORCE</h2>
@@ -1013,17 +862,6 @@ def run_weekly_tactical_briefing_job():
                 </p>
             </div>
             """
-            
-            # Uncomment when ready to dispatch live via FastMail
-            # message = MessageSchema(
-            #     subject=f"KMP Custom Tactical Briefing - {station} ({now_eat.strftime('%b %d')})",
-            #     recipients=[user.email],
-            #     body=html_content,
-            #     subtype="html"
-            # )
-            # _fm = FastMail(conf)
-            # await _fm.send_message(message)
-            
             print(f"-> Compiled custom event-driven briefing for {user.fnum} at {station}")
 
     except Exception as e:
@@ -1031,7 +869,6 @@ def run_weekly_tactical_briefing_job():
     finally:
         db.close()
 
-# Initialize Scheduler
 scheduler = BackgroundScheduler()
 scheduler.add_job(run_weekly_tactical_briefing_job, 'cron', day_of_week='mon', hour=6, minute=0)
 
@@ -1045,10 +882,169 @@ def start_scheduler():
 def shutdown_scheduler():
     scheduler.shutdown()
 
+# ====================================================================
+# SECURE ENCRYPTED ZIP EXPORTS (AUDIT LOGS, HR, ANALYTICS, MASTER DB)
+# ====================================================================
 
-# ====================================================================
-# 8. MASTER DATABASE (FULL ENCRYPTED ZIP)
-# ====================================================================
+@app.get("/api/v1/audit-logs/export")
+def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    if "ADMIN" not in user_role and "RPC" not in user_role:
+        raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
+        
+    try:
+        AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
+        logs = db.query(AuditModel).order_by(AuditModel.id.desc()).all()
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Command Audit Logs"
+        ws.append(["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"])
+
+        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        for cell in ws[1]:
+            cell.fill = header_fill; cell.font = header_font; cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        for log in logs:
+            ws.append([log.id, getattr(log, 'event_type', ''), getattr(log, 'target_user', ''), getattr(log, 'status', ''), getattr(log, 'details', ''), str(getattr(log, 'created_at', '')), getattr(log, 'user_fnum', '')])
+
+        for col in ws.columns:
+            max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+            ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 70)
+
+        excel_stream = io.BytesIO()
+        wb.save(excel_stream)
+        
+        zip_stream = io.BytesIO()
+        eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
+        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
+        
+        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(str(current_user.fnum).strip().encode('utf-8'))
+            zf.writestr(f"{fnum_clean}_Audit_Logs_{eat_time.strftime('%Y%m%d')}.xlsx", excel_stream.getvalue())
+
+        zip_stream.seek(0)
+        return StreamingResponse(
+            zip_stream, media_type="application/zip",
+            headers={'Content-Disposition': f'attachment; filename="SECURE_AUDIT_LOGS_{eat_time.strftime("%y%m%d")}.zip"', 'Access-Control-Expose-Headers': 'Content-Disposition'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to export audit logs: {str(e)}")
+
+@app.get("/api/v1/hr/export-ledger")
+def export_hr_ledger(db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):
+    try:
+        is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
+        NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
+        EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
+
+        def get_orm_data(ModelClass, columns):
+            if not ModelClass: return []
+            try:
+                query = db.query(ModelClass)
+                if not is_global and hasattr(ModelClass, 'region'): query = query.filter(ModelClass.region == current_user.region)
+                return [[str(getattr(r, col, '') if not isinstance(getattr(r, col, ''), datetime) else getattr(r, col, '').strftime("%Y-%m-%d %H:%M")) for col in columns] for r in query.all()]
+            except: return []
+
+        nr_records = get_orm_data(NomModel, ['f_num', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status'])
+        est_records = get_orm_data(EstModel, ['region', 'division', 'station', 'personnel_in_station', 'sub_station', 'personnel_in_sub_station', 'post', 'personnel_in_post', 'booths', 'personnel_in_booth', 'installed_by', 'location', 'status', 'comment', 'last_updated_by'])
+
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active) 
+        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        
+        def add_sheet(title, headers, data):
+            ws = wb.create_sheet(title=title)
+            ws.append(["SN"] + headers)
+            for cell in ws[1]:
+                cell.fill = header_fill; cell.font = header_font; cell.alignment = Alignment(horizontal="center", vertical="center")
+            for idx, row in enumerate(data, 1): ws.append([idx] + row)
+            for col in ws.columns:
+                max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+                ws.column_dimensions[col[0].column_letter].width = min(max_len + 3, 65)
+
+        add_sheet("Nominal Roll", ["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status"], nr_records)
+        add_sheet("establishments", ["Region", "Division", "Station", "Personnel (Station)", "Sub-Station", "Personnel (Sub-Stn)", "Post", "Personnel (Post)", "Booths", "Personnel (Booth)", "Installed By", "Location", "Status", "Comment", "Last Updated By"], est_records)
+
+        excel_stream = io.BytesIO()
+        wb.save(excel_stream)
+        
+        zip_stream = io.BytesIO()
+        eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
+        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
+        
+        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(str(current_user.fnum).strip().encode('utf-8'))
+            zf.writestr(f"{fnum_clean}_HR_Ledger_{eat_time.strftime('%Y%m%d')}.xlsx", excel_stream.getvalue())
+
+        zip_stream.seek(0)
+        return StreamingResponse(
+            zip_stream, media_type="application/zip",
+            headers={'Content-Disposition': f'attachment; filename="SECURE_HR_LEDGER_{eat_time.strftime("%y%m%d")}.zip"', 'Access-Control-Expose-Headers': 'Content-Disposition'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"HR export failed: {str(e)}")
+
+@app.get("/api/v1/analytics/export")
+def export_analytics_report(db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):
+    try:
+        is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
+        CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
+        StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', getattr(models, 'Stats', None)))
+        StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', getattr(models, 'Stories', None)))
+
+        def get_orm_data(ModelClass, columns):
+            if not ModelClass: return []
+            try:
+                query = db.query(ModelClass)
+                if not is_global and hasattr(ModelClass, 'region'): query = query.filter(ModelClass.region == current_user.region)
+                return [[str(getattr(r, col, '') if not isinstance(getattr(r, col, ''), datetime) else getattr(r, col, '').strftime("%Y-%m-%d %H:%M")) for col in columns] for r in query.all()]
+            except: return []
+
+        cr_records = get_orm_data(CrimeModel, ['sd_ref', 'region', 'station', 'date', 'time', 'offence', 'status', 'suspects'])
+        ops_records = get_orm_data(StatsModel, ['date', 'region', 'station', 'arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted'])
+        ss_records = get_orm_data(StoryModel, ['date', 'time', 'region', 'station', 'status', 'narrative'])
+
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active) 
+        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        
+        def add_sheet(title, headers, data):
+            ws = wb.create_sheet(title=title)
+            ws.append(["SN"] + headers)
+            for cell in ws[1]:
+                cell.fill = header_fill; cell.font = header_font; cell.alignment = Alignment(horizontal="center", vertical="center")
+            for idx, row in enumerate(data, 1): ws.append([idx] + row)
+            for col in ws.columns:
+                max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+                ws.column_dimensions[col[0].column_letter].width = min(max_len + 3, 65)
+
+        add_sheet("Relational Crimes", ["SD Ref", "Region", "Station", "Date", "Time", "Offence", "Status", "Suspects"], cr_records)
+        add_sheet("Relational Statistics", ["Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"], ops_records)
+        add_sheet("Success Stories", ["Date", "Time", "Region", "Station", "Status", "Narrative"], ss_records)
+
+        excel_stream = io.BytesIO()
+        wb.save(excel_stream)
+        
+        zip_stream = io.BytesIO()
+        eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
+        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
+
+        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(str(current_user.fnum).strip().encode('utf-8'))
+            zf.writestr(f"{fnum_clean}_Analytics_Relational_{eat_time.strftime('%Y%m%d')}.xlsx", excel_stream.getvalue())
+
+        zip_stream.seek(0)
+        return StreamingResponse(
+            zip_stream, media_type="application/zip",
+            headers={'Content-Disposition': f'attachment; filename="SECURE_ANALYTICS_REPORT_{eat_time.strftime("%y%m%d")}.zip"', 'Access-Control-Expose-Headers': 'Content-Disposition'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analytics export failed: {str(e)}")
+
 @app.get("/api/v1/reports/export")
 def export_master_database(timeframe: str = "all", scope: Optional[str] = None, value: Optional[str] = None, db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):
     try:
@@ -1062,7 +1058,6 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         DocsModel = getattr(models, 'DocumentArchive', getattr(models, 'Document_Archive', getattr(models, 'document_archive', None)))
         ActivityModel = getattr(models, 'Activity_Logs', getattr(models, 'ActivityLogs', None))
         
-        # 🟢 Grab the newly created AI model
         AIModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
 
         def get_orm_data(ModelClass, columns):
@@ -1080,22 +1075,20 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         est_records = get_orm_data(EstModel, ['region', 'division', 'station', 'personnel_in_station', 'sub_station', 'personnel_in_sub_station', 'post', 'personnel_in_post', 'booths', 'personnel_in_booth'])
         docs_records = get_orm_data(DocsModel, ['file_name', 'doc_type', 'file_size', 'region', 'station', 'uploaded_by', 'upload_date'])
         
-        # 🟢 AI Records Extraction
-        ai_records = get_orm_data(AIModel, ['fnum', 'prompt', 'response', 'target_region', 'created_at'])
-        
-        # Fallback: Scrape old AI records trapped in the Activity table
-        if ActivityModel and not ai_records:
+        ai_records = []
+        if AIModel:
             try:
-                ai_act = db.query(ActivityModel).filter(
-                    or_(
-                        ActivityModel.module.ilike('%Command%'), 
-                        ActivityModel.module.ilike('%AI%'), 
-                        ActivityModel.action.ilike('%Query%')
-                    )
-                ).all()
+                for r in db.query(AIModel).all():
+                    v_time = r.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(r.created_at, 'strftime') else str(r.created_at)
+                    ai_records.append(["AI_PROMPT_EXECUTION", f"Prompt: {r.prompt} | Response: {r.response}", r.fnum, v_time])
+            except: pass
+            
+        if ActivityModel:
+            try:
+                ai_act = db.query(ActivityModel).filter(or_(ActivityModel.module.ilike('%AI%'), ActivityModel.module.ilike('%ai_console%'))).all()
                 for r in ai_act:
                     v_time = r.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(r.created_at, 'strftime') else str(getattr(r, 'created_at', ''))
-                    ai_records.append([getattr(r, 'fnum', ''), getattr(r, 'details', ''), "N/A (Archived in Activity Logs)", "ALL REGIONS", v_time])
+                    ai_records.append(["PAGE_ACCESS_LOG", getattr(r, 'details', 'AI Console Access'), getattr(r, 'fnum', ''), v_time])
             except: pass
 
         wb = openpyxl.Workbook()
@@ -1120,7 +1113,7 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         add_domain_sheets("Nominal Roll", ["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status"], nr_records)
         add_domain_sheets("Establishments", ["Region", "Division", "Station", "Pers(Stn)", "Sub-Station", "Pers(Sub)", "Post", "Pers(Post)", "Booths", "Pers(Booth)"], est_records)
         add_domain_sheets("Tripartite Reports", ["File Name", "Doc Type", "Size", "Region", "Station", "Uploaded By", "Upload Date"], docs_records)
-        add_domain_sheets("AI Command", ["Officer FNUM", "User Prompt", "AI Response", "Target Region", "Timestamp"], ai_records)
+        add_domain_sheets("AI Command", ["Interaction Type", "Details", "Officer FNUM", "Timestamp"], ai_records)
 
         eat_tz = pytz.timezone("Africa/Nairobi")
         eat_time = datetime.now(eat_tz).replace(tzinfo=None)
@@ -1134,14 +1127,14 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
 
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
-        excel_stream.seek(0)
-
+        
         zip_stream = io.BytesIO()
         zip_password = str(current_user.fnum).strip().encode('utf-8')
+        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
 
         with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
-            excel_filename = f"{officer_fnum.replace('/', '_')}_Master_Database_{eat_time.strftime('%Y%m%d')}.xlsx"
+            excel_filename = f"{fnum_clean}_Master_Database_{eat_time.strftime('%Y%m%d')}.xlsx"
             zf.writestr(excel_filename, excel_stream.getvalue())
 
         zip_stream.seek(0)
@@ -1153,7 +1146,6 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Master export failed: {str(e)}")
-
 
 @app.get("/api/v1/export/establishments")
 def export_establishments_summary(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
