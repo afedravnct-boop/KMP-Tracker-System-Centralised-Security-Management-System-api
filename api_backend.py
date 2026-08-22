@@ -466,13 +466,18 @@ from fastapi.responses import StreamingResponse
 import io
 
 @app.get("/api/v1/audit-logs/export")
-def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
+def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    # 🟢 Explicitly clear both Admin and Super Admin roles
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    if user_role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
+        raise HTTPException(status_code=403, detail="Clearance Denied: Admin or Super Admin privileges required.")
+        
     try:
         AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
         if not AuditModel:
             raise HTTPException(status_code=404, detail="Audit Logs model not found.")
 
-        # Fetch all logs (or you can limit it if needed)
+        # Fetch all logs
         logs = db.query(AuditModel).order_by(AuditModel.id.desc()).all()
 
         wb = openpyxl.Workbook()
@@ -482,12 +487,10 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
         headers = ["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"]
         ws.append(headers)
 
-        # 🟢 Formatting Rules
         header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
         header_align = Alignment(horizontal="center", vertical="center")
         
-        # 🟢 THE MAGIC FIX: Force text wrapping and top vertical alignment
         data_align = Alignment(wrap_text=True, vertical="top")
 
         # Style Headers
@@ -508,21 +511,19 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
                 getattr(log, 'user_fnum', '')
             ])
 
-# Style Data Rows and Apply Wrapping
+        # Style Data Rows and Apply Wrapping
         for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=7):
             for cell in row:
                 cell.alignment = data_align
 
-        # 🟢 SMART COLUMN SIZING: Auto-fit to text length, but cap it at 70 characters and wrap
+        # SMART COLUMN SIZING
         for col in ws.columns:
             max_length = 0
-            column_letter = col[0].column_letter # Get the letter (A, B, C, etc.)
+            column_letter = col[0].column_letter
             
-            # Find the longest string in this specific column
             for cell in col:
                 try:
                     if cell.value:
-                        # Split by newline just in case there are already breaks
                         lines = str(cell.value).split('\n')
                         longest_line = max([len(line) for line in lines], default=0)
                         if longest_line > max_length:
@@ -530,8 +531,6 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
                 except:
                     pass
             
-            # Set width to match the longest text, BUT cap it at a maximum of 70
-            # Adding +2 gives a little breathing room so the text doesn't touch the borders
             adjusted_width = min(max_length + 2, 70) 
             ws.column_dimensions[column_letter].width = adjusted_width
 
