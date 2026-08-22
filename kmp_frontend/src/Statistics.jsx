@@ -32,11 +32,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const authFetch = async (url, options = {}) => {
-  const token = localStorage.getItem('kmp_authToken');
-  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-  return fetch(`${API_URL}${url}`, { ...options, headers: { ...options.headers, "Authorization": `Bearer ${token}` } });
-};
+// 🔴 THE DUPLICATE authFetch BLOCK WAS DELETED FROM RIGHT HERE
 
 const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats = [], setStats, setAgricStats, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
@@ -160,7 +156,7 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     setFormData({ ...statData, sn: recordIdentifier, id: recordIdentifier });
   };
 
-const handleFormSubmit = async (e) => {  
+  const handleFormSubmit = async (e) => {  
     e.preventDefault();
     
     // 🟢 CORRECT: Pull from session storage/memory via helper

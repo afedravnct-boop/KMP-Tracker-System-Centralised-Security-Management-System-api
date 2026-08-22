@@ -461,9 +461,36 @@ def get_system_requests(db: Session = Depends(get_db), current_user: models.User
     except Exception as e:
         return []
 
-# Make sure to import Alignment, PatternFill, and Font from openpyxl.styles if not already there
-from fastapi.responses import StreamingResponse
-import io
+@app.get("/api/v1/audit-logs")
+def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    # 🟢 Explicitly clear Super Admin and Admins
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    if user_role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
+        raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
+        
+    try:
+        # Fallback resolver for different table name casings
+        AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
+        if not AuditModel:
+            return []
+
+        # Fetch the latest 100 logs for the dashboard
+        logs = db.query(AuditModel).order_by(AuditModel.id.desc()).limit(100).all()
+        
+        return [
+            {
+                "id": log.id,
+                "event_type": getattr(log, 'event_type', 'ACTION'),
+                "target_user": getattr(log, 'target_user', ''),
+                "status": getattr(log, 'status', 'SUCCESS'),
+                "details": getattr(log, 'details', ''),
+                "user_fnum": getattr(log, 'user_fnum', ''),
+                "created_at": str(getattr(log, 'created_at', ''))
+            } for log in logs
+        ]
+    except Exception as e:
+        print(f"Audit log fetch error: {e}")
+        return []
 
 @app.get("/api/v1/audit-logs/export")
 def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
