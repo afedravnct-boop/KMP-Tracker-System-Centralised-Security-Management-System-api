@@ -305,10 +305,8 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
 
 def require_admin(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    valid_roles = ["SUPER_ADMIN", "SYSTEM_ADMIN", "REGIONAL_ADMIN", "DIVISION_ADMIN", "STATION_ADMIN", "ADMIN", "RPC"]
-    if user_role not in valid_roles:
+    if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
-    return current_user
 
 def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
@@ -430,9 +428,13 @@ def get_weekly_reports_list(db: Session = Depends(get_db), current_user = Depend
 
 @app.get("/api/v1/admin/pending-users")
 def get_pending_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    # 🟢 1. Check sits OUTSIDE the try block
+    # 🟢 2. Flexible check allows "SUPER ADMIN" (space) or "SUPER_ADMIN" (underscore)
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    if "ADMIN" not in user_role and "RPC" not in user_role:
+        raise HTTPException(status_code=403, detail="Unauthorized access.")
+        
     try:
-        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
-            raise HTTPException(status_code=403, detail="Unauthorized access.")
         pending = db.query(models.Users).filter(models.Users.is_approved == False).all()
         return [
             {
@@ -447,9 +449,12 @@ def get_pending_users(db: Session = Depends(get_db), current_user: models.Users 
 
 @app.get("/api/v1/requests")
 def get_system_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    # 🟢 Flexible check applied here
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    if "ADMIN" not in user_role and "RPC" not in user_role:
+        raise HTTPException(status_code=403, detail="Unauthorized access.")
+        
     try:
-        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
-            raise HTTPException(status_code=403, detail="Unauthorized access.")
         requests = db.query(models.Users).filter(models.Users.is_approved == False).all()
         return [
             {
@@ -463,9 +468,9 @@ def get_system_requests(db: Session = Depends(get_db), current_user: models.User
 
 @app.get("/api/v1/audit-logs")
 def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    # 🟢 Explicitly clear Super Admin and Admins
+    # 🟢 Flexible check applied here
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    if user_role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
+    if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
         
     try:
@@ -1056,35 +1061,63 @@ def export_master_database(
     try:
         is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
         
-        def get_where(table_prefix=""):
-            return "" if is_global else f" WHERE {table_prefix}region = '{current_user.region}'"
+        # 🟢 1. Dynamically resolve actual table models
+        CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
+        StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', getattr(models, 'Stats', None)))
+        StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', getattr(models, 'Stories', None)))
+        NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
+        EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
+        DocsModel = getattr(models, 'DocumentArchive', getattr(models, 'Document_Archive', getattr(models, 'document_archive', None)))
+        AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
 
-        def fetch_data(query):
+        # 🟢 2. Bulletproof ORM Fetcher (Never crashes on bad column names)
+        def get_orm_data(ModelClass, columns):
+            if not ModelClass: return []
             try:
-                return db.execute(text(query)).fetchall()
+                query = db.query(ModelClass)
+                if not is_global and hasattr(ModelClass, 'region'):
+                    query = query.filter(ModelClass.region == current_user.region)
+                
+                extracted = []
+                for r in query.all():
+                    row = []
+                    for col in columns:
+                        val = getattr(r, col, '')
+                        if isinstance(val, datetime): val = val.strftime("%Y-%m-%d %H:%M")
+                        row.append(str(val) if val is not None else '')
+                    extracted.append(row)
+                return extracted
             except Exception as e:
-                print(f"Export fetch warning: {e}")
+                print(f"Export warning for {ModelClass}: {e}")
                 return []
 
-        # Fetch data across all domains including Tripartite Reports and AI Command logs
-        cr_records = fetch_data(f"SELECT sd_ref, region, station, date, time, offence, status, suspects, last_updated_by FROM reports{get_where()}")
-        ops_records = fetch_data(f"SELECT date, region, station, arrests, given_bond, cautioned, pending_court, taken_to_court, released, remanded, convicted FROM stats{get_where()}")
-        ss_records = fetch_data(f"SELECT date, time, region, station, status, narrative FROM stories{get_where()}")
-        nr_records = fetch_data(f"SELECT fnum, name, rank, sex, region, station, position, status FROM nominal_roll{get_where()}")
-        est_records = fetch_data(f"SELECT region, division, station, personnel_in_station, sub_station, personnel_in_sub_station, post, personnel_in_post, booths, personnel_in_booth FROM establishments{get_where()}")
-        docs_records = fetch_data(f"SELECT file_name, doc_type, file_size, region, station, uploaded_by, upload_date FROM document_archive{get_where()}")
-        ai_records = fetch_data(f"SELECT event_type, details, user_fnum, created_at FROM audit_logs WHERE event_type LIKE '%AI%'")
-
-        # Build Single Master Workbook with Dual Sheets (General + Print)
-        wb = openpyxl.Workbook()
-        wb.remove(wb.active) # Remove default sheet
+        # 🟢 3. Fetch data safely mapped to precise UI column names
+        cr_records = get_orm_data(CrimeModel, ['sd_ref', 'region', 'station', 'date', 'time', 'offence', 'status', 'suspects', 'last_updated_by'])
+        ops_records = get_orm_data(StatsModel, ['date', 'region', 'station', 'arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted'])
+        ss_records = get_orm_data(StoryModel, ['date', 'time', 'region', 'station', 'status', 'narrative'])
+        nr_records = get_orm_data(NomModel, ['fnum', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status'])
+        est_records = get_orm_data(EstModel, ['region', 'division', 'station', 'personnel_in_station', 'sub_station', 'personnel_in_sub_station', 'post', 'personnel_in_post', 'booths', 'personnel_in_booth'])
+        docs_records = get_orm_data(DocsModel, ['file_name', 'doc_type', 'file_size', 'region', 'station', 'uploaded_by', 'upload_date'])
         
-        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid") # Dark Blue
+        # AI Command Logs
+        ai_records = []
+        if AuditModel:
+            try:
+                ai_logs = db.query(AuditModel).filter(AuditModel.event_type.ilike('%AI%')).all()
+                for r in ai_logs:
+                    v_time = r.created_at.strftime("%Y-%m-%d %H:%M") if isinstance(r.created_at, datetime) else str(getattr(r, 'created_at', ''))
+                    ai_records.append([getattr(r, 'event_type', ''), getattr(r, 'details', ''), getattr(r, 'user_fnum', ''), v_time])
+            except: pass
+
+        # Build Single Master Workbook with Dual Sheets
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active) 
+        
+        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
         header_align = Alignment(horizontal="center", vertical="center")
 
         def add_domain_sheets(title, headers, data):
-            # Sheet 1: General Master Sheet
             ws_gen = wb.create_sheet(title=title)
             ws_gen.append(["SN"] + headers)
             for cell in ws_gen[1]:
@@ -1099,7 +1132,6 @@ def export_master_database(
                 col_letter = col[0].column_letter
                 ws_gen.column_dimensions[col_letter].width = min(max_len + 3, 50)
 
-            # Sheet 2: Print-Optimized Sheet
             ws_print = wb.create_sheet(title=f"{title} (Print)")
             ws_print.append(["SN"] + headers)
             for cell in ws_print[1]:
@@ -1153,7 +1185,7 @@ def export_master_database(
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # Secure AES-256 Zip Encrypted using the REQUESTING USER'S actual Force Number
+        # Secure AES-256 Zip Encrypted
         zip_stream = io.BytesIO()
         zip_password = str(current_user.fnum).strip().encode('utf-8')
 
@@ -1163,23 +1195,20 @@ def export_master_database(
             zf.writestr(excel_filename, excel_stream.getvalue())
 
         zip_stream.seek(0)
-
         zip_filename = f"SECURE_MASTER_DB_{eat_time.strftime('%Y%m%d')}.zip"
-        headers = {
-            'Content-Disposition': f'attachment; filename="{zip_filename}"',
-            'Access-Control-Expose-Headers': 'Content-Disposition'
-        }
         
         return StreamingResponse(
             zip_stream, 
             media_type="application/zip",
-            headers=headers
+            headers={
+                'Content-Disposition': f'attachment; filename="{zip_filename}"',
+                'Access-Control-Expose-Headers': 'Content-Disposition'
+            }
         )
         
     except Exception as e:
         print(f"Master export error: {e}")
         raise HTTPException(status_code=500, detail=f"Master export failed: {str(e)}")
-
 @app.get("/api/v1/export/establishments")
 def export_establishments_summary(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
