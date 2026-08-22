@@ -103,9 +103,9 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-        # 7. Generate response using the NEW SDK format
+        # 7. Generate response using gemini-2.5-flash
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-2.5-flash',
             contents=tactical_context,
             config=types.GenerateContentConfig(
                 system_instruction=system_rules
