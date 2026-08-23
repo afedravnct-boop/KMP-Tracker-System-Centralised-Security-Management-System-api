@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import text, inspect
+from sqlalchemy import text, inspect, func
 from google import genai
 from google.genai import types
 
@@ -99,14 +99,17 @@ async def process_tactical_query(
         live_data_context = ""
         agric_records = []
         stats_records = []
-        hr_records = []
+        hr_aggregates = []
 
         if db_queries_allowed:
             try:
                 AgricModel = getattr(models, 'Agricultural_Crime_Summary', None)
                 StatsModel = getattr(models, 'Operational_Statistics', None)
-                UserModel = getattr(models, 'User', None)
                 
+                # Check for User or Nominal Roll table
+                HrModel = getattr(models, 'Nominal_Roll', getattr(models, 'User', None))
+                
+                # 1. Crime & OPS Extracts
                 agric_query = db.query(AgricModel) if AgricModel else None
                 stats_query = db.query(StatsModel) if StatsModel else None
 
@@ -129,29 +132,48 @@ async def process_tactical_query(
                     for s in stats_records:
                         live_data_context += f"  * [{s.region} / {s.station}] Date: {s.date} | Arrested={s.arrested}, Remanded={s.remanded}, Convicted={s.convicted}\n"
                 
-                # 🟢 BULLETPROOF NOMINAL ROLL EXTRACTION
-                if has_ai_hr_access and UserModel:
-                    hr_query = db.query(UserModel)
-                    if not is_global_viewer and hasattr(UserModel, 'station'):
-                        hr_query = hr_query.filter(UserModel.station == current_user.station)
+                # 2. 🟢 BULLETPROOF NOMINAL ROLL EXTRACTION (AGGREGATED)
+                if has_ai_hr_access and HrModel:
+                    # Perform a rapid SQL grouping to get demographics without overloading memory
+                    agg_query = db.query(
+                        getattr(HrModel, 'rank'),
+                        getattr(HrModel, 'sex'),
+                        getattr(HrModel, 'status'),
+                        func.count(HrModel.id)
+                    )
                     
-                    hr_records = hr_query.all()
-                    if hr_records:
-                        live_data_context += "- Nominal Roll / Active Personnel Registry:\n"
-                        for u in hr_records:
-                            # Safely extract dynamic column names
-                            u_fnum = getattr(u, 'fnum', getattr(u, 'f_num', 'Unknown'))
-                            u_rank = getattr(u, 'rank', 'Unknown')
-                            u_name = getattr(u, 'name', 'Unknown')
-                            u_gender = getattr(u, 'gender', getattr(u, 'sex', 'Unspecified'))
-                            u_station = getattr(u, 'station', 'Unknown')
-                            u_region = getattr(u, 'region', 'Unknown')
-                            
-                            live_data_context += f"  * FNUM: {u_fnum} | Rank: {u_rank} | Name: {u_name} | Gender: {u_gender} | Station: {u_station} ({u_region})\n"
+                    if not is_global_viewer and hasattr(HrModel, 'station'):
+                        agg_query = agg_query.filter(HrModel.station == current_user.station)
+                        
+                    hr_aggregates = agg_query.group_by(
+                        getattr(HrModel, 'rank'), 
+                        getattr(HrModel, 'sex'), 
+                        getattr(HrModel, 'status')
+                    ).all()
+                    
+                    if hr_aggregates:
+                        live_data_context += "- Nominal Roll Demographics (Aggregated by Rank & Sex):\n"
+                        total_hr = 0
+                        for r_rank, r_sex, r_status, r_count in hr_aggregates:
+                            live_data_context += f"  * Rank: {r_rank} | Sex: {r_sex} | Status: {r_status} => Total Officers: {r_count}\n"
+                            total_hr += r_count
+                        live_data_context += f"  * [Total Personnel in Scope: {total_hr}]\n"
+                    
+                    # Fetch a small sample of individual names just in case they ask for an example officer
+                    hr_sample = db.query(HrModel).limit(10).all()
+                    if hr_sample:
+                        live_data_context += "- Nominal Roll Sample Directory:\n"
+                        for u in hr_sample:
+                            u_fnum = getattr(u, 'f_num', getattr(u, 'fnum', 'N/A'))
+                            u_rank = getattr(u, 'rank', 'N/A')
+                            u_name = getattr(u, 'name', 'N/A')
+                            u_pos = getattr(u, 'position', 'N/A')
+                            u_stat = getattr(u, 'station', 'N/A')
+                            live_data_context += f"  * {u_fnum} | {u_rank} {u_name} | Pos: {u_pos} | Stn: {u_stat}\n"
 
             except Exception as db_fetch_err:
                 print(f"Error fetching live data for AI: {db_fetch_err}")
-                live_data_context += f"\n[Database extraction skipped due to formatting error: {db_fetch_err}]"
+                live_data_context += f"\n[Database extraction skipped due to formatting error]"
         else:
             live_data_context = "🛑 System Note: Super Admin has disabled direct database querying for the AI. Responses are restricted to navigation guidance and uploaded document searches."
 
@@ -217,7 +239,7 @@ async def process_tactical_query(
             "metadata": {
                 "database_query_status": "Active (Tier Restricted)" if db_queries_allowed else "Disabled by Super Admin",
                 "jurisdiction_tier": user_tier_scope,
-                "structured_records_count": len(agric_records) + len(stats_records) + len(hr_records) if db_queries_allowed else 0,
+                "structured_records_count": len(agric_records) + len(stats_records) + len(hr_aggregates) if db_queries_allowed else 0,
                 "semantic_chunks_retrieved": len(results),
                 "ai_model_used": used_model
             }
