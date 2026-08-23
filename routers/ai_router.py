@@ -84,8 +84,15 @@ async def process_tactical_query(
         is_global_viewer = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or \
                            str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
 
-        # 🟢 Check if Super Admin granted this specific officer AI Nominal Roll access
-        has_ai_hr_access = current_user.role == 'SUPER_ADMIN' or current_user.permissions.get('ai_hr_access') == True
+        # 🟢 Safely parse permissions dict to prevent NoneType errors
+        user_perms = current_user.permissions or {}
+        if isinstance(user_perms, str):
+            try:
+                user_perms = json.loads(user_perms)
+            except:
+                user_perms = {}
+                
+        has_ai_hr_access = current_user.role in ['SUPER_ADMIN', 'ADMIN'] or user_perms.get('ai_hr_access') == True
 
         user_tier_scope = f"Global Scope (All Regions/Stations)" if is_global_viewer else f"Restricted Tier Scope: Station {current_user.station}, Region {current_user.region}"
 
@@ -122,7 +129,7 @@ async def process_tactical_query(
                     for s in stats_records:
                         live_data_context += f"  * [{s.region} / {s.station}] Date: {s.date} | Arrested={s.arrested}, Remanded={s.remanded}, Convicted={s.convicted}\n"
                 
-                # 🟢 Safely fetch Nominal Roll if authorized
+                # 🟢 BULLETPROOF NOMINAL ROLL EXTRACTION
                 if has_ai_hr_access and UserModel:
                     hr_query = db.query(UserModel)
                     if not is_global_viewer and hasattr(UserModel, 'station'):
@@ -132,13 +139,19 @@ async def process_tactical_query(
                     if hr_records:
                         live_data_context += "- Nominal Roll / Active Personnel Registry:\n"
                         for u in hr_records:
-                            # Strict Safe-Data Projection (Never expose passwords/emails to AI)
-                            u_gender = getattr(u, 'gender', 'Unknown')
-                            live_data_context += f"  * FNUM: {u.fnum} | Rank: {u.rank} | Name: {u.name} | Gender: {u_gender} | Station: {u.station} ({u.region})\n"
+                            # Safely extract dynamic column names
+                            u_fnum = getattr(u, 'fnum', getattr(u, 'f_num', 'Unknown'))
+                            u_rank = getattr(u, 'rank', 'Unknown')
+                            u_name = getattr(u, 'name', 'Unknown')
+                            u_gender = getattr(u, 'gender', getattr(u, 'sex', 'Unspecified'))
+                            u_station = getattr(u, 'station', 'Unknown')
+                            u_region = getattr(u, 'region', 'Unknown')
+                            
+                            live_data_context += f"  * FNUM: {u_fnum} | Rank: {u_rank} | Name: {u_name} | Gender: {u_gender} | Station: {u_station} ({u_region})\n"
 
             except Exception as db_fetch_err:
                 print(f"Error fetching live data for AI: {db_fetch_err}")
-                live_data_context += "\n[Some database extractions were skipped due to formatting errors.]"
+                live_data_context += f"\n[Database extraction skipped due to formatting error: {db_fetch_err}]"
         else:
             live_data_context = "🛑 System Note: Super Admin has disabled direct database querying for the AI. Responses are restricted to navigation guidance and uploaded document searches."
 
