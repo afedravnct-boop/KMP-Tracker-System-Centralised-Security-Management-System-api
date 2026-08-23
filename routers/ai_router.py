@@ -84,16 +84,21 @@ async def process_tactical_query(
         is_global_viewer = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or \
                            str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
 
+        # 🟢 Check if Super Admin granted this specific officer AI Nominal Roll access
+        has_ai_hr_access = current_user.role == 'SUPER_ADMIN' or current_user.permissions.get('ai_hr_access') == True
+
         user_tier_scope = f"Global Scope (All Regions/Stations)" if is_global_viewer else f"Restricted Tier Scope: Station {current_user.station}, Region {current_user.region}"
 
         live_data_context = ""
         agric_records = []
         stats_records = []
+        hr_records = []
 
         if db_queries_allowed:
             try:
                 AgricModel = getattr(models, 'Agricultural_Crime_Summary', None)
                 StatsModel = getattr(models, 'Operational_Statistics', None)
+                UserModel = getattr(models, 'User', None)
                 
                 agric_query = db.query(AgricModel) if AgricModel else None
                 stats_query = db.query(StatsModel) if StatsModel else None
@@ -116,9 +121,24 @@ async def process_tactical_query(
                     live_data_context += "- Disruptive OPS Weekly Metrics:\n"
                     for s in stats_records:
                         live_data_context += f"  * [{s.region} / {s.station}] Date: {s.date} | Arrested={s.arrested}, Remanded={s.remanded}, Convicted={s.convicted}\n"
+                
+                # 🟢 Safely fetch Nominal Roll if authorized
+                if has_ai_hr_access and UserModel:
+                    hr_query = db.query(UserModel)
+                    if not is_global_viewer and hasattr(UserModel, 'station'):
+                        hr_query = hr_query.filter(UserModel.station == current_user.station)
+                    
+                    hr_records = hr_query.all()
+                    if hr_records:
+                        live_data_context += "- Nominal Roll / Active Personnel Registry:\n"
+                        for u in hr_records:
+                            # Strict Safe-Data Projection (Never expose passwords/emails to AI)
+                            u_gender = getattr(u, 'gender', 'Unknown')
+                            live_data_context += f"  * FNUM: {u.fnum} | Rank: {u.rank} | Name: {u.name} | Gender: {u_gender} | Station: {u.station} ({u.region})\n"
+
             except Exception as db_fetch_err:
                 print(f"Error fetching live data for AI: {db_fetch_err}")
-                live_data_context = "Database table extraction skipped due to formatting."
+                live_data_context += "\n[Some database extractions were skipped due to formatting errors.]"
         else:
             live_data_context = "🛑 System Note: Super Admin has disabled direct database querying for the AI. Responses are restricted to navigation guidance and uploaded document searches."
 
@@ -157,7 +177,7 @@ async def process_tactical_query(
 
         used_model = 'gemini-3.6-flash'
         try:
-            # 🟢 FIRST ATTEMPT: Try the primary, newest model
+            # FIRST ATTEMPT
             response = client.models.generate_content(
                 model=used_model,
                 contents=tactical_context,
@@ -165,7 +185,7 @@ async def process_tactical_query(
             )
         except Exception as primary_err:
             if "503" in str(primary_err) or "UNAVAILABLE" in str(primary_err):
-                # 🟢 SECOND ATTEMPT: If 3.6 is overloaded (503), instantly fallback to a highly available standard model
+                # SECOND ATTEMPT (FALLBACK)
                 print("Gemini 3.6 is experiencing high demand. Triggering automatic fallback to 1.5-flash...")
                 used_model = 'gemini-1.5-flash'
                 try:
@@ -184,7 +204,7 @@ async def process_tactical_query(
             "metadata": {
                 "database_query_status": "Active (Tier Restricted)" if db_queries_allowed else "Disabled by Super Admin",
                 "jurisdiction_tier": user_tier_scope,
-                "structured_records_count": len(agric_records) + len(stats_records) if db_queries_allowed else 0,
+                "structured_records_count": len(agric_records) + len(stats_records) + len(hr_records) if db_queries_allowed else 0,
                 "semantic_chunks_retrieved": len(results),
                 "ai_model_used": used_model
             }

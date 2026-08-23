@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
-  Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2
+  Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -18,6 +18,7 @@ const REGIONAL_HIERARCHY = {
 // 🟢 EXPANDED SUPER CONTROL PANEL MODULES
 const CLEARANCE_MATRIX_COLS = [
   { key: 'global_observer', label: 'Global Observer (Read-Only)', color: 'fuchsia', bg: 'bg-fuchsia-50/50' },
+  { key: 'ai_hr_access', label: 'AI Nominal Roll', color: 'amber', bg: 'bg-amber-100/60' }, // 🟢 NEW AI HR TOGGLE
   { key: 'acc_home', label: 'Home Dash', color: 'slate', bg: 'bg-slate-100/50' },
   { key: 'acc_profile', label: 'Profile', color: 'slate', bg: 'bg-slate-100/50' },
   { key: 'acc_comms', label: 'Command Comms', color: 'blue', bg: 'bg-blue-50/50' },
@@ -63,6 +64,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [allSystemUsers, setAllSystemUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
+  // 🟢 AI Kill Switch State
+  const [isDbKillActive, setIsDbKillActive] = useState(false);
+  const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
+
   const [revokePrompt, setRevokePrompt] = useState({
     isOpen: false,
     fnum: null,
@@ -94,6 +99,25 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
   const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
+
+  // 🟢 AI Kill Switch Handler
+  const handleKillSwitchToggle = async () => {
+    setLoadingKillSwitch(true);
+    try {
+      const res = await authFetch('/api/v1/ai/admin/toggle-db-query', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setIsDbKillActive(!data.ai_database_query_enabled);
+        alert(data.message);
+      } else {
+        alert("Failed to toggle AI database kill switch.");
+      }
+    } catch (err) {
+      alert("Error contacting the server to toggle AI database access.");
+    } finally {
+      setLoadingKillSwitch(false);
+    }
+  };
 
   // 🟢 STABLE DATA FETCHERS (No circular dependencies)
   const fetchPendingUsers = useCallback(async () => {
@@ -631,6 +655,27 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         >
           <RefreshCw size={13} className="mr-1.5" /> Refresh Queue
         </button>
+
+        {/* 🟢 Super Admin Kill Switch for AI Database */}
+        {currentUser?.role === 'SUPER_ADMIN' && (
+          <button
+            onClick={handleKillSwitchToggle}
+            disabled={loadingKillSwitch}
+            className={`font-bold px-3 py-1.5 rounded-lg text-xs flex items-center justify-center transition cursor-pointer shadow-xs border ${
+              isDbKillActive 
+                ? 'bg-emerald-950 border-emerald-600 text-emerald-200 hover:bg-emerald-900' 
+                : 'bg-red-950 border-red-600 text-red-200 hover:bg-red-900'
+            }`}
+            title="Toggle AI Direct Database Querying Access"
+          >
+            {loadingKillSwitch ? (
+              <Loader2 size={13} className="mr-1.5 animate-spin" />
+            ) : (
+              <ShieldAlert size={13} className="mr-1.5" />
+            )}
+            {isDbKillActive ? 'Enable AI DB Query' : 'Kill AI DB Query'}
+          </button>
+        )}
       </div>
 
       {/* Navigation Tabs */}
