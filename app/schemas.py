@@ -362,3 +362,26 @@ class AILogResponse(AILogBase):
     id: int
     created_at: Optional[datetime] = None
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+# ==========================================
+# 9. AGRICULTURAL CRIME SUMMARY LEDGER
+# ==========================================
+class AgricSummaryBase(BaseModel):
+    region: str
+    station: str
+    date: str
+    agric_crime_report: str
+    number_count: int = 0
+    recoveries: int = 0
+    status: str
+
+class AgricSummaryCreate(AgricSummaryBase):
+    pass
+
+class AgricSummaryResponse(AgricSummaryBase):
+    id: int
+    sn: Optional[int] = None
+    last_updated_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)

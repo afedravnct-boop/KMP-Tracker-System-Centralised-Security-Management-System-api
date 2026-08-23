@@ -271,14 +271,20 @@ def acknowledge_communication(
     ReadsModel = get_reads_model()
     CommModel = get_comm_model()
 
-    # Verify the user actually has access to this message before acknowledging
     comm = db.query(CommModel).filter((CommModel.id == comm_id) | (CommModel.sn == comm_id)).first()
     if not comm:
         raise HTTPException(status_code=404, detail="Communication not found.")
 
     audience = (comm.target_audience or "").strip().upper()
     target_region = (comm.target_region or "").strip().upper()
-    target_fnums = [f.strip().upper() for f in (comm.target_fnum or "").split(",") if f.strip()]
+    
+    # 🟢 FIX: Safe JSON / String parsing for target_fnum
+    raw_fnums = comm.target_fnum
+    if isinstance(raw_fnums, list):
+        target_fnums = [str(f).strip().upper() for f in raw_fnums if str(f).strip()]
+    else:
+        target_fnums = [f.strip().upper() for f in str(raw_fnums or "").replace('[','').replace(']','').replace('"','').replace("'","").split(",") if f.strip()]
+
     clean_user_fnum = (current_user.fnum or "").strip().upper()
     user_role = (current_user.role or "").strip().upper()
     user_region = (current_user.region or "").strip().upper()
@@ -307,7 +313,7 @@ def acknowledge_communication(
             uganda_time = datetime.now(eat_tz).replace(tzinfo=None)
             new_read = ReadsModel(
                 comm_id=comm_id, 
-                fnum=clean_fnum, 
+                fnum=clean_user_fnum, # 🟢 FIX: Corrected variable name
                 read_at=uganda_time
             )
             db.add(new_read)
@@ -317,6 +323,7 @@ def acknowledge_communication(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to record receipt: {str(e)}")
+
 
 @router.get("/communications/{comm_id}/readers")
 @router.get("/Admin_Communication/{comm_id}/readers")
@@ -334,17 +341,21 @@ def get_communication_readers(
 
     audience = (comm.target_audience or "").strip().upper()
     target_region = (comm.target_region or "").strip().upper()
-    target_fnums = [f.strip().upper() for f in (comm.target_fnum or "").split(",") if f.strip()]
+    
+    # 🟢 FIX: Safe JSON / String parsing for target_fnum
+    raw_fnums = comm.target_fnum
+    if isinstance(raw_fnums, list):
+        target_fnums = [str(f).strip().upper() for f in raw_fnums if str(f).strip()]
+    else:
+        target_fnums = [f.strip().upper() for f in str(raw_fnums or "").replace('[','').replace(']','').replace('"','').replace("'","").split(",") if f.strip()]
 
     clean_user_fnum = (current_user.fnum or "").strip().upper()
     user_role = (current_user.role or "").strip().upper()
     position_str = (current_user.position or "").strip().upper()
     user_region = (current_user.region or "").strip().upper()
 
-    # 🟢 1. GENERAL BROADCAST RULE: If message is general, ANY user who received it can view read receipts
     is_general_broadcast = audience in ["ALL", "ALL_USERS", "ALL_REGIONS"]
 
-    # 🟢 2. INTENDED RECIPIENT RULE: Check if user belongs to the target group
     is_intended_recipient = (
         is_general_broadcast or
         (audience == "SPECIFIC_USER" and clean_user_fnum in target_fnums) or
@@ -354,7 +365,6 @@ def get_communication_readers(
         (comm.sender_fnum == current_user.fnum)
     )
 
-    # 🟢 3. HIGH COMMAND OVERRIDE: Admins and high-ranking commanders can always view
     is_high_command = (
         user_role in ["ADMIN", "SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
         "COMMANDER" in position_str or
@@ -362,7 +372,6 @@ def get_communication_readers(
         "RPC" in position_str
     )
 
-    # 🛑 STRICT ACCESS GUARD: If the user was not an intended recipient and is not high command, deny access completely!
     if not is_intended_recipient and not is_high_command:
         raise HTTPException(status_code=403, detail="Clearance Denied: You are not authorized to view read receipts for this communication.")
 

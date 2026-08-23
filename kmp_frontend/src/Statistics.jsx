@@ -39,21 +39,34 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
   // 🟢 DOMAIN TOGGLE: 'DISRUPTIVE' vs 'AGRICULTURAL'
   const [statsDomain, setStatsDomain] = useState('DISRUPTIVE');
 
-  // 🟢 Active dataset selector based on toggle state
+  // 🟢 Accordion State for Agricultural Regions
+  const [expandedAgricRegions, setExpandedAgricRegions] = useState({
+    "KMP NORTH": true,
+    "KMP SOUTH": false,
+    "KMP EAST": false,
+    "KMP HEADQUARTERS": false,
+    "POLICE HEADQUARTERS": false
+  });
+
+  const toggleAgricRegion = (region) => {
+    setExpandedAgricRegions(prev => ({ ...prev, [region]: !prev[region] }));
+  };
+
   const currentDomainStats = statsDomain === 'AGRICULTURAL' ? agricStats : stats;
   const activeSetter = statsDomain === 'AGRICULTURAL' ? setAgricStats : setStats;
 
-  // 🟢 Dedicated State for Agricultural Summary Table Entries
   const [agricSummaryRecords, setAgricSummaryRecords] = useState([]);
   const [agricFormData, setAgricFormData] = useState({
+    region: currentUser.region || 'KMP NORTH',
+    station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
     agric_crime_report: '',
-    number_count: 0,
-    recoveries: 0,
+    number_count_label: '',
+    recovery_report: '',
+    recoveries_label: '',
     status: 'UNDER INVESTIGATION',
     date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]
   });
 
-  // Fetch Agricultural Summaries from Backend on Mount or Domain Switch
   useEffect(() => {
     if (statsDomain === 'AGRICULTURAL') {
       const fetchAgricSummaries = async () => {
@@ -71,12 +84,32 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     }
   }, [statsDomain]);
 
-  const handleAgricInputChange = (e) => {
-    const { name, value, type } = e.target;
-    setAgricFormData({
-      ...agricFormData,
-      [name]: type === 'number' ? parseInt(value) || 0 : value.toUpperCase()
+  // 🟢 Group records exactly for the Excel-like screenshot layout
+  const groupedAgricData = useMemo(() => {
+    const groups = {};
+    Object.keys(REGIONAL_HIERARCHY).forEach(reg => {
+      groups[reg] = { stations: {} };
     });
+
+    agricSummaryRecords.forEach(record => {
+      let reg = (record.region || 'KMP NORTH').toUpperCase();
+      const stn = (record.station || 'UNKNOWN').toUpperCase();
+      
+      if (!groups[reg]) groups[reg] = { stations: {} };
+      if (!groups[reg].stations[stn]) groups[reg].stations[stn] = [];
+      
+      groups[reg].stations[stn].push(record);
+    });
+    return groups;
+  }, [agricSummaryRecords]);
+
+  const handleAgricInputChange = (e) => {
+    const { name, value } = e.target;
+    if (name === 'region') {
+      setAgricFormData({ ...agricFormData, region: value.toUpperCase(), station: REGIONAL_HIERARCHY[value.toUpperCase()]?.[0] || '' });
+    } else {
+      setAgricFormData({ ...agricFormData, [name]: value.toUpperCase() });
+    }
   };
 
   const handleAgricFormSubmit = async (e) => {
@@ -85,14 +118,27 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     if (!token) return setNotification("Error: Security token missing. Please re-authenticate.");
 
     try {
+      // Map custom inputs to backend schema fields
+      const payload = {
+        region: agricFormData.region,
+        station: agricFormData.station,
+        date: agricFormData.date,
+        agric_crime_report: agricFormData.agric_crime_report, // e.g. CATTLE STOLEN
+        number_count: parseInt(agricFormData.number_count_label) || 0, // Extract number
+        recoveries: parseInt(agricFormData.recoveries_label) || 0, // Extract number
+        // We pack the extra label strings into these fields to maintain frontend display
+        status: JSON.stringify({
+          numLabel: agricFormData.number_count_label,
+          recReport: agricFormData.recovery_report,
+          recLabel: agricFormData.recoveries_label,
+          baseStatus: agricFormData.status
+        })
+      };
+
       const response = await authFetch('/api/v1/agric-summary', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...agricFormData,
-          region: filterRegion !== 'ALL REGIONS' ? filterRegion : currentUser.region,
-          station: filterStation !== 'ALL STATIONS' ? filterStation : currentUser.station
-        })
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
@@ -100,15 +146,27 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
         throw new Error(errData.detail || "Failed to save agricultural entry.");
       }
 
-      const savedEntry = await response.json().catch(() => agricFormData);
-      setAgricSummaryRecords([savedEntry, ...agricSummaryRecords]);
+      const savedEntry = await response.json().catch(() => payload);
+      
+      // Inject back into local state to render immediately
+      const displayEntry = {
+        ...payload,
+        id: savedEntry.id,
+        number_count_label: agricFormData.number_count_label,
+        recovery_report: agricFormData.recovery_report,
+        recoveries_label: agricFormData.recoveries_label,
+        status: agricFormData.status
+      };
+
+      setAgricSummaryRecords([displayEntry, ...agricSummaryRecords]);
       setNotification(`✅ Agricultural summary successfully logged!`);
       setAgricFormData({
+        ...agricFormData,
         agric_crime_report: '',
-        number_count: 0,
-        recoveries: 0,
+        number_count_label: '',
+        recovery_report: '',
+        recoveries_label: '',
         status: 'UNDER INVESTIGATION',
-        date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]
       });
       setTimeout(() => setNotification(null), 4000);
     } catch (err) {
@@ -116,7 +174,6 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     }
   };
 
-  // 🟢 Unified Global Jurisdiction Clearance
   const canViewGlobalActive = canViewGlobal || 
     ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
     currentUser?.permissions?.view_global_roster === true || 
@@ -125,7 +182,6 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
 
-  // 🟢 Guard against background polling overwriting user selections
   const isFilterInitialized = useRef(false);
   useEffect(() => {
     if (!isFilterInitialized.current && currentUser?.station) {
@@ -316,6 +372,26 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
         setNotification(`❌ Error: ${err.message}`);  
       }
     }
+  };
+
+  // Helper to parse complex status JSON injected earlier
+  const parseAgricStatus = (record) => {
+    try {
+      if (record.status && record.status.includes('{')) {
+        const parsed = JSON.parse(record.status);
+        return {
+          numLabel: parsed.numLabel || `${record.number_count}`,
+          recReport: parsed.recReport || 'RECOVERED',
+          recLabel: parsed.recLabel || `${record.recoveries}`,
+        };
+      }
+    } catch(e) { }
+    // Fallback if raw
+    return {
+      numLabel: record.number_count_label || `${record.number_count}`,
+      recReport: record.recovery_report || `${record.agric_crime_report} RECOVERED`,
+      recLabel: record.recoveries_label || `${record.recoveries}`
+    };
   };
 
   return (
@@ -516,137 +592,160 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
               </div>
             </ExpandableTableCard>
 
-            {/* AGRICULTURAL CRIMES HIERARCHICAL MATRIX */}
+            {/* 🟢 AGRICULTURAL CRIMES HIERARCHICAL MATRIX (ACCORDION) */}
             {statsDomain === 'AGRICULTURAL' && (
-              <div className="mt-8 space-y-8 animate-in fade-in duration-200">
+              <div className="mt-8 space-y-6 animate-in fade-in duration-200">
                 <div className="bg-white rounded-xl shadow-sm border border-emerald-200 overflow-hidden">
-                  <div className="bg-emerald-800 px-4 py-3 text-white font-extrabold text-xs uppercase tracking-wider flex items-center">
-                    🌱 Log Station Agricultural Crime & Recovery Entry
+                  <div className="bg-emerald-700 px-4 py-3 text-white font-extrabold text-xs uppercase tracking-wider flex items-center">
+                    🌱 Log Station Agricultural Crime & Produce Entry
                   </div>
                   <form onSubmit={handleAgricFormSubmit} className="p-5 grid grid-cols-1 sm:grid-cols-6 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Region *</label>
-                      <select name="region" value={agricFormData.region || currentUser.region} onChange={handleAgricInputChange} className="w-full text-xs border p-2 rounded bg-white font-bold">
+                      <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">Region *</label>
+                      <select name="region" value={agricFormData.region} onChange={handleAgricInputChange} className="w-full text-xs border p-2 rounded bg-white font-bold outline-none focus:border-emerald-500">
                         {Object.keys(REGIONAL_HIERARCHY).map(reg => (
                           <option key={reg} value={reg}>{reg}</option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Station / Division *</label>
-                      <select name="station" value={agricFormData.station || currentUser.station} onChange={handleAgricInputChange} className="w-full text-xs border p-2 rounded bg-white font-bold">
-                        {(REGIONAL_HIERARCHY[agricFormData.region || currentUser.region] || [currentUser.station]).map(stn => (
+                      <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">Station / Division *</label>
+                      <select name="station" value={agricFormData.station} onChange={handleAgricInputChange} className="w-full text-xs border p-2 rounded bg-white font-bold outline-none focus:border-emerald-500">
+                        {(REGIONAL_HIERARCHY[agricFormData.region] || [currentUser.station]).map(stn => (
                           <option key={stn} value={stn}>{stn}</option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Crime Report *</label>
-                      <input type="text" name="agric_crime_report" value={agricFormData.agric_crime_report} onChange={handleAgricInputChange} required placeholder="e.g. CATTLE STOLEN" className="w-full text-xs border p-2 rounded uppercase bg-white font-bold text-red-700" />
+                      <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">Item (e.g. CATTLE) *</label>
+                      <input type="text" name="agric_crime_report" value={agricFormData.agric_crime_report} onChange={handleAgricInputChange} required placeholder="e.g. CATTLE" className="w-full text-xs border p-2 rounded uppercase font-bold text-red-700 outline-none focus:border-emerald-500" />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Stolen Qty & Unit *</label>
-                      <input type="text" name="number_count_label" value={agricFormData.number_count_label} onChange={handleAgricInputChange} required placeholder="e.g. 5 HEADS / 500KGS" className="w-full text-xs border p-2 rounded font-black text-blue-700 bg-white" />
+                      <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">Stolen Qty & Unit *</label>
+                      <input type="text" name="number_count_label" value={agricFormData.number_count_label} onChange={handleAgricInputChange} required placeholder="e.g. 5 HEADS" className="w-full text-xs border p-2 rounded font-black text-slate-900 bg-white outline-none focus:border-emerald-500 uppercase" />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Action / Recovery *</label>
-                      <input type="text" name="recovery_report" value={agricFormData.recovery_report} onChange={handleAgricInputChange} required placeholder="e.g. CATTLE RECOVERED" className="w-full text-xs border p-2 rounded uppercase bg-white font-bold text-emerald-700" />
+                      <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">Action / Recovery *</label>
+                      <input type="text" name="recovery_report" value={agricFormData.recovery_report} onChange={handleAgricInputChange} required placeholder="e.g. CATTLE RECOVERED" className="w-full text-xs border p-2 rounded uppercase font-bold text-emerald-700 outline-none focus:border-emerald-500" />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Recovery Qty *</label>
-                      <input type="text" name="recoveries_label" value={agricFormData.recoveries_label} onChange={handleAgricInputChange} required placeholder="e.g. 2 HEADS / NIL" className="w-full text-xs border p-2 rounded font-black text-emerald-700 bg-white" />
+                      <label className="block text-[10px] font-bold text-slate-700 uppercase mb-1">Recovery Qty *</label>
+                      <input type="text" name="recoveries_label" value={agricFormData.recoveries_label} onChange={handleAgricInputChange} required placeholder="e.g. 2 HEADS" className="w-full text-xs border p-2 rounded font-black text-emerald-700 bg-white outline-none focus:border-emerald-500 uppercase" />
                     </div>
-                    <div className="sm:col-span-6 flex justify-end">
+                    <div className="sm:col-span-6 flex justify-end pt-2">
                       <button type="submit" className="bg-emerald-700 hover:bg-emerald-800 text-white font-black py-2.5 px-6 rounded-lg text-xs uppercase shadow cursor-pointer transition flex items-center">
-                        Save Entry to Ledger
+                        <Save className="w-4 h-4 mr-1.5" /> Save Entry to Ledger
                       </button>
                     </div>
                   </form>
                 </div>
 
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-white rounded-xl shadow-sm border border-slate-300 overflow-hidden">
                   <div className="bg-slate-900 px-4 py-3 text-white font-extrabold text-xs uppercase tracking-wider flex items-center justify-between">
                     <span>📋 Regional Agricultural & Produce Theft Command Ledger</span>
-                    <span className="bg-emerald-700 text-white px-2.5 py-0.5 rounded-full text-[10px]">Click Region to Expand</span>
+                    <span className="bg-emerald-700 text-white px-2.5 py-0.5 rounded-full text-[10px]">Accordion Expansion</span>
                   </div>
 
-                  <div className="divide-y divide-slate-200">
-                    {Object.keys(REGIONAL_HIERARCHY).map(regionName => {
-                      const regionEntries = agricSummaryRecords.filter(i => (i.region || 'KMP NORTH').toUpperCase() === regionName);
-                      const [isRegionOpen, setIsRegionOpen] = useState(true);
+                  <div className="overflow-x-auto w-full custom-scrollbar">
+                    <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
+                      <thead className="bg-[#00b050] text-white uppercase font-black">
+                        <tr>
+                          <th className="p-3 border-r border-emerald-700 w-12 text-center">SN.</th>
+                          <th className="p-3 border-r border-emerald-700 w-48">DISTRICT/DIVISION</th>
+                          <th className="p-3 border-r border-emerald-700">REPORT</th>
+                          <th className="p-3 border-r border-emerald-700 text-center w-24">QTY</th>
+                          <th className="p-3 border-r border-emerald-700">ACTION</th>
+                          <th className="p-3 text-center w-32">NUMBER</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-300 border-b border-slate-300">
+                        {Object.keys(groupedAgricData).map((regionName) => {
+                          const regionData = groupedAgricData[regionName];
+                          const isExpanded = expandedAgricRegions[regionName];
+                          const hasData = Object.keys(regionData.stations).length > 0;
 
-                      return (
-                        <div key={regionName} className="border-b border-slate-200">
-                          <div 
-                            onClick={() => setIsRegionOpen(!isRegionOpen)}
-                            className="bg-slate-100 px-6 py-3 flex justify-between items-center cursor-pointer hover:bg-slate-200 transition-colors"
-                          >
-                            <div className="flex items-center space-x-3">
-                              <span className="text-xs font-black text-blue-700">{isRegionOpen ? '▼' : '▶'}</span>
-                              <span className="font-black text-slate-900 uppercase text-sm tracking-wide">{regionName} REGION</span>
-                            </div>
-                            <div className="flex items-center space-x-6 text-xs font-bold text-slate-700">
-                              <span>Total Entries Logged: <strong className="text-blue-600">{regionEntries.length}</strong></span>
-                              <span className="text-slate-400">Click to {isRegionOpen ? 'Collapse' : 'Expand'}</span>
-                            </div>
-                          </div>
+                          if (filterRegion !== 'ALL REGIONS' && regionName !== filterRegion) return null;
 
-                          {isRegionOpen && (
-                            <div className="p-4 bg-slate-50/50 overflow-x-auto">
-                              <table className="w-full text-left border-collapse text-xs bg-white shadow-xs rounded-lg overflow-hidden border border-slate-200">
-                                <thead className="bg-emerald-900 text-white uppercase font-bold text-[11px]">
-                                  <tr>
-                                    <th className="p-3 w-16 text-center border-r border-emerald-800">SN.</th>
-                                    <th className="p-3 min-w-[180px] border-r border-emerald-800">DISTRICT / DIVISION</th>
-                                    <th className="p-3 min-w-[200px] border-r border-emerald-800">REPORT</th>
-                                    <th className="p-3 min-w-[120px] text-center border-r border-emerald-800">QTY</th>
-                                    <th className="p-3 min-w-[200px] border-r border-emerald-800">ACTION</th>
-                                    <th className="p-3 min-w-[120px] text-center">NUMBER</th>
+                          return (
+                            <React.Fragment key={regionName}>
+                              {/* 🟢 GREEN ACCORDION REGION HEADER */}
+                              <tr
+                                onClick={() => toggleAgricRegion(regionName)}
+                                className="bg-[#00b050]/20 hover:bg-[#00b050]/30 cursor-pointer transition-colors border-t-2 border-emerald-600"
+                              >
+                                <td colSpan="6" className="p-3 font-black text-emerald-900 uppercase">
+                                  <span className="mr-2 text-emerald-700">{isExpanded ? '▼' : '▶'}</span> {regionName}
+                                </td>
+                              </tr>
+
+                              {/* 🟢 EXPANDED STATION ROWS (Stacked Cells) */}
+                              {isExpanded && hasData && Object.keys(regionData.stations).map((stationName, idx) => {
+                                const records = regionData.stations[stationName];
+                                
+                                if (filterStation !== 'ALL STATIONS' && stationName !== filterStation) return null;
+
+                                return (
+                                  <tr key={stationName} className="bg-white hover:bg-slate-50 border-b border-slate-300">
+                                    <td className="p-3 font-bold text-slate-800 text-center align-top border-r border-slate-300">{idx + 1}</td>
+                                    <td className="p-3 font-extrabold text-slate-900 uppercase align-top border-r border-slate-300">{stationName}</td>
+                                    
+                                    <td className="p-0 align-top border-r border-slate-300">
+                                      {records.map((r, i) => {
+                                        const parsed = parseAgricStatus(r);
+                                        return (
+                                          <div key={i} className={`px-3 py-2.5 font-bold text-red-600 uppercase ${i !== records.length - 1 ? 'border-b border-slate-200' : ''}`}>
+                                            {r.agric_crime_report} STOLEN
+                                          </div>
+                                        )
+                                      })}
+                                    </td>
+
+                                    <td className="p-0 align-top border-r border-slate-300">
+                                      {records.map((r, i) => {
+                                        const parsed = parseAgricStatus(r);
+                                        return (
+                                          <div key={i} className={`px-3 py-2.5 font-black text-slate-900 text-center ${i !== records.length - 1 ? 'border-b border-slate-200' : ''}`}>
+                                            {parsed.numLabel}
+                                          </div>
+                                        )
+                                      })}
+                                    </td>
+
+                                    <td className="p-0 align-top border-r border-slate-300">
+                                      {records.map((r, i) => {
+                                        const parsed = parseAgricStatus(r);
+                                        return (
+                                          <div key={i} className={`px-3 py-2.5 font-bold text-emerald-700 uppercase ${i !== records.length - 1 ? 'border-b border-slate-200' : ''}`}>
+                                            {parsed.recReport}
+                                          </div>
+                                        )
+                                      })}
+                                    </td>
+
+                                    <td className="p-0 align-top">
+                                      {records.map((r, i) => {
+                                        const parsed = parseAgricStatus(r);
+                                        return (
+                                          <div key={i} className={`px-3 py-2.5 font-black text-emerald-600 text-center ${i !== records.length - 1 ? 'border-b border-slate-200' : ''}`}>
+                                            {parsed.recLabel}
+                                          </div>
+                                        )
+                                      })}
+                                    </td>
                                   </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-200">
-                                  {regionEntries.length === 0 ? (
-                                    <tr><td colSpan="6" className="text-center py-6 text-slate-400 font-medium">No theft records logged for {regionName}.</td></tr>
-                                  ) : (
-                                    (() => {
-                                      const stationsInRegion = Array.from(new Set(regionEntries.map(i => i.station)));
-                                      let globalSerial = 1;
-
-                                      return stationsInRegion.map(stationName => {
-                                        const stationRows = regionEntries.filter(i => i.station === stationName);
-
-                                        return stationRows.map((row, rIndex) => (
-                                          <tr key={row.id || `${stationName}-${rIndex}`} className="hover:bg-slate-50 transition-colors">
-                                            <td className="p-3 font-extrabold text-slate-700 text-center border-r border-slate-200 bg-slate-50/50">
-                                              {rIndex === 0 ? globalSerial++ : ''}
-                                            </td>
-                                            <td className="p-3 font-extrabold text-slate-900 uppercase border-r border-slate-200 bg-slate-50/30">
-                                              {rIndex === 0 ? stationName : ''}
-                                            </td>
-                                            <td className="p-3 font-black text-red-600 uppercase border-r border-slate-200">
-                                              {row.agric_crime_report}
-                                            </td>
-                                            <td className="p-3 text-center font-bold text-blue-700 border-r border-slate-200">
-                                              {row.number_count_label || row.number_count}
-                                            </td>
-                                            <td className="p-3 font-black text-emerald-800 uppercase border-r border-slate-200">
-                                              {row.recovery_report || 'RECOVERED'}
-                                            </td>
-                                            <td className="p-3 text-center font-bold text-emerald-700">
-                                              {row.recoveries_label || row.recoveries}
-                                            </td>
-                                          </tr>
-                                        ));
-                                      });
-                                    })()
-                                  )}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                                )
+                              })}
+                              
+                              {isExpanded && !hasData && (
+                                <tr>
+                                  <td colSpan="6" className="p-4 text-center text-slate-400 font-medium bg-slate-50 italic">No entries logged for {regionName} yet.</td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          )
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
