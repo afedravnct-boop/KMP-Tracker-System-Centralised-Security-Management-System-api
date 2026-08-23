@@ -666,6 +666,11 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
 
                           if (filterRegion !== 'ALL REGIONS' && regionName !== filterRegion) return null;
 
+                          // 🟢 Calculate Regional Aggregates
+                          const allRegionRecords = Object.values(regionData.stations).flat();
+                          const regionalTotalStolen = allRegionRecords.reduce((sum, r) => sum + (parseInt(r.number_count) || 0), 0);
+                          const regionalTotalRecovered = allRegionRecords.reduce((sum, r) => sum + (parseInt(r.recoveries) || 0), 0);
+
                           return (
                             <React.Fragment key={regionName}>
                               {/* 🟢 GREEN ACCORDION REGION HEADER */}
@@ -690,14 +695,11 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
                                     <td className="p-3 font-extrabold text-slate-900 uppercase align-top border-r border-slate-300">{stationName}</td>
                                     
                                     <td className="p-0 align-top border-r border-slate-300">
-                                      {records.map((r, i) => {
-                                        const parsed = parseAgricStatus(r);
-                                        return (
-                                          <div key={i} className={`px-3 py-2.5 font-bold text-red-600 uppercase ${i !== records.length - 1 ? 'border-b border-slate-200' : ''}`}>
-                                            {r.agric_crime_report} STOLEN
-                                          </div>
-                                        )
-                                      })}
+                                      {records.map((r, i) => (
+                                        <div key={i} className={`px-3 py-2.5 font-bold text-red-600 uppercase ${i !== records.length - 1 ? 'border-b border-slate-200' : ''}`}>
+                                          {r.agric_crime_report} STOLEN
+                                        </div>
+                                      ))}
                                     </td>
 
                                     <td className="p-0 align-top border-r border-slate-300">
@@ -736,6 +738,24 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
                                 )
                               })}
                               
+                              {/* 🟢 REGIONAL TOTAL ROW (Displays at the bottom of expanded stations) */}
+                              {isExpanded && hasData && (
+                                <tr className="bg-emerald-50 border-b-2 border-emerald-400">
+                                  <td colSpan="3" className="p-3 font-black text-right text-emerald-900 uppercase tracking-wider">
+                                    {regionName} REGIONAL TOTAL:
+                                  </td>
+                                  <td className="p-3 text-center font-black text-red-700 text-lg border-x border-emerald-200">
+                                    {regionalTotalStolen}
+                                  </td>
+                                  <td className="p-3 font-bold text-emerald-900 text-right uppercase border-r border-emerald-200">
+                                    TOTAL RECOVERED:
+                                  </td>
+                                  <td className="p-3 text-center font-black text-emerald-700 text-lg">
+                                    {regionalTotalRecovered}
+                                  </td>
+                                </tr>
+                              )}
+
                               {isExpanded && !hasData && (
                                 <tr>
                                   <td colSpan="6" className="p-4 text-center text-slate-400 font-medium bg-slate-50 italic">No entries logged for {regionName} yet.</td>
@@ -744,6 +764,24 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
                             </React.Fragment>
                           )
                         })}
+
+                        {/* 🟢 GRAND TOTAL (ALL REGIONS) */}
+                        {agricSummaryRecords.length > 0 && (
+                          <tr className="bg-slate-900 text-white border-t-4 border-slate-700 shadow-inner">
+                            <td colSpan="3" className="p-4 font-black text-right uppercase tracking-widest text-slate-200">
+                              GRAND TOTAL (ALL REGIONS):
+                            </td>
+                            <td className="p-4 text-center font-black text-red-400 text-xl border-x border-slate-700">
+                              {agricSummaryRecords.reduce((sum, r) => sum + (parseInt(r.number_count) || 0), 0)}
+                            </td>
+                            <td className="p-4 font-bold text-right text-slate-400 uppercase border-r border-slate-700">
+                              OVERALL RECOVERED:
+                            </td>
+                            <td className="p-4 text-center font-black text-emerald-400 text-xl">
+                              {agricSummaryRecords.reduce((sum, r) => sum + (parseInt(r.recoveries) || 0), 0)}
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
