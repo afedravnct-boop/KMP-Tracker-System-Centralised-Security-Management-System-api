@@ -1,21 +1,22 @@
 import { authFetch } from './api';
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Send, 
-  Bot, 
-  User, 
-  Database, 
-  FileText, 
-  Terminal, 
-  ShieldAlert, 
-  Sparkles, 
-  Loader2, 
-  RefreshCw, 
-  CornerDownLeft 
+import {  
+  Send,  
+  Bot,  
+  User,  
+  Database,  
+  FileText,  
+  Terminal,  
+  ShieldAlert,  
+  Sparkles,  
+  Loader2,  
+  RefreshCw,
+  Maximize2,
+  Minimize2,
+  X
 } from 'lucide-react';
 
-const AICommandConsole = ({ currentUser }) => {
-  // 🟢 Fixed Order: FNUM, RANK, NAME
+const AICommandConsole = ({ currentUser, onBack }) => {
   const officerFnum = currentUser?.fnum || 'N/A';
   const officerRank = currentUser?.rank || 'OFFICER';
   const officerName = currentUser?.name || 'OPERATIVE';
@@ -31,9 +32,9 @@ const AICommandConsole = ({ currentUser }) => {
   ]);
   const [inputQuery, setInputQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
   const chatEndRef = useRef(null);
 
-  // Auto-scroll to bottom of conversation
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
@@ -107,104 +108,125 @@ const AICommandConsole = ({ currentUser }) => {
   ];
 
   return (
-    // 🟢 SOLID BACKGROUND: Removed any transparency classes, forced 100% solid color layers
-    <div className="flex flex-col h-[calc(100vh-6rem)] max-w-6xl mx-auto bg-slate-950 text-slate-100 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden isolation-auto">
+    <div className={`flex flex-col bg-[#020617] text-slate-100 rounded-2xl border-2 border-slate-700 shadow-2xl overflow-hidden transition-all duration-300 ${
+      isFullScreen 
+        ? 'fixed inset-4 z-[9999] h-[calc(100vh-2rem)] max-w-none m-0' 
+        : 'h-[calc(100vh-6rem)] max-w-7xl mx-auto my-0 px-2 sm:px-6'
+    }`}>
       
-      {/* Header Bar - Solid bg-slate-900 */}
-      <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between shrink-0">
+      {/* Solid Header Bar */}
+      <div className="bg-[#0f172a] border-b-2 border-slate-700 px-6 py-4 flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-3">
-          <div className="p-2 bg-sky-500/10 border border-sky-500/30 rounded-xl text-sky-400">
+          <div className="p-2 bg-[#020617] border border-sky-500/50 rounded-xl text-sky-400">
             <Sparkles className="w-5 h-5 animate-pulse" />
           </div>
           <div>
-            <h3 className="font-extrabold text-sm uppercase tracking-wider text-slate-100 flex items-center gap-2">
+            <h3 className="font-black text-sm uppercase tracking-wider text-white flex items-center gap-2">
               KMP Tactical AI Command Console
-              <span className="bg-sky-500/20 text-sky-400 text-[10px] px-2 py-0.5 rounded-full border border-sky-500/30">
+              <span className="bg-sky-950 text-sky-300 text-[10px] px-2 py-0.5 rounded-full border border-sky-700 font-bold">
                 Dual-Path RAG / SQL
               </span>
             </h3>
-            <p className="text-xs text-slate-400">
-              Clearance: <span className="text-amber-400 font-semibold">{officerFnum} | {officerRank} | {officerName}</span>
+            <p className="text-xs text-slate-300">
+              Clearance: <span className="text-amber-300 font-bold">{officerFnum} | {officerRank} | {officerName}</span>
             </p>
           </div>
         </div>
 
-        <button
-          onClick={() => setMessages([messages[0]])}
-          className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
-          title="Reset Console Stream"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setMessages([messages[0]])}
+            className="p-2 bg-[#020617] hover:bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-white transition-colors cursor-pointer"
+            title="Reset Console Stream"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+          
+          <button
+            onClick={() => setIsFullScreen(!isFullScreen)}
+            className="p-2 bg-[#020617] hover:bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:text-white transition-colors cursor-pointer"
+            title={isFullScreen ? "Exit Full Screen" : "Expand Full Screen"}
+          >
+            {isFullScreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
+
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="p-2 bg-red-950 hover:bg-red-900 border border-red-700 rounded-lg text-red-200 hover:text-white transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+              title="Close Console"
+            >
+              <X className="w-4 h-4" />
+              <span className="hidden sm:inline">Close</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Message Stream - Solid container */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-950">
+      {/* Solid Message Stream */}
+      <div className="flex-1 overflow-y-auto p-6 sm:px-12 space-y-6 bg-[#020617] custom-scrollbar">
         {messages.map((msg) => (
           <div
             key={msg.id}
             className={`flex items-start gap-3.5 ${msg.sender === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
           >
-            {/* Avatar */}
             <div
-              className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${
+              className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border-2 ${
                 msg.sender === 'user'
-                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                  ? 'bg-[#0f172a] border-amber-500 text-amber-400'
                   : msg.isError
-                  ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                  : 'bg-sky-500/10 border-sky-500/30 text-sky-400'
+                  ? 'bg-[#0f172a] border-red-500 text-red-400'
+                  : 'bg-[#0f172a] border-sky-500 text-sky-400'
               }`}
             >
               {msg.sender === 'user' ? <User className="w-4 h-4" /> : msg.isError ? <ShieldAlert className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
             </div>
 
-            {/* Bubble - Solid background */}
-            <div className={`flex flex-col max-w-3xl ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+            <div className={`flex flex-col max-w-4xl ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
               <div
-                className={`p-4 rounded-2xl text-xs sm:text-sm leading-relaxed border whitespace-pre-wrap ${
+                className={`p-4 sm:p-5 rounded-2xl text-xs sm:text-sm leading-relaxed border-2 whitespace-pre-wrap font-medium ${
                   msg.sender === 'user'
-                    ? 'bg-amber-600 text-white border-amber-500 rounded-tr-none'
+                    ? 'bg-amber-700 text-white border-amber-500 rounded-tr-none shadow-md'
                     : msg.isError
-                    ? 'bg-red-950 text-red-200 border-red-800 rounded-tl-none'
-                    : 'bg-slate-900 text-slate-200 border-slate-800 rounded-tl-none shadow-md'
+                    ? 'bg-red-950 text-red-100 border-red-700 rounded-tl-none shadow-md'
+                    : 'bg-[#0f172a] text-slate-100 border-slate-700 rounded-tl-none shadow-lg'
                 }`}
               >
                 {msg.text}
               </div>
 
-              {/* Execution Badges / Metadata */}
               {msg.metadata && (
                 <div className="flex flex-wrap gap-2 mt-2">
                   {msg.metadata.sql_executed && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-slate-900 text-sky-300 border border-slate-800 px-2 py-0.5 rounded-md">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-[#0f172a] text-sky-200 border border-slate-600 px-2 py-0.5 rounded-md font-bold">
                       <Terminal className="w-3 h-3 text-sky-400" /> SQL: {msg.metadata.sql_executed.slice(0, 45)}...
                     </span>
                   )}
                   {msg.metadata.structured_records_count > 0 && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-slate-900 text-emerald-300 border border-slate-800 px-2 py-0.5 rounded-md">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-[#0f172a] text-emerald-200 border border-slate-600 px-2 py-0.5 rounded-md font-bold">
                       <Database className="w-3 h-3 text-emerald-400" /> {msg.metadata.structured_records_count} DB Rows
                     </span>
                   )}
                   {msg.metadata.semantic_chunks_retrieved > 0 && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-slate-900 text-purple-300 border border-slate-800 px-2 py-0.5 rounded-md">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-[#0f172a] text-purple-200 border border-slate-600 px-2 py-0.5 rounded-md font-bold">
                       <FileText className="w-3 h-3 text-purple-400" /> {msg.metadata.semantic_chunks_retrieved} SITREP Chunks
                     </span>
                   )}
                 </div>
               )}
 
-              <span className="text-[10px] text-slate-500 mt-1 px-1">{msg.timestamp}</span>
+              <span className="text-[10px] text-slate-400 mt-1 px-1 font-bold">{msg.timestamp}</span>
             </div>
           </div>
         ))}
 
         {isLoading && (
           <div className="flex items-start gap-3.5">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-sky-500/10 border border-sky-500/30 text-sky-400">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-[#0f172a] border-2 border-sky-500 text-sky-400">
               <Loader2 className="w-4 h-4 animate-spin" />
             </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl rounded-tl-none p-4 text-xs text-slate-400 flex items-center gap-2">
-              <span className="inline-block w-2 h-2 rounded-full bg-sky-400 animate-ping" />
+            <div className="bg-[#0f172a] border-2 border-slate-700 rounded-2xl rounded-tl-none p-4 text-xs text-slate-200 font-bold flex items-center gap-2 shadow-lg">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping" />
               Synthesizing structured database metrics and semantic records...
             </div>
           </div>
@@ -213,34 +235,34 @@ const AICommandConsole = ({ currentUser }) => {
         <div ref={chatEndRef} />
       </div>
 
-      {/* Suggested Quick Prompt Chips - Solid bg */}
-      <div className="px-6 py-2 bg-slate-900 border-t border-slate-800 flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0">
-        <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider shrink-0">Suggestions:</span>
+      {/* Solid Suggestion Chips */}
+      <div className="px-6 sm:px-12 py-3 bg-[#0f172a] border-t-2 border-slate-700 flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0">
+        <span className="text-[11px] text-slate-300 font-extrabold uppercase tracking-wider shrink-0">Suggestions:</span>
         {quickPrompts.map((prompt, i) => (
           <button
             key={i}
             onClick={() => setInputQuery(prompt)}
-            className="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1 rounded-full whitespace-nowrap transition-colors cursor-pointer"
+            className="text-xs bg-[#020617] hover:bg-slate-800 border border-slate-600 text-slate-200 font-bold px-3 py-1.5 rounded-full whitespace-nowrap transition-colors cursor-pointer shadow-sm"
           >
             {prompt}
           </button>
         ))}
       </div>
 
-      {/* Command Input Bar - Solid bg */}
-      <form onSubmit={handleSendQuery} className="p-4 bg-slate-900 border-t border-slate-800 flex items-center gap-3 shrink-0">
+      {/* Solid Input Bar */}
+      <form onSubmit={handleSendQuery} className="p-4 sm:px-12 bg-[#0f172a] border-t-2 border-slate-700 flex items-center gap-3 shrink-0">
         <input
           type="text"
           value={inputQuery}
           onChange={(e) => setInputQuery(e.target.value)}
           placeholder="Issue operational query (e.g. 'Where is officer PC Okello deployed?' or 'Summarize Bwaise robbery statistics')..."
-          className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500 transition-colors"
+          className="flex-1 bg-[#020617] border-2 border-slate-700 rounded-xl px-4 py-3 text-xs sm:text-sm text-white placeholder-slate-400 font-medium focus:outline-none focus:border-sky-500 transition-colors shadow-inner"
         />
 
         <button
           type="submit"
           disabled={isLoading || !inputQuery.trim()}
-          className="px-5 py-3 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-colors flex items-center gap-2 shrink-0 shadow-lg shadow-sky-950 cursor-pointer"
+          className="px-6 py-3 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition-colors flex items-center gap-2 shrink-0 shadow-lg cursor-pointer border border-sky-400"
         >
           {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           Execute

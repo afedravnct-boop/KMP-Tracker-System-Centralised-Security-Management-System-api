@@ -79,6 +79,7 @@ from routers import (
     document_upload,
     general_documents,
     command_templates,
+    agric_summary,
     nominal_roll,
     crime_registry,
     lockup_matrix,
@@ -92,6 +93,7 @@ from routers import (
 app.include_router(document_upload.router)
 app.include_router(general_documents.router)
 app.include_router(command_templates.router)
+app.include_router(agric_summary.router)
 app.include_router(nominal_roll.router)
 app.include_router(crime_registry.router)
 app.include_router(lockup_matrix.router)
@@ -1003,59 +1005,223 @@ def export_hr_ledger(db: Session = Depends(get_db), current_user: models.Users =
 def export_analytics_report(db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):
     try:
         is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
+        
+        # 1. ORM Models (Pure Analytics Domains)
         CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
         StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', getattr(models, 'Stats', None)))
         StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', getattr(models, 'Stories', None)))
+        NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
 
-        def get_orm_data(ModelClass, columns):
-            if not ModelClass: return []
-            try:
-                query = db.query(ModelClass)
-                if not is_global and hasattr(ModelClass, 'region'): query = query.filter(ModelClass.region == current_user.region)
-                return [[str(getattr(r, col, '') if not isinstance(getattr(r, col, ''), datetime) else getattr(r, col, '').strftime("%Y-%m-%d %H:%M")) for col in columns] for r in query.all()]
-            except: return []
+        def get_scoped_query(ModelClass):
+            if not ModelClass:
+                return []
+            q = db.query(ModelClass)
+            if not is_global and hasattr(ModelClass, 'region'):
+                q = q.filter(ModelClass.region == current_user.region)
+            return q.all()
 
-        cr_records = get_orm_data(CrimeModel, ['sd_ref', 'region', 'station', 'date', 'time', 'offence', 'status', 'suspects'])
-        ops_records = get_orm_data(StatsModel, ['date', 'region', 'station', 'arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted'])
-        ss_records = get_orm_data(StoryModel, ['date', 'time', 'region', 'station', 'status', 'narrative'])
+        cr_records = get_scoped_query(CrimeModel)
+        ops_records = get_scoped_query(StatsModel)
+        ss_records = get_scoped_query(StoryModel)
+        nom_records = get_scoped_query(NomModel)
 
+        # 2. Build Extracted Datasets
+        # --- A. Comparative Distribution & Volume ---
+        comp_counts = {}
+        for r in cr_records:
+            cat = getattr(r, 'offence', 'GENERAL CRIME') or 'GENERAL CRIME'
+            comp_counts[cat] = comp_counts.get(cat, 0) + 1
+        comp_data = [[k, v] for k, v in sorted(comp_counts.items(), key=lambda x: x[1], reverse=True)]
+
+        # --- B. Disruptive Ops ---
+        disruptive_data = [
+            [
+                str(getattr(s, 'date', '')),
+                getattr(s, 'region', ''),
+                getattr(s, 'station', ''),
+                getattr(s, 'arrested', 0),
+                getattr(s, 'given_bond', 0),
+                getattr(s, 'cautioned', 0),
+                getattr(s, 'pending_court', 0),
+                getattr(s, 'taken_to_court', 0),
+                getattr(s, 'released', 0),
+                getattr(s, 'remanded', 0),
+                getattr(s, 'convicted', 0)
+            ] for s in ops_records
+        ]
+
+        # --- C. Relational Matrix ---
+        relational_data = [
+            [
+                getattr(s, 'region', ''),
+                getattr(s, 'station', ''),
+                getattr(s, 'arrested', 0),
+                getattr(s, 'taken_to_court', 0),
+                getattr(s, 'convicted', 0),
+                "POSITIVE IMPACT" if (getattr(s, 'arrested', 0) or 0) > 5 else "ACTIVE SWEEP"
+            ] for s in ops_records
+        ]
+
+        # --- D. Manpower Analysis ---
+        manpower_data = [
+            [
+                getattr(n, 'f_num', getattr(n, 'fnum', '')),
+                getattr(n, 'name', ''),
+                getattr(n, 'rank', ''),
+                getattr(n, 'sex', ''),
+                getattr(n, 'region', ''),
+                getattr(n, 'station', ''),
+                getattr(n, 'position', '')
+            ] for n in nom_records
+        ]
+
+        # --- E. Success Stories ---
+        stories_data = [
+            [
+                str(getattr(st, 'date', '')),
+                str(getattr(st, 'time', '')),
+                getattr(st, 'region', ''),
+                getattr(st, 'station', ''),
+                getattr(st, 'status', 'COMPLETED'),
+                getattr(st, 'narrative', '')
+            ] for st in ss_records
+        ]
+
+        # --- F. Crime Categories ---
+        crime_cat_counts = {}
+        for r in cr_records:
+            off = getattr(r, 'offence', 'UNSPECIFIED') or 'UNSPECIFIED'
+            susp = getattr(r, 'suspects', 0) or 0
+            if off not in crime_cat_counts:
+                crime_cat_counts[off] = [0, 0]
+            crime_cat_counts[off][0] += 1
+            crime_cat_counts[off][1] += susp
+        crime_cat_data = [[off, vals[0], vals[1]] for off, vals in crime_cat_counts.items()]
+
+        # --- G. Standalone Summary Table ---
+        summary_table_data = [
+            ["Total Registered Incidents / Reports", len(cr_records)],
+            ["Total Disruptive Operations Logged", len(ops_records)],
+            ["Total Success Stories & Breakthroughs", len(ss_records)],
+            ["Total Deployed Active Force Strength", len(nom_records)],
+            ["Total Suspects Arrested in Operations", sum(getattr(s, 'arrested', 0) or 0 for s in ops_records)],
+            ["Total Convictions Obtained", sum(getattr(s, 'convicted', 0) or 0 for s in ops_records)]
+        ]
+
+        # --- H. Ops Trends ---
+        ops_trends_data = [
+            [
+                str(getattr(s, 'date', '')),
+                getattr(s, 'region', ''),
+                getattr(s, 'station', ''),
+                getattr(s, 'arrested', 0),
+                getattr(s, 'pending_court', 0),
+                getattr(s, 'remanded', 0)
+            ] for s in ops_records
+        ]
+
+        # 3. Build Excel Workbook
         wb = openpyxl.Workbook()
-        wb.remove(wb.active) 
+        wb.remove(wb.active)  # Remove default sheet
+
         header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
-        
-        def add_sheet(title, headers, data):
+        section_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+        section_font = Font(color="FFFFFF", bold=True, size=11)
+
+        # Helper to create individual sheets
+        def add_individual_sheet(title, headers, rows):
             ws = wb.create_sheet(title=title)
             ws.append(["SN"] + headers)
             for cell in ws[1]:
-                cell.fill = header_fill; cell.font = header_font; cell.alignment = Alignment(horizontal="center", vertical="center")
-            for idx, row in enumerate(data, 1): ws.append([idx] + row)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            for idx, r in enumerate(rows, 1):
+                ws.append([idx] + list(r))
             for col in ws.columns:
                 max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-                ws.column_dimensions[col[0].column_letter].width = min(max_len + 3, 65)
+                ws.column_dimensions[col[0].column_letter].width = min(max_len + 3, 50)
 
-        add_sheet("Relational Crimes", ["SD Ref", "Region", "Station", "Date", "Time", "Offence", "Status", "Suspects"], cr_records)
-        add_sheet("Relational Statistics", ["Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"], ops_records)
-        add_sheet("Success Stories", ["Date", "Time", "Region", "Station", "Status", "Narrative"], ss_records)
+        # Build dedicated individual sheets
+        add_individual_sheet("Comparative Distribution", ["Category / Offence", "Total Volume"], comp_data)
+        add_individual_sheet("Disruptive Ops", ["Date", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
+        add_individual_sheet("Relational Matrix", ["Region", "Station", "Total Arrests", "Court Dispositions", "Convictions", "Impact Evaluation"], relational_data)
+        add_individual_sheet("Manpower Analysis", ["Force Number", "Officer Name", "Rank", "Sex", "Region", "Station", "Position / Role"], manpower_data)
+        add_individual_sheet("Success Stories", ["Date", "Time", "Region", "Station", "Status", "Operational Milestone Narrative"], stories_data)
+        add_individual_sheet("Crime Categories", ["Offence Type", "Incident Count", "Suspects Involved"], crime_cat_data)
+        add_individual_sheet("Summary Table", ["Operational Metric Attribute", "Aggregate Value"], summary_table_data)
+        add_individual_sheet("Ops Trends", ["Date", "Region", "Station", "Arrests Logged", "Pending Court", "Remanded"], ops_trends_data)
 
+        # 4. Build Master 'General Analytics' Sheet (Sequential Stacking with 1 Empty Row Separator)
+        ws_gen = wb.create_sheet(title="General Analytics", index=0)
+        
+        def append_stacked_section(section_title, headers, rows):
+            # 1. Section Title
+            ws_gen.append([section_title.upper()])
+            title_cell = ws_gen.cell(row=ws_gen.max_row, column=1)
+            title_cell.fill = section_fill
+            title_cell.font = section_font
+            title_cell.alignment = Alignment(horizontal="left", vertical="center")
+            
+            # 2. Table Headers
+            ws_gen.append(["SN"] + headers)
+            header_row_idx = ws_gen.max_row
+            for col_idx in range(1, len(headers) + 2):
+                c = ws_gen.cell(row=header_row_idx, column=col_idx)
+                c.fill = header_fill
+                c.font = header_font
+                c.alignment = Alignment(horizontal="center", vertical="center")
+
+            # 3. Data Rows
+            if not rows:
+                ws_gen.append(["—", "No records captured for this analytical attribute."])
+            else:
+                for idx, r in enumerate(rows, 1):
+                    ws_gen.append([idx] + list(r))
+
+            # 4. Exactly ONE Empty Blank Row Separator
+            ws_gen.append([])
+
+        append_stacked_section("1. Comparative Distribution & Volume", ["Category / Offence", "Total Volume"], comp_data)
+        append_stacked_section("2. Disruptive Operations Breakdown", ["Date", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
+        append_stacked_section("3. Relational Dependency Matrix", ["Region", "Station", "Total Arrests", "Court Dispositions", "Convictions", "Impact Evaluation"], relational_data)
+        append_stacked_section("4. Deep Manpower Distribution Analysis", ["Force Number", "Officer Name", "Rank", "Sex", "Region", "Station", "Position / Role"], manpower_data)
+        append_stacked_section("5. Success Stories & Operational Breakthroughs", ["Date", "Time", "Region", "Station", "Status", "Operational Milestone Narrative"], stories_data)
+        append_stacked_section("6. Crime Incident Categories", ["Offence Type", "Incident Count", "Suspects Involved"], crime_cat_data)
+        append_stacked_section("7. Standalone Summary Aggregates", ["Operational Metric Attribute", "Aggregate Value"], summary_table_data)
+        append_stacked_section("8. Operations & Arrest Trends", ["Date", "Region", "Station", "Arrests Logged", "Pending Court", "Remanded"], ops_trends_data)
+
+        # Auto-adjust column widths for General Analytics
+        for col in ws_gen.columns:
+            max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+            ws_gen.column_dimensions[col[0].column_letter].width = min(max_len + 3, 55)
+
+        # 5. Encrypt into AES-256 ZIP Archive
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
-        
+
         zip_stream = io.BytesIO()
         eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
         fnum_clean = str(current_user.fnum).replace('/', '_').upper()
+        zip_password = str(current_user.fnum).strip().encode('utf-8')
 
         with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
-            zf.setpassword(str(current_user.fnum).strip().encode('utf-8'))
+            zf.setpassword(zip_password)
             zf.writestr(f"{fnum_clean}_Analytics_Relational_{eat_time.strftime('%Y%m%d')}.xlsx", excel_stream.getvalue())
 
         zip_stream.seek(0)
         return StreamingResponse(
-            zip_stream, media_type="application/zip",
-            headers={'Content-Disposition': f'attachment; filename="SECURE_ANALYTICS_REPORT_{eat_time.strftime("%y%m%d")}.zip"', 'Access-Control-Expose-Headers': 'Content-Disposition'}
+            zip_stream,
+            media_type="application/zip",
+            headers={
+                'Content-Disposition': f'attachment; filename="SECURE_ANALYTICS_REPORT_{eat_time.strftime("%Y%m%d")}.zip"',
+                'Access-Control-Expose-Headers': 'Content-Disposition'
+            }
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analytics export failed: {str(e)}")
+        print(f"Analytics Export Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Analytics export compilation failed: {str(e)}")
 
 @app.get("/api/v1/reports/export")
 def export_master_database(timeframe: str = "all", scope: Optional[str] = None, value: Optional[str] = None, db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):

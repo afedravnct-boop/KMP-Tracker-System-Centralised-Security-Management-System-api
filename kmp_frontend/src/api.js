@@ -1,7 +1,6 @@
 // src/api.js
 const BASE_URL = import.meta.env.VITE_API_URL || 'https://kmp-tracker-system-centralised-security.onrender.com';
 
-// 🟢 Synchronized with Login.jsx and app expectations
 let inMemoryToken = typeof window !== 'undefined' ? sessionStorage.getItem('kmp_authToken') : null;
 let inMemoryUserFNum = typeof window !== 'undefined' ? sessionStorage.getItem('kmp_currentUser_fnum') : null;
 
@@ -23,11 +22,8 @@ export const setAuthSession = (token, fnum) => {
 export const clearAuthSession = () => {
   inMemoryToken = null;
   inMemoryUserFNum = null;
-  sessionStorage.removeItem('kmp_authToken');
-  sessionStorage.removeItem('kmp_currentUser_fnum');
-  sessionStorage.removeItem('kmp_currentUser');
-  sessionStorage.removeItem('kmp_loginTime');
-  localStorage.removeItem('kmp_authToken'); // Just in case remnants exist
+  sessionStorage.clear();
+  localStorage.removeItem('kmp_authToken');
   localStorage.removeItem('kmp_currentUser');
 };
 
@@ -35,7 +31,22 @@ export const getAuthToken = () => inMemoryToken || sessionStorage.getItem('kmp_a
 export const getAuthUserFNum = () => inMemoryUserFNum || sessionStorage.getItem('kmp_currentUser_fnum');
 export const hasValidSession = () => Boolean(getAuthToken());
 
-export async function authFetch(endpoint, options = {}) {
+// 🟢 CONCURRENT REQUEST MANAGEMENT & ATOMIC REVOCATION GUARD
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+export async function authFetch(endpoint, options = {}, retries = 1) {
   const url = (endpoint.startsWith('http://') || endpoint.startsWith('https://'))
     ? endpoint
     : `${BASE_URL}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
@@ -43,19 +54,15 @@ export async function authFetch(endpoint, options = {}) {
   const currentFNum = getAuthUserFNum();
   const currentToken = getAuthToken();
 
-  // 🛑 1. EMERGENCY BRAKE: Block outgoing requests if there is no token (unless it's an auth route)
   if (!currentToken && !url.includes('/login') && !url.includes('/signup') && !url.includes('/auth/')) {
-    console.warn("Missing token. Blocking request to prevent loops:", url);
     return new Response(JSON.stringify({ detail: "No session token" }), { status: 401 });
   }
 
   const headers = { ...options.headers };
-
   if (currentFNum) {
     headers['X-User-FNum'] = currentFNum;
   }
 
-  // --- FASTAPI LOGIN PAYLOAD CONVERSION ---
   if (url.includes('/api/auth/login') && typeof options.body === 'string') {
     try {
       const parsedBody = JSON.parse(options.body);
@@ -63,12 +70,9 @@ export async function authFetch(endpoint, options = {}) {
       formData.append("username", parsedBody.username || parsedBody.email || parsedBody.fnum || "");
       formData.append("password", parsedBody.password || "");
       options.body = formData;
-    } catch (e) {
-      // Retain original body
-    }
+    } catch (e) {}
   }
 
-  // --- CONTENT-TYPE NORMALIZATION ---
   if (options.body) {
     if (options.body instanceof URLSearchParams) {
       headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=utf-8';
@@ -81,29 +85,75 @@ export async function authFetch(endpoint, options = {}) {
     headers['Authorization'] = `Bearer ${currentToken}`;
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-    credentials: 'include'
-  });
-
-  // 🛑 2. ANTI-LOOP INTERCEPTOR: Handle gracefully without throwing a crash error
-  if (response.status === 401 && !url.includes('/api/auth/login')) {
-    console.warn("🔒 Secure Session Expired. Halting loops and routing to login.");
-    clearAuthSession();
-    window.dispatchEvent(new Event('auth-expired'));
-
-    // Safely route to root if not already there, using replace so the back button doesn't trigger loops
-    if (window.location.pathname !== '/' && window.location.pathname !== '') {
-      window.location.replace('/?session_expired=true');
+  let response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include'
+    });
+  } catch (networkError) {
+    console.warn("Network congestion or temporary blip intercepted. Holding execution:", networkError);
+    if (retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      return authFetch(endpoint, options, retries - 1);
     }
+    return new Response(JSON.stringify({ detail: "Network connectivity interrupted" }), { status: 503 });
+  }
+
+  // 🛡️ BULLETPROOF 401 INTERCEPTOR WITH HARD REVOCATION CHECK
+  if (response.status === 401 && !url.includes('/api/auth/login') && !url.includes('/heartbeat')) {
     
-    return response; // Return the 401 response gracefully instead of throwing
+    // 1. If a token verification is already running, queue concurrent requests safely
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        failedQueue.push({ resolve, reject });
+      }).then(token => {
+        headers['Authorization'] = `Bearer ${token}`;
+        return fetch(url, { ...options, headers, credentials: 'include' });
+      }).catch(() => {
+        return response;
+      });
+    }
+
+    // 2. If we have retries left, verify if the user has been revoked at the database level
+    if (retries > 0) {
+      isRefreshing = true;
+      try {
+        const hbCheck = await fetch(`${BASE_URL}/api/v1/users/heartbeat`, {
+          headers: { 'Authorization': `Bearer ${currentToken}` },
+          credentials: 'include'
+        });
+
+        // 🛑 THE SECURITY FIX: If heartbeat returns 401 or 403, the user is genuinely revoked/expired! Do NOT retry.
+        if (hbCheck.status === 401 || hbCheck.status === 403) {
+          isRefreshing = false;
+          processQueue(new Error("Revoked"));
+          console.warn("🔒 Hard Revocation Detected: User access has been terminated by command.");
+          clearAuthSession();
+          window.dispatchEvent(new CustomEvent('industrial-auth-expired', { detail: { endpoint: url } }));
+          return response;
+        }
+
+        if (hbCheck.ok) {
+          isRefreshing = false;
+          processQueue(null, currentToken);
+          return fetch(url, { ...options, headers, credentials: 'include' });
+        }
+      } catch (e) {
+        // Network failure during heartbeat
+      }
+      isRefreshing = false;
+    }
+
+    // 3. Fallback: Force secure session expiration modal
+    console.warn("🔒 Verified Session Expiration. Routing to secure lock.");
+    clearAuthSession();
+    window.dispatchEvent(new CustomEvent('industrial-auth-expired', { detail: { endpoint: url } }));
+    return response;
   }
 
   if (response.status === 403) {
-    console.warn("🛡️ Security Restriction: Access Denied.");
-    // We can still throw on 403 because it means they are logged in but lack permission, not an infinite auth loop.
     throw new Error("Clearance Denied");
   }
 

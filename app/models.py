@@ -474,3 +474,25 @@ CommunicationReads = Communication_Reads
 AdminCommunication = Admin_Communication
 AICommandLogs = AI_Command_Logs # 🟢 Add the alias here
 
+# ==========================================
+# AGRICULTURAL CRIME SUMMARY LEDGER
+# ==========================================
+class Agricultural_Crime_Summary(Base):
+    __tablename__ = "agricultural_crime_summary"
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    sn = Column(Integer, index=True)
+    region = Column(String, index=True)
+    station = Column(String, index=True)
+    date = Column(String, index=True)
+    
+    agric_crime_report = Column(String, nullable=False) # e.g. "Cattle Thefts"
+    number_count = Column(Integer, default=0)            # e.g. 20
+    recoveries = Column(Integer, default=0)              # e.g. 0
+    status = Column(String, default="UNDER INVESTIGATION") # e.g. "Under Investigation"
+    
+    last_updated_by = Column(String)
+    created_at = Column(DateTime, default=get_eat_time)
+
+AgriculturalCrimeSummary = Agricultural_Crime_Summary

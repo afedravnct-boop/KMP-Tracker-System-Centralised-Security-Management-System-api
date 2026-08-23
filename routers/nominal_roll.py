@@ -91,7 +91,7 @@ def auto_infer_geography(station_name, current_region=None, current_district=Non
     return inferred_region or "KMP HEADQUARTERS", inferred_district or "KAMPALA"
 
 # ====================================================================
-# 1. RETRIEVE ACTIVE AND ARCHIVED NOMINAL ROLL WITH DYNAMIC SERIALS
+# 1. RETRIEVE ACTIVE AND ARCHIVED NOMINAL ROLL WITH DESCENDING ARCHIVE SORTING
 # ====================================================================
 @router.get("/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -116,14 +116,14 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         active_query = active_query.filter(func.upper(ActiveModel.station) == user_station)
         archive_query = archive_query.filter(func.upper(ArchiveModel.station) == user_station)
         
-    # 🟢 Use each model's own column for sorting
     sort_act = getattr(ActiveModel, 'created_at', getattr(ActiveModel, 'id', getattr(ActiveModel, 'sn', None)))
     if sort_act is not None:
         active_query = active_query.order_by(sort_act.asc())
 
-    sort_arc = getattr(ArchiveModel, 'created_at', getattr(ArchiveModel, 'id', getattr(ArchiveModel, 'sn', None)))
+    # 🟢 ARCHIVE SORTING FIX: Order by descending (Last-In, First-Shown)
+    sort_arc = getattr(ArchiveModel, 'archive_date', getattr(ArchiveModel, 'created_at', getattr(ArchiveModel, 'id', getattr(ArchiveModel, 'sn', None))))
     if sort_arc is not None:
-        archive_query = archive_query.order_by(sort_arc.asc())
+        archive_query = archive_query.order_by(sort_arc.desc())
 
     active_records = active_query.all()
     archive_records = archive_query.all()
@@ -154,7 +154,7 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         clean_results.append(r_dict)
         sequence_counter += 1
 
-    # 2. Process Archive Records
+    # 2. Process Archive Records (Sorted descending by archive_date / id)
     for r in archive_records:
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
@@ -216,22 +216,18 @@ async def bulk_upload_nominal_roll(
             else:
                 continue
 
-            # Standardize column headers first
             df.columns = [str(col).strip().lower().replace(" ", "_").replace("/", "_") for col in df.columns]
 
-            # 🟢 FIX: CONVERT DATES FROM DD-MM-YYYY to YYYY-MM-DD to prevent PostgreSQL overflow
             date_columns = ['dob', 'doe', 'do_post', 'dopost', 'do_pro', 'dopro', 'date_of_birth', 'date_of_enlistment']
             for col in date_columns:
                 if col in df.columns:
                     df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce').dt.strftime('%Y-%m-%d')
 
-            # Safely nullify invalid values
             df = df.replace({np.nan: None, 'NaT': None, 'NaN': None})
 
             for _, row in df.iterrows():
                 fnum_val = row.get("f_num") or row.get("fnum") or row.get("force_number") or row.get("file_number")
                 
-                # Check for stray string 'nan'
                 if not fnum_val or str(fnum_val).strip().lower() in ['nan', 'nat', 'none', 'null', '']:
                     continue
 
@@ -266,7 +262,6 @@ async def bulk_upload_nominal_roll(
                     "last_updated_by": officer_sig
                 }
 
-                # 🟢 2. AGGRESSIVE SAFETY PASS: Destroy literal 'nan' strings & floats
                 for key, value in officer_payload.items():
                     if isinstance(value, str) and value.strip().lower() in ['nan', 'nat', 'none', 'null', '']:
                         officer_payload[key] = None
@@ -278,7 +273,6 @@ async def bulk_upload_nominal_roll(
                 if hasattr(ActiveModel, 'fnum'):
                     officer_payload['fnum'] = clean_fnum
 
-                # Filter for existing records
                 fnum_filter = []
                 if hasattr(ActiveModel, 'f_num'):
                     fnum_filter.append(ActiveModel.f_num == clean_fnum)
@@ -346,7 +340,6 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         if hasattr(ActiveModel, 'fnum'):
             clean_data['fnum'] = clean_fnum
 
-        # Check Active Duplicate
         fnum_filter = []
         if hasattr(ActiveModel, 'f_num'):
             fnum_filter.append(ActiveModel.f_num == clean_fnum)
@@ -357,7 +350,6 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         if active_officer:
             raise HTTPException(status_code=400, detail="Duplicate Entry: This Force Number or File Number is currently active.")
 
-        # Check Archive History
         search_fnum = str(previous_fnum).strip().upper() if previous_fnum else clean_fnum
         arc_filter = []
         if hasattr(ArchiveModel, 'fnum'):
@@ -430,7 +422,6 @@ def update_Nominal_Roll(
     ActiveModel = get_active_model()
     clean_id = unquote(identifier).strip().upper()
     
-    # Try finding officer by fnum, f_num, or primary key id/sn
     query_filters = []
     if hasattr(ActiveModel, 'fnum'):
         query_filters.append(ActiveModel.fnum == clean_id)
@@ -528,18 +519,23 @@ def archive_personnel(
         raise HTTPException(status_code=500, detail=f"Failed to migrate record: {str(e)}")
 
 # ====================================================================
-# 6. GET ARCHIVED PERSONNEL
+# 6. GET ARCHIVED PERSONNEL (DESCENDING ORDER)
 # ====================================================================
 @router.get("/nominal-roll-archive")
 def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         ArchiveModel = get_archive_model()
-        archives = db.query(ArchiveModel).all()
+        
+        sort_col = getattr(ArchiveModel, 'archive_date', getattr(ArchiveModel, 'id', None))
+        query = db.query(ArchiveModel)
+        if sort_col is not None:
+            query = query.order_by(sort_col.desc())
+            
+        archives = query.all()
         clean_list = []
         for a in archives:
             d = a.__dict__.copy()
             d.pop("_sa_instance_state", None)
-            # 🟢 FIX: Stringify dates so JSON serialization doesn't crash
             for k, v in d.items():
                 if hasattr(v, 'isoformat'):
                     d[k] = str(v)

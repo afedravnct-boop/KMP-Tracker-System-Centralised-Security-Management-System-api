@@ -26,7 +26,7 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   return cleanDbRegion || 'KMP GENERAL';
 };
 
-const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUser, canViewGlobal = false }) => {
+const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], onClose, currentUser, canViewGlobal = false }) => {
   const today = new Date();
   const lastWeek = new Date(today);
   lastWeek.setDate(today.getDate() - 6);
@@ -34,7 +34,6 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUse
   const [startDate, setStartDate] = useState(lastWeek.toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
 
-  // 🟢 Safely resolve global view active state matching other modules
   const canViewGlobalActive = canViewGlobal || 
     currentUser?.role === 'SUPER_ADMIN' || 
     ['ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||
@@ -54,10 +53,10 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUse
     }
   }, [currentUser, canViewGlobalActive]);
 
-  // 🟢 Normalize incoming datasets whether passed as individual props or inside data container
   const rawReports = Array.isArray(reports) ? reports : (data?.crimes || data?.reports || []);
   const rawStats = Array.isArray(stats) ? stats : (data?.statistics || data?.stats || []);
   const rawStories = Array.isArray(stories) ? stories : (data?.stories || data?.successStories || []);
+  const rawAgric = Array.isArray(agricSummary) ? agricSummary : (data?.agricSummary || []);
 
   const getRoman = (num) => {
     const romans = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi', 'xvii', 'xviii', 'xix', 'xx'];
@@ -69,7 +68,6 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUse
     return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }).toUpperCase();
   };
 
-  // 🟢 Helper to identify purely administrative lock-up logs
   const isLockupLog = (item) => {
     return Boolean(
       item.is_hq_general_total || 
@@ -100,7 +98,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUse
       return recordDate >= start && recordDate < end;
     };
 
-    // --- Process Crimes ---
+    // --- Process Standard Crimes ---
     rawReports.filter(r => isWithinWeek(r.date)).forEach(r => {
       if (isLockupLog(r)) return;
 
@@ -127,6 +125,30 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUse
 
       grandCrimeCases += 1;
       grandCrimeSuspects += suspects;
+    });
+
+    // --- Process Agricultural Crimes & Produce Summaries ---
+    rawAgric.filter(a => isWithinWeek(a.date)).forEach(a => {
+      const stn = (a.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, a.region);
+
+      if (!(canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS')) {
+        if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return;
+        if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return;
+      }
+
+      const off = (a.agric_crime_report || 'AGRICULTURAL THEFT').toUpperCase();
+      const count = parseInt(a.number_count, 10) || 0;
+
+      if (!crimeRegional[reg]) crimeRegional[reg] = {};
+      if (!crimeRegional[reg][off]) crimeRegional[reg][off] = { cases: 0, suspects: 0 };
+      
+      crimeRegional[reg][off].cases += count;
+
+      if (!crimeGeneral[off]) crimeGeneral[off] = { cases: 0, suspects: 0 };
+      crimeGeneral[off].cases += count;
+
+      grandCrimeCases += count;
     });
 
     // --- Process Operational Statistics ---
@@ -162,13 +184,11 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUse
       }
 
       if (!storyRegional[reg]) storyRegional[reg] = 0;
-      
       storyRegional[reg] += 1;
       grandStories += 1;
     });
 
     const regionOrder = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"];
-    
     const sorter = (a, b) => {
        const idxA = regionOrder.indexOf(a); 
        const idxB = regionOrder.indexOf(b);
@@ -187,7 +207,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUse
       opsRegional, opsGeneral, sortedOpsRegions,
       storyRegional, sortedStoryRegions, grandStories
     };
-  }, [rawReports, rawStats, rawStories, startDate, endDate, filterRegion, filterStation, canViewGlobalActive]);
+  }, [rawReports, rawStats, rawStories, rawAgric, startDate, endDate, filterRegion, filterStation, canViewGlobalActive]);
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto space-y-10 relative z-10 animate-in fade-in duration-300">
@@ -198,7 +218,6 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUse
           <h2 className="text-xl font-extrabold text-slate-800 flex items-center"><Eye size={20} className="mr-2 text-blue-600"/> Command Master Ledger</h2>
         </div>
 
-        {/* 🟢 JURISDICTION & DATE FILTER CONTROLS */}
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs font-bold text-slate-500 uppercase flex items-center">
             <Filter size={14} className="mr-1 text-blue-600" /> Jurisdiction:
@@ -254,7 +273,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUse
       </div>
 
       {/* ======================================================== */}
-      {/* SECTION 1: CRIME SUMMARY TABLES                          */}
+      {/* SECTION 1: CRIME & AGRICULTURAL SUMMARY TABLES            */}
       {/* ======================================================== */}
       <div className="space-y-6">
         <div className="bg-white shadow-xl overflow-hidden">
@@ -262,14 +281,14 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUse
             <thead>
               <tr className="bg-[#b4c6e7] border-2 border-slate-400">
                 <th colSpan="5" className="p-3 text-center font-extrabold text-slate-900 tracking-wide border-2 border-slate-400 text-[13px]">
-                  SUMMARY OF CRIMES REGISTERED FROM {formatDateLabel(startDate)} TO {formatDateLabel(endDate)}
+                  SUMMARY OF CRIMES & AGRICULTURAL THEFTS REGISTERED FROM {formatDateLabel(startDate)} TO {formatDateLabel(endDate)}
                 </th>
               </tr>
               <tr className="bg-slate-100 text-slate-800">
                 <th className="p-2 text-center font-bold border-2 border-slate-400 w-32 uppercase text-xs">REGION</th>
                 <th className="p-2 text-center font-bold border-2 border-slate-400 w-12 uppercase text-xs">NO</th>
-                <th className="p-2 text-left font-bold border-2 border-slate-400 uppercase text-xs">OFFENCE/INCIDENT</th>
-                <th className="p-2 text-center font-bold border-2 border-slate-400 w-32 uppercase text-xs leading-tight">NUMBER OF<br/>CASES</th>
+                <th className="p-2 text-left font-bold border-2 border-slate-400 uppercase text-xs">OFFENCE / PRODUCE THEFT</th>
+                <th className="p-2 text-center font-bold border-2 border-slate-400 w-32 uppercase text-xs leading-tight">NUMBER OF<br/>CASES / QTY</th>
                 <th className="p-2 text-center font-bold border-2 border-slate-400 w-32 uppercase text-xs leading-tight">SUSPECTS IN<br/>CUSTODY</th>
               </tr>
             </thead>
@@ -306,7 +325,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUse
                 return rows;
               })}
               {dataMapping.sortedCrimeRegions.length === 0 && (
-                <tr><td colSpan="5" className="text-center py-6 text-gray-500 italic">No crimes registered in this period.</td></tr>
+                <tr><td colSpan="5" className="text-center py-6 text-gray-500 italic">No crimes or agricultural thefts registered in this period.</td></tr>
               )}
             </tbody>
           </table>
@@ -318,13 +337,13 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, onClose, currentUse
               <thead>
                 <tr className="bg-[#c6e0b4] border-2 border-slate-400">
                   <th colSpan="4" className="p-3 text-center font-extrabold text-slate-900 tracking-wide border-2 border-slate-400 text-[13px]">
-                    GENERAL CRIME SUMMARY
+                    GENERAL CRIME & AGRICULTURAL PRODUCE SUMMARY
                   </th>
                 </tr>
                 <tr className="bg-slate-100 text-slate-800">
                   <th className="p-2 text-center font-bold border-2 border-slate-400 w-16 uppercase text-xs">NO</th>
-                  <th className="p-2 text-left font-bold border-2 border-slate-400 uppercase text-xs">OFFENCES</th>
-                  <th className="p-2 text-center font-bold border-2 border-slate-400 w-40 uppercase text-xs leading-tight">NUMBER OF CASES</th>
+                  <th className="p-2 text-left font-bold border-2 border-slate-400 uppercase text-xs">OFFENCES / AGRICULTURAL THEFTS</th>
+                  <th className="p-2 text-center font-bold border-2 border-slate-400 w-40 uppercase text-xs leading-tight">TOTAL CASES / QTY</th>
                   <th className="p-2 text-center font-bold border-2 border-slate-400 w-40 uppercase text-xs leading-tight">SUSPECTS IN<br/>CUSTODY</th>
                 </tr>
               </thead>

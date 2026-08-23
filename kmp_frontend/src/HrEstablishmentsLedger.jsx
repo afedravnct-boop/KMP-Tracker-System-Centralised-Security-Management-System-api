@@ -3,7 +3,7 @@ import { X, Shield, FileText, Users, Building, Filter } from 'lucide-react';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
   "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
   "POLICE HEADQUARTERS": ["NAGURU"]
@@ -32,7 +32,6 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
 };
 
 const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = false }) => {
-  // 🟢 Unified Global Jurisdiction Resolution
   const canViewGlobalActive = canViewGlobal || 
     ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
     currentUser?.permissions?.view_global_roster === true || 
@@ -41,7 +40,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
 
-  // 🟢 1. AGGRESSIVE DATA HUNTER: Finds the array regardless of backend payload wrapping
   const getRawRoll = () => {
     if (Array.isArray(data)) {
       if (data.length > 0 && (data[0].fnum || data[0].f_num || data[0].rank)) return data;
@@ -70,7 +68,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       }
     }
 
-    // Filter establishments by selected jurisdiction
     return rawEst.filter(e => {
       const stn = stripHtml(e.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, e.region);
@@ -84,7 +81,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     });
   };
 
-  // 🟢 2. ROBUST PARSING LOGIC FOR NOMINAL ROLL AGGREGATES
   const nominalAggregates = useMemo(() => {
     const rawRoll = getRawRoll().filter(p => {
       const statusStr = stripHtml(String(p.status || '')).trim().toUpperCase();
@@ -128,7 +124,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       };
 
       personnelList.forEach(p => {
-        // Sex Parsing
         const sexStr = stripHtml(String(p.sex || p.gender || '')).trim().toUpperCase();
         const ninStr = stripHtml(String(p.nin || '')).trim().toUpperCase();
         
@@ -140,7 +135,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
           stats.sex.M++;
         }
 
-        // Age Parsing
         const dobStr = p.dob || p.date_of_birth || p.dateofbirth;
         let ageCalculated = false;
         
@@ -171,7 +165,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
           stats.age.unknown++;
         }
 
-        // Education Parsing
         const eduStr = stripHtml(String(p.educ_level || p.educlevel || p.education || '')).trim().toUpperCase();
         
         if (eduStr.includes('DEGREE') || eduStr.includes('BACHELOR') || eduStr.match(/\bB\.?A\b/) || eduStr.match(/\bB\.?SC\b/) || eduStr.includes('MASTER') || eduStr.includes('PHD')) {
@@ -190,7 +183,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       return stats;
     };
 
-    const aggregatedRegions = regions.map(reg => {
+    let aggregatedRegions = regions.map(reg => {
       const regionPersonnel = rawRoll.filter(p => {
         const pReg = stripHtml(String(p.region || '')).trim().toUpperCase();
         return reg.match.some(m => pReg.includes(m));
@@ -226,6 +219,19 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
         totalOff: officers.length,
         totalNco: ncos.length,
         regionTotal: unassigned.length
+      });
+    }
+
+    // 🟢 STRICT REGION FILTER: If a specific region is selected, completely filter out all other rows so they vanish
+    if (selectedRegion && selectedRegion !== 'ALL REGIONS') {
+      const cleanSelected = selectedRegion.trim().toUpperCase();
+      aggregatedRegions = aggregatedRegions.filter(row => {
+        const rName = row.region.toUpperCase();
+        if (cleanSelected.includes('NORTH') && rName.includes('NORTH')) return true;
+        if (cleanSelected.includes('EAST') && rName.includes('EAST')) return true;
+        if (cleanSelected.includes('SOUTH') && rName.includes('SOUTH')) return true;
+        if (cleanSelected.includes('HEADQUARTERS') && (rName.includes('GENERAL') || rName.includes('HQ') || rName.includes('HEADQUARTERS'))) return true;
+        return rName === cleanSelected;
       });
     }
 
@@ -290,7 +296,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     return acc;
   }, { station: 0, sub: 0, post: 0, booth: 0 });
 
-  // 🟢 FIX: Added `isDark` parameter so these blocks can invert their colors automatically when inside the Totals row
   const renderAgeBlock = (stats, isDark = false) => (
     <div className={`text-[9px] font-medium space-y-0.5 w-full max-w-[90px] mx-auto ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
       <div className="flex justify-between"><span>18-29yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.twenties}</strong></div>
@@ -323,7 +328,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
         </button>
       </div>
 
-      {/* 🟢 SECURED JURISDICTION FILTER BAR */}
       <div className="bg-white px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4 shrink-0 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs font-bold text-slate-500 uppercase flex items-center">
@@ -374,7 +378,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-8 custom-scrollbar bg-slate-50">
         
-        {/* NOMINAL ROLL AGGREGATES MATRIX - 🟢 FIX: Added mb-12 to push the next table down */}
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px] mb-12">
           <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
              <h3 className="font-extrabold text-blue-900 text-sm uppercase tracking-wider flex items-center">
@@ -441,7 +444,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                       </tr>
                    ))}
 
-                   {/* KMP MASTER TOTALS ROW */}
                    <tr className="bg-slate-800 border-t-[3px] border-slate-900">
                       <td colSpan="2" className="p-4 text-center text-[11px] font-black text-yellow-400 uppercase tracking-widest border-r border-slate-700 shadow-inner">
                           KMP MASTER TOTALS:
@@ -449,7 +451,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                       <td className="p-4 text-center text-base font-bold text-blue-300 border-r border-slate-700">{masterTotals.totalOff}</td>
                       <td className="p-4 text-center text-base font-bold text-green-400 border-r border-slate-700">{masterTotals.totalNco}</td>
                       
-                      {/* 🟢 FIX: Passed 'true' as the second parameter (isDark) so the text stays bright white on this dark row */}
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-500/40">
                         {renderAgeBlock(masterTotals.offAge, true)}
                       </td>
@@ -470,7 +471,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                          </div>
                       </td>
                       
-                      {/* 🟢 FIX: Passed 'true' as the second parameter for education block too */}
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-500/40">
                         {renderEduBlock(masterTotals.offEdu, true)}
                       </td>
@@ -489,7 +489,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
           </div>
         </div>
 
-        {/* POLICE ESTABLISHMENTS MATRIX */}
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px]">
           <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
              <h3 className="font-extrabold text-green-900 text-sm uppercase tracking-wider flex items-center">

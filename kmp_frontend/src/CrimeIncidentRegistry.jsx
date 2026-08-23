@@ -6,7 +6,7 @@ import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import LockupMatrixLedger from './LockupMatrixLedger';
 import { stripHtmlTags } from './App';
-import { authFetch } from './api'; // 🟢 Added centralized loop-proof API import
+import { authFetch } from './api';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -16,7 +16,6 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 Authoritative jurisdiction resolution
 const getOfficialRegionForStation = (stationName, dbRegion) => {
   const cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
   const cleanDbRegion = stripHtmlTags(dbRegion || '').trim().toUpperCase();
@@ -84,8 +83,6 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-// 🔴 THE ROGUE AUTHFETCH FUNCTION WAS REMOVED FROM HERE 🔴
-
 const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, setReports, setSidebarOpen }) => {
   const [lockupData, setLockupData] = useState([]);
   const [standalonePopInput, setStandalonePopInput] = useState({ 
@@ -96,7 +93,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
 
   const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
 
-  // 🟢 Unified Global Jurisdiction Clearance
   const canViewGlobalActive = canViewGlobal || 
     ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
     currentUser?.permissions?.view_global_roster === true || 
@@ -105,7 +101,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
 
-  // 🟢 Guard against background polling overwriting custom user filter selections
   const isFilterInitialized = useRef(false);
   useEffect(() => {
     if (!isFilterInitialized.current && currentUser?.station) {
@@ -147,7 +142,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
 
   useEffect(() => {
     const fetchLockupData = async () => {
-      // Emergency check to prevent early misfires
       if (!localStorage.getItem('kmp_authToken') && !sessionStorage.getItem('kmp_authToken')) return;
 
       try {
@@ -182,7 +176,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
   const populateUpdateCrimeForm = (caseData) => {
     setFormData({ 
       ...caseData, 
-      sn: caseData.sn || caseData.id, // 🟢 Force explicit ID capture
+      sn: caseData.sn || caseData.id, 
       sd_ref: stripHtmlTags(caseData.sdRef || caseData.sd_ref), 
       offence: stripHtmlTags(caseData.offence || 'Other'),
       customOffence: '', 
@@ -220,8 +214,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         const narrativeText = extractPlainText(r.narrative || '').toLowerCase();
         const combinedText = `${offenceText} ${narrativeText}`;
 
-        const accidentTerms = ['accident', 'tar', 'collision', 'hit and run', 'overturned', 'crash', 'boda boda crash', 'motor vehicle accident'];
-        if (accidentTerms.some(term => combinedText.includes(term))) {
+        // 🟢 EXCLUDE ACCIDENTS & MOTORCYCLES STRICTLY FROM AGRICULTURAL CRIMES
+        const excludedTerms = [
+          'accident', 'tar', 'collision', 'hit and run', 'overturned', 'crash', 
+          'boda boda', 'motorcycle', 'motor cycle', 'bajaj', 'tvs', 'boxer', 'scooter', 'traffic'
+        ];
+        if (excludedTerms.some(term => combinedText.includes(term))) {
           return false;
         }
 
@@ -450,7 +448,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
     }
   };
 
-const handleStandalonePopSubmit = async () => {
+  const handleStandalonePopSubmit = async () => {
     const totalVal = parseInt(standalonePopInput.total) || 0;
     const maleVal = parseInt(standalonePopInput.male) || 0;
     const maleJuvVal = parseInt(standalonePopInput.male_juvenile) || 0;
@@ -467,13 +465,11 @@ const handleStandalonePopSubmit = async () => {
     setNotification(isEditingLockup ? "⏳ Updating Daily Cell Population..." : "⏳ Logging Daily Cell Population to Independent Matrix...");
     
     try {
-      // 🟢 RESOLVE ACTIVE REGION REGARDLESS OF DROPDOWN SWAPS
       const activeSubmissionRegion = canViewGlobalActive
         ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
         : getOfficialRegionForStation(formData.station, formData.region);
 
       if (isEditingLockup && editLockupTarget) {
-        // 🟢 GUARANTEE THE TARGET ID IS FOUND (ID OR SN)
         const targetId = editLockupTarget.id || editLockupTarget.sn;
         if (!targetId) throw new Error("Record ID lost. Please select the record again.");
 
@@ -487,12 +483,11 @@ const handleStandalonePopSubmit = async () => {
           detention_1day: d1Val,
           detention_2days: d2Val,
           detention_3days_over: d3Val,
-          region: activeSubmissionRegion, // 🟢 EXPLICITLY CAPTURE NEW REGION
-          station: stripHtmlTags(formData.station), // 🟢 EXPLICITLY CAPTURE NEW STATION
+          region: activeSubmissionRegion, 
+          station: stripHtmlTags(formData.station), 
           last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})`
         };
 
-        // Pass explicitly captured targetId to URL
         const response = await authFetch(`/api/v1/lockup-matrix/${targetId}`, {
           method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatePayload)
         });  
@@ -662,7 +657,7 @@ const handleStandalonePopSubmit = async () => {
   };
   
   return (
-    <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10">
+    <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 font-sans">
       
       {showHqGrandModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
@@ -978,7 +973,7 @@ const handleStandalonePopSubmit = async () => {
             </select>
             <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
               {canViewGlobalActive ? <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</> : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
-            </select>   
+            </select>    
           </div>
 
           <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (typeof setSidebarOpen === 'function') setSidebarOpen(!expanded); }}>
@@ -1004,9 +999,9 @@ const handleStandalonePopSubmit = async () => {
                         <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-blue-700 align-top break-words">{stripHtmlTags(report.sdRef || report.sd_ref)}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-500 align-top">{stripHtmlTags(report.date)}<br/><span className="text-[10px] text-gray-400">{stripHtmlTags(report.time)}</span></td>
                         <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-700 align-top font-bold">{stripHtmlTags(report.station)} <br/><span className="text-[10px] text-gray-400 font-medium">{rRegion}</span></td>
-                        <td className="px-4 py-4 text-xs text-gray-700 align-top whitespace-normal break-words">
+                        <td className="px-4 py-4 text-xs text-gray-700 align-top whitespace-normal break-words overflow-wrap-anywhere">
                           {report.offence && <div className="font-extrabold text-red-600 uppercase mb-1">{stripHtmlTags(report.offence)}</div>}
-                          <div className="ql-editor p-0 line-clamp-3 text-slate-600 [&_*]:!text-xs [&_*]:!bg-transparent" dangerouslySetInnerHTML={{ __html: report.narrative }} />
+                          <div className="ql-editor p-0 line-clamp-3 text-slate-600 [&_*]:!text-xs [&_*]:!bg-transparent whitespace-normal break-words" dangerouslySetInnerHTML={{ __html: report.narrative }} />
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-red-600 text-center align-top">{(report.suspectDetails || report.suspect_details || []).length}</td>
                         <td className="px-4 py-4 whitespace-normal break-words align-top">

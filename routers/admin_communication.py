@@ -88,7 +88,6 @@ def create_admin_communication(
         count = db.query(CommModel).filter(CommModel.msg_ref.like(f"{origin_tag}/%")).count()
         generated_msg_ref = f"{origin_tag}/{count + 1:03d}"
 
-        # Normalize target_fnum if passed as a list
         target_fnum_val = comm.target_fnum
         if isinstance(target_fnum_val, list):
             target_fnum_val = ",".join(target_fnum_val)
@@ -173,8 +172,10 @@ def get_admin_communications(
     query = db.query(CommModel)
     clean_user_fnum = (current_user.fnum or "").strip().upper()
     user_region = (current_user.region or "").strip().upper()
+    user_role = (current_user.role or "").strip().upper()
 
-    if current_user.role != "SUPER_ADMIN":
+    # 🟢 STRICT INBOX VISIBILITY: Non-super admins only see messages meant for them or general broadcasts
+    if user_role != "SUPER_ADMIN":
         visibility_conditions = [
             or_(
                 CommModel.target_audience == "ALL",
@@ -196,9 +197,9 @@ def get_admin_communications(
             )
         ]
         
-        if current_user.role in ["ADMIN", "SYSTEM_ADMIN"]: 
+        if user_role in ["ADMIN", "SYSTEM_ADMIN"]: 
             visibility_conditions.append(CommModel.target_audience == "ADMINS_ONLY")
-        if current_user.role in ["RPC", "Deputy Commander"]: 
+        if user_role in ["RPC", "DEPUTY COMMANDER"]: 
             visibility_conditions.append(CommModel.target_audience.in_(["RPC_ONLY", "ADMINS_ONLY"]))
             
         query = query.filter(or_(*visibility_conditions))
@@ -208,14 +209,14 @@ def get_admin_communications(
             start_dt = datetime.strptime(start_date, "%Y-%m-%d")
             query = query.filter(CommModel.created_at >= start_dt)
         except ValueError:
-            pass # Ignore malformed date strings
+            pass
             
     if end_date:
         try:
             end_dt = datetime.strptime(f"{end_date} 23:59:59", "%Y-%m-%d %H:%M:%S")
             query = query.filter(CommModel.created_at <= end_dt)
         except ValueError:
-            pass # Ignore malformed date strings  
+            pass  
 
     comms = query.order_by(CommModel.created_at.desc()).all()
  
@@ -268,12 +269,37 @@ def acknowledge_communication(
     current_user: models.Users = Depends(get_current_user)
 ):
     ReadsModel = get_reads_model()
+    CommModel = get_comm_model()
+
+    # Verify the user actually has access to this message before acknowledging
+    comm = db.query(CommModel).filter((CommModel.id == comm_id) | (CommModel.sn == comm_id)).first()
+    if not comm:
+        raise HTTPException(status_code=404, detail="Communication not found.")
+
+    audience = (comm.target_audience or "").strip().upper()
+    target_region = (comm.target_region or "").strip().upper()
+    target_fnums = [f.strip().upper() for f in (comm.target_fnum or "").split(",") if f.strip()]
+    clean_user_fnum = (current_user.fnum or "").strip().upper()
+    user_role = (current_user.role or "").strip().upper()
+    user_region = (current_user.region or "").strip().upper()
+
+    is_general = audience in ["ALL", "ALL_USERS", "ALL_REGIONS"]
+    is_intended = (
+        is_general or
+        (audience == "SPECIFIC_USER" and clean_user_fnum in target_fnums) or
+        (audience in ["SPECIFIC_REGION", "REGIONAL_BROADCAST"] and target_region and user_region == target_region) or
+        (audience == "ADMINS_ONLY" and user_role in ["ADMIN", "SUPER_ADMIN", "SYSTEM_ADMIN"]) or
+        (audience == "RPC_ONLY" and user_role in ["RPC", "SUPER_ADMIN", "DEPUTY COMMANDER"]) or
+        (comm.sender_fnum == current_user.fnum)
+    )
+
+    if not is_intended and user_role != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Clearance Denied: Message not addressed to your jurisdiction.")
+
     try:
-        clean_fnum = (current_user.fnum or "").strip().upper()
-        
         existing_read = db.query(ReadsModel).filter(
             ReadsModel.comm_id == comm_id,
-            func.trim(func.upper(ReadsModel.fnum)) == clean_fnum
+            func.trim(func.upper(ReadsModel.fnum)) == clean_user_fnum
         ).first()
 
         if not existing_read:
@@ -299,20 +325,47 @@ def get_communication_readers(
     db: Session = Depends(get_db), 
     current_user: models.Users = Depends(get_current_user)
 ):
+    CommModel = get_comm_model()
     ReadsModel = get_reads_model()
-    position_str = (current_user.position or "").upper()
-    user_role = (current_user.role or "").upper()
-    
-    is_cleared = (
-        user_role in ["ADMIN", "SUPER_ADMIN", "RPC", "Deputy Commander"] or
+
+    comm = db.query(CommModel).filter((CommModel.id == comm_id) | (CommModel.sn == comm_id)).first()
+    if not comm:
+        raise HTTPException(status_code=404, detail="Communication record not found.")
+
+    audience = (comm.target_audience or "").strip().upper()
+    target_region = (comm.target_region or "").strip().upper()
+    target_fnums = [f.strip().upper() for f in (comm.target_fnum or "").split(",") if f.strip()]
+
+    clean_user_fnum = (current_user.fnum or "").strip().upper()
+    user_role = (current_user.role or "").strip().upper()
+    position_str = (current_user.position or "").strip().upper()
+    user_region = (current_user.region or "").strip().upper()
+
+    # 🟢 1. GENERAL BROADCAST RULE: If message is general, ANY user who received it can view read receipts
+    is_general_broadcast = audience in ["ALL", "ALL_USERS", "ALL_REGIONS"]
+
+    # 🟢 2. INTENDED RECIPIENT RULE: Check if user belongs to the target group
+    is_intended_recipient = (
+        is_general_broadcast or
+        (audience == "SPECIFIC_USER" and clean_user_fnum in target_fnums) or
+        (audience in ["SPECIFIC_REGION", "REGIONAL_BROADCAST"] and target_region and user_region == target_region) or
+        (audience == "ADMINS_ONLY" and user_role in ["ADMIN", "SUPER_ADMIN", "SYSTEM_ADMIN"]) or
+        (audience == "RPC_ONLY" and user_role in ["RPC", "SUPER_ADMIN", "DEPUTY COMMANDER"]) or
+        (comm.sender_fnum == current_user.fnum)
+    )
+
+    # 🟢 3. HIGH COMMAND OVERRIDE: Admins and high-ranking commanders can always view
+    is_high_command = (
+        user_role in ["ADMIN", "SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
         "COMMANDER" in position_str or
         "DEPUTY" in position_str or
         "RPC" in position_str
     )
-    
-    if not is_cleared:
-        raise HTTPException(status_code=403, detail="Clearance Denied: High Command privileges required.")
-    
+
+    # 🛑 STRICT ACCESS GUARD: If the user was not an intended recipient and is not high command, deny access completely!
+    if not is_intended_recipient and not is_high_command:
+        raise HTTPException(status_code=403, detail="Clearance Denied: You are not authorized to view read receipts for this communication.")
+
     try:
         readers = db.query(
             ReadsModel.read_at, models.Users.name, models.Users.fnum, models.Users.rank
@@ -341,5 +394,7 @@ def get_communication_readers(
                 "read_at": formatted_time
             })
         return results
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch reader logs: {str(e)}")

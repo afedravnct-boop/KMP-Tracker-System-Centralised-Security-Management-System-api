@@ -209,78 +209,20 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
         throw new Error(errorData.detail || "Requested document not found.");
       }
 
-      const contentType = response.headers.get("content-type");
+      // 🟢 UNIFIED BLOB STREAMING (Fixes mobile white screen by treating all files like static downloads)
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
 
-      if (contentType && contentType.includes("application/json")) {
-        const data = await response.json();
-        const fileUrl = data.download_url || data.file_url;
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.setAttribute('download', '');
+      link.setAttribute('target', '_blank');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
 
-        if (!fileUrl) throw new Error("No secure URL returned from the server.");
-
-        if (action === 'download') {
-          const link = document.createElement('a');
-          link.href = fileUrl;
-          link.setAttribute('download', '');
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        } else if (action === 'read') {
-          const fileExtension = fileUrl.split('.').pop().split('?')[0].toLowerCase();
-          
-          if (['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'csv'].includes(fileExtension)) {
-            const officeViewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(fileUrl)}`;
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            
-            if (isMobile) {
-              window.location.href = officeViewerUrl;
-            } else {
-              const newWindow = window.open(officeViewerUrl, '_blank');
-              if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') { 
-                window.location.href = officeViewerUrl; 
-              }
-            }
-          } else if (fileExtension === 'pdf') {
-            window.open(fileUrl, '_blank');
-          } else {
-            const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            
-            if (isMobile) {
-              window.location.href = viewerUrl;
-            } else {
-              const newWindow = window.open(viewerUrl, '_blank');
-              if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') { 
-                window.location.href = viewerUrl; 
-              }
-            }
-          }
-        }
-
-      } else {
-        const blob = await response.blob();
-        const blobUrl = window.URL.createObjectURL(blob);
-
-        if (action === 'download') {
-          const link = document.createElement('a');
-          link.href = blobUrl;
-          link.setAttribute('download', 'document');
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        } else if (action === 'read') {
-          const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-          if (isMobile) {
-            window.location.href = blobUrl;
-          } else {
-            const newWindow = window.open(blobUrl, '_blank');
-            if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') { 
-              window.location.href = blobUrl; 
-            }
-          }
-        }
-
-        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 10000);
-      }
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 15000);
 
     } catch (err) {
       alert(`Document Action Error: ${err.message}`);
