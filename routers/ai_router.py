@@ -155,12 +155,29 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-        # 🟢 Restored gemini-3.6-flash per Google API requirements
-        response = client.models.generate_content(
-            model='gemini-3.6-flash',
-            contents=tactical_context,
-            config=types.GenerateContentConfig(system_instruction=system_rules)
-        )
+        used_model = 'gemini-3.6-flash'
+        try:
+            # 🟢 FIRST ATTEMPT: Try the primary, newest model
+            response = client.models.generate_content(
+                model=used_model,
+                contents=tactical_context,
+                config=types.GenerateContentConfig(system_instruction=system_rules)
+            )
+        except Exception as primary_err:
+            if "503" in str(primary_err) or "UNAVAILABLE" in str(primary_err):
+                # 🟢 SECOND ATTEMPT: If 3.6 is overloaded (503), instantly fallback to a highly available standard model
+                print("Gemini 3.6 is experiencing high demand. Triggering automatic fallback to 1.5-flash...")
+                used_model = 'gemini-1.5-flash'
+                try:
+                    response = client.models.generate_content(
+                        model=used_model,
+                        contents=tactical_context,
+                        config=types.GenerateContentConfig(system_instruction=system_rules)
+                    )
+                except Exception as fallback_err:
+                    raise Exception(f"All Google AI servers are currently overloaded. Please wait a moment and try again. Details: {str(fallback_err)}")
+            else:
+                raise primary_err
 
         return {
             "response": response.text,
@@ -168,11 +185,12 @@ async def process_tactical_query(
                 "database_query_status": "Active (Tier Restricted)" if db_queries_allowed else "Disabled by Super Admin",
                 "jurisdiction_tier": user_tier_scope,
                 "structured_records_count": len(agric_records) + len(stats_records) if db_queries_allowed else 0,
-                "semantic_chunks_retrieved": len(results)
+                "semantic_chunks_retrieved": len(results),
+                "ai_model_used": used_model
             }
         }
 
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Tactical Processing Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Google API Connectivity Issue: {str(e)}")
