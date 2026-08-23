@@ -155,8 +155,9 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
+        # 🟢 Restored gemini-3.6-flash per Google API requirements
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.6-flash',
             contents=tactical_context,
             config=types.GenerateContentConfig(system_instruction=system_rules)
         )
