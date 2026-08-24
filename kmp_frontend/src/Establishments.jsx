@@ -17,7 +17,6 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // 🟢 Safely resolve global view clearance from prop or fallback evaluation
   const canViewGlobal = propCanViewGlobal !== undefined ? propCanViewGlobal : (currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true);
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
@@ -43,7 +42,8 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
       if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && e.region !== currentUser.region) return false;
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
-        return e.sn?.toString().includes(query) || (e.sub_station && e.sub_station.toLowerCase().includes(query)) || (e.post && e.post.toLowerCase().includes(query)) || (e.location && e.location.toLowerCase().includes(query));
+        const recordId = e.id || e.sn;
+        return recordId?.toString().includes(query) || (e.sub_station && e.sub_station.toLowerCase().includes(query)) || (e.post && e.post.toLowerCase().includes(query)) || (e.location && e.location.toLowerCase().includes(query));
       }
       return true;
     });
@@ -53,7 +53,7 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
     const { name, value, type } = e.target;
     if (name === 'region') setFormData({ ...formData, region: value, division: REGIONAL_HIERARCHY[value]?.[0] || '', station: REGIONAL_HIERARCHY[value]?.[0] || '' });
     else if (name === 'division') setFormData({ ...formData, division: value, station: value });
-    else setFormData({ ...formData, [name]: type === 'number' ? parseInt(value) || 0 : value });
+    else setFormData({ ...formData, [name]: type === 'number' ? (value === '' ? 0 : parseInt(value) || 0) : value });
   };
 
   const handleOperationToggle = (op) => {
@@ -68,15 +68,12 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
     }
   };
 
-  const populateUpdateForm = (data) => setFormData({ ...data, division: data.division || '' });
+  const populateUpdateForm = (data) => setFormData({ ...data, id: data.id || data.sn, division: data.division || '' });
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     const requiredFields = ['region', 'division', 'station', 'location'];
     if (requiredFields.some(field => !formData[field] || String(formData[field]).trim() === '')) return setNotification("Error: All required fields must be filled.");
-
-    const isDuplicate = establishments.some(e => e.region === formData.region && e.station === formData.station && e.division === formData.division && e.id !== formData.id);
-    if (isDuplicate && operation === 'new') return setNotification("Error: An entry for this station already exists.");
 
     setIsSubmitting(true); 
     const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -91,26 +88,51 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
           method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newEntry)
         });
 
-        if (!response.ok) throw new Error("Failed to post record");
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to post record");
+        }
         const savedData = await response.json();
-        setEstablishments([savedData, ...establishments]); setNotification(`Establishment recorded for ${formData.station}!`);
-        setFormData({ ...formData, division:'', station:'', personnel_in_station:0, sub_station: '', personnel_in_sub_station: 0, post: '', personnel_in_post: 0, booths: 0, location: '', personnel_in_booth: 0, installed_by: '', comment: '', id: null });
-      } catch (err) { setNotification("Error: Server rejected the data. Please check connection."); } finally { setIsSubmitting(false); }
+        setEstablishments([savedData, ...establishments]); 
+        setNotification(`Establishment recorded for ${formData.station}!`);
+        setFormData({ 
+          id: null, region: currentUser.region, division: currentUser.division || '', station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
+          personnel_in_station: 0, sub_station: '', personnel_in_sub_station: 0, post: '', personnel_in_post: 0, 
+          booths: 0, location: '', personnel_in_booth: 0, installed_by: '', status: 'OPERATIONAL', comment: '' 
+        });
+      } catch (err) { 
+        setNotification(`Error: ${err.message || "Server rejected the data. Please check connection."}`); 
+      } finally { 
+        setIsSubmitting(false); 
+      }
       
     } else if (operation === 'update') {
-      if (!formData.id) { setNotification("Error: Please select a record from the list to update first."); setIsSubmitting(false); return; }
+      const recordId = formData.id || formData.sn;
+      if (!recordId) { setNotification("Error: Please select a record from the list to update first."); setIsSubmitting(false); return; }
+      
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
+      delete updatedRecord.id; delete updatedRecord.sn;
 
       try {
-        const response = await fetch(`${API_URL}/api/v1/establishments/${formData.id}`, {
+        const response = await fetch(`${API_URL}/api/v1/establishments/${recordId}`, {
           method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(updatedRecord)
         });
 
-        if (!response.ok) throw new Error("Failed to update record in database.");
-        setEstablishments(establishments.map(e => e.id === formData.id ? updatedRecord : e));
-        setNotification(`Establishment ID ${formData.id} successfully updated!`);
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || "Failed to update record in database.");
+        }
+        const savedData = await response.json();
+        const finalUpdated = { ...savedData, id: savedData.id || recordId };
+
+        setEstablishments(establishments.map(e => (e.id === recordId || e.sn === recordId) ? finalUpdated : e));
+        setNotification(`Establishment ID ${recordId} successfully updated!`);
         handleOperationToggle('new');
-      } catch (err) { setNotification("❌ Error: Could not update the record in the database."); } finally { setIsSubmitting(false); }
+      } catch (err) { 
+        setNotification(`❌ Error: ${err.message || "Could not update the record."}`); 
+      } finally { 
+        setIsSubmitting(false); 
+      }
     }
     
     setTimeout(() => setNotification(null), 4000);
@@ -134,10 +156,10 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
               </div>
               <div className="p-5 space-y-6">
                 <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                  <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
+                  <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all cursor-pointer ${operation === 'new' ? 'bg-white shadow text-blue-700 font-bold' : 'text-gray-600 hover:text-gray-900'}`}>
                     Register New
                   </button>
-                  <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white shadow text-blue-700' : 'text-gray-600 hover:text-gray-900'}`}>
+                  <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all cursor-pointer ${operation === 'update' ? 'bg-blue-700 shadow text-white font-bold' : 'text-gray-600 hover:text-gray-900'}`}>
                     Update Existing
                   </button>
                 </div>
@@ -151,16 +173,19 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
                 {operation === 'update' && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                     <label className="block text-xs font-bold text-blue-800 mb-2">🔍 Search & Select Record to Update</label>
-                    <input type="text" placeholder="Search by SN, Sub-Station, Post..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400" />
+                    <input type="text" placeholder="Search by ID, Sub-Station, Post..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 rounded outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
                     <div className="max-h-40 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
                       {availableUpdateEstablishments.length === 0 ? (
                         <div className="p-3 text-xs text-gray-500 text-center">No records found matching your search.</div>
                       ) : (
-                        availableUpdateEstablishments.map(e => (
-                          <div key={e.id} onClick={() => populateUpdateForm(e)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.id === e.id ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
-                            <span className={formData.id === e.id ? 'text-blue-200' : 'text-gray-400'}>SN: {e.id}</span> | <span className={formData.id === e.id ? 'text-white' : 'font-bold text-blue-700'}>{e.sub_station || e.post || e.station}</span>
-                          </div>
-                        ))
+                        availableUpdateEstablishments.map(e => {
+                          const recordId = e.id || e.sn;
+                          return (
+                            <div key={recordId} onClick={() => populateUpdateForm(e)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.id === recordId ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
+                              <span className={formData.id === recordId ? 'text-blue-200' : 'text-gray-400'}>ID: {recordId}</span> | <span className={formData.id === recordId ? 'text-white' : 'font-bold text-blue-700'}>{e.sub_station || e.post || e.station}</span>
+                            </div>
+                          );
+                        })
                       )}
                     </div>
                   </div>
@@ -196,50 +221,50 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
                     <div className="grid grid-cols-2 gap-4">
                       <div className="col-span-2">
                         <label className="block text-xs font-bold text-gray-700 mb-1">STATION</label>
-                        <input type="text" name="station" value={formData.station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Station" />
+                        <input type="text" name="station" value={formData.station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-white" placeholder="Name of Station" />
                       </div>
                       <div className="col-span-2"> 
                         <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL IN STATION</label> 
-                        <input type="number" name="personnel_in_station" min="0" value={formData.personnel_in_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                        <input type="number" name="personnel_in_station" min="0" value={formData.personnel_in_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-white" />
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-bold text-gray-700 mb-1">SUB-STATION</label>
-                        <input type="text" name="sub_station" value={formData.sub_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Sub-Station" />
+                        <input type="text" name="sub_station" value={formData.sub_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-white" placeholder="Name of Sub-Station" />
                       </div>  
                       <div className="col-span-2">
                         <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL IN SUB STATION</label>
-                        <input type="number" name="personnel_in_sub_station" min="0" value={formData.personnel_in_sub_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                        <input type="number" name="personnel_in_sub_station" min="0" value={formData.personnel_in_sub_station} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-white" />
                       </div>
 
                       <div>
                         <label className="block text-xs font-bold text-gray-700 mb-1">POST</label>
-                        <input type="text" name="post" value={formData.post} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Name of Post" />
+                        <input type="text" name="post" value={formData.post} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-white" placeholder="Name of Post" />
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL (POST)</label>
-                        <input type="number" name="personnel_in_post" min="0" value={formData.personnel_in_post} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                        <input type="number" name="personnel_in_post" min="0" value={formData.personnel_in_post} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-white" />
                       </div>
 
                       <div>
                         <label className="block text-xs font-bold text-gray-700 mb-1">BOOTHS</label>
-                        <input type="number" name="booths" min="0" value={formData.booths} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                        <input type="number" name="booths" min="0" value={formData.booths} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-white" />
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-gray-700 mb-1">PERSONNEL (BOOTH)</label>
-                        <input type="number" name="personnel_in_booth" min="0" value={formData.personnel_in_booth} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" />
+                        <input type="number" name="personnel_in_booth" min="0" value={formData.personnel_in_booth} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-white" />
                       </div>
 
                       <div className="col-span-2">
                         <label className="block text-xs font-bold text-gray-700 mb-1">LOCATION (Address/Area)</label>
-                        <input type="text" name="location" value={formData.location} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Detailed location..." />
+                        <input type="text" name="location" value={formData.location} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-white" placeholder="Detailed location..." />
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-bold text-gray-700 mb-1">INSTALLED BY</label>
-                        <input type="text" name="installed_by" value={formData.installed_by} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500" placeholder="Organization or Individual" />
+                        <input type="text" name="installed_by" value={formData.installed_by} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-white" placeholder="Organization or Individual" />
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-bold text-gray-700 mb-1">STATUS</label>
-                        <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2 focus:ring-blue-500">
+                        <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500">
                           <option value="OPERATIONAL">OPERATIONAL</option>
                           <option value="UNDER MAINTENANCE">UNDER MAINTENANCE</option>
                           <option value="NON-OPERATIONAL">NON-OPERATIONAL</option>
@@ -252,7 +277,7 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
                         <ReactQuill 
                           theme="snow" 
                           value={formData.comment || ''} 
-                          onChange={(content) => setFormData({ ...formData, comment: autoCapitalize(content) })}
+                          onChange={(content) => setFormData({ ...formData, comment: content })}
                           className="bg-white rounded-md"
                           modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }}
                         />
@@ -262,7 +287,7 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
 
                   <button 
                     type="submit" disabled={isSubmitting}
-                    className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center disabled:bg-gray-400"
+                    className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-xs uppercase tracking-wider flex justify-center items-center disabled:bg-gray-400 cursor-pointer"
                   >
                     {isSubmitting ? 'Processing...' : (operation === 'new' ? '💾 Log New Establishment' : '💾 Save Updates')}
                   </button>
@@ -274,12 +299,12 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
           {/* RIGHT COLUMN: FILTERS & TABLE */}
           <div className="lg:col-span-8 space-y-4">
             <div className="flex flex-col sm:flex-row gap-3">
-              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobal} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobal} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
                 {canViewGlobal ? (
                   <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
                 ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
               </select>
-              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!canViewGlobal} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500">
+              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!canViewGlobal} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
                 {canViewGlobal ? (
                   <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
                 ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
@@ -307,29 +332,32 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredEstablishments.map((est) => (
-                      <tr key={est.id} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(est); }}>
-                        <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900">{est.division || 'N/A'}</td>
-                        <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-blue-800">{est.station}</td>
-                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_station}</td> 
-                        <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.sub_station || '-'}</td>
-                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_sub_station}</td>
-                        <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.post || '-'}</td>
-                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_post}</td>
-                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.booths}</td>
-                        <td className="px-3 py-3 text-xs text-gray-800 break-words max-w-[150px]">{est.location || '-'}</td>
-                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_booth}</td>
-                        <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600">{est.installed_by || '-'}</td>
-                        <td className="px-3 py-3 whitespace-nowrap text-xs font-bold">
-                          <span className={`px-2 py-1 rounded-full text-[9px] ${est.status === 'OPERATIONAL' ? 'bg-green-100 text-green-800' : est.status.includes('MAINTENANCE') ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
-                            {est.status}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 text-xs text-gray-500 italic max-w-[150px] break-words">
-                           <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: est.comment || '-' }} />
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredEstablishments.map((est) => {
+                      const rowKey = est.id || est.sn;
+                      return (
+                        <tr key={rowKey} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(est); }}>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900">{est.division || 'N/A'}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-blue-800">{est.station}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_station}</td> 
+                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.sub_station || '-'}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_sub_station}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.post || '-'}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_post}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.booths}</td>
+                          <td className="px-3 py-3 text-xs text-gray-800 break-words max-w-[150px]">{est.location || '-'}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_booth}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600">{est.installed_by || '-'}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs font-bold">
+                            <span className={`px-2 py-1 rounded-full text-[9px] ${est.status === 'OPERATIONAL' ? 'bg-green-100 text-green-800' : est.status?.includes('MAINTENANCE') ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                              {est.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-xs text-gray-500 italic max-w-[150px] break-words">
+                             <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: est.comment || '-' }} />
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {filteredEstablishments.length === 0 && <tr><td colSpan="13" className="text-center py-6 text-gray-500">No establishments logged for this jurisdiction.</td></tr>}
                   </tbody>
                 </table>

@@ -29,6 +29,9 @@ def serialize_row(row):
         return {}
     d = row.__dict__.copy()
     d.pop('_sa_instance_state', None)
+    # Ensure standardized 'id' field is always present for frontend mapping
+    if 'sn' in d and 'id' not in d:
+        d['id'] = d['sn']
     for k, v in d.items():
         if isinstance(v, datetime):
             d[k] = v.strftime("%Y-%m-%d %H:%M:%S")
@@ -70,6 +73,15 @@ def create_establishment(data: dict, db: Session = Depends(get_db), current_user
         data.pop('sn', None)
         data.pop('id', None)
         
+        # Sanitize numeric fields to prevent database type rejection (fixed !== to !=)
+        numeric_fields = ['personnel_in_station', 'personnel_in_sub_station', 'personnel_in_post', 'booths', 'personnel_in_booth']
+        for field in numeric_fields:
+            if field in data:
+                try:
+                    data[field] = int(data[field]) if data[field] != "" and data[field] is not None else 0
+                except (ValueError, TypeError):
+                    data[field] = 0
+
         perms = current_user.permissions or {}
         can_assign_jurisdiction = (
             current_user.role in ["SUPER_ADMIN", "RPC", "ADMIN"] or
@@ -88,10 +100,10 @@ def create_establishment(data: dict, db: Session = Depends(get_db), current_user
         db.commit()
         db.refresh(new_est)
         
-        assigned_id = getattr(new_est, 'id', getattr(new_est, 'sn', None))
-        return {"status": "success", "id": assigned_id, "data": serialize_row(new_est)}
+        return serialize_row(new_est)
     except Exception as e:
         db.rollback()
+        print(f"Establishment creation error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to record establishment: {str(e)}")
 
 @router.put("/establishments/{est_id}")
@@ -107,6 +119,15 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
     est_update.pop('sn', None) 
     est_update.pop('id', None) 
     
+    # Sanitize numeric fields (fixed !== to !=)
+    numeric_fields = ['personnel_in_station', 'personnel_in_sub_station', 'personnel_in_post', 'booths', 'personnel_in_booth']
+    for field in numeric_fields:
+        if field in est_update:
+            try:
+                est_update[field] = int(est_update[field]) if est_update[field] != "" and est_update[field] is not None else 0
+            except (ValueError, TypeError):
+                est_update[field] = 0
+
     perms = current_user.permissions or {}
     can_reassign = (
         current_user.role in ["SUPER_ADMIN", "RPC", "ADMIN"] or
@@ -127,9 +148,10 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
     try:
         db.commit()
         db.refresh(existing_est)
-        return {"status": "success", "data": serialize_row(existing_est)}
+        return serialize_row(existing_est)
     except Exception as e:
         db.rollback()
+        print(f"Establishment update error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update establishment: {str(e)}")
 
 @router.delete("/establishments/{est_id}")

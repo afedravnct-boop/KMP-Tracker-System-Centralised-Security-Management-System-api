@@ -14,6 +14,7 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt, RGBColor
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -219,9 +220,8 @@ async def upload_word_report(
                 upload_date=eat_time 
             )
             db.add(new_archive)
-            db.flush() # Flush to get the ID for vector ingestion if needed
+            db.flush()
 
-            # Safely trigger vector embedding ingestion if available
             try:
                 ingest_document_vector(
                     db=db,
@@ -256,7 +256,6 @@ def download_archive_file(
     TemplateModel = get_template_model()
     GeneralDocModel = get_general_doc_model()
     
-    # 🟢 1. Search across Archive, Templates, AND General Documents
     doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
     if not doc_record and TemplateModel:
         doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
@@ -270,7 +269,7 @@ def download_archive_file(
     file_name = getattr(doc_record, 'file_name', getattr(doc_record, 'name', 'document'))
 
     if not str(file_path).startswith("http"):
-        raise HTTPException(status_code=404, detail="Local static files cannot be dynamically watermarked. S3 storage required.")
+        raise HTTPException(status_code=404, detail="File path invalid or missing S3 storage link.")
 
     parsed_url = urllib.parse.urlparse(file_path)
     original_s3_key = parsed_url.path.lstrip('/') 
@@ -292,7 +291,6 @@ def download_archive_file(
         command_post = f"{current_user.station or 'KMP HEADQUARTERS'}, {current_user.region or 'KMP HEADQUARTERS'}"
         stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
 
-        # 🟢 2. Compact payload to stay well under the 255-character XML metadata limit
         compact_payload = {"f": officer_fnum, "s": stamp_id}
         encoded_token = base64.b64encode(json.dumps(compact_payload).encode('utf-8')).decode('utf-8')
         keywords_str = f"KMP_AUDIT;{encoded_token}"[:250]
@@ -326,18 +324,15 @@ def download_archive_file(
             section = word_doc.sections[0]
             footer = section.footer
             
-            # 🟢 FIX 1: Create a brand new paragraph so we DO NOT touch the page numbers
             stamp_p = footer.add_paragraph()
             stamp_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
             
-            # 🟢 FIX 2: Crush the spacing to keep the 9 lines extremely tight
             stamp_p.paragraph_format.space_before = Pt(0)
             stamp_p.paragraph_format.space_after = Pt(0)
             stamp_p.paragraph_format.line_spacing = 0.7
             
             run = stamp_p.add_run(receipt_text)
             run.font.name = 'Courier New' 
-            # 🟢 FIX 3: Shrink to micro-font
             run.font.size = Pt(5.5) 
             run.font.bold = True
             run.font.color.rgb = RGBColor(139, 0, 0) 
@@ -364,11 +359,14 @@ def download_archive_file(
 
         output_stream.seek(0)
 
-        stamped_s3_key = f"forensic_cache/{officer_fnum}_DOC_{doc_id}.{file_extension}"
-        s3_client.upload_fileobj(output_stream, BUCKET_NAME, stamped_s3_key, ExtraArgs={"ContentType": content_type})
-
-        stamped_url = f"https://{BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{stamped_s3_key}"
-        return {"download_url": stamped_url, "file_url": stamped_url}
+        # 🟢 Directly stream binary bytes with inline content disposition so browsers open/preview properly
+        return StreamingResponse(
+            output_stream,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{file_name}"'
+            }
+        )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Universal Forensic Stamping Error: {str(e)}")
@@ -435,7 +433,6 @@ def delete_archive_file(
     TemplateModel = get_template_model()
     GeneralDocModel = get_general_doc_model()
     
-    # 🟢 3. Resolve record across Archive, Templates, AND General Documents
     doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
     if not doc_record and TemplateModel:
         doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()

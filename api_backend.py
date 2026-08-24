@@ -6,7 +6,7 @@ import html
 import uuid
 import asyncio
 import secrets  
-import string   
+import string    
 import json
 import base64
 from datetime import datetime, timedelta
@@ -33,7 +33,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from routers import ai_router
 
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from jose import jwt, JWTError
@@ -75,6 +74,7 @@ load_dotenv()
 
 app = FastAPI(title="KMP Centralised Security Data Management System")
 
+
 from routers import (
     document_upload,
     general_documents,
@@ -87,9 +87,10 @@ from routers import (
     success_stories,
     admin_communication,
     ai_router,
+    analytics_export,  # Import analytics_export correctly
 )
 
-# Include them once
+# Include routers once
 app.include_router(document_upload.router)
 app.include_router(general_documents.router)
 app.include_router(command_templates.router)
@@ -99,11 +100,11 @@ app.include_router(crime_registry.router)
 app.include_router(lockup_matrix.router)
 app.include_router(establishments.router)
 app.include_router(success_stories.router)
+app.include_router(analytics_export.router)
 app.include_router(admin_communication.router)
 app.include_router(auth_router, prefix="/api/auth")
-
-# Include the AI router properly as an APIRouter instance
 app.include_router(ai_router.router)
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     print(f"Internal Command Error Traceback: {str(exc)}")
@@ -115,30 +116,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# ==========================================
-# 1. ROUTER INCLUSIONS (MODULAR ARCHITECTURE)
-# ==========================================
-from routers import (
-    nominal_roll, 
-    crime_registry, 
-    lockup_matrix, 
-    establishments, 
-    success_stories, 
-    admin_communication,
-    document_upload 
-)
-
-app.include_router(nominal_roll.router)
-app.include_router(crime_registry.router)
-app.include_router(lockup_matrix.router)
-app.include_router(establishments.router)
-app.include_router(success_stories.router)
-app.include_router(admin_communication.router)
-app.include_router(document_upload.router) 
-
-app.include_router(auth_router, prefix="/api/auth")
-app.include_router(ai_router.router)
 
 conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
@@ -343,9 +320,6 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ====================================================================
-# STRICTLY ISOLATED ROUTES: DOCUMENTS, TEMPLATES, & WEEKLY REPORTS
-# ====================================================================
 @app.get("/api/v1/general-documents")
 def get_general_documents(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
@@ -669,9 +643,6 @@ def log_user_session(data: dict, db: Session = Depends(get_db)):
         )
     return {"status": "success"}
 
-# ====================================================================
-# 5. RECIPIENTS, ESTABLISHMENTS JSON & CONSOLIDATED LEDGER
-# ====================================================================
 @app.get("/api/v1/users/recipients-list")
 @app.get("/api/v1/communications/recipients-list")
 def get_recipients_list(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -750,8 +721,6 @@ def run_weekly_tactical_briefing_job():
     now_eat = datetime.now(eat_tz).replace(tzinfo=None)
     one_week_ago = now_eat - timedelta(days=7)
     
-    print(f"[{now_eat}] Starting Dynamic Weekly Intelligence Briefing Compilation...")
-    
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     db = SessionLocal()
     
@@ -765,7 +734,6 @@ def run_weekly_tactical_briefing_job():
         for user in active_users:
             station = user.station
             region = user.region
-            
             is_global = user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
             
             crime_filter = "" if is_global else f" AND station = '{station}'"
@@ -787,84 +755,16 @@ def run_weekly_tactical_briefing_job():
             has_murder = "MURDER" in all_text or "HOMICIDE" in all_text
             
             custom_actions = []
-            
             if has_murder or has_robbery:
-                custom_actions.append("🔴 <b>High-Priority Security Spike:</b> Violent crime indicators (Robbery/Homicide) identified in weekly entries. Immediate deployment of intelligence-led snap operations and heightened checkpoint patrols is directed.")
+                custom_actions.append("🔴 <b>High-Priority Security Spike:</b> Violent crime indicators (Robbery/Homicide) identified in weekly entries.")
             if has_fire:
-                custom_actions.append("🔥 <b>Public Safety Alert:</b> Fire or arson events logged. Ensure coordination with the Fire Directorate for forensic site reviews and public sensitization.")
+                custom_actions.append("🔥 <b>Public Safety Alert:</b> Fire or arson events logged.")
             if has_accident:
-                custom_actions.append("🚗 <b>Traffic Hazard Notice:</b> Traffic incidents/fatalities registered. Increase highway visibility and targeted motorist compliance checks.")
+                custom_actions.append("🚗 <b>Traffic Hazard Notice:</b> Traffic incidents/fatalities registered.")
             if total_arrests > 0:
-                custom_actions.append(f"⚖️ <b>Case Management:</b> {total_arrests} total arrests logged this week. Ensure expeditious file sanctioning with State Attorneys and timely court production.")
-            
+                custom_actions.append(f"⚖️ <b>Case Management:</b> {total_arrests} total arrests logged this week.")
             if not custom_actions:
-                custom_actions.append("✅ Operations stable for the period. Maintain regular community policing and perimeter defense protocols.")
-                
-            comms_alert = ""
-            if unread_comms:
-                comms_list_html = "".join([f"<li><b>{c.title}</b></li>" for c in unread_comms])
-                comms_alert = f"""
-                <h4 style="color: #dc2626;">📬 Pending Command Communications / Directives:</h4>
-                <p>You have active command updates requiring attention:</p>
-                <ul>{comms_list_html}</ul>
-                """
-
-            doc_query = text("SELECT file_name, doc_type, uploaded_by FROM document_archive WHERE upload_date >= :start ORDER BY id DESC LIMIT 5")
-            recent_docs = db.execute(doc_query, {"start": one_week_ago}).fetchall()
-            
-            docs_alert = ""
-            if recent_docs:
-                doc_list_html = "".join([f"<li><b>{d.file_name}</b> ({d.doc_type or 'General Doc'}) - Uploaded by {d.uploaded_by}</li>" for d in recent_docs])
-                docs_alert = f"""
-                <h4 style="color: #596E47; margin-top: 20px;">📂 New Operational Documents & Templates Published:</h4>
-                <p>New files added to the secure archive this week:</p>
-                <ul style="margin: 0; padding-left: 15px;">{doc_list_html}</ul>
-                """
-
-            html_content = f"""
-            <div style="font-family: Arial, sans-serif; max-width: 650px; margin: auto; border: 1px solid #e2d6c3; padding: 25px; background-color: #fbf8f3;">
-                <h2 style="color: #002060; text-align: center; border-bottom: 2px solid #002060; padding-bottom: 10px;">UGANDA POLICE FORCE</h2>
-                <h3 style="color: #596E47; text-align: center;">KMP Automated Tactical Intelligence & Event Brief</h3>
-                
-                {docs_alert}
-
-                <p><b>Officer:</b> {user.rank} {user.name} ({user.fnum})</p>
-                <p><b>Station / Command:</b> {station} / {region}</p>
-                <p><b>Briefing Period:</b> {one_week_ago.strftime('%Y-%m-%d')} to {now_eat.strftime('%Y-%m-%d')}</p>
-                
-                <hr style="border: 0; border-top: 1px solid #e2d6c3; margin: 15px 0;">
-                
-                <h4 style="color: #3a3225;">📊 Weekly Database Activity Overview:</h4>
-                <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 15px;">
-                    <tr style="background-color: #efece6;">
-                        <td style="padding: 8px; border: 1px solid #d3c2a8;"><b>Registered Incidents</b></td>
-                        <td style="padding: 8px; border: 1px solid #d3c2a8; text-align: center;">{total_crimes}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 8px; border: 1px solid #d3c2a8;"><b>Disruptive Arrests</b></td>
-                        <td style="padding: 8px; border: 1px solid #d3c2a8; text-align: center;">{total_arrests}</td>
-                    </tr>
-                    <tr style="background-color: #efece6;">
-                        <td style="padding: 8px; border: 1px solid #d3c2a8;"><b>Suspects Remanded / Court</b></td>
-                        <td style="padding: 8px; border: 1px solid #d3c2a8; text-align: center;">{total_remanded}</td>
-                    </tr>
-                </table>
-
-                {comms_alert}
-                
-                <h4 style="color: #3a3225;">🎯 Custom Tactical Actions Recommended for You:</h4>
-                <div style="background-color: #e9eedf; border-left: 4px solid #596E47; padding: 12px; margin-bottom: 15px;">
-                    <ul style="margin: 0; padding-left: 15px;">
-                        {"".join([f"<li style='margin-bottom: 6px;'>{act}</li>" for act in custom_actions])}
-                    </ul>
-                </div>
-                
-                <p style="font-size: 11px; color: #736450; text-align: center; margin-top: 30px;">
-                    Generated automatically by the KMP Centralised Security Data Management System intelligence engine.
-                </p>
-            </div>
-            """
-            print(f"-> Compiled custom event-driven briefing for {user.fnum} at {station}")
+                custom_actions.append("✅ Operations stable for the period.")
 
     except Exception as e:
         print(f"Dynamic scheduler error: {e}")
@@ -878,14 +778,13 @@ scheduler.add_job(run_weekly_tactical_briefing_job, 'cron', day_of_week='mon', h
 def start_scheduler():
     if not scheduler.running:
         scheduler.start()
-        print("Dynamic Intelligence Background Scheduler started successfully.")
 
 @app.on_event("shutdown")
 def shutdown_scheduler():
     scheduler.shutdown()
 
 # ====================================================================
-# SECURE ENCRYPTED ZIP EXPORTS (AUDIT LOGS, HR, ANALYTICS, MASTER DB)
+# SECURE ENCRYPTED ZIP EXPORTS (AUDIT LOGS & HR LEDGER)
 # ====================================================================
 
 @app.get("/api/v1/audit-logs/export")
@@ -914,8 +813,6 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
         for col in ws.columns:
             col_letter = col[0].column_letter
             max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-            
-            # If it's the 'Details' column (Column E), cap its width and enable text wrapping
             if col[0].value == "Details":
                 ws.column_dimensions[col_letter].width = 50
                 for cell in col:
@@ -1000,228 +897,6 @@ def export_hr_ledger(db: Session = Depends(get_db), current_user: models.Users =
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"HR export failed: {str(e)}")
-
-@app.get("/api/v1/analytics/export")
-def export_analytics_report(db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):
-    try:
-        is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
-        
-        # 1. ORM Models (Pure Analytics Domains)
-        CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
-        StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', getattr(models, 'Stats', None)))
-        StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', getattr(models, 'Stories', None)))
-        NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
-
-        def get_scoped_query(ModelClass):
-            if not ModelClass:
-                return []
-            q = db.query(ModelClass)
-            if not is_global and hasattr(ModelClass, 'region'):
-                q = q.filter(ModelClass.region == current_user.region)
-            return q.all()
-
-        cr_records = get_scoped_query(CrimeModel)
-        ops_records = get_scoped_query(StatsModel)
-        ss_records = get_scoped_query(StoryModel)
-        nom_records = get_scoped_query(NomModel)
-
-        # 2. Build Extracted Datasets
-        # --- A. Comparative Distribution & Volume ---
-        comp_counts = {}
-        for r in cr_records:
-            cat = getattr(r, 'offence', 'GENERAL CRIME') or 'GENERAL CRIME'
-            comp_counts[cat] = comp_counts.get(cat, 0) + 1
-        comp_data = [[k, v] for k, v in sorted(comp_counts.items(), key=lambda x: x[1], reverse=True)]
-
-        # --- B. Disruptive Ops ---
-        disruptive_data = [
-            [
-                str(getattr(s, 'date', '')),
-                getattr(s, 'region', ''),
-                getattr(s, 'station', ''),
-                getattr(s, 'arrested', 0),
-                getattr(s, 'given_bond', 0),
-                getattr(s, 'cautioned', 0),
-                getattr(s, 'pending_court', 0),
-                getattr(s, 'taken_to_court', 0),
-                getattr(s, 'released', 0),
-                getattr(s, 'remanded', 0),
-                getattr(s, 'convicted', 0)
-            ] for s in ops_records
-        ]
-
-        # --- C. Relational Matrix ---
-        relational_data = [
-            [
-                getattr(s, 'region', ''),
-                getattr(s, 'station', ''),
-                getattr(s, 'arrested', 0),
-                getattr(s, 'taken_to_court', 0),
-                getattr(s, 'convicted', 0),
-                "POSITIVE IMPACT" if (getattr(s, 'arrested', 0) or 0) > 5 else "ACTIVE SWEEP"
-            ] for s in ops_records
-        ]
-
-        # --- D. Manpower Analysis ---
-        manpower_data = [
-            [
-                getattr(n, 'f_num', getattr(n, 'fnum', '')),
-                getattr(n, 'name', ''),
-                getattr(n, 'rank', ''),
-                getattr(n, 'sex', ''),
-                getattr(n, 'region', ''),
-                getattr(n, 'station', ''),
-                getattr(n, 'position', '')
-            ] for n in nom_records
-        ]
-
-        # --- E. Success Stories ---
-        stories_data = [
-            [
-                str(getattr(st, 'date', '')),
-                str(getattr(st, 'time', '')),
-                getattr(st, 'region', ''),
-                getattr(st, 'station', ''),
-                getattr(st, 'status', 'COMPLETED'),
-                getattr(st, 'narrative', '')
-            ] for st in ss_records
-        ]
-
-        # --- F. Crime Categories ---
-        crime_cat_counts = {}
-        for r in cr_records:
-            off = getattr(r, 'offence', 'UNSPECIFIED') or 'UNSPECIFIED'
-            susp = getattr(r, 'suspects', 0) or 0
-            if off not in crime_cat_counts:
-                crime_cat_counts[off] = [0, 0]
-            crime_cat_counts[off][0] += 1
-            crime_cat_counts[off][1] += susp
-        crime_cat_data = [[off, vals[0], vals[1]] for off, vals in crime_cat_counts.items()]
-
-        # --- G. Standalone Summary Table ---
-        summary_table_data = [
-            ["Total Registered Incidents / Reports", len(cr_records)],
-            ["Total Disruptive Operations Logged", len(ops_records)],
-            ["Total Success Stories & Breakthroughs", len(ss_records)],
-            ["Total Deployed Active Force Strength", len(nom_records)],
-            ["Total Suspects Arrested in Operations", sum(getattr(s, 'arrested', 0) or 0 for s in ops_records)],
-            ["Total Convictions Obtained", sum(getattr(s, 'convicted', 0) or 0 for s in ops_records)]
-        ]
-
-        # --- H. Ops Trends ---
-        ops_trends_data = [
-            [
-                str(getattr(s, 'date', '')),
-                getattr(s, 'region', ''),
-                getattr(s, 'station', ''),
-                getattr(s, 'arrested', 0),
-                getattr(s, 'pending_court', 0),
-                getattr(s, 'remanded', 0)
-            ] for s in ops_records
-        ]
-
-        # 3. Build Excel Workbook
-        wb = openpyxl.Workbook()
-        wb.remove(wb.active)  # Remove default sheet
-
-        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
-        section_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
-        section_font = Font(color="FFFFFF", bold=True, size=11)
-
-        # Helper to create individual sheets
-        def add_individual_sheet(title, headers, rows):
-            ws = wb.create_sheet(title=title)
-            ws.append(["SN"] + headers)
-            for cell in ws[1]:
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-            for idx, r in enumerate(rows, 1):
-                ws.append([idx] + list(r))
-            for col in ws.columns:
-                max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-                ws.column_dimensions[col[0].column_letter].width = min(max_len + 3, 50)
-
-        # Build dedicated individual sheets
-        add_individual_sheet("Comparative Distribution", ["Category / Offence", "Total Volume"], comp_data)
-        add_individual_sheet("Disruptive Ops", ["Date", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
-        add_individual_sheet("Relational Matrix", ["Region", "Station", "Total Arrests", "Court Dispositions", "Convictions", "Impact Evaluation"], relational_data)
-        add_individual_sheet("Manpower Analysis", ["Force Number", "Officer Name", "Rank", "Sex", "Region", "Station", "Position / Role"], manpower_data)
-        add_individual_sheet("Success Stories", ["Date", "Time", "Region", "Station", "Status", "Operational Milestone Narrative"], stories_data)
-        add_individual_sheet("Crime Categories", ["Offence Type", "Incident Count", "Suspects Involved"], crime_cat_data)
-        add_individual_sheet("Summary Table", ["Operational Metric Attribute", "Aggregate Value"], summary_table_data)
-        add_individual_sheet("Ops Trends", ["Date", "Region", "Station", "Arrests Logged", "Pending Court", "Remanded"], ops_trends_data)
-
-        # 4. Build Master 'General Analytics' Sheet (Sequential Stacking with 1 Empty Row Separator)
-        ws_gen = wb.create_sheet(title="General Analytics", index=0)
-        
-        def append_stacked_section(section_title, headers, rows):
-            # 1. Section Title
-            ws_gen.append([section_title.upper()])
-            title_cell = ws_gen.cell(row=ws_gen.max_row, column=1)
-            title_cell.fill = section_fill
-            title_cell.font = section_font
-            title_cell.alignment = Alignment(horizontal="left", vertical="center")
-            
-            # 2. Table Headers
-            ws_gen.append(["SN"] + headers)
-            header_row_idx = ws_gen.max_row
-            for col_idx in range(1, len(headers) + 2):
-                c = ws_gen.cell(row=header_row_idx, column=col_idx)
-                c.fill = header_fill
-                c.font = header_font
-                c.alignment = Alignment(horizontal="center", vertical="center")
-
-            # 3. Data Rows
-            if not rows:
-                ws_gen.append(["—", "No records captured for this analytical attribute."])
-            else:
-                for idx, r in enumerate(rows, 1):
-                    ws_gen.append([idx] + list(r))
-
-            # 4. Exactly ONE Empty Blank Row Separator
-            ws_gen.append([])
-
-        append_stacked_section("1. Comparative Distribution & Volume", ["Category / Offence", "Total Volume"], comp_data)
-        append_stacked_section("2. Disruptive Operations Breakdown", ["Date", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
-        append_stacked_section("3. Relational Dependency Matrix", ["Region", "Station", "Total Arrests", "Court Dispositions", "Convictions", "Impact Evaluation"], relational_data)
-        append_stacked_section("4. Deep Manpower Distribution Analysis", ["Force Number", "Officer Name", "Rank", "Sex", "Region", "Station", "Position / Role"], manpower_data)
-        append_stacked_section("5. Success Stories & Operational Breakthroughs", ["Date", "Time", "Region", "Station", "Status", "Operational Milestone Narrative"], stories_data)
-        append_stacked_section("6. Crime Incident Categories", ["Offence Type", "Incident Count", "Suspects Involved"], crime_cat_data)
-        append_stacked_section("7. Standalone Summary Aggregates", ["Operational Metric Attribute", "Aggregate Value"], summary_table_data)
-        append_stacked_section("8. Operations & Arrest Trends", ["Date", "Region", "Station", "Arrests Logged", "Pending Court", "Remanded"], ops_trends_data)
-
-        # Auto-adjust column widths for General Analytics
-        for col in ws_gen.columns:
-            max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-            ws_gen.column_dimensions[col[0].column_letter].width = min(max_len + 3, 55)
-
-        # 5. Encrypt into AES-256 ZIP Archive
-        excel_stream = io.BytesIO()
-        wb.save(excel_stream)
-
-        zip_stream = io.BytesIO()
-        eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
-        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
-        zip_password = str(current_user.fnum).strip().encode('utf-8')
-
-        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
-            zf.setpassword(zip_password)
-            zf.writestr(f"{fnum_clean}_Analytics_Relational_{eat_time.strftime('%Y%m%d')}.xlsx", excel_stream.getvalue())
-
-        zip_stream.seek(0)
-        return StreamingResponse(
-            zip_stream,
-            media_type="application/zip",
-            headers={
-                'Content-Disposition': f'attachment; filename="SECURE_ANALYTICS_REPORT_{eat_time.strftime("%Y%m%d")}.zip"',
-                'Access-Control-Expose-Headers': 'Content-Disposition'
-            }
-        )
-    except Exception as e:
-        print(f"Analytics Export Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Analytics export compilation failed: {str(e)}")
 
 @app.get("/api/v1/reports/export")
 def export_master_database(timeframe: str = "all", scope: Optional[str] = None, value: Optional[str] = None, db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):

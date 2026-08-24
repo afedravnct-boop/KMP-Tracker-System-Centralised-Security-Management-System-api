@@ -43,7 +43,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
   const [templateCustomName, setTemplateCustomName] = useState('');
 
-  // 🟢 Safely resolve global view active state matching other modules
   const canViewGlobalActive = canViewGlobal || 
     ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
     currentUser?.permissions?.view_global_roster === true || 
@@ -85,7 +84,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       const generalData = generalRes && generalRes.ok ? await generalRes.json() : [];
       const templateData = templateRes && templateRes.ok ? await templateRes.json() : [];
 
-      // 🟢 STRICT CATEGORY TAGGING: Force a category tag on every document as it arrives
       const taggedArchive = archiveData.map(doc => ({ ...doc, categoryKey: 'weekly_report' }));
       const taggedGeneral = generalData.map(doc => ({ ...doc, categoryKey: 'general_doc' }));
       const taggedTemplates = templateData.map(doc => ({ ...doc, categoryKey: 'templates', isTemplate: true }));
@@ -189,6 +187,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
+  // 🟢 FIXED FILE ACTION HANDLER: Correctly streams binary blobs for Read (preview) and Download
   const handleFileAction = async (docId, action, isTemplate = false) => {
     if (action === 'download' && !hasDownloadClearance) {
       return alert("Security Restriction: You do not have command clearance to download documents.");
@@ -209,18 +208,21 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
         throw new Error(errorData.detail || "Requested document not found.");
       }
 
-      // 🟢 UNIFIED BLOB STREAMING (Fixes mobile white screen by treating all files like static downloads)
       const blob = await response.blob();
       const blobUrl = window.URL.createObjectURL(blob);
 
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.setAttribute('download', '');
-      link.setAttribute('target', '_blank');
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      if (action === 'read') {
+        // Open document preview in a new tab
+        window.open(blobUrl, '_blank');
+      } else {
+        // Trigger physical download
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.setAttribute('download', '');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
 
       setTimeout(() => window.URL.revokeObjectURL(blobUrl), 15000);
 
@@ -233,7 +235,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
   const filteredDocuments = useMemo(() => {
     return documents.filter(doc => {
-      // 🟢 BULLETPROOF CATEGORY FILTERING: Only match the exact tag assigned during fetch
       if (doc.categoryKey !== activeCategory) {
         return false;
       }
@@ -264,7 +265,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
         </div>
       </div>
 
-      {/* 🟢 SECURED REGION & STATION FILTER BAR */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs font-bold text-slate-500 uppercase flex items-center">
@@ -315,7 +315,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
       <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
         
-        {/* UPLOAD SECTION */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="border-b border-slate-100 pb-4 mb-6">
             <h3 className="font-extrabold text-sm text-slate-900 uppercase">Universal File Intake Hub</h3>
@@ -412,7 +411,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
           )}
         </div>
 
-        {/* LEDGER SECTION */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="p-4 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-slate-50">
             <div>
@@ -491,7 +489,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                     
                     <td className="px-4 py-4 whitespace-nowrap text-right">
                       <div className="flex justify-end space-x-2">
-                        {/* 🟢 ROUTING FIX: Added doc.isTemplate flag to trigger correct API endpoint */}
                         <button 
                           onClick={() => handleFileAction(doc.id, 'read', doc.isTemplate)}
                           disabled={actionLoading === `read-${doc.id}`}

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X, Filter } from 'lucide-react';
+import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X, Filter, FileText, ChevronDown, ChevronUp, Shield } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -58,8 +58,9 @@ const autoCapitalize = (text) => {
 
 const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStories, setSidebarOpen, reports, setSelectedCase }) => {
   const [operation, setOperation] = useState('new');
-  
-  // 🟢 Safely resolve global view active state matching other modules
+  const [selectedDossier, setSelectedDossier] = useState(null); // 🟢 Dossier Modal State
+  const [expandedRows, setExpandedRows] = useState({}); // 🟢 Row Expansion State
+
   const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
@@ -79,7 +80,10 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: ''
   });
 
-  // 🟢 Flexible helper to detect crime references regardless of case or spacing differences (e.g., sd ref vs SD Ref:)
+  const toggleRowExpand = (sn) => {
+    setExpandedRows(prev => ({ ...prev, [sn]: !prev[sn] }));
+  };
+
   const findLinkedCrimeCase = (successStoryNarrative, allReports) => {
     if (!successStoryNarrative || !Array.isArray(allReports)) return null;
     
@@ -88,15 +92,12 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     
     for (const match of matches) {
       const searchNum = match[2].trim().toUpperCase();
-      
       const foundCase = allReports.find(r => {
         const dbRef = (r.sdRef || r.sd_ref || '').trim().toUpperCase();
         return dbRef.includes(searchNum);
       });
-
       if (foundCase) return foundCase;
     }
-    
     return null;
   };
 
@@ -105,9 +106,8 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       const stn = (s.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, s.region);
 
-      // 🟢 Bypass regional/station filtering if global view is active and 'ALL' options are selected
       if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
-        // Fall through to date check
+        // Fall through
       } else {
         if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return false;
         if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return false;
@@ -152,7 +152,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
   const handleExhibitUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      setNotification("Uploading exhibit to secure S3 bucket...");
+      setNotification("Uploading exhibit to secure storage...");
       const uploadData = new FormData();
       uploadData.append("file", file);
       uploadData.append("category", "scene");
@@ -163,15 +163,14 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         const response = await authFetch("/api/v1/investigation/upload/", { method: "POST", body: uploadData });
         const data = await response.json();
         if (data.full_s3_url || data.cloud_storage_path) {
-          setFormData({ ...formData, photo_url: data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}` });
-          setNotification("Exhibit uploaded to S3 successfully!");
+          setFormData({ ...formData, photo_url: data.full_s3_url || data.cloud_storage_path });
+          setNotification("Exhibit uploaded successfully!");
         } else {
            throw new Error("Invalid API Response");
         }
       } catch (error) {
-        console.warn("Backend unreachable, falling back to local Blob URL for UI testing.", error);
         setFormData({ ...formData, photo_url: URL.createObjectURL(file) });
-        setNotification("Note: API offline. Using temporary local preview.");
+        setNotification("Note: Using local preview URL.");
       }
     }
   };
@@ -190,10 +189,9 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
   const populateUpdateForm = (storyData) => setFormData({ ...storyData, updateText: '' });
 
-  const handleFormSubmit = (e) => {
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
 
-    // Respect active toggle region/station if global view is active
     const activeRegion = (canViewGlobalActive && filterRegion !== 'ALL REGIONS') ? filterRegion : formData.region;
     const activeStation = (canViewGlobalActive && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
 
@@ -203,39 +201,50 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       const cleanNewText = submissionData.narrative.replace(/<[^>]*>?/gm, '').trim().toLowerCase();
       const isDuplicate = stories.some(s => s.narrative.replace(/<[^>]*>?/gm, '').trim().toLowerCase() === cleanNewText);
 
-      if (isDuplicate) return setNotification("Error: This exact success story has already been submitted to the ledger.");
+      if (isDuplicate) return setNotification("Error: This exact success story has already been logged.");
 
-      const exactNextSN = (stories && stories.length > 0) ? Math.max(...stories.map(s => s.sn)) + 1 : 1;
+      const exactNextSN = (stories && stories.length > 0) ? Math.max(...stories.map(s => s.sn || s.id || 0)) + 1 : 1;
       const newStory = { ...submissionData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       delete newStory.updateText;
       
-      authFetch("/api/v1/stories", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newStory)
-      }).catch(err => console.error("Cloud sync failed:", err));
+      try {
+        const response = await authFetch("/api/v1/stories", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newStory)
+        });
+        if (!response.ok) throw new Error("Failed to save to database");
+        const resData = await response.json();
+        if (resData.sn) newStory.sn = resData.sn;
+      } catch (err) {
+        console.error("Cloud sync failed:", err);
+      }
 
       setStories([newStory, ...stories]);
       setNotification(`Success story SN ${newStory.sn} logged successfully!`);
-      
+      setFormData({ ...formData, time: '', narrative: '', sn: null, updateText: '', photo_url: '' });
+
     } else if (operation === 'update') {
-      if (!submissionData.sn) return setNotification("Error: Please select a story from the list to update first.");
+      if (!submissionData.sn) return setNotification("Error: Please select a story to update first.");
 
       const updatedNarrative = submissionData.updateText 
-        ? `${submissionData.narrative}\n<br/><br/><strong>[UPDATE ${new Date().toISOString().slice(0,16).replace('T', ' ')}]:</strong><br/>${submissionData.updateText}` 
+        ? `${submissionData.narrative}<br/><br/><strong>[UPDATE ${new Date().toISOString().slice(0,16).replace('T', ' ')}]:</strong><br/>${submissionData.updateText}` 
         : submissionData.narrative;
         
       const updatedRecord = { ...submissionData, narrative: updatedNarrative, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       delete updatedRecord.updateText;
 
-      authFetch(`/api/v1/stories/${submissionData.sn}`, {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord)
-      }).catch(err => console.error("Cloud sync failed:", err));
+      try {
+        await authFetch(`/api/v1/stories/${submissionData.sn}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord)
+        });
+      } catch (err) {
+        console.error("Cloud sync failed:", err);
+      }
 
-      setStories((stories || []).map(s => s.sn === submissionData.sn ? updatedRecord : s));
+      setStories((stories || []).map(s => (s.sn === submissionData.sn || s.id === submissionData.sn) ? updatedRecord : s));
       setNotification(`Success story SN ${submissionData.sn} successfully updated!`);
     }
 
     setTimeout(() => setNotification(null), 4000);
-    if (operation === 'new') setFormData({ ...formData, time: '', narrative: '', sn: null, updateText: '', photo_url: '' });
   };
 
   return (
@@ -251,8 +260,8 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="p-5 space-y-6">
               <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
-                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white shadow text-yellow-600' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
-                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-green shadow text-white' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
+                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all cursor-pointer ${operation === 'new' ? 'bg-white shadow text-yellow-600 font-bold' : 'text-gray-600 hover:text-gray-900'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
+                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all cursor-pointer ${operation === 'update' ? 'bg-green-600 shadow text-white font-bold' : 'text-gray-600 hover:text-gray-900'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
               </div>
 
               {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>{notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{notification}</span></div>}
@@ -260,11 +269,11 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
               {operation === 'update' && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                   <label className="block text-xs font-bold text-yellow-800 mb-2">🔍 Search & Select Story to Update</label>
-                  <input type="text" placeholder="Search by SN or Narrative..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-yellow-200 rounded outline-none focus:ring-2 focus:ring-yellow-400" />
+                  <input type="text" placeholder="Search by SN or Narrative..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-yellow-200 rounded outline-none focus:ring-2 focus:ring-yellow-400 bg-white" />
                   <div className="max-h-40 overflow-y-auto bg-white border border-yellow-100 rounded custom-scrollbar">
                     {availableUpdateStories.length === 0 ? <div className="p-3 text-xs text-gray-500 text-center">No success stories found matching your search.</div> : availableUpdateStories?.map(s => (
-                        <div key={s.sn} onClick={() => populateUpdateForm(s)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === s.sn ? 'bg-yellow-500 text-white font-bold' : 'hover:bg-yellow-50 text-gray-700'}`}>
-                          <span className={formData.sn === s.sn ? 'text-yellow-100' : 'text-gray-400'}>SN: {s.sn}</span> | <span className={formData.sn === s.sn ? 'text-white' : 'font-bold text-yellow-700'}>{s.date}</span> | {s.station}
+                        <div key={s.sn || s.id} onClick={() => populateUpdateForm(s)} className={`p-2 text-xs border-b cursor-pointer transition-colors ${formData.sn === (s.sn || s.id) ? 'bg-yellow-500 text-white font-bold' : 'hover:bg-yellow-50 text-gray-700'}`}>
+                          <span className={formData.sn === (s.sn || s.id) ? 'text-yellow-100' : 'text-gray-400'}>SN: {s.sn || s.id}</span> | <span className={formData.sn === (s.sn || s.id) ? 'text-white' : 'font-bold text-yellow-700'}>{s.date}</span> | {s.station}
                         </div>
                       ))}
                   </div>
@@ -292,16 +301,16 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Date Accomplished</label>
-                    <input type="date" name="date" value={formData.date} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 disabled:bg-gray-100 disabled:text-gray-500" />
+                    <input type="date" name="date" value={formData.date} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 disabled:bg-gray-100 disabled:text-gray-500 bg-white" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Time</label>
-                    <input type="text" name="time" value={formData.time} onChange={handleInputChange} disabled={operation === 'update'} placeholder="1400Hrs" className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 disabled:bg-gray-100 disabled:text-gray-500" />
+                    <input type="text" name="time" value={formData.time} onChange={handleInputChange} disabled={operation === 'update'} placeholder="1400Hrs" className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 disabled:bg-gray-100 disabled:text-gray-500 bg-white" />
                   </div>
                 </div>
 
                 <div className="pb-8"> 
-                  <label className="block text-xs font-bold text-gray-700 mb-1">{operation === 'update' ? 'Original Narrative (Read-Only)' : 'Success Report Narrative'}</label>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">{operation === 'update' ? 'Original Narrative (Read-Only)' : 'Success Report Narrative *'}</label>
                   <ReactQuill theme="snow" value={formData.narrative} onChange={(content) => setFormData({ ...formData, narrative: autoCapitalize(content) })} readOnly={operation === 'update'} className={`bg-white rounded-md ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`} modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
                 </div>
 
@@ -322,18 +331,18 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                 {operation === 'update' && (
                   <div className="pb-8 mt-4"> 
                     <label className="block text-xs font-bold text-yellow-700 mb-1">Append New Update / Progress *</label>
-                    <ReactQuill theme="snow" value={formData.updateText || ''} onChange={(content) => setFormData({ ...formData, updateText: autoCapitalize(content) })} className="bg-white rounded-md border-yellow-300" placeholder="Enter new progress or updates here. Use the toolbar for numbering..." modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
+                    <ReactQuill theme="snow" value={formData.updateText || ''} onChange={(content) => setFormData({ ...formData, updateText: autoCapitalize(content) })} className="bg-white rounded-md border-yellow-300" placeholder="Enter new progress or updates here..." modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
                   </div>
                 )}
 
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">Status</label>
-                  <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-gray-50 border p-2">
+                  <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2">
                     <option>COMPLETED / SUCCESS</option><option>ONGOING / EXPLOITATION</option><option>IN PROGRESS</option>
                   </select>
                 </div>
 
-                <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center cursor-pointer">
+                <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center cursor-pointer uppercase tracking-wider text-xs">
                    {operation === 'new' ? 'Submit Achievement' : '💾 Save Achievement Updates'}
                 </button>
               </form>
@@ -374,14 +383,42 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredStories?.map((story) => {
+                    const rowId = story.sn || story.id;
+                    const isRowExpanded = Boolean(expandedRows[rowId]);
                     const linkedCase = findLinkedCrimeCase(story.narrative, reports);
+
                     return (
-                      <tr key={story.sn} className="hover:bg-yellow-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(story); }}>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">{story.sn}</td>
+                      <tr key={rowId} className="hover:bg-yellow-50 transition-colors">
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">{rowId}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 align-top">{story.date}<br/><span className="text-xs text-gray-400">{story.time}</span></td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-blue-700 align-top">{story.station}<br/><span className="text-xs text-gray-400">{story.region}</span></td>
                         <td className="px-4 py-4 text-sm text-gray-600 align-top whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
-                          <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: story.narrative }} />
+                          
+                          {/* 🟢 Expandable / Collapsible view container */}
+                          <div className={`relative ${!isRowExpanded ? 'max-h-28 overflow-hidden' : ''}`}>
+                            <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: story.narrative }} />
+                            {!isRowExpanded && (
+                              <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white to-transparent pointer-events-none" />
+                            )}
+                          </div>
+
+                          <div className="flex items-center space-x-4 mt-2">
+                            <button
+                              type="button"
+                              onClick={() => toggleRowExpand(rowId)}
+                              className="text-xs font-extrabold text-blue-600 hover:text-blue-800 flex items-center cursor-pointer"
+                            >
+                              {isRowExpanded ? <><ChevronUp size={14} className="mr-1" /> Collapse View</> : <><ChevronDown size={14} className="mr-1" /> Expand View</>}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedDossier(story)}
+                              className="text-xs font-extrabold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded shadow-2xs flex items-center cursor-pointer transition"
+                            >
+                              <FileText size={13} className="mr-1 text-blue-600" /> View Dossier
+                            </button>
+                          </div>
                           
                           {linkedCase && (
                             <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
@@ -393,7 +430,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                                 onClick={() => setSelectedCase(linkedCase)}
                                 className="px-3 py-1 bg-blue-700 hover:bg-blue-800 text-white rounded font-bold text-xs shadow-xs transition cursor-pointer"
                               >
-                                View Dossier
+                                View Case Dossier
                               </button>
                             </div>
                           )}
@@ -402,7 +439,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                             <div className="mt-4 border rounded-xl overflow-hidden max-w-md bg-slate-50 flex justify-center items-center p-1 shadow-sm">
                               <img 
                                 src={story.photo_url} 
-                                alt={`Exploit SN ${story.sn}`} 
+                                alt={`Exploit SN ${rowId}`} 
                                 className="w-full h-auto object-contain max-h-96 rounded-lg" 
                                 onError={(e) => { e.target.style.display = 'none'; }} 
                               />
@@ -429,6 +466,73 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
           </ExpandableTableCard>
         </div>
       </div>
+
+      {/* 🟢 ACHIEVEMENT OVERVIEW DOSSIER MODAL */}
+      {selectedDossier && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-200 animate-in zoom-in-95 flex flex-col max-h-[85vh]">
+            <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
+              <h3 className="font-extrabold text-sm uppercase tracking-wider flex items-center">
+                <Shield className="mr-2 text-yellow-400" size={16} /> Achievement Dossier Record #{selectedDossier.sn || selectedDossier.id}
+              </h3>
+              <button onClick={() => setSelectedDossier(null)} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer"><X size={18}/></button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4 flex-1 custom-scrollbar text-xs">
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-2 gap-4">
+                <div>
+                  <span className="text-slate-400 font-bold uppercase block text-[10px]">Command Region</span>
+                  <span className="font-extrabold text-slate-800">{selectedDossier.region}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 font-bold uppercase block text-[10px]">Police Station / Unit</span>
+                  <span className="font-extrabold text-slate-800">{selectedDossier.station}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 font-bold uppercase block text-[10px]">Accomplished Date & Time</span>
+                  <span className="font-extrabold text-slate-800">{selectedDossier.date || 'N/A'} at {selectedDossier.time || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 font-bold uppercase block text-[10px]">Recording Officer</span>
+                  <span className="font-extrabold text-slate-800">{selectedDossier.last_updated_by || 'CENTRAL COMMAND'}</span>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-extrabold text-slate-900 uppercase tracking-wider mb-1">Operational Status</h4>
+                <span className={`px-2.5 py-1 inline-flex text-xs font-bold rounded-full ${selectedDossier.status?.includes('COMPLETED') ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                  {selectedDossier.status}
+                </span>
+              </div>
+
+              <div>
+                <h4 className="font-extrabold text-slate-900 uppercase tracking-wider mb-1">Complete Narrative Report</h4>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-slate-700 leading-relaxed font-medium whitespace-pre-wrap">
+                  <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: selectedDossier.narrative || 'No detailed narrative logged.' }} />
+                </div>
+              </div>
+
+              {selectedDossier.photo_url && (
+                <div>
+                  <h4 className="font-extrabold text-slate-900 uppercase tracking-wider mb-1">Attached Exhibit / Evidence</h4>
+                  <div className="border rounded-xl overflow-hidden bg-slate-50 p-1 flex justify-center">
+                    <img src={selectedDossier.photo_url} alt="Dossier Exhibit" className="max-h-80 object-contain rounded-lg" />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-slate-100 p-4 border-t border-slate-200 flex justify-end shrink-0">
+              <button
+                onClick={() => setSelectedDossier(null)}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs uppercase tracking-wider shadow cursor-pointer"
+              >
+                Close Dossier
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

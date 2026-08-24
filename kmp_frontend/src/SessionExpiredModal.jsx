@@ -5,6 +5,7 @@ const SessionExpiredModal = ({ onContinue, onLogout }) => {
   const [timeLeft, setTimeLeft] = useState(60);
   const [phase, setPhase] = useState('WARNING'); 
 
+  // Countdown timer effect
   useEffect(() => {
     if (phase !== 'WARNING') return;
 
@@ -12,7 +13,7 @@ const SessionExpiredModal = ({ onContinue, onLogout }) => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          handleAutomaticExpiration();
+          setPhase('FINAL_LOGOUT');
           return 0;
         }
         return prev - 1;
@@ -22,11 +23,35 @@ const SessionExpiredModal = ({ onContinue, onLogout }) => {
     return () => clearInterval(timer);
   }, [phase]);
 
-  const handleAutomaticExpiration = () => {
-    if (typeof onLogout === 'function') {
-      onLogout();
+  // Support activity listeners during the warning modal to auto-extend session if desired
+  useEffect(() => {
+    if (phase !== 'WARNING') return;
+
+    const handleUserActivity = () => {
+      if (typeof onContinue === 'function') {
+        onContinue();
+      }
+    };
+
+    window.addEventListener('mousemove', handleUserActivity, { once: true });
+    window.addEventListener('keydown', handleUserActivity, { once: true });
+    window.addEventListener('click', handleUserActivity, { once: true });
+
+    return () => {
+      window.removeEventListener('mousemove', handleUserActivity);
+      window.removeEventListener('keydown', handleUserActivity);
+      window.removeEventListener('click', handleUserActivity);
+    };
+  }, [phase, onContinue]);
+
+  const handleContinueClick = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
     }
-    setPhase('FINAL_LOGOUT');
+    if (typeof onContinue === 'function') {
+      onContinue();
+    }
   };
 
   const handleForceLogout = (e) => {
@@ -57,7 +82,7 @@ const SessionExpiredModal = ({ onContinue, onLogout }) => {
             </p>
             <button
               type="button"
-              onClick={onContinue}
+              onClick={handleContinueClick}
               className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg uppercase tracking-wider text-sm cursor-pointer transition-colors"
             >
               Continue Session

@@ -1422,6 +1422,34 @@ const WorkspaceSecurityCurtain = () => {
   const idleTimerRef = useRef(null);
   const sessionTimerRef = useRef(null);
 
+  // Function to completely reset session timers upon activity or continuation
+  const resetSessionTimers = () => {
+    if (isTimedOut) return; // Do not reset if already permanently timed out
+
+    setShowIdleWarning(false);
+    setIsWorkspaceIdle(false);
+    setIdleCountdown(60);
+
+    clearTimeout(idleTimerRef.current);
+    clearTimeout(sessionTimerRef.current);
+
+    const IDLE_TIMEOUT_MS = 60000;          // 1 minute for visual idle curtain
+    const SESSION_TIMEOUT_MS = 29 * 60 * 1000; // 29 minutes for session expiration warning
+
+    idleTimerRef.current = setTimeout(() => {
+      if (!isReadingMode && !showIdleWarning && !isTimedOut) {
+        setIsWorkspaceIdle(true);
+      }
+    }, IDLE_TIMEOUT_MS);
+
+    sessionTimerRef.current = setTimeout(() => {
+      if (!isReadingMode && !isTimedOut) {
+        setShowIdleWarning(true);
+        setIsWorkspaceIdle(true);
+      }
+    }, SESSION_TIMEOUT_MS);
+  };
+
   useEffect(() => {
     if (isReadingMode || isTimedOut) {
       clearTimeout(idleTimerRef.current);
@@ -1431,54 +1459,38 @@ const WorkspaceSecurityCurtain = () => {
       return;
     }
 
-    const IDLE_TIMEOUT_MS = 60000;
-    const SESSION_TIMEOUT_MS = 29 * 60 * 1000;
+    resetSessionTimers();
 
-    const handleUserActivity = () => {
-      if (showIdleWarning || isTimedOut) return;
-
-      setIsWorkspaceIdle(false);
-
-      clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = setTimeout(() => {
-        if (!isReadingMode && !showIdleWarning && !isTimedOut) {
-          setIsWorkspaceIdle(true);
-        }
-      }, IDLE_TIMEOUT_MS);
-
-      clearTimeout(sessionTimerRef.current);
-      sessionTimerRef.current = setTimeout(() => {
-        if (!isReadingMode && !isTimedOut) {
-          setShowIdleWarning(true);
-          setIsWorkspaceIdle(true);
-        }
-      }, SESSION_TIMEOUT_MS);
+    // Listen to active user interaction (typing, clicking, scrolling) to automatically extend session
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'input', 'click'];
+    const handleActivity = () => {
+      // If warning modal is showing, typing/clicking anywhere can also act as "Continue Session"
+      if (showIdleWarning) {
+        resetSessionTimers();
+      } else {
+        resetSessionTimers();
+      }
     };
 
-    handleUserActivity();
-
-    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
-    events.forEach(event => window.addEventListener(event, handleUserActivity, false));
+    events.forEach(event => window.addEventListener(event, handleActivity, true));
 
     return () => {
       clearTimeout(idleTimerRef.current);
       clearTimeout(sessionTimerRef.current);
-      events.forEach(event => window.removeEventListener(event, handleUserActivity, false));
+      events.forEach(event => window.removeEventListener(event, handleActivity, true));
     };
-  }, [isReadingMode, showIdleWarning, isTimedOut]);
+  }, [isReadingMode, isTimedOut, showIdleWarning]);
 
+  // Countdown timer effect when warning modal pops up
   useEffect(() => {
-    if (isTimedOut) return; // Only stop if already timed out
-    if (!showIdleWarning) return; // If warning isn't active, do nothing
-
-    setIdleCountdown(60);
+    if (isTimedOut || !showIdleWarning) return;
 
     const countdownInterval = setInterval(() => {
       setIdleCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(countdownInterval);
-          setShowIdleWarning(false); // Close the warning modal
-          setIsTimedOut(true);       // Open the Acknowledge & Return to Login modal
+          setShowIdleWarning(false);
+          setIsTimedOut(true); // Triggers final lock screen
           return 0;
         }
         return prev - 1;
@@ -1488,7 +1500,6 @@ const WorkspaceSecurityCurtain = () => {
     return () => clearInterval(countdownInterval);
   }, [showIdleWarning, isTimedOut]);
 
-  // Handle explicit session termination and reload
   const handleForceLogout = () => {
     localStorage.removeItem('kmp_authToken');
     localStorage.removeItem('kmp_currentUser');
@@ -1531,7 +1542,6 @@ const WorkspaceSecurityCurtain = () => {
 
   const orbitText = "KAMPALA METROPOLITAN POLICE • CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('');
 
-  // 🟢 SINGLE RETURN BLOCK - Keeps Background Animation Alive
   return (
     <div 
       className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
@@ -1539,7 +1549,7 @@ const WorkspaceSecurityCurtain = () => {
         position: 'fixed',
         top: 0, left: 0, right: 0, bottom: 0,
         zIndex: 2147483646,
-        pointerEvents: 'auto', // Always active so modals can receive clicks
+        pointerEvents: 'auto',
         isolation: 'isolate'
       }}
     >
@@ -1554,7 +1564,6 @@ const WorkspaceSecurityCurtain = () => {
         }
       `}</style>
 
-      {/* Visual Background Layer */}
       <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
         <div className="absolute inset-0 opacity-20 pointer-events-none flex flex-col justify-between z-0">
           <div className="h-1/3 w-full bg-black"></div>
@@ -1598,14 +1607,12 @@ const WorkspaceSecurityCurtain = () => {
         </div>
       </div>
 
-      {/* Interactive Modal (Swaps seamlessly between Warning and Locked Out) */}
       {(showIdleWarning || isTimedOut) && (
         <div 
           onClick={(e) => e.stopPropagation()}
           className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto"
         >
           {isTimedOut ? (
-            // 🔴 RENDERED AT 0 SECONDS (TIMED OUT)
             <>
               <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
                 <AlertTriangle className="w-8 h-8 text-red-600" />
@@ -1625,7 +1632,6 @@ const WorkspaceSecurityCurtain = () => {
               </button>
             </>
           ) : (
-            // 🟡 RENDERED DURING 60-SECOND COUNTDOWN
             <>
               <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
                 <AlertTriangle className="w-8 h-8 text-amber-600" />
@@ -1638,10 +1644,7 @@ const WorkspaceSecurityCurtain = () => {
               </p>
               <button 
                 type="button"
-                onClick={() => {
-                  setShowIdleWarning(false);
-                  setIsWorkspaceIdle(false);
-                }}
+                onClick={resetSessionTimers}
                 className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
               >
                 Continue Session

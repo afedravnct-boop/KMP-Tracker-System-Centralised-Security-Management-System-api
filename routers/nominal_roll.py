@@ -180,7 +180,7 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     return clean_results
 
 # ====================================================================
-# 2. BULK NOMINAL ROLL IMPORT / EXCEL BATCH PROCESSING
+# 2. BULK NOMINAL ROLL IMPORT / EXCEL BATCH PROCESSING (FIXED)
 # ====================================================================
 @router.post("/nominal-roll/bulk-upload")
 @router.post("/nominal-roll/upload")
@@ -204,6 +204,22 @@ async def bulk_upload_nominal_roll(
     updated_count = 0
     officer_sig = get_officer_signature(current_user)
 
+    def parse_safe_date(val):
+        """Safely parses dates into datetime.date objects or returns None for database compatibility."""
+        if not val or str(val).strip().lower() in ['nan', 'nat', 'none', 'null', '', '-']:
+            return None
+        try:
+            # If pandas parsed it or it's a timestamp
+            if isinstance(val, (datetime, pd.Timestamp)):
+                return val.date()
+            # Try parsing common date string formats
+            parsed = pd.to_datetime(val, dayfirst=True, errors='coerce')
+            if pd.notna(parsed):
+                return parsed.date()
+        except Exception:
+            pass
+        return None
+
     try:
         for single_file in file_list:
             contents = await single_file.read()
@@ -217,12 +233,6 @@ async def bulk_upload_nominal_roll(
                 continue
 
             df.columns = [str(col).strip().lower().replace(" ", "_").replace("/", "_") for col in df.columns]
-
-            date_columns = ['dob', 'doe', 'do_post', 'dopost', 'do_pro', 'dopro', 'date_of_birth', 'date_of_enlistment']
-            for col in date_columns:
-                if col in df.columns:
-                    df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce').dt.strftime('%Y-%m-%d')
-
             df = df.replace({np.nan: None, 'NaT': None, 'NaN': None})
 
             for _, row in df.iterrows():
@@ -235,15 +245,21 @@ async def bulk_upload_nominal_roll(
                 stn_val = str(row.get("station") or current_user.station or "HQ").strip().upper()
                 reg_val, dist_val = auto_infer_geography(stn_val, row.get("region"), row.get("district"))
 
+                # 🟢 Safely parse all date fields into true datetime.date objects
+                dob_val = parse_safe_date(row.get("dob") or row.get("date_of_birth"))
+                doe_val = parse_safe_date(row.get("doe") or row.get("date_of_enlistment"))
+                dopost_val = parse_safe_date(row.get("do_post") or row.get("dopost") or row.get("dop"))
+                dopro_val = parse_safe_date(row.get("do_pro") or row.get("dopro"))
+
                 officer_payload = {
                     "rank": str(row.get("rank") or "PC").strip().upper(),
                     "name": str(row.get("name") or "UNKNOWN").strip().title(),
                     "sex": normalize_sex(row.get("sex") or row.get("gender")),
                     "position": str(row.get("position") or row.get("title") or "GENERAL DUTIES").strip().upper(),
-                    "dob": str(row.get("dob") or row.get("date_of_birth") or "") or None,
-                    "doe": str(row.get("doe") or row.get("date_of_enlistment") or "") or None,
-                    "do_post": str(row.get("do_post") or row.get("dopost") or "") or None,
-                    "do_pro": str(row.get("do_pro") or row.get("dopro") or "") or None,
+                    "dob": dob_val,
+                    "doe": doe_val,
+                    "do_post": dopost_val,
+                    "do_pro": dopro_val,
                     "contact": str(row.get("contact") or row.get("phone") or "") or None,
                     "educ_level": str(row.get("educ_level") or row.get("educlevel") or row.get("education") or "") or None,
                     "ipps": str(row.get("ipps") or "") or None,

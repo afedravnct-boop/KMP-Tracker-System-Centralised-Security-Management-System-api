@@ -9,18 +9,17 @@ from sqlalchemy.orm import Session
 # Import models & db helpers
 from app import models
 
-# Configure the new Gemini Client
+# Configure the Gemini Client
 api_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key) if api_key else None
 
 def get_embedding_vector(text: str) -> List[float]:
     """Generates a 768-dim embedding vector via Gemini text-embedding-004."""
     clean_text = text.replace("\n", " ").strip()
-    if not clean_text:
+    if not clean_text or not client:
         return [0.0] * 768
         
     try:
-        # Use the new embed_content structure
         response = client.models.embed_content(
             model="text-embedding-004",
             contents=clean_text

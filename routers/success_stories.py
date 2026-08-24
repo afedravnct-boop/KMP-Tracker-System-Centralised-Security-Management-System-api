@@ -43,3 +43,25 @@ def create_story(data: dict, db: Session = Depends(get_db), current_user: models
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+# 🟢 ADDED: Missing Update Endpoint for Success Stories
+@router.put("/stories/{sn}")
+def update_story(sn: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        record = db.query(models.Success_Stories).filter(models.Success_Stories.sn == sn).first()
+        if not record:
+            raise HTTPException(status_code=404, detail="Success story record not found.")
+
+        # Update fields dynamically from incoming dictionary
+        for key, value in data.items():
+            if key not in ['sn', 'id']:
+                setattr(record, key, value)
+
+        record.last_updated_by = get_officer_signature(current_user)
+        db.commit()
+        db.refresh(record)
+        
+        return {"status": "success", "sn": record.sn, "message": "Success story updated successfully."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
