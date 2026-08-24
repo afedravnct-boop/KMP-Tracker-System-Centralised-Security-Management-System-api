@@ -118,12 +118,18 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         if (s.date !== todayStr) return false;
       } else if (dateFilter === 'LAST 7 DAYS') {
         const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 7) return false;
+      } else if (dateFilter === 'LAST 14 DAYS') {
+        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 14) return false;
+      } else if (dateFilter === 'LAST 21 DAYS') {
+        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 21) return false;
       } else if (dateFilter === 'LAST 30 DAYS') {
         const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 30) return false;
       } else if (dateFilter === 'LAST 90 DAYS') {
         const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 90) return false;
       } else if (dateFilter === 'LAST 120 DAYS') {
         const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 120) return false;
+      } else if (dateFilter === 'LAST 180 DAYS') {
+        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 180) return false;
       }
       return true;
     });
