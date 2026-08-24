@@ -1,7 +1,7 @@
 import io
 import os
 import math
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, List, Union
 from urllib.parse import unquote
 
@@ -27,6 +27,24 @@ def normalize_sex(val):
         return "FEMALE"
     elif cleaned.startswith('M'):
         return "MALE"
+    return cleaned
+
+def normalize_education_level(educ_str):
+    """Normalizes high school levels: keeps uncertified s1-s3 as entered, maps others to UCE or UACE."""
+    if not educ_str or str(educ_str).strip().lower() in ['nan', 'none', 'null', '']:
+        return None
+    cleaned = str(educ_str).strip().upper()
+    
+    # Keep uncertified lower secondary classes as entered
+    if any(term in cleaned for term in ['S.1', 'S1', 'S.2', 'S2', 'S.3', 'S3', 'SENIOR 1', 'SENIOR 2', 'SENIOR 3']):
+        return cleaned
+        
+    # Map certified high school milestones
+    if any(term in cleaned for term in ['UACE', 'A-LEVEL', 'A LEVEL', 'S.6', 'S6', 'SENIOR 6']):
+        return "UACE"
+    if any(term in cleaned for term in ['UCE', 'O-LEVEL', 'O LEVEL', 'S.4', 'S4', 'SENIOR 4', 'PLE', 'P.7']):
+        return "UCE"
+        
     return cleaned
 
 def get_officer_signature(user):
@@ -120,7 +138,6 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     if sort_act is not None:
         active_query = active_query.order_by(sort_act.asc())
 
-    # 🟢 ARCHIVE SORTING FIX: Order by descending (Last-In, First-Shown)
     sort_arc = getattr(ArchiveModel, 'archive_date', getattr(ArchiveModel, 'created_at', getattr(ArchiveModel, 'id', getattr(ArchiveModel, 'sn', None))))
     if sort_arc is not None:
         archive_query = archive_query.order_by(sort_arc.desc())
@@ -141,7 +158,7 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         r_dict['f_num'] = fnum_val
         r_dict['do_post'] = r_dict.get('do_post') or r_dict.get('dopost') or ''
         r_dict['do_pro'] = r_dict.get('do_pro') or r_dict.get('dopro') or ''
-        r_dict['educ_level'] = r_dict.get('educ_level') or r_dict.get('educlevel') or ''
+        r_dict['educ_level'] = normalize_education_level(r_dict.get('educ_level') or r_dict.get('educlevel'))
         r_dict['home_dist'] = r_dict.get('home_dist') or r_dict.get('homedist') or ''
         r_dict['acc_no'] = r_dict.get('acc_no') or r_dict.get('accno') or ''
         r_dict['bank_branch'] = r_dict.get('bank_branch') or r_dict.get('bankbranch') or ''
@@ -154,7 +171,7 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         clean_results.append(r_dict)
         sequence_counter += 1
 
-    # 2. Process Archive Records (Sorted descending by archive_date / id)
+    # 2. Process Archive Records
     for r in archive_records:
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
@@ -164,7 +181,7 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         r_dict['f_num'] = fnum_val
         r_dict['do_post'] = r_dict.get('dopost') or r_dict.get('do_post') or ''
         r_dict['do_pro'] = r_dict.get('dopro') or r_dict.get('do_pro') or ''
-        r_dict['educ_level'] = r_dict.get('educlevel') or r_dict.get('educ_level') or ''
+        r_dict['educ_level'] = normalize_education_level(r_dict.get('educlevel') or r_dict.get('educ_level'))
         r_dict['home_dist'] = r_dict.get('homedist') or r_dict.get('home_dist') or ''
         r_dict['acc_no'] = r_dict.get('accno') or r_dict.get('acc_no') or ''
         r_dict['bank_branch'] = r_dict.get('bankbranch') or r_dict.get('bank_branch') or ''
@@ -180,7 +197,7 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     return clean_results
 
 # ====================================================================
-# 2. BULK NOMINAL ROLL IMPORT / EXCEL BATCH PROCESSING (FIXED)
+# 2. BULK NOMINAL ROLL IMPORT / EXCEL BATCH PROCESSING (STRICT DATE COERCION)
 # ====================================================================
 @router.post("/nominal-roll/bulk-upload")
 @router.post("/nominal-roll/upload")
@@ -204,16 +221,21 @@ async def bulk_upload_nominal_roll(
     updated_count = 0
     officer_sig = get_officer_signature(current_user)
 
-    def parse_safe_date(val):
-        """Safely parses dates into datetime.date objects or returns None for database compatibility."""
-        if not val or str(val).strip().lower() in ['nan', 'nat', 'none', 'null', '', '-']:
+    def parse_safe_date(val) -> Optional[date]:
+        """Strictly coerces incoming date values into a Python date object or None for SQL DATE compatibility."""
+        if val is None:
             return None
+        if isinstance(val, date) and not isinstance(val, datetime):
+            return val
+        if isinstance(val, datetime):
+            return val.date()
+        
+        val_str = str(val).strip()
+        if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-']:
+            return None
+            
         try:
-            # If pandas parsed it or it's a timestamp
-            if isinstance(val, (datetime, pd.Timestamp)):
-                return val.date()
-            # Try parsing common date string formats
-            parsed = pd.to_datetime(val, dayfirst=True, errors='coerce')
+            parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
             if pd.notna(parsed):
                 return parsed.date()
         except Exception:
@@ -245,7 +267,7 @@ async def bulk_upload_nominal_roll(
                 stn_val = str(row.get("station") or current_user.station or "HQ").strip().upper()
                 reg_val, dist_val = auto_infer_geography(stn_val, row.get("region"), row.get("district"))
 
-                # 🟢 Safely parse all date fields into true datetime.date objects
+                # Strict SQL DATE parsing
                 dob_val = parse_safe_date(row.get("dob") or row.get("date_of_birth"))
                 doe_val = parse_safe_date(row.get("doe") or row.get("date_of_enlistment"))
                 dopost_val = parse_safe_date(row.get("do_post") or row.get("dopost") or row.get("dop"))
@@ -261,7 +283,7 @@ async def bulk_upload_nominal_roll(
                     "do_post": dopost_val,
                     "do_pro": dopro_val,
                     "contact": str(row.get("contact") or row.get("phone") or "") or None,
-                    "educ_level": str(row.get("educ_level") or row.get("educlevel") or row.get("education") or "") or None,
+                    "educ_level": normalize_education_level(row.get("educ_level") or row.get("educlevel") or row.get("education")),
                     "ipps": str(row.get("ipps") or "") or None,
                     "tin": str(row.get("tin") or "") or None,
                     "nin": str(row.get("nin") or "") or None,
@@ -345,6 +367,9 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
 
         if 'sex' in clean_data:
             clean_data['sex'] = normalize_sex(clean_data['sex'])
+            
+        if 'educ_level' in clean_data:
+            clean_data['educ_level'] = normalize_education_level(clean_data['educ_level'])
 
         target_fnum = clean_data.get('f_num') or clean_data.get('fnum')
         if not target_fnum:
@@ -457,6 +482,9 @@ def update_Nominal_Roll(
     data.pop('id', None)
     data.pop('sn', None)
     
+    if 'educ_level' in data:
+        data['educ_level'] = normalize_education_level(data['educ_level'])
+    
     perms = current_user.permissions or {}
     if current_user.role not in ["SUPER_ADMIN", "RPC", "ADMIN"] and not perms.get("global_observer"):
         data.pop('region', None)
@@ -552,6 +580,7 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
         for a in archives:
             d = a.__dict__.copy()
             d.pop("_sa_instance_state", None)
+            d['educ_level'] = normalize_education_level(d.get('educlevel') or d.get('educ_level'))
             for k, v in d.items():
                 if hasattr(v, 'isoformat'):
                     d[k] = str(v)
