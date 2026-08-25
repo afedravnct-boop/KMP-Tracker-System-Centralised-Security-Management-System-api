@@ -1343,8 +1343,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   );
 };
 
-export default LoginScreen;
-
 const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals }) => {
   if (!isOpen) return null;
 
