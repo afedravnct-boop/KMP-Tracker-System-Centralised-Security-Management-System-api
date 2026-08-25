@@ -966,7 +966,7 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   );
 };
 
-// ====================================================================
+// // ====================================================================
 // --- SECURE IN-MEMORY LOGIN SCREEN ---
 // ====================================================================
 const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUsers = [] }) => {
@@ -1131,6 +1131,8 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative overflow-hidden">
+      
+      {/* 🟢 IDLE CURTAIN OVERLAY */}
       <div 
         className={`security-curtain-overlay fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center transition-opacity duration-700 ease-in-out ${
           isLoginIdle ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -1140,12 +1142,15 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         <div className="absolute top-2 w-full h-2 bg-[#facc15]"></div>
         <div className="absolute top-4 w-full h-2 bg-[#dc2626]"></div>
 
+        {/* Faint Background Flag */}
         <div 
           className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-cover pointer-events-none" 
           style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}
         ></div>
 
         <div className="relative z-10 flex flex-col items-center text-center p-6 max-w-3xl">
+          
+          {/* 🟢 Restored reliance on your index.css class */}
           <div className="upf-css-globe mb-6 border border-slate-600/50"></div>
           
           <div className="curtain-title-container">
@@ -1186,6 +1191,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         <div className="absolute bottom-0 w-full h-2 bg-[#000000]"></div> 
       </div>
 
+      {/* 🟢 STANDARD LOGIN FORM */}
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
         <div className="bg-slate-900 p-6 text-center relative">
           <img 
@@ -1336,6 +1342,8 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     </div>
   );
 };
+
+export default LoginScreen;
 
 const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals }) => {
   if (!isOpen) return null;
