@@ -246,24 +246,25 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         if (!textMatch) return false;
       }
       
-      if (dateFilter && dateFilter !== 'ALL TIME') {
-        if (dateFilter === 'TODAY') {
-          const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-          if (r.date !== todayStr) return false;
-        } else if (dateFilter === 'LAST 7 DAYS') {
-          if ((Date.now() - new Date(r.date)) / (1000 * 60 * 60 * 24) > 7) return false;
-        } else if (dateFilter === 'LAST 30 DAYS') {
-          if ((Date.now() - new Date(r.date)) / (1000 * 60 * 60 * 24) > 30) return false;
-        } else if (dateFilter === 'LAST 90 DAYS') {
-          if ((Date.now() - new Date(r.date)) / (1000 * 60 * 60 * 24) > 90) return false;
-        } else if (dateFilter === 'LAST 120 DAYS') {
-          if ((Date.now() - new Date(r.date)) / (1000 * 60 * 60 * 24) > 120) return false;
-        }
-      }
+// 1. Calculate the day difference ONCE to save memory
+      const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24));
+      
+      // 2. Apply the filters cleanly
+      if (dateFilter === 'TODAY') {
+        const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+        if (s.date !== todayStr) return false;
+      } 
+      else if (dateFilter === 'LAST 7 DAYS') { if (diffDays > 7) return false; } 
+      else if (dateFilter === 'LAST 14 DAYS') { if (diffDays > 14) return false; } 
+      else if (dateFilter === 'LAST 21 DAYS') { if (diffDays > 21) return false; } 
+      else if (dateFilter === 'LAST 30 DAYS') { if (diffDays > 30) return false; } 
+      else if (dateFilter === 'LAST 90 DAYS') { if (diffDays > 90) return false; } 
+      else if (dateFilter === 'LAST 120 DAYS') { if (diffDays > 120) return false; } 
+      else if (dateFilter === 'LAST 180 DAYS') { if (diffDays > 180) return false; }
+      
       return true;
     });
-    return results.sort((a, b) => (b.id || b.sn || 0) - (a.id || a.sn || 0));
-  }, [reports, filterRegion, filterStation, searchQuery, dateFilter, showAgriculturalOnly, canViewGlobalActive]);
+  }, [stories, filterRegion, filterStation, dateFilter, canViewGlobalActive]);
 
   const isStationSpecific = filterStation && filterStation !== 'ALL STATIONS';
 

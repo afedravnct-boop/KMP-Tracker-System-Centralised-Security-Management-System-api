@@ -17,17 +17,31 @@ const MetricCard = ({ title, value, colorClass }) => (
   </div>
 );
 
+// 🟢 FIX: Added logic to actually hide/show the children and default to expanded
 const ExpandableTableCard = ({ title, children, onToggle }) => {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true); // Default to true so data is visible
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
       <div className="bg-slate-900 px-4 py-3 flex justify-between items-center">
         <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{title}</h3>
-        <button onClick={() => { const nextState = !expanded; setExpanded(nextState); if (onToggle) onToggle(nextState); }} className="text-xs text-blue-400 hover:text-white font-bold cursor-pointer">
+        <button 
+          onClick={(e) => { 
+            e.stopPropagation();
+            const nextState = !expanded; 
+            setExpanded(nextState); 
+            if (onToggle) onToggle(nextState); 
+          }} 
+          className="text-xs text-blue-400 hover:text-white font-bold cursor-pointer transition-colors"
+        >
           {expanded ? 'Collapse ↙' : 'Expand ↗'}
         </button>
       </div>
-      <div className="w-full">{children}</div>
+      {/* Conditionally render children based on expanded state */}
+      {expanded && (
+        <div className="w-full animate-in fade-in slide-in-from-top-2 duration-300">
+          {children}
+        </div>
+      )}
     </div>
   );
 };
@@ -218,20 +232,25 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
         if (filterStation !== 'ALL STATIONS' && s.station !== filterStation) return false;
       }
 
+      // 1. Calculate the day difference ONCE to save memory
+      const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24));
+      
+      // 2. Apply the filters cleanly
       if (dateFilter === 'TODAY') {
         const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
         if (s.date !== todayStr) return false;
-      } else if (dateFilter === 'LAST 7 DAYS') {
-        const repDate = new Date(s.date); const diffDays = Math.ceil(Math.abs(new Date() - repDate) / (1000 * 60 * 60 * 24)); if (diffDays > 7) return false;
-      } else if (dateFilter === 'LAST 30 DAYS') {
-        const repDate = new Date(s.date); const diffDays = Math.ceil(Math.abs(new Date() - repDate) / (1000 * 60 * 60 * 24)); if (diffDays > 30) return false;
-      } else if (dateFilter === 'LAST 90 DAYS') {
-        const repDate = new Date(s.date); const diffDays = Math.ceil(Math.abs(new Date() - repDate) / (1000 * 60 * 60 * 24)); if (diffDays > 90) return false;
-      } else if (dateFilter === 'LAST 120 DAYS') {
-        const repDate = new Date(s.date); const diffDays = Math.ceil(Math.abs(new Date() - repDate) / (1000 * 60 * 60 * 24)); if (diffDays > 120) return false;
-      }
+      } 
+      else if (dateFilter === 'LAST 7 DAYS') { if (diffDays > 7) return false; } 
+      else if (dateFilter === 'LAST 14 DAYS') { if (diffDays > 14) return false; } 
+      else if (dateFilter === 'LAST 21 DAYS') { if (diffDays > 21) return false; } 
+      else if (dateFilter === 'LAST 30 DAYS') { if (diffDays > 30) return false; } 
+      else if (dateFilter === 'LAST 90 DAYS') { if (diffDays > 90) return false; } 
+      else if (dateFilter === 'LAST 120 DAYS') { if (diffDays > 120) return false; } 
+      else if (dateFilter === 'LAST 180 DAYS') { if (diffDays > 180) return false; }
+      
       return true;
     });
+  // 🟢 FIX: Changed `stories` to `currentDomainStats` below to stop the reference crash
   }, [currentDomainStats, filterRegion, filterStation, dateFilter, canViewGlobalActive]);
 
   const availableUpdateStats = useMemo(() => {

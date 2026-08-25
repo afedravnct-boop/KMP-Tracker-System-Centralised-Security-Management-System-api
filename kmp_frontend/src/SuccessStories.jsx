@@ -58,8 +58,8 @@ const autoCapitalize = (text) => {
 
 const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStories, setSidebarOpen, reports, setSelectedCase }) => {
   const [operation, setOperation] = useState('new');
-  const [selectedDossier, setSelectedDossier] = useState(null); // 🟢 Dossier Modal State
-  const [expandedRows, setExpandedRows] = useState({}); // 🟢 Row Expansion State
+  const [selectedDossier, setSelectedDossier] = useState(null);
+  const [expandedRows, setExpandedRows] = useState({});
 
   const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
 
@@ -113,24 +113,20 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return false;
       }
 
+      const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24));
+      
       if (dateFilter === 'TODAY') {
         const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
         if (s.date !== todayStr) return false;
-      } else if (dateFilter === 'LAST 7 DAYS') {
-        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 7) return false;
-      } else if (dateFilter === 'LAST 14 DAYS') {
-        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 14) return false;
-      } else if (dateFilter === 'LAST 21 DAYS') {
-        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 21) return false;
-      } else if (dateFilter === 'LAST 30 DAYS') {
-        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 30) return false;
-      } else if (dateFilter === 'LAST 90 DAYS') {
-        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 90) return false;
-      } else if (dateFilter === 'LAST 120 DAYS') {
-        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 120) return false;
-      } else if (dateFilter === 'LAST 180 DAYS') {
-        const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24)); if (diffDays > 180) return false;
-      }
+      } 
+      else if (dateFilter === 'LAST 7 DAYS') { if (diffDays > 7) return false; } 
+      else if (dateFilter === 'LAST 14 DAYS') { if (diffDays > 14) return false; } 
+      else if (dateFilter === 'LAST 21 DAYS') { if (diffDays > 21) return false; } 
+      else if (dateFilter === 'LAST 30 DAYS') { if (diffDays > 30) return false; } 
+      else if (dateFilter === 'LAST 90 DAYS') { if (diffDays > 90) return false; } 
+      else if (dateFilter === 'LAST 120 DAYS') { if (diffDays > 120) return false; } 
+      else if (dateFilter === 'LAST 180 DAYS') { if (diffDays > 180) return false; }
+      
       return true;
     });
   }, [stories, filterRegion, filterStation, dateFilter, canViewGlobalActive]);
@@ -394,7 +390,11 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                     const linkedCase = findLinkedCrimeCase(story.narrative, reports);
 
                     return (
-                      <tr key={rowId} className="hover:bg-yellow-50 transition-colors">
+                      <tr 
+                        key={rowId} 
+                        className="hover:bg-yellow-50 transition-colors cursor-pointer" 
+                        onClick={() => setSelectedDossier(story)}
+                      >
                         <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 align-top">{rowId}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 align-top">{story.date}<br/><span className="text-xs text-gray-400">{story.time}</span></td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-blue-700 align-top">{story.station}<br/><span className="text-xs text-gray-400">{story.region}</span></td>
@@ -411,18 +411,10 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                           <div className="flex items-center space-x-4 mt-2">
                             <button
                               type="button"
-                              onClick={() => toggleRowExpand(rowId)}
+                              onClick={(e) => { e.stopPropagation(); toggleRowExpand(rowId); }}
                               className="text-xs font-extrabold text-blue-600 hover:text-blue-800 flex items-center cursor-pointer"
                             >
                               {isRowExpanded ? <><ChevronUp size={14} className="mr-1" /> Collapse View</> : <><ChevronDown size={14} className="mr-1" /> Expand View</>}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setSelectedDossier(story)}
-                              className="text-xs font-extrabold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded shadow-2xs flex items-center cursor-pointer transition"
-                            >
-                              <FileText size={13} className="mr-1 text-blue-600" /> View Dossier
                             </button>
                           </div>
                           
@@ -433,7 +425,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                                 <span className="text-xs font-black text-blue-900">{linkedCase.sdRef || linkedCase.sd_ref} — {linkedCase.offence}</span>
                               </div>
                               <button 
-                                onClick={() => setSelectedCase(linkedCase)}
+                                onClick={(e) => { e.stopPropagation(); setSelectedCase(linkedCase); }}
                                 className="px-3 py-1 bg-blue-700 hover:bg-blue-800 text-white rounded font-bold text-xs shadow-xs transition cursor-pointer"
                               >
                                 View Case Dossier

@@ -120,7 +120,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
         total: personnelList.length,
         sex: { M: 0, F: 0 },
         age: { twenties: 0, thirties: 0, forties: 0, fifties: 0, unknown: 0 },
-        edu: { degree: 0, diploma: 0, cert: 0, highschool: 0, others: 0 }
+        edu: { degree: 0, diploma: 0, cert: 0, uace: 0, uce: 0, s2_s3: 0, others: 0 }
       };
 
       personnelList.forEach(p => {
@@ -173,8 +173,12 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
           stats.edu.diploma++;
         } else if (eduStr.includes('CERT')) {
           stats.edu.cert++;
-        } else if (eduStr.includes('UACE') || eduStr.includes('UCE') || eduStr.includes('LEVEL') || eduStr.includes('S.4') || eduStr.includes('S.6') || eduStr.match(/\bS4\b/) || eduStr.match(/\bS6\b/)) {
-          stats.edu.highschool++;
+        } else if (eduStr.includes('UACE') || eduStr.includes('A LEVEL') || eduStr.includes('A-LEVEL') || eduStr.includes('S.6') || eduStr.match(/\bS6\b/) || eduStr.includes('FORM 6')) {
+          stats.edu.uace++;
+        } else if (eduStr.includes('UCE') || eduStr.includes('O LEVEL') || eduStr.includes('O-LEVEL') || eduStr.includes('S.4') || eduStr.match(/\bS4\b/) || eduStr.includes('FORM 4')) {
+          stats.edu.uce++;
+        } else if (eduStr.includes('S.2') || eduStr.match(/\bS2\b/) || eduStr.includes('S.3') || eduStr.match(/\bS3\b/) || eduStr.includes('S.1') || eduStr.match(/\bS1\b/)) {
+          stats.edu.s2_s3++;
         } else {
           stats.edu.others++;
         }
@@ -264,13 +268,17 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       acc.offEdu.degree += curr.officers.edu.degree;
       acc.offEdu.diploma += curr.officers.edu.diploma;
       acc.offEdu.cert += curr.officers.edu.cert;
-      acc.offEdu.highschool += curr.officers.edu.highschool;
+      acc.offEdu.uace += curr.officers.edu.uace;
+      acc.offEdu.uce += curr.officers.edu.uce;
+      acc.offEdu.s2_s3 += curr.officers.edu.s2_s3;
       acc.offEdu.others += curr.officers.edu.others;
 
       acc.ncoEdu.degree += curr.ncos.edu.degree;
       acc.ncoEdu.diploma += curr.ncos.edu.diploma;
       acc.ncoEdu.cert += curr.ncos.edu.cert;
-      acc.ncoEdu.highschool += curr.ncos.edu.highschool;
+      acc.ncoEdu.uace += curr.ncos.edu.uace;
+      acc.ncoEdu.uce += curr.ncos.edu.uce;
+      acc.ncoEdu.s2_s3 += curr.ncos.edu.s2_s3;
       acc.ncoEdu.others += curr.ncos.edu.others;
 
       return acc;
@@ -282,8 +290,8 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       ncoSex: { M: 0, F: 0 },
       offAge: { twenties: 0, thirties: 0, forties: 0, fifties: 0, unknown: 0 },
       ncoAge: { twenties: 0, thirties: 0, forties: 0, fifties: 0, unknown: 0 },
-      offEdu: { degree: 0, diploma: 0, cert: 0, highschool: 0, others: 0 },
-      ncoEdu: { degree: 0, diploma: 0, cert: 0, highschool: 0, others: 0 }
+      offEdu: { degree: 0, diploma: 0, cert: 0, uace: 0, uce: 0, s2_s3: 0, others: 0 },
+      ncoEdu: { degree: 0, diploma: 0, cert: 0, uace: 0, uce: 0, s2_s3: 0, others: 0 }
     });
   }, [nominalAggregates]);
 
@@ -310,8 +318,10 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     <div className={`text-[9px] font-medium space-y-0.5 w-full max-w-[90px] mx-auto ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
       <div className="flex justify-between"><span>Degree:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.degree}</strong></div>
       <div className="flex justify-between"><span>Diploma:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.diploma}</strong></div>
-      <div className="flex justify-between"><span>Certificate:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.cert}</strong></div>
-      <div className={`flex justify-between border-t pt-0.5 mt-0.5 ${isDark ? 'border-slate-600' : 'border-slate-200'}`}><span>High Sch:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.highschool}</strong></div>
+      <div className="flex justify-between"><span>Cert:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.cert}</strong></div>
+      <div className="flex justify-between text-blue-700 font-bold"><span>UACE (S6):</span> <strong className={isDark ? 'text-blue-300' : 'text-blue-900'}>{stats.uace}</strong></div>
+      <div className="flex justify-between text-emerald-700 font-bold"><span>UCE (S4):</span> <strong className={isDark ? 'text-emerald-300' : 'text-emerald-900'}>{stats.uce}</strong></div>
+      <div className={`flex justify-between border-t pt-0.5 mt-0.5 ${isDark ? 'border-slate-600' : 'border-slate-200'}`}><span>S2 / S3:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.s2_s3}</strong></div>
       <div className="flex justify-between"><span>Others:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.others}</strong></div>
     </div>
   );
