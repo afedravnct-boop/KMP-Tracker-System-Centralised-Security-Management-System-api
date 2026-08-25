@@ -71,7 +71,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
       <div className={expanded ? "fixed inset-4 sm:inset-10 z-[9999] bg-white rounded-xl shadow-2xl border border-slate-300 flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden" : "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col"}>
         <div className="bg-slate-900 px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200 flex justify-between items-center shrink-0">
           <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{stripHtmlTags(title)}</h3>
-          <button onClick={() => { const nextState = !expanded; setExpanded(nextState); if (onToggle) onToggle(nextState); }} className="text-xs text-blue-400 hover:text-white font-bold transition flex items-center bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 shadow-inner">
+          <button onClick={(e) => { e.stopPropagation(); const nextState = !expanded; setExpanded(nextState); if (onToggle) onToggle(nextState); }} className="text-xs text-blue-400 hover:text-white font-bold transition flex items-center bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 shadow-inner cursor-pointer">
             {expanded ? 'Collapse View ↙' : 'Expand View ↗'}
           </button>
         </div>
@@ -246,13 +246,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         if (!textMatch) return false;
       }
       
-// 1. Calculate the day difference ONCE to save memory
-      const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24));
+      // 🟢 FIX: Corrected variable to `r.date`
+      const diffDays = Math.ceil(Math.abs(new Date() - new Date(r.date)) / (1000 * 60 * 60 * 24));
       
-      // 2. Apply the filters cleanly
       if (dateFilter === 'TODAY') {
         const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-        if (s.date !== todayStr) return false;
+        if (r.date !== todayStr) return false;
       } 
       else if (dateFilter === 'LAST 7 DAYS') { if (diffDays > 7) return false; } 
       else if (dateFilter === 'LAST 14 DAYS') { if (diffDays > 14) return false; } 
@@ -264,7 +263,10 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       
       return true;
     });
-  }, [stories, filterRegion, filterStation, dateFilter, canViewGlobalActive]);
+
+    return results;
+  // 🟢 FIX: Ensure 'reports' is in the dependency array
+  }, [reports, filterRegion, filterStation, dateFilter, canViewGlobalActive, showAgriculturalOnly, searchQuery]);
 
   const isStationSpecific = filterStation && filterStation !== 'ALL STATIONS';
 
@@ -1142,7 +1144,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
 
         <button 
           onClick={() => setShowLockupMatrixModal(true)}
-          className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center border border-slate-700 group mb-6"
+          className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center border border-slate-700 group mb-6 cursor-pointer"
         >
           <Filter className="w-5 h-5 mr-3 text-amber-400 group-hover:scale-110 transition-transform" />
           VIEW INDEPENDENT DAILY SUSPECT LOCK-UP MATRIX
@@ -1153,7 +1155,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
             <h3 className="text-xs font-extrabold text-white tracking-wider uppercase">General Crime Summary (Excluding Lock-Ups)</h3>
             <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700 overflow-x-auto w-full sm:w-auto">
               {['TODAY', 'WEEK', 'MONTH', 'YEAR', 'ALL'].map(period => (
-                <button key={period} onClick={() => setSummaryTimeFilter(stripHtmlTags(period))} className={`flex-1 sm:flex-none px-3 py-1 text-[10px] font-bold rounded shadow-sm transition-colors ${summaryTimeFilter === period ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>
+                <button key={period} onClick={() => setSummaryTimeFilter(stripHtmlTags(period))} className={`flex-1 sm:flex-none px-3 py-1 text-[10px] font-bold rounded shadow-sm transition-colors cursor-pointer ${summaryTimeFilter === period ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}>
                   {period}
                 </button>
               ))}
@@ -1211,7 +1213,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
           <div className="bg-white shadow-2xl max-w-4xl w-full flex flex-col max-h-[95vh] rounded-xl overflow-hidden border border-slate-300">
             <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0 shadow-md z-10">
               <h3 className="font-bold flex items-center text-sm uppercase tracking-wider"><Shield className="text-blue-400 mr-2" size={18} /> OFFICIAL CRIME DOSSIER — REF: {stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref)}</h3>
-              <button onClick={() => setSelectedCase(null)} className="text-slate-400 hover:text-white hover:bg-slate-700 p-1.5 rounded transition-colors"><X size={20} /></button>
+              <button onClick={() => setSelectedCase(null)} className="text-slate-400 hover:text-white hover:bg-slate-700 p-1.5 rounded transition-colors cursor-pointer"><X size={20} /></button>
             </div>
             <div className="p-8 overflow-y-auto space-y-8 flex-1 custom-scrollbar bg-slate-50" style={{ backgroundImage: 'radial-gradient(#e5e7eb 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
               <div className="flex flex-col items-center justify-center text-center border-b-2 border-slate-800 pb-6">
@@ -1259,7 +1261,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
               <div className="text-center pt-6 opacity-40"><p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">End of Official Record Extract</p><p className="text-[9px] text-slate-400 mt-1">System Audit ID: {selectedCase.id || selectedCase.sn} • Printed: {new Date().toLocaleString()}</p></div>
             </div>
             <div className="bg-slate-100 p-4 border-t border-slate-300 flex justify-end shrink-0 shadow-inner z-10">
-              <button onClick={() => setSelectedCase(null)} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all shadow border border-slate-950 flex items-center"><X size={16} className="mr-2"/> Close Dossier</button>
+              <button onClick={() => setSelectedCase(null)} className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all shadow border border-slate-950 flex items-center cursor-pointer"><X size={16} className="mr-2"/> Close Dossier</button>
             </div>
           </div>
         </div>

@@ -567,7 +567,14 @@ def heartbeat(
         eat_tz = pytz.timezone('Africa/Nairobi')
         user.last_active_at = datetime.now(eat_tz).replace(tzinfo=None)
         db.commit()
-        return {"status": "alive", "user": user.fnum}
+
+        # 🟢 CRITICAL FIX: Generate a NEW token to keep the session alive!
+        access_token_expires = timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
+        new_token = security.create_access_token(
+            data={"sub": user.fnum}, expires_delta=access_token_expires
+        )
+
+        return {"status": "alive", "user": user.fnum, "new_token": new_token}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -731,40 +738,67 @@ def run_weekly_tactical_briefing_job():
             models.Users.email != ""
         ).all()
         
-        for user in active_users:
-            station = user.station
-            region = user.region
-            is_global = user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
-            
-            crime_filter = "" if is_global else f" AND station = '{station}'"
-            stats_filter = "" if is_global else f" AND station = '{station}'"
-            comms_filter = f" WHERE (target_station = '{station}' OR target_region = '{region}' OR target_audience = 'ALL_USERS')"
-            
-            crimes = db.execute(text(f"SELECT offence, narrative, status FROM reports WHERE created_at >= :start {crime_filter}"), {"start": one_week_ago}).fetchall()
-            ops_stats = db.execute(text(f"SELECT arrests, given_bond, cautioned, remanded, convicted FROM stats WHERE date >= :start {stats_filter}"), {"start": one_week_ago.date()}).fetchall()
-            unread_comms = db.execute(text(f"SELECT title, sender_fnum FROM command_communications {comms_filter} ORDER BY id DESC LIMIT 5")).fetchall()
-            
-            total_crimes = len(crimes)
-            total_arrests = sum(row.arrests or 0 for row in ops_stats)
-            total_remanded = sum(row.remanded or 0 for row in ops_stats)
-            
-            all_text = " ".join([f"{r.offence} {r.narrative}" for r in crimes]).upper()
-            has_robbery = "ROBBERY" in all_text or "GUN" in all_text
-            has_fire = "FIRE" in all_text or "ARSON" in all_text
-            has_accident = "ACCIDENT" in all_text or "FATAL" in all_text
-            has_murder = "MURDER" in all_text or "HOMICIDE" in all_text
-            
-            custom_actions = []
-            if has_murder or has_robbery:
-                custom_actions.append("🔴 <b>High-Priority Security Spike:</b> Violent crime indicators (Robbery/Homicide) identified in weekly entries.")
-            if has_fire:
-                custom_actions.append("🔥 <b>Public Safety Alert:</b> Fire or arson events logged.")
-            if has_accident:
-                custom_actions.append("🚗 <b>Traffic Hazard Notice:</b> Traffic incidents/fatalities registered.")
-            if total_arrests > 0:
-                custom_actions.append(f"⚖️ <b>Case Management:</b> {total_arrests} total arrests logged this week.")
-            if not custom_actions:
-                custom_actions.append("✅ Operations stable for the period.")
+        fm = FastMail(conf)
+        
+        async def process_and_send_emails():
+            for user in active_users:
+                station = user.station
+                region = user.region
+                is_global = user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
+                
+                crime_filter = "" if is_global else f" AND station = '{station}'"
+                stats_filter = "" if is_global else f" AND station = '{station}'"
+                
+                crimes = db.execute(text(f"SELECT offence, narrative, status FROM reports WHERE created_at >= :start {crime_filter}"), {"start": one_week_ago}).fetchall()
+                ops_stats = db.execute(text(f"SELECT arrests, given_bond, cautioned, remanded, convicted FROM stats WHERE date >= :start {stats_filter}"), {"start": one_week_ago.date()}).fetchall()
+                
+                total_arrests = sum(row.arrests or 0 for row in ops_stats)
+                all_text = " ".join([f"{r.offence} {r.narrative}" for r in crimes]).upper()
+                
+                has_robbery = "ROBBERY" in all_text or "GUN" in all_text
+                has_fire = "FIRE" in all_text or "ARSON" in all_text
+                has_accident = "ACCIDENT" in all_text or "FATAL" in all_text
+                has_murder = "MURDER" in all_text or "HOMICIDE" in all_text
+                
+                custom_actions = []
+                if has_murder or has_robbery:
+                    custom_actions.append("🔴 <b>High-Priority Security Spike:</b> Violent crime indicators (Robbery/Homicide) identified in weekly entries.")
+                if has_fire:
+                    custom_actions.append("🔥 <b>Public Safety Alert:</b> Fire or arson events logged.")
+                if has_accident:
+                    custom_actions.append("🚗 <b>Traffic Hazard Notice:</b> Traffic incidents/fatalities registered.")
+                if total_arrests > 0:
+                    custom_actions.append(f"⚖️ <b>Case Management:</b> {total_arrests} total arrests logged this week.")
+                if not custom_actions:
+                    custom_actions.append("✅ Operations stable for the period.")
+
+                html_body = f"""
+                <div style='font-family: Arial, sans-serif; color: #1e293b; max-w-[600px];'>
+                    <h2 style='color: #0f172a; border-bottom: 2px solid #cbd5e1; padding-bottom: 10px;'>KMP Tactical Intelligence Briefing</h2>
+                    <p><strong>Jurisdiction:</strong> {station} ({region})</p>
+                    <p><strong>Officer:</strong> {user.rank} {user.name} ({user.fnum})</p>
+                    <p>Below is your automated situational report for the past 7 days:</p>
+                    <ul>
+                        {''.join([f"<li style='margin-bottom: 8px;'>{act}</li>" for act in custom_actions])}
+                    </ul>
+                    <p style='font-size: 11px; color: #64748b; margin-top: 20px;'>
+                        Auto-generated by KMP Centralised Security Data Management System.
+                    </p>
+                </div>
+                """
+                message = MessageSchema(
+                    subject=f"Weekly Tactical Briefing: {station}",
+                    recipients=[user.email],
+                    body=html_body,
+                    subtype="html"
+                )
+                
+                try:
+                    await fm.send_message(message)
+                except Exception as mail_err:
+                    print(f"Failed to dispatch to {user.email}: {mail_err}")
+
+        asyncio.run(process_and_send_emails())
 
     except Exception as e:
         print(f"Dynamic scheduler error: {e}")

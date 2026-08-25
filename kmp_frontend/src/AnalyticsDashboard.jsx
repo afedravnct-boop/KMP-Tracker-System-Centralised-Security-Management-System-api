@@ -492,17 +492,33 @@ const AnalyticsDashboard = ({
   }, [resolvedOperationalStats, selectedRegion, selectedStation]);
 
 // 🟢 ROUTED SECURE BACKEND EXPORT (Clean Analytics Relational Report)
-  const handleExportExcel = async () => {
+const handleExportExcel = async () => {
     try {
       // 🟢 FIX: Change from /api/v1/hr/export-ledger to /api/v1/analytics/export
       const response = await authFetch('/api/v1/analytics/export'); 
       if (!response.ok) throw new Error("Failed to securely generate the report.");
 
       const blob = await response.blob();
+      
+      // 🟢 THE FIX: Extract the EXACT filename from the backend headers
+      let finalFilename = 'SECURE_RELATIONAL_REPORT.zip'; // Fallback
+      const disposition = response.headers.get('content-disposition');
+      
+      if (disposition && disposition.indexOf('attachment') !== -1) {
+        const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+        const matches = filenameRegex.exec(disposition);
+        if (matches != null && matches[1]) {
+          finalFilename = matches[1].replace(/['"]/g, ''); // Removes any extra quotes
+        }
+      }
+
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', 'SECURE_RELATIONAL_REPORT.zip');
+      
+      // 🟢 Uses the exact backend name instead of hardcoding
+      link.setAttribute('download', finalFilename); 
+      
       document.body.appendChild(link);
       link.click();
       link.parentNode.removeChild(link);

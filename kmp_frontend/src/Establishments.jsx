@@ -12,6 +12,35 @@ const REGIONAL_HIERARCHY = {
 
 const autoCapitalize = (str) => str;
 
+// 🟢 PREMIUM EXPANDABLE CARD WITH FULL-SCREEN OVERLAY & STOP-PROPAGATION
+const ExpandableTableCard = ({ title, children, onToggle }) => {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <>
+      {expanded && <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9990] animate-in fade-in" />}
+      <div className={expanded ? "fixed inset-4 sm:inset-10 z-[9999] bg-white rounded-xl shadow-2xl border border-slate-300 flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden" : "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col"}>
+        <div className="bg-slate-900 px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200 flex justify-between items-center shrink-0">
+          <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{title}</h3>
+          <button 
+            onClick={(e) => { 
+              e.stopPropagation(); 
+              const nextState = !expanded; 
+              setExpanded(nextState); 
+              if (onToggle) onToggle(nextState); 
+            }} 
+            className="text-xs text-blue-400 hover:text-white font-bold transition flex items-center bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 shadow-inner cursor-pointer"
+          >
+            {expanded ? 'Collapse View ↙' : 'Expand View ↗'}
+          </button>
+        </div>
+        <div className={`w-full ${expanded ? 'flex-1 overflow-hidden [&>div]:max-h-full [&>div]:h-full' : ''}`}>
+          {children}
+        </div>
+      </div>
+    </>
+  );
+};
+
 const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false, establishments, setEstablishments, setSidebarOpen }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -366,21 +395,6 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
           </div>
         </>
       </div>
-    </div>
-  );
-};
-
-const ExpandableTableCard = ({ title, children, onToggle }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-  return (
-    <div className={isExpanded ? "fixed inset-4 z-[9999] bg-white rounded-xl shadow-2xl p-6 overflow-auto flex flex-col" : "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col"}>
-      <div className="bg-slate-50 px-4 py-3 border-b flex justify-between items-center">
-        <h3 className="text-gray-800 font-bold text-sm uppercase tracking-wider">{title}</h3>
-        <button onClick={() => { const next = !isExpanded; setIsExpanded(next); if (onToggle) onToggle(next); }} className="text-xs font-bold text-blue-600 hover:underline cursor-pointer">
-          {isExpanded ? 'Collapse ↙' : 'Expand ↗'}
-        </button>
-      </div>
-      <div className="p-0 overflow-auto flex-1">{children}</div>
     </div>
   );
 };

@@ -1,9 +1,10 @@
 import os
 import json
+import re
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import text, inspect, func
+from sqlalchemy import text, inspect, func, or_
 from google import genai
 from google.genai import types
 
@@ -23,7 +24,6 @@ class QueryPayload(BaseModel):
     target_region: str = "ALL REGIONS"
     target_station: str = "ALL STATIONS"
 
-# Helper to check if Super Admin disabled DB querying
 def is_db_query_globally_enabled(db: Session) -> bool:
     ConfigModel = getattr(models, 'SystemConfig', None)
     if not ConfigModel:
@@ -78,13 +78,11 @@ async def process_tactical_query(
 
     try:
         client = genai.Client(api_key=api_key)
-
         db_queries_allowed = is_db_query_globally_enabled(db)
 
         is_global_viewer = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or \
                            str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
 
-        # 🟢 Safely parse permissions dict
         user_perms = current_user.permissions or {}
         if isinstance(user_perms, str):
             try:
@@ -93,7 +91,6 @@ async def process_tactical_query(
                 user_perms = {}
                 
         has_ai_hr_access = current_user.role in ['SUPER_ADMIN', 'ADMIN'] or user_perms.get('ai_hr_access') == True
-
         user_tier_scope = f"Global Scope (All Regions/Stations)" if is_global_viewer else f"Restricted Tier Scope: Station {current_user.station}, Region {current_user.region}"
 
         live_data_context = ""
@@ -107,7 +104,6 @@ async def process_tactical_query(
                 AgricModel = getattr(models, 'Agricultural_Crime_Summary', None)
                 StatsModel = getattr(models, 'Operational_Statistics', None)
                 
-                # 🟢 Robustly resolve Nominal Roll model across conventions
                 HrModel = None
                 for m_name in ['Nominal_Roll', 'NominalRoll', 'nominal_roll', 'NominalRolls']:
                     if hasattr(models, m_name):
@@ -116,7 +112,6 @@ async def process_tactical_query(
                 if not HrModel:
                     HrModel = getattr(models, 'User', None)
                 
-                # 1. Crime & OPS Extracts
                 agric_query = db.query(AgricModel) if AgricModel else None
                 stats_query = db.query(StatsModel) if StatsModel else None
 
@@ -139,9 +134,7 @@ async def process_tactical_query(
                     for s in stats_records:
                         live_data_context += f"  * [{s.region} / {s.station}] Date: {s.date} | Arrested={s.arrested}, Remanded={s.remanded}, Convicted={s.convicted}\n"
                 
-                # 2. 🟢 COMPREHENSIVE NOMINAL ROLL EXTRACTION (All Columns Included)
                 if has_ai_hr_access and HrModel:
-                    # A. Quick Aggregation for Counting (Rank, Sex, Status)
                     agg_query = db.query(
                         getattr(HrModel, 'rank', 'rank'),
                         getattr(HrModel, 'sex', 'sex'),
@@ -162,36 +155,49 @@ async def process_tactical_query(
                         for r_rank, r_sex, r_status, r_count in hr_aggregates:
                             live_data_context += f"  * Rank: {r_rank} | Sex: {r_sex} | Status: {r_status} => Total: {r_count}\n"
                     
-                    # B. Detailed Personnel Directory with All Columns (NIN, TIN, Contact, Education, Bank, etc.)
+                    # B. Detailed Personnel Directory with Smart Extractor
                     hr_sample_query = db.query(HrModel)
                     if not is_global_viewer and hasattr(HrModel, 'station'):
                         hr_sample_query = hr_sample_query.filter(HrModel.station == current_user.station)
                     
-                    hr_sample = hr_sample_query.limit(100).all()
+                    stop_words = {"what", "is", "the", "for", "who", "where", "tell", "me", "about", "find", "search", "officer", "stationed", "details", "give", "show", "can", "you", "of", "in", "on", "at", "and", "a", "an", "how", "many", "does", "have", "age", "unit", "rank", "sex", "name"}
+                    
+                    raw_words = re.findall(r'\b\w+\b', payload.prompt.lower())
+                    search_terms = [w for w in raw_words if w not in stop_words and len(w) > 2]
+                    
+                    if search_terms:
+                        search_conditions = []
+                        for term in search_terms:
+                            term_cond = []
+                            # Search by safe operational identifiers
+                            if hasattr(HrModel, 'name'): term_cond.append(HrModel.name.ilike(f"%{term}%"))
+                            if hasattr(HrModel, 'f_num'): term_cond.append(HrModel.f_num.ilike(f"%{term}%"))
+                            elif hasattr(HrModel, 'fnum'): term_cond.append(HrModel.fnum.ilike(f"%{term}%"))
+                            if hasattr(HrModel, 'ipps'): term_cond.append(HrModel.ipps.ilike(f"%{term}%"))
+                            if hasattr(HrModel, 'station'): term_cond.append(HrModel.station.ilike(f"%{term}%"))
+                            
+                            search_conditions.append(or_(*term_cond))
+                        
+                        if search_conditions:
+                            hr_sample_query = hr_sample_query.filter(or_(*search_conditions))
+
+                    hr_sample = hr_sample_query.limit(50).all()
+
                     if hr_sample:
-                        live_data_context += "- Nominal Roll Personnel Directory (Detailed Records):\n"
+                        live_data_context += "- Nominal Roll Personnel Directory (SAFE OPSEC COLUMNS):\n"
                         for u in hr_sample:
+                            # 🟢 Stripped to EXACTLY the requested fields
                             u_fnum = getattr(u, 'f_num', getattr(u, 'fnum', 'N/A'))
                             u_rank = getattr(u, 'rank', 'N/A')
                             u_name = getattr(u, 'name', 'N/A')
+                            u_age = getattr(u, 'age', getattr(u, 'dob', getattr(u, 'date_of_birth', 'N/A')))
                             u_sex = getattr(u, 'sex', 'N/A')
                             u_ipps = getattr(u, 'ipps', 'N/A')
-                            u_nin = getattr(u, 'nin', 'N/A')
-                            u_tin = getattr(u, 'tin', 'N/A')
-                            u_station = getattr(u, 'station', 'N/A')
-                            u_region = getattr(u, 'region', 'N/A')
-                            u_position = getattr(u, 'position', 'N/A')
-                            u_contact = getattr(u, 'contact', 'N/A')
-                            u_educ = getattr(u, 'educ_level', getattr(u, 'educlevel', 'N/A'))
-                            u_bank = getattr(u, 'bank_branch', getattr(u, 'bankbranch', 'N/A'))
-                            u_dir = getattr(u, 'dir', 'N/A')
-                            u_status = getattr(u, 'status', 'N/A')
+                            u_unit = getattr(u, 'station', getattr(u, 'region', 'N/A'))
                             
                             live_data_context += (
-                                f"  * FNUM: {u_fnum} | IPPS: {u_ipps} | Rank: {u_rank} | Name: {u_name} | "
-                                f"Sex: {u_sex} | Position: {u_position} | Station: {u_station} ({u_region}) | "
-                                f"Contact: {u_contact} | NIN: {u_nin} | TIN: {u_tin} | Bank: {u_bank} | "
-                                f"Education: {u_educ} | Status: {u_status}\n"
+                                f"  * Force Number: {u_fnum} | Rank: {u_rank} | Name: {u_name} | "
+                                f"Age: {u_age} | Sex: {u_sex} | IPPS: {u_ipps} | Unit: {u_unit}\n"
                             )
 
             except Exception as db_fetch_err:
@@ -204,6 +210,9 @@ async def process_tactical_query(
             "You are the Kampala Metropolitan Police (KMP) Tactical AI Assistant. "
             f"CRITICAL PROTOCOL: Address the user using their full official credential: {current_user.fnum} {current_user.rank} {current_user.name}. "
             "Maintain a highly professional, concise, law-enforcement tone.\n\n"
+            "SECURITY PROTOCOL: You are strictly forbidden from processing or hallucinating sensitive PII. "
+            "You only have access to the OPSEC-cleared columns: Force Number, Rank, Name, Age, Sex, IPPS, and Unit. "
+            "If a user asks for other details (Bank, NIN, TIN, Phone), inform them to check the full encrypted Officer Dossier.\n\n"
             "CAPABILITIES: You can answer direct operational questions using the live database extracts provided below, guide users through system navigation, and search uploaded command files.\n"
             "SECURITY BOUNDARY: You must respect the user's tier scope. Do not reveal data outside their jurisdiction unless they have global clearance."
         )

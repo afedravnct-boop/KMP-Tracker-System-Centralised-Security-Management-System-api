@@ -124,7 +124,7 @@ export const formatEATDateTime = (dateStr) => {
   });
 };
 
-const downloadWithAuth = async (url, filename) => {
+const downloadWithAuth = async (url, fallbackFilename) => {
   try {
     const response = await authFetch(url);
     if (!response.ok) {
@@ -135,11 +135,22 @@ const downloadWithAuth = async (url, filename) => {
     const blob = await response.blob();
     if (blob.size === 0) throw new Error("Received empty file (0 bytes).");
 
+    // 🟢 THE FIX: Extract the EXACT filename from the backend headers if it exists
+    let finalFilename = fallbackFilename;
+    const disposition = response.headers.get('content-disposition');
+    if (disposition && disposition.indexOf('attachment') !== -1) {
+      const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+      const matches = filenameRegex.exec(disposition);
+      if (matches != null && matches[1]) {
+        finalFilename = matches[1].replace(/['"]/g, '');
+      }
+    }
+
     const downloadUrl = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.style.display = 'none';
     link.href = downloadUrl;
-    link.download = filename;
+    link.download = finalFilename; // Uses the exact backend name (e.g., SECURE_AUDIT_LOGS_20260825.zip)
     
     document.body.appendChild(link);
     link.click();
@@ -1240,6 +1251,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     <label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label>
                     <select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
                       <option value="">-- Select Official Title --</option>
+                      <option value="System Manager">System Manager</option>
                       {availablePositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
                     </select>
                   </div>
@@ -1421,6 +1433,7 @@ const WorkspaceSecurityCurtain = () => {
 
   const idleTimerRef = useRef(null);
   const sessionTimerRef = useRef(null);
+  const lastActionRef = useRef(Date.now()); // 🟢 NEW: Used to throttle mouse events
 
   // Function to completely reset session timers upon activity or continuation
   const resetSessionTimers = () => {
@@ -1461,13 +1474,12 @@ const WorkspaceSecurityCurtain = () => {
 
     resetSessionTimers();
 
-    // Listen to active user interaction (typing, clicking, scrolling) to automatically extend session
+    // 🟢 NEW FIX: Throttled event listener (max once per second) to stop UI lag
     const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'input', 'click'];
     const handleActivity = () => {
-      // If warning modal is showing, typing/clicking anywhere can also act as "Continue Session"
-      if (showIdleWarning) {
-        resetSessionTimers();
-      } else {
+      const now = Date.now();
+      if (now - lastActionRef.current > 1000) { 
+        lastActionRef.current = now;
         resetSessionTimers();
       }
     };
@@ -1501,11 +1513,8 @@ const WorkspaceSecurityCurtain = () => {
   }, [showIdleWarning, isTimedOut]);
 
   const handleForceLogout = () => {
-    localStorage.removeItem('kmp_authToken');
-    localStorage.removeItem('kmp_currentUser');
-    localStorage.removeItem('kmp_currentPage');
-    sessionStorage.clear();
-    window.location.replace('/');
+    clearAuthSession();
+    window.location.replace('/?session_expired=true');
   };
 
   if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
@@ -1717,7 +1726,8 @@ const DashboardLayout = ({
     };
 
     syncHeartbeat();
-    const heartbeatInterval = setInterval(syncHeartbeat, 15000);
+    // 🟢 NEW FIX: Reduced heartbeat frequency to 60 seconds to stop network spam
+    const heartbeatInterval = setInterval(syncHeartbeat, 60000); 
     return () => clearInterval(heartbeatInterval);
   }, [currentUser?.fnum]);
 
@@ -1785,7 +1795,6 @@ const DashboardLayout = ({
 
 const handleExportLogs = async () => {
     try {
-      // 1. Call the backend export endpoint directly
       const response = await authFetch('/api/v1/audit-logs/export', {
         method: 'GET'
       });
@@ -1795,14 +1804,12 @@ const handleExportLogs = async () => {
         throw new Error(errData.detail || "Security Clearance Denied or Export Failed");
       }
 
-      // 2. Force the browser to download the secure .zip blob
       const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.style.display = 'none';
       link.href = downloadUrl;
       
-      // 🟢 ENSURE IT SAVES AS A .ZIP FILE
       const today = new Date().toISOString().split('T')[0];
       link.download = `SECURE_AUDIT_LOGS_${today}.zip`; 
       
@@ -2177,6 +2184,23 @@ const App = () => {
     return calculateGrandTotals(reports, currentUser, filterRegion, filterStation);
   }, [reports, currentUser, filterRegion, filterStation]);
 
+  // 🟢 NEW FIX: Master event listener to catch Auth Expiration from anywhere
+  useEffect(() => {
+    const handleAuthExpiry = () => {
+      clearAuthSession();
+      setCurrentUser(null);
+      window.location.replace('/?session_expired=true');
+    };
+    
+    window.addEventListener('industrial-auth-expired', handleAuthExpiry);
+    window.addEventListener('auth-expired', handleAuthExpiry);
+    
+    return () => {
+      window.removeEventListener('industrial-auth-expired', handleAuthExpiry);
+      window.removeEventListener('auth-expired', handleAuthExpiry);
+    };
+  }, [setCurrentUser]);
+
   useEffect(() => {
     const handleOnlineStatus = async () => {
       if (navigator.onLine) {
@@ -2223,7 +2247,7 @@ const App = () => {
     };
 
     initApp();
-  }, [setCurrentUser]);
+  }, [setCurrentUser, currentUser]);
 
   useEffect(() => {
     const markActive = () => {
@@ -2238,7 +2262,7 @@ const App = () => {
     };
   }, []);
 
-// 🟢 REAL-TIME LISTENER & SYNC: Polls server every 5s ONLY when user is active
+// 🟢 REAL-TIME LISTENER & SYNC: Fixed Polling interval to 60 seconds (60000ms)
   useEffect(() => {
     if (!currentUser?.fnum || !hasValidSession()) return; 
     const controller = new AbortController();
@@ -2257,7 +2281,7 @@ const App = () => {
           authFetch('/api/v1/stories', { signal: controller.signal }),
           authFetch('/api/v1/establishments', { signal: controller.signal }),
           authFetch('/api/v1/nominal-roll', { signal: controller.signal }),
-          authFetch('/api/v1/nominal-roll-archive', { signal: controller.signal }), // <-- ADD THIS
+          authFetch('/api/v1/nominal-roll-archive', { signal: controller.signal }), 
           authFetch('/api/v1/communications', { signal: controller.signal }),
           authFetch('/api/v1/general-documents', { signal: controller.signal })
         ]);
@@ -2280,7 +2304,6 @@ const App = () => {
           const me = allUsers.find(u => u.fnum === myFnum);
 
           if (me) {
-            // 🟢 CRITICAL FIX: Safely parse permissions to prevent string-spread corruption
             let serverPerms = me.permissions;
             if (typeof serverPerms === 'string') {
               try { serverPerms = JSON.parse(serverPerms); } catch (e) { serverPerms = {}; }
@@ -2330,10 +2353,11 @@ const App = () => {
           console.error("Data Sync Error:", error);
         }
       } 
-    };    
+    };   
 
     fetchAllData();
-    const pollingInterval = setInterval(fetchAllData, 5000);
+    // 🟢 NEW FIX: Change API polling interval from 5 seconds to 60 seconds
+    const pollingInterval = setInterval(fetchAllData, 60000); 
 
     const handleVisibilityChange = () => {
       if (!document.hidden) {

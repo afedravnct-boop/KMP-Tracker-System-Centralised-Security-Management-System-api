@@ -31,20 +31,22 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
     setStatus('idle');
 
     const formData = new FormData();
+    
+    // 🟢 THE FIX: Always append using the key "file" which FastAPI natively expects. 
+    // If multiple=true is used, FastAPI will accept it as a List[UploadFile] under the "file" key.
     files.forEach((file) => {
-      formData.append("files", file);
+      formData.append("file", file);
     });
-    if (files.length === 1) {
-      formData.append("file", files[0]);
-    }
 
     try {
       const response = await authFetch('/api/v1/nominal-roll/bulk-upload', {
         method: 'POST',
+        // Note: Do NOT manually set the Content-Type header here. 
+        // Our api.js correctly allows the browser to set the 'multipart/form-data' boundary automatically.
         body: formData
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (response.ok) {
         setMessage(data.message || "Bulk upload completed successfully.");
@@ -54,7 +56,7 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
           onUploadSuccess();
         }
       } else {
-        setMessage(data.detail || data.message || "An error occurred during upload.");
+        setMessage(data.detail || data.message || "An error occurred during upload. Check your column headers.");
         setStatus('error');
       }
     } catch (error) {

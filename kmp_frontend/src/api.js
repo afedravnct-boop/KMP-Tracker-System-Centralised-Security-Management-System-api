@@ -93,6 +93,11 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
       credentials: 'include'
     });
   } catch (networkError) {
+    // 🟢 NEW FIX: Silently ignore React component unmount aborts
+    if (networkError.name === 'AbortError') {
+      return new Response(JSON.stringify({ detail: "Request aborted by user navigation" }), { status: 499 });
+    }
+
     console.warn("Network congestion or temporary blip intercepted. Holding execution:", networkError);
     if (retries > 0) {
       await new Promise(resolve => setTimeout(resolve, 1500));
