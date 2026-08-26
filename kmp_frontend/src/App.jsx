@@ -2185,6 +2185,23 @@ const App = () => {
       }
     };
 
+// 🟢 AUTOMATIC NIGHT SHIFT (DARK MODE) CONTROLLER
+  useEffect(() => {
+    const applyThemeBasedOnTime = () => {
+      const hour = new Date().getHours();
+      const isNightShift = hour >= 19 || hour < 7;
+      if (isNightShift) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    };
+    
+    applyThemeBasedOnTime();
+    const themeInterval = setInterval(applyThemeBasedOnTime, 60000);
+    return () => clearInterval(themeInterval);
+  }, []);
+
     window.addEventListener('online', handleOnlineStatus);
     
     const syncInterval = setInterval(() => {
