@@ -124,7 +124,7 @@ export const formatEATDateTime = (dateStr) => {
   });
 };
 
-const downloadWithAuth = async (url, fallbackFilename) => {
+const downloadWithAuth = async (url, filename) => {
   try {
     const response = await authFetch(url);
     if (!response.ok) {
@@ -135,22 +135,11 @@ const downloadWithAuth = async (url, fallbackFilename) => {
     const blob = await response.blob();
     if (blob.size === 0) throw new Error("Received empty file (0 bytes).");
 
-    // 🟢 THE FIX: Extract the EXACT filename from the backend headers if it exists
-    let finalFilename = fallbackFilename;
-    const disposition = response.headers.get('content-disposition');
-    if (disposition && disposition.indexOf('attachment') !== -1) {
-      const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
-      const matches = filenameRegex.exec(disposition);
-      if (matches != null && matches[1]) {
-        finalFilename = matches[1].replace(/['"]/g, '');
-      }
-    }
-
     const downloadUrl = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.style.display = 'none';
     link.href = downloadUrl;
-    link.download = finalFilename; // Uses the exact backend name (e.g., SECURE_AUDIT_LOGS_20260825.zip)
+    link.download = filename;
     
     document.body.appendChild(link);
     link.click();
@@ -966,7 +955,7 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   );
 };
 
-// // ====================================================================
+// ====================================================================
 // --- SECURE IN-MEMORY LOGIN SCREEN ---
 // ====================================================================
 const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUsers = [] }) => {
@@ -1131,8 +1120,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative overflow-hidden">
-      
-      {/* 🟢 IDLE CURTAIN OVERLAY */}
       <div 
         className={`security-curtain-overlay fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center transition-opacity duration-700 ease-in-out ${
           isLoginIdle ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -1142,15 +1129,12 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         <div className="absolute top-2 w-full h-2 bg-[#facc15]"></div>
         <div className="absolute top-4 w-full h-2 bg-[#dc2626]"></div>
 
-        {/* Faint Background Flag */}
         <div 
           className="absolute inset-0 opacity-10 bg-center bg-no-repeat bg-cover pointer-events-none" 
           style={{ backgroundImage: `url('/UPF Flag Emblem.png')` }}
         ></div>
 
         <div className="relative z-10 flex flex-col items-center text-center p-6 max-w-3xl">
-          
-          {/* 🟢 Restored reliance on your index.css class */}
           <div className="upf-css-globe mb-6 border border-slate-600/50"></div>
           
           <div className="curtain-title-container">
@@ -1191,7 +1175,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         <div className="absolute bottom-0 w-full h-2 bg-[#000000]"></div> 
       </div>
 
-      {/* 🟢 STANDARD LOGIN FORM */}
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
         <div className="bg-slate-900 p-6 text-center relative">
           <img 
@@ -1257,7 +1240,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     <label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label>
                     <select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
                       <option value="">-- Select Official Title --</option>
-                      <option value="System Manager">System Manager</option>
                       {availablePositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
                     </select>
                   </div>
@@ -1437,69 +1419,57 @@ const WorkspaceSecurityCurtain = () => {
   const [idleCountdown, setIdleCountdown] = useState(60);
   const [isTimedOut, setIsTimedOut] = useState(false);
 
-  const idleTimerRef = useRef(null);
-  const sessionTimerRef = useRef(null);
-  const lastActionRef = useRef(Date.now()); // 🟢 NEW: Used to throttle mouse events
+  // Background passive tracker (immune to memory leaks from rapid mouse movement)
+  const activityRef = useRef(Date.now());
 
-  // Function to completely reset session timers upon activity or continuation
-  const resetSessionTimers = () => {
-    if (isTimedOut) return; // Do not reset if already permanently timed out
-
-    setShowIdleWarning(false);
-    setIsWorkspaceIdle(false);
-    setIdleCountdown(60);
-
-    clearTimeout(idleTimerRef.current);
-    clearTimeout(sessionTimerRef.current);
-
-    const IDLE_TIMEOUT_MS = 60000;          // 1 minute for visual idle curtain
-    const SESSION_TIMEOUT_MS = 29 * 60 * 1000; // 29 minutes for session expiration warning
-
-    idleTimerRef.current = setTimeout(() => {
-      if (!isReadingMode && !showIdleWarning && !isTimedOut) {
-        setIsWorkspaceIdle(true);
+  // 1. Passively update the reference timestamp when user interacts
+  useEffect(() => {
+    const handleActivity = () => {
+      activityRef.current = Date.now();
+      
+      // If the warning modal is up, dismiss it instantly upon ANY user activity
+      if (showIdleWarning) {
+        setShowIdleWarning(false);
+        setIdleCountdown(60);
+        setIsWorkspaceIdle(false);
       }
-    }, IDLE_TIMEOUT_MS);
+    };
 
-    sessionTimerRef.current = setTimeout(() => {
-      if (!isReadingMode && !isTimedOut) {
+    // Use capture and passive phase to guarantee rapid background execution without locking the browser UI
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+    events.forEach(event => window.addEventListener(event, handleActivity, { capture: true, passive: true }));
+
+    return () => {
+      events.forEach(event => window.removeEventListener(event, handleActivity, { capture: true, passive: true }));
+    };
+  }, [showIdleWarning]); 
+
+  // 2. A single, decoupled timer that simply checks the gap between NOW and the last activity timestamp
+  useEffect(() => {
+    if (isReadingMode || isTimedOut) return;
+
+    const checkInterval = setInterval(() => {
+      const idleTimeMs = Date.now() - activityRef.current;
+
+      // Check for 29 Minutes Warning (29 * 60 * 1000 = 1740000 ms)
+      if (idleTimeMs >= 1740000 && !showIdleWarning) {
         setShowIdleWarning(true);
         setIsWorkspaceIdle(true);
       }
-    }, SESSION_TIMEOUT_MS);
-  };
-
-  useEffect(() => {
-    if (isReadingMode || isTimedOut) {
-      clearTimeout(idleTimerRef.current);
-      clearTimeout(sessionTimerRef.current);
-      setIsWorkspaceIdle(false);
-      setShowIdleWarning(false);
-      return;
-    }
-
-    resetSessionTimers();
-
-    // 🟢 NEW FIX: Throttled event listener (max once per second) to stop UI lag
-    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'input', 'click'];
-    const handleActivity = () => {
-      const now = Date.now();
-      if (now - lastActionRef.current > 1000) { 
-        lastActionRef.current = now;
-        resetSessionTimers();
+      // Check for 1 Minute Visual Idle Curtain (60000 ms)
+      else if (idleTimeMs >= 60000 && idleTimeMs < 1740000 && !showIdleWarning && !isWorkspaceIdle) {
+        setIsWorkspaceIdle(true);
       }
-    };
+      // If user became active, hide the idle curtain
+      else if (idleTimeMs < 60000 && isWorkspaceIdle && !showIdleWarning) {
+        setIsWorkspaceIdle(false);
+      }
+    }, 1000);
 
-    events.forEach(event => window.addEventListener(event, handleActivity, true));
+    return () => clearInterval(checkInterval);
+  }, [isReadingMode, isTimedOut, showIdleWarning, isWorkspaceIdle]);
 
-    return () => {
-      clearTimeout(idleTimerRef.current);
-      clearTimeout(sessionTimerRef.current);
-      events.forEach(event => window.removeEventListener(event, handleActivity, true));
-    };
-  }, [isReadingMode, isTimedOut, showIdleWarning]);
-
-  // Countdown timer effect when warning modal pops up
+  // 3. Independent countdown interval exclusively for the warning screen
   useEffect(() => {
     if (isTimedOut || !showIdleWarning) return;
 
@@ -1508,7 +1478,7 @@ const WorkspaceSecurityCurtain = () => {
         if (prev <= 1) {
           clearInterval(countdownInterval);
           setShowIdleWarning(false);
-          setIsTimedOut(true); // Triggers final lock screen
+          setIsTimedOut(true); // Triggers permanent lock screen
           return 0;
         }
         return prev - 1;
@@ -1519,8 +1489,11 @@ const WorkspaceSecurityCurtain = () => {
   }, [showIdleWarning, isTimedOut]);
 
   const handleForceLogout = () => {
-    clearAuthSession();
-    window.location.replace('/?session_expired=true');
+    localStorage.removeItem('kmp_authToken');
+    localStorage.removeItem('kmp_currentUser');
+    localStorage.removeItem('kmp_currentPage');
+    sessionStorage.clear();
+    window.location.replace('/');
   };
 
   if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
@@ -1659,7 +1632,12 @@ const WorkspaceSecurityCurtain = () => {
               </p>
               <button 
                 type="button"
-                onClick={resetSessionTimers}
+                onClick={() => {
+                  activityRef.current = Date.now();
+                  setShowIdleWarning(false);
+                  setIdleCountdown(60);
+                  setIsWorkspaceIdle(false);
+                }}
                 className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
               >
                 Continue Session
@@ -1732,8 +1710,7 @@ const DashboardLayout = ({
     };
 
     syncHeartbeat();
-    // 🟢 NEW FIX: Reduced heartbeat frequency to 60 seconds to stop network spam
-    const heartbeatInterval = setInterval(syncHeartbeat, 60000); 
+    const heartbeatInterval = setInterval(syncHeartbeat, 15000);
     return () => clearInterval(heartbeatInterval);
   }, [currentUser?.fnum]);
 
@@ -1801,6 +1778,7 @@ const DashboardLayout = ({
 
 const handleExportLogs = async () => {
     try {
+      // 1. Call the backend export endpoint directly
       const response = await authFetch('/api/v1/audit-logs/export', {
         method: 'GET'
       });
@@ -1810,12 +1788,14 @@ const handleExportLogs = async () => {
         throw new Error(errData.detail || "Security Clearance Denied or Export Failed");
       }
 
+      // 2. Force the browser to download the secure .zip blob
       const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.style.display = 'none';
       link.href = downloadUrl;
       
+      // 🟢 ENSURE IT SAVES AS A .ZIP FILE
       const today = new Date().toISOString().split('T')[0];
       link.download = `SECURE_AUDIT_LOGS_${today}.zip`; 
       
@@ -2190,23 +2170,6 @@ const App = () => {
     return calculateGrandTotals(reports, currentUser, filterRegion, filterStation);
   }, [reports, currentUser, filterRegion, filterStation]);
 
-  // 🟢 NEW FIX: Master event listener to catch Auth Expiration from anywhere
-  useEffect(() => {
-    const handleAuthExpiry = () => {
-      clearAuthSession();
-      setCurrentUser(null);
-      window.location.replace('/?session_expired=true');
-    };
-    
-    window.addEventListener('industrial-auth-expired', handleAuthExpiry);
-    window.addEventListener('auth-expired', handleAuthExpiry);
-    
-    return () => {
-      window.removeEventListener('industrial-auth-expired', handleAuthExpiry);
-      window.removeEventListener('auth-expired', handleAuthExpiry);
-    };
-  }, [setCurrentUser]);
-
   useEffect(() => {
     const handleOnlineStatus = async () => {
       if (navigator.onLine) {
@@ -2253,14 +2216,14 @@ const App = () => {
     };
 
     initApp();
-  }, [setCurrentUser, currentUser]);
+  }, [setCurrentUser]);
 
   useEffect(() => {
     const markActive = () => {
       lastActivityRef.current = Date.now();
     };
 
-    const events = ['mousedown', 'keydown', 'touchstart', 'scroll'];
+    const events = ['mousedown', 'keydown', 'touchstart', 'scroll', 'mousemove'];
     events.forEach(e => window.addEventListener(e, markActive, { passive: true }));
 
     return () => {
@@ -2268,7 +2231,7 @@ const App = () => {
     };
   }, []);
 
-// 🟢 REAL-TIME LISTENER & SYNC: Fixed Polling interval to 60 seconds (60000ms)
+// 🟢 REAL-TIME LISTENER & SYNC: Polls server every 5s ONLY when user is active
   useEffect(() => {
     if (!currentUser?.fnum || !hasValidSession()) return; 
     const controller = new AbortController();
@@ -2362,8 +2325,7 @@ const App = () => {
     };   
 
     fetchAllData();
-    // 🟢 NEW FIX: Change API polling interval from 5 seconds to 60 seconds
-    const pollingInterval = setInterval(fetchAllData, 60000); 
+    const pollingInterval = setInterval(fetchAllData, 5000);
 
     const handleVisibilityChange = () => {
       if (!document.hidden) {
