@@ -225,9 +225,9 @@ const NetworkStatusBadge = () => {
   );
 };
 
-const MetricCard = ({ title, value, colorClass = "text-slate-800" }) => (
-  <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-center items-center text-center transition-transform hover:scale-105">
-    <span className="text-xs text-gray-500 font-bold mb-1 uppercase tracking-wide">{title}</span>
+const MetricCard = ({ title, value, colorClass = "text-slate-800 dark:text-slate-100" }) => (
+  <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 flex flex-col justify-center items-center text-center transition-transform hover:scale-105">
+    <span className="text-xs text-gray-500 dark:text-slate-400 font-bold mb-1 uppercase tracking-wide">{title}</span>
     <span className={`text-3xl font-extrabold ${colorClass}`}>{value}</span>
   </div>
 );
@@ -248,7 +248,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   return (
     <>
       {isExpanded ? (
-        <div className="fixed inset-0 z-[100] bg-gray-100 flex flex-col p-4 sm:p-8 animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-[100] bg-gray-100 dark:bg-slate-950 flex flex-col p-4 sm:p-8 animate-in fade-in zoom-in duration-200">
           <div className="bg-slate-900 text-white p-4 rounded-t-xl flex justify-between items-center shadow-lg">
             <h3 className="font-bold text-lg flex items-center">
                <Maximize2 className="mr-2 w-5 h-5 text-blue-400"/> {title} (Full Screen Mode)
@@ -257,19 +257,19 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
               <Minimize2 size={18} className="mr-2"/> Close Expansion
             </button>
           </div>
-          <div className="bg-white flex-1 overflow-auto rounded-b-xl shadow-2xl p-4 border border-gray-300 custom-scrollbar">
+          <div className="bg-white dark:bg-slate-900 flex-1 overflow-auto rounded-b-xl shadow-2xl p-4 border border-gray-300 dark:border-slate-700 custom-scrollbar">
             {children}
           </div>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full relative z-10">
-          <div className="bg-slate-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-             <h3 className="text-gray-800 font-bold text-sm uppercase tracking-wider">{title}</h3>
-             <button onClick={openFullScreen} className="text-gray-500 hover:text-blue-700 hover:bg-blue-50 p-1.5 rounded transition-colors" title="Expand to Full Screen">
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col h-full relative z-10">
+          <div className="bg-slate-50 dark:bg-slate-800 px-4 py-3 border-b border-gray-200 dark:border-slate-700 flex justify-between items-center">
+             <h3 className="text-gray-800 dark:text-slate-200 font-bold text-sm uppercase tracking-wider">{title}</h3>
+             <button onClick={openFullScreen} className="text-gray-500 dark:text-slate-400 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-slate-700 p-1.5 rounded transition-colors" title="Expand to Full Screen">
                 <Maximize2 size={18}/>
              </button>
           </div>
-          <div className="p-0 overflow-auto max-h-[500px] custom-scrollbar w-full">
+          <div className="p-0 overflow-auto max-h-[500px] custom-scrollbar w-full text-slate-900 dark:text-slate-100">
              {children}
           </div>
         </div>
@@ -435,68 +435,114 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
         </div>
       </div>
 
-      {/* 🟢 OPTIMIZED MODULE GRID (Open by Default) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full">
+      {/* 🟢 OPTIMIZED MODULE GRID (Colorful Tactical Theme) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full">
+        
         {canViewCrime && (
-          <div onClick={() => setCurrentPage('reports')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 group">
-            <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mr-3 group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0"><LayoutDashboard size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Crime Registry</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Log and track daily incidents.</p></div>
+          <div onClick={() => setCurrentPage('reports')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-blue-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 dark:hover:border-blue-500 dark:hover:bg-slate-800 group">
+            <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center mr-3 group-hover:bg-blue-600 group-hover:text-white dark:group-hover:bg-blue-500 dark:group-hover:shadow-[0_0_15px_rgba(59,130,246,0.5)] transition-all shrink-0">
+              <LayoutDashboard size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Crime Registry</h3>
+              <p className="text-[11px] text-slate-500 dark:text-blue-200/70 font-medium mt-0.5 leading-snug">Log and track daily incidents.</p>
+            </div>
           </div>
         )}
         
         {canViewOps && (
-          <div onClick={() => setCurrentPage('statistics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 group">
-            <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mr-3 group-hover:bg-indigo-600 group-hover:text-white transition-colors shrink-0"><BarChart3 size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">OPS Statistics</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Weekly numerical aggregates.</p></div>
+          <div onClick={() => setCurrentPage('statistics')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-indigo-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-indigo-300 dark:hover:border-indigo-500 dark:hover:bg-slate-800 group">
+            <div className="w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mr-3 group-hover:bg-indigo-600 group-hover:text-white dark:group-hover:bg-indigo-500 dark:group-hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] transition-all shrink-0">
+              <BarChart3 size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">OPS Statistics</h3>
+              <p className="text-[11px] text-slate-500 dark:text-indigo-200/70 font-medium mt-0.5 leading-snug">Weekly numerical aggregates.</p>
+            </div>
           </div>
         )}
 
         {canViewStories && (
-          <div onClick={() => setCurrentPage('success')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-yellow-400 group">
-            <div className="w-10 h-10 rounded-full bg-yellow-50 text-yellow-600 flex items-center justify-center mr-3 group-hover:bg-yellow-500 group-hover:text-white transition-colors shrink-0"><Trophy size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Success Stories</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Document tactical milestones.</p></div>
+          <div onClick={() => setCurrentPage('success')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-amber-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-amber-400 dark:hover:border-amber-500 dark:hover:bg-slate-800 group">
+            <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center mr-3 group-hover:bg-amber-500 group-hover:text-white dark:group-hover:bg-amber-500 dark:group-hover:shadow-[0_0_15px_rgba(245,158,11,0.5)] transition-all shrink-0">
+              <Trophy size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Success Stories</h3>
+              <p className="text-[11px] text-slate-500 dark:text-amber-200/70 font-medium mt-0.5 leading-snug">Document tactical milestones.</p>
+            </div>
           </div>
         )}
 
         {canViewEst && (
-          <div onClick={() => setCurrentPage('establishments')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-emerald-300 group">
-            <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mr-3 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0"><Building size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Establishments</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Map divisions, stations, posts.</p></div>
+          <div onClick={() => setCurrentPage('establishments')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-emerald-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-emerald-300 dark:hover:border-emerald-500 dark:hover:bg-slate-800 group">
+            <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mr-3 group-hover:bg-emerald-600 group-hover:text-white dark:group-hover:bg-emerald-500 dark:group-hover:shadow-[0_0_15px_rgba(16,185,129,0.5)] transition-all shrink-0">
+              <Building size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Establishments</h3>
+              <p className="text-[11px] text-slate-500 dark:text-emerald-200/70 font-medium mt-0.5 leading-snug">Map divisions, stations, posts.</p>
+            </div>
           </div>
         )}
 
         {canViewAnalytics && (
-          <div onClick={() => setCurrentPage('analytics')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-cyan-400 group">
-            <div className="w-10 h-10 rounded-full bg-cyan-50 text-cyan-600 flex items-center justify-center mr-3 group-hover:bg-cyan-600 group-hover:text-white transition-colors shrink-0"><PieChart size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Analytics Dashboard</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Graphs, cross-tabs & reports.</p></div>
+          <div onClick={() => setCurrentPage('analytics')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-cyan-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-cyan-400 dark:hover:border-cyan-500 dark:hover:bg-slate-800 group">
+            <div className="w-10 h-10 rounded-full bg-cyan-50 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 flex items-center justify-center mr-3 group-hover:bg-cyan-600 group-hover:text-white dark:group-hover:bg-cyan-500 dark:group-hover:shadow-[0_0_15px_rgba(6,182,212,0.5)] transition-all shrink-0">
+              <PieChart size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Analytics Dashboard</h3>
+              <p className="text-[11px] text-slate-500 dark:text-cyan-200/70 font-medium mt-0.5 leading-snug">Graphs, cross-tabs & reports.</p>
+            </div>
           </div>
         )}
 
         {canViewHR && (
-          <div onClick={() => setCurrentPage('nominal-roll')} className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-purple-300 group">
-            <div className="w-10 h-10 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mr-3 group-hover:bg-purple-600 group-hover:text-white transition-colors shrink-0"><Users size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-slate-900 leading-tight">Nominal Roll</h3><p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">Personnel deployment registry.</p></div>
+          <div onClick={() => setCurrentPage('nominal-roll')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-purple-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-purple-300 dark:hover:border-purple-500 dark:hover:bg-slate-800 group">
+            <div className="w-10 h-10 rounded-full bg-purple-50 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center mr-3 group-hover:bg-purple-600 group-hover:text-white dark:group-hover:bg-purple-500 dark:group-hover:shadow-[0_0_15px_rgba(168,85,247,0.5)] transition-all shrink-0">
+              <Users size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Nominal Roll</h3>
+              <p className="text-[11px] text-slate-500 dark:text-purple-200/70 font-medium mt-0.5 leading-snug">Personnel deployment registry.</p>
+            </div>
           </div>
         )}
 
         {canViewApprovals && (
-          <div onClick={() => setCurrentPage('approvals')} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-slate-500 group lg:col-span-2">
-            <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-3 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0"><UserPlus size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-white leading-tight">Access Approvals</h3><p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-snug">Review system logs and pending signups.</p></div>
+          <div onClick={() => setCurrentPage('approvals')} className="bg-slate-900 dark:bg-slate-950 rounded-xl shadow-sm border border-slate-700 dark:border-slate-800 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-slate-500 dark:hover:border-slate-600 group lg:col-span-2">
+            <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-3 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0">
+              <UserPlus size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-white leading-tight">Access Approvals</h3>
+              <p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-snug">Review system logs and pending signups.</p>
+            </div>
           </div>
         )}
         
         {canViewConsolidated && (
-          <div onClick={onViewConsolidated} className="bg-slate-900 rounded-xl shadow-sm border border-slate-700 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-slate-500 group lg:col-span-2">
-            <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-3 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0"><Eye size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-white leading-tight">Consolidated Entries</h3><p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-snug">Cross-domain master visualization.</p></div>
+          <div onClick={onViewConsolidated} className="bg-slate-900 dark:bg-slate-950 rounded-xl shadow-sm border border-slate-700 dark:border-slate-800 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-slate-500 dark:hover:border-slate-600 group lg:col-span-2">
+            <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-3 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0">
+              <Eye size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-white leading-tight">Consolidated Entries</h3>
+              <p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-snug">Cross-domain master visualization.</p>
+            </div>
           </div>
         )}
 
         {canExportData && (
-          <div onClick={() => onMasterExport('all', 'all')} className="bg-blue-900 rounded-xl shadow-sm border border-blue-800 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-400 group lg:col-span-2">
-            <div className="w-10 h-10 rounded-full bg-blue-800 text-blue-200 flex items-center justify-center mr-3 group-hover:bg-blue-700 group-hover:text-white transition-colors shrink-0"><Download size={18} /></div>
-            <div><h3 className="text-sm font-extrabold text-white leading-tight">Download Master Database</h3><p className="text-[11px] text-blue-200 font-medium mt-0.5 leading-snug">Export full encrypted .xlsx ledger.</p></div>
+          <div onClick={() => onMasterExport('all', 'all')} className="bg-blue-900 dark:bg-blue-950 rounded-xl shadow-sm border border-blue-800 dark:border-blue-900 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-400 dark:hover:border-blue-700 group lg:col-span-2">
+            <div className="w-10 h-10 rounded-full bg-blue-800 dark:bg-blue-900 text-blue-200 flex items-center justify-center mr-3 group-hover:bg-blue-700 group-hover:text-white transition-colors shrink-0">
+              <Download size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-white leading-tight">Download Master Database</h3>
+              <p className="text-[11px] text-blue-200 dark:text-blue-300/70 font-medium mt-0.5 leading-snug">Export full encrypted .xlsx ledger.</p>
+            </div>
           </div>
         )}
       </div>
@@ -1987,7 +2033,7 @@ const handleExportLogs = async () => {
           </div>
         </div>
 
-        <main className="flex-1 overflow-y-auto bg-gray-50 w-full relative flex flex-col">
+        <main className="flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 w-full relative flex flex-col transition-colors duration-500">
           
           <div className="absolute top-4 right-6 z-50 flex items-center space-x-2">
             <button 
@@ -2172,19 +2218,6 @@ const App = () => {
     return calculateGrandTotals(reports, currentUser, filterRegion, filterStation);
   }, [reports, currentUser, filterRegion, filterStation]);
 
-  useEffect(() => {
-    const handleOnlineStatus = async () => {
-      if (navigator.onLine) {
-        const token = getAuthToken();
-        if (token) {
-          const remaining = await syncOfflineQueue(token);
-          if (remaining === 0 && getOfflineQueueCount() === 0) {
-            console.log('All offline queue records successfully synced with central database.');
-          }
-        }
-      }
-    };
-
 // 🟢 AUTOMATIC NIGHT SHIFT (DARK MODE) CONTROLLER
   useEffect(() => {
     const applyThemeBasedOnTime = () => {
@@ -2201,6 +2234,20 @@ const App = () => {
     const themeInterval = setInterval(applyThemeBasedOnTime, 60000);
     return () => clearInterval(themeInterval);
   }, []);
+
+  useEffect(() => {
+    const handleOnlineStatus = async () => {
+      if (navigator.onLine) {
+        const token = getAuthToken();
+        if (token) {
+          const remaining = await syncOfflineQueue(token);
+          if (remaining === 0 && getOfflineQueueCount() === 0) {
+            console.log('All offline queue records successfully synced with central database.');
+          }
+        }
+      }
+    };
+
 
     window.addEventListener('online', handleOnlineStatus);
     
