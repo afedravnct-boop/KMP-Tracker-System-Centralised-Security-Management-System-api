@@ -567,13 +567,15 @@ def heartbeat(
         eat_tz = pytz.timezone('Africa/Nairobi')
         user.last_active_at = datetime.now(eat_tz).replace(tzinfo=None)
         db.commit()
-
-        # 🟢 CRITICAL FIX: Generate a NEW token to keep the session alive!
-        access_token_expires = timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
-        new_token = security.create_access_token(
-            data={"sub": user.fnum}, expires_delta=access_token_expires
+        
+        # 🟢 THE FIX: Generate and return a new token to keep the React frontend alive automatically
+        expire = datetime.utcnow() + timedelta(minutes=60) # Extends session lock by an hour per heartbeat
+        new_token = jwt.encode(
+            {"sub": str(user.fnum).strip().upper(), "exp": expire},
+            security.SECRET_KEY,
+            algorithm=security.ALGORITHM
         )
-
+        
         return {"status": "alive", "user": user.fnum, "new_token": new_token}
     except Exception as e:
         db.rollback()
