@@ -17,32 +17,57 @@ const MetricCard = ({ title, value, colorClass }) => (
   </div>
 );
 
-// 🟢 FIX: Added logic to actually hide/show the children and default to expanded
 const ExpandableTableCard = ({ title, children, onToggle }) => {
-  const [expanded, setExpanded] = useState(true); // Default to true so data is visible
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const openFullScreen = () => {
+    setIsExpanded(true);
+    if (typeof onToggle === 'function') onToggle(true);
+  };
+
+  const closeFullScreen = () => {
+    setIsExpanded(false);
+    if (typeof onToggle === 'function') onToggle(false);
+  };
+
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-      <div className="bg-slate-900 px-4 py-3 flex justify-between items-center">
-        <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{title}</h3>
-        <button 
-          onClick={(e) => { 
-            e.stopPropagation();
-            const nextState = !expanded; 
-            setExpanded(nextState); 
-            if (onToggle) onToggle(nextState); 
-          }} 
-          className="text-xs text-blue-400 hover:text-white font-bold cursor-pointer transition-colors"
-        >
-          {expanded ? 'Collapse ↙' : 'Expand ↗'}
-        </button>
-      </div>
-      {/* Conditionally render children based on expanded state */}
-      {expanded && (
-        <div className="w-full animate-in fade-in slide-in-from-top-2 duration-300">
-          {children}
+    <>
+      {isExpanded ? (
+        // 🟢 FULL SCREEN OVERLAY MODE
+        <div className="fixed inset-0 z-[250] bg-slate-100/95 backdrop-blur-sm flex flex-col p-4 sm:p-8 animate-in fade-in zoom-in duration-200">
+          <div className="bg-slate-900 px-6 py-4 flex justify-between items-center rounded-t-xl shadow-2xl shrink-0">
+            <h3 className="font-extrabold text-white text-lg uppercase tracking-wider">
+              {title} (FULL SCREEN)
+            </h3>
+            <button 
+              onClick={closeFullScreen} 
+              className="text-sm text-blue-400 hover:text-white font-bold cursor-pointer transition-colors bg-slate-800 px-4 py-2 rounded-lg border border-slate-700"
+            >
+              Collapse ↙
+            </button>
+          </div>
+          <div className="bg-white flex-1 overflow-auto rounded-b-xl shadow-2xl p-4 border border-slate-300 custom-scrollbar">
+            {children}
+          </div>
+        </div>
+      ) : (
+        // 🟢 DEFAULT INLINE GRID MODE
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full relative z-10">
+          <div className="bg-slate-900 px-4 py-3 flex justify-between items-center shrink-0">
+            <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{title}</h3>
+            <button 
+              onClick={openFullScreen} 
+              className="text-xs text-blue-400 hover:text-white font-bold cursor-pointer transition-colors"
+            >
+              Expand ↗
+            </button>
+          </div>
+          <div className="w-full overflow-auto max-h-[600px] custom-scrollbar">
+            {children}
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 
@@ -516,10 +541,22 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
           <div className="lg:col-span-8 space-y-4">
             <div className="bg-white/80 backdrop-blur p-4 rounded-xl border border-slate-200 shadow-sm relative">
               <div className="absolute top-4 right-4 z-10">
-                <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none cursor-pointer">
-                  <option value="ALL TIME">ALL TIME</option><option value="TODAY">TODAY ONLY</option><option value="LAST 7 DAYS">LAST 7 DAYS</option>
-                  <option value="LAST 30 DAYS">LAST 30 DAYS</option><option value="LAST 90 DAYS">LAST 90 DAYS</option><option value="LAST 120 DAYS">LAST 120 DAYS</option>
-                </select>
+            <select 
+              value={dateFilter} 
+              onChange={(e) => setDateFilter(e.target.value)} 
+              className="border-2 border-blue-500 dark:border-blue-600 text-blue-700 dark:text-blue-400 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer"
+            >
+              <option value="ALL TIME">ALL TIME</option>
+              <option value="TODAY">TODAY ONLY</option>
+              <option value="LAST 7 DAYS">LAST 7 DAYS</option>
+              <option value="LAST 14 DAYS">LAST 14 DAYS</option>
+              <option value="LAST 21 DAYS">LAST 21 DAYS</option>
+              <option value="LAST 30 DAYS">LAST 30 DAYS</option>
+              <option value="LAST 60 DAYS">LAST 60 DAYS</option>
+              <option value="LAST 90 DAYS">LAST 90 DAYS</option>
+              <option value="LAST 120 DAYS">LAST 120 DAYS</option>
+              <option value="LAST 180 DAYS">LAST 180 DAYS</option>
+            </select>
               </div>
               <h4 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">

@@ -187,8 +187,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-  // 🟢 FIXED FILE ACTION HANDLER: Correctly streams binary blobs for Read (preview) and Download
-  const handleFileAction = async (docId, action, isTemplate = false) => {
+// 🟢 RESTORED FILE ACTION HANDLER: Restores Live Preview and Forces Original Filenames on Download
+  const handleFileAction = async (docId, action, isTemplate = false, fileName = 'document') => {
     if (action === 'download' && !hasDownloadClearance) {
       return alert("Security Restriction: You do not have command clearance to download documents.");
     }
@@ -208,17 +208,22 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
         throw new Error(errorData.detail || "Requested document not found.");
       }
 
+      // Grab the exact Content-Type sent by your Python backend
+      const contentType = response.headers.get('Content-Type') || 'application/octet-stream';
       const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
+      
+      // Package the blob with the exact content type so your browser knows how to render it live
+      const finalBlob = new Blob([blob], { type: contentType });
+      const blobUrl = window.URL.createObjectURL(finalBlob);
 
       if (action === 'read') {
-        // Open document preview in a new tab
+        // Restores your live viewing! Opens the document stream in a new tab.
         window.open(blobUrl, '_blank');
       } else {
-        // Trigger physical download
+        // Triggers the physical download WITH THE ORIGINAL FILENAME
         const link = document.createElement('a');
         link.href = blobUrl;
-        link.setAttribute('download', '');
+        link.setAttribute('download', fileName);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);

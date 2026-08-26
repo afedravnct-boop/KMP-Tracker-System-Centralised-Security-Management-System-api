@@ -215,11 +215,38 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     try {
       const today = new Date();
       let start = ''; let end = '';
+      
+      const todayStr = today.toISOString().split('T')[0];
 
-      if (dateFilter === 'today') { start = today.toISOString().split('T')[0]; end = today.toISOString().split('T')[0]; } 
-      else if (dateFilter === 'recent') { const sevenDaysAgo = new Date(today); sevenDaysAgo.setDate(today.getDate() - 7); start = sevenDaysAgo.toISOString().split('T')[0]; end = today.toISOString().split('T')[0]; } 
-      else if (dateFilter === 'old') { const sevenDaysAgo = new Date(today); sevenDaysAgo.setDate(today.getDate() - 7); end = sevenDaysAgo.toISOString().split('T')[0];  } 
-      else if (dateFilter === 'custom') { start = customStartDate; end = customEndDate; }
+      // Helper to easily calculate X days ago
+      const getPastDate = (daysCount) => {
+        const pastDate = new Date(today);
+        pastDate.setDate(today.getDate() - daysCount);
+        return pastDate.toISOString().split('T')[0];
+      };
+
+      if (dateFilter === 'today') { 
+        start = todayStr; 
+        end = todayStr; 
+      } 
+      else if (dateFilter === 'recent' || dateFilter === 'last_7') { 
+        start = getPastDate(7); 
+        end = todayStr; 
+      } 
+      else if (dateFilter === 'last_14') { start = getPastDate(14); end = todayStr; }
+      else if (dateFilter === 'last_21') { start = getPastDate(21); end = todayStr; }
+      else if (dateFilter === 'last_30') { start = getPastDate(30); end = todayStr; }
+      else if (dateFilter === 'last_60') { start = getPastDate(60); end = todayStr; }
+      else if (dateFilter === 'last_90') { start = getPastDate(90); end = todayStr; }
+      else if (dateFilter === 'last_120') { start = getPastDate(120); end = todayStr; }
+      else if (dateFilter === 'last_180') { start = getPastDate(180); end = todayStr; }
+      else if (dateFilter === 'old') { 
+        end = getPastDate(7); // Caps the end date to 7 days ago, open-ended start
+      } 
+      else if (dateFilter === 'custom') { 
+        start = customStartDate; 
+        end = customEndDate; 
+      }
 
       let url = `${API_URL}/api/v1/communications`;
       
@@ -653,10 +680,21 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                 <div className="flex flex-col md:flex-row gap-4 items-end">
                   <div className="flex-1 w-full">
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><Filter size={14} className="mr-1"/> Time Filter</label>
-                    <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none focus:border-blue-500">
+<select 
+                      value={dateFilter} 
+                      onChange={(e) => setDateFilter(e.target.value)} 
+                      className="w-full p-2.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-100 border border-slate-300 dark:border-slate-700 rounded-md font-bold outline-none focus:border-blue-500 cursor-pointer"
+                    >
                       <option value="all">All Available Messages</option>
                       <option value="today">Current (Today)</option>
-                      <option value="recent">Recent (Last 7 Days)</option>
+                      <option value="last_7">Recent (Last 7 Days)</option>
+                      <option value="last_14">Last 14 Days</option>
+                      <option value="last_21">Last 21 Days</option>
+                      <option value="last_30">Last 30 Days</option>
+                      <option value="last_60">Last 60 Days</option>
+                      <option value="last_90">Last 90 Days</option>
+                      <option value="last_120">Last 120 Days</option>
+                      <option value="last_180">Last 180 Days</option>
                       <option value="old">Old (Older than 7 Days)</option>
                       <option value="custom">Custom Date Range (Backdate Search)</option>
                     </select>

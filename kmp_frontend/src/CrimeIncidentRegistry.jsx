@@ -780,10 +780,22 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
           <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">
             📋 {filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? 'Global Command Metrics' : filterStation === 'ALL STATIONS' ? `${filterRegion} Lock-up` : `${filterStation} Metrics`}
           </h4>
-          <select value={dateFilter} onChange={(e) => setDateFilter(stripHtmlTags(e.target.value))} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-1 text-xs shadow-sm bg-white outline-none cursor-pointer w-full sm:w-auto">
-            <option value="ALL TIME">ALL TIME</option><option value="TODAY">TODAY ONLY</option><option value="LAST 7 DAYS">LAST 7 DAYS</option>
-            <option value="LAST 30 DAYS">LAST 30 DAYS</option><option value="LAST 90 DAYS">LAST 90 DAYS</option><option value="LAST 120 DAYS">LAST 120 DAYS</option>
-          </select>
+          <select 
+              value={dateFilter} 
+              onChange={(e) => setDateFilter(e.target.value)} 
+              className="border-2 border-blue-500 dark:border-blue-600 text-blue-700 dark:text-blue-400 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer"
+            >
+              <option value="ALL TIME">ALL TIME</option>
+              <option value="TODAY">TODAY ONLY</option>
+              <option value="LAST 7 DAYS">LAST 7 DAYS</option>
+              <option value="LAST 14 DAYS">LAST 14 DAYS</option>
+              <option value="LAST 21 DAYS">LAST 21 DAYS</option>
+              <option value="LAST 30 DAYS">LAST 30 DAYS</option>
+              <option value="LAST 60 DAYS">LAST 60 DAYS</option>
+              <option value="LAST 90 DAYS">LAST 90 DAYS</option>
+              <option value="LAST 120 DAYS">LAST 120 DAYS</option>
+              <option value="LAST 180 DAYS">LAST 180 DAYS</option>
+            </select>
         </div>
         
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">

@@ -29,17 +29,56 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
 };
 
 const ExpandableTableCard = ({ title, children, onToggle }) => {
-  const [expanded, setExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const openFullScreen = () => {
+    setIsExpanded(true);
+    if (typeof onToggle === 'function') onToggle(true);
+  };
+
+  const closeFullScreen = () => {
+    setIsExpanded(false);
+    if (typeof onToggle === 'function') onToggle(false);
+  };
+
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-      <div className="bg-slate-900 px-4 py-3 flex justify-between items-center">
-        <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{title}</h3>
-        <button onClick={() => { const nextState = !expanded; setExpanded(nextState); if (onToggle) onToggle(nextState); }} className="text-xs text-blue-400 hover:text-white font-bold cursor-pointer">
-          {expanded ? 'Collapse ↙' : 'Expand ↗'}
-        </button>
-      </div>
-      <div className="w-full">{children}</div>
-    </div>
+    <>
+      {isExpanded ? (
+        // 🟢 FULL SCREEN OVERLAY MODE
+        <div className="fixed inset-0 z-[250] bg-slate-100/95 backdrop-blur-sm flex flex-col p-4 sm:p-8 animate-in fade-in zoom-in duration-200">
+          <div className="bg-slate-900 px-6 py-4 flex justify-between items-center rounded-t-xl shadow-2xl shrink-0">
+            <h3 className="font-extrabold text-white text-lg uppercase tracking-wider">
+              {title} (FULL SCREEN)
+            </h3>
+            <button 
+              onClick={closeFullScreen} 
+              className="text-sm text-blue-400 hover:text-white font-bold cursor-pointer transition-colors bg-slate-800 px-4 py-2 rounded-lg border border-slate-700"
+            >
+              Collapse ↙
+            </button>
+          </div>
+          <div className="bg-white flex-1 overflow-auto rounded-b-xl shadow-2xl p-4 border border-slate-300 custom-scrollbar">
+            {children}
+          </div>
+        </div>
+      ) : (
+        // 🟢 DEFAULT INLINE GRID MODE
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full relative z-10">
+          <div className="bg-slate-900 px-4 py-3 flex justify-between items-center shrink-0">
+            <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{title}</h3>
+            <button 
+              onClick={openFullScreen} 
+              className="text-xs text-blue-400 hover:text-white font-bold cursor-pointer transition-colors"
+            >
+              Expand ↗
+            </button>
+          </div>
+          <div className="w-full overflow-auto max-h-[600px] custom-scrollbar">
+            {children}
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
@@ -101,7 +140,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     return null;
   };
 
-  const filteredStories = useMemo(() => {
+ const filteredStories = useMemo(() => {
     return (Array.isArray(stories) ? stories : []).filter(s => {
       const stn = (s.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, s.region);
@@ -123,13 +162,14 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       else if (dateFilter === 'LAST 14 DAYS') { if (diffDays > 14) return false; } 
       else if (dateFilter === 'LAST 21 DAYS') { if (diffDays > 21) return false; } 
       else if (dateFilter === 'LAST 30 DAYS') { if (diffDays > 30) return false; } 
+      else if (dateFilter === 'LAST 60 DAYS') { if (diffDays > 60) return false; } 
       else if (dateFilter === 'LAST 90 DAYS') { if (diffDays > 90) return false; } 
       else if (dateFilter === 'LAST 120 DAYS') { if (diffDays > 120) return false; } 
       else if (dateFilter === 'LAST 180 DAYS') { if (diffDays > 180) return false; }
       
       return true;
-    });
-  }, [stories, filterRegion, filterStation, dateFilter, canViewGlobalActive]);
+    }); // 🟢 THIS CLOSES THE .filter()
+  }, [stories, filterRegion, filterStation, dateFilter, canViewGlobalActive]); // 🟢 THIS CLOSES THE useMemo()
 
   const availableUpdateStories = useMemo(() => {
     return (Array.isArray(stories) ? stories : []).filter(s => {
@@ -364,9 +404,21 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                 <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
               ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
             </select>
-            <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border-2 border-blue-500 text-blue-700 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white outline-none w-full sm:w-auto cursor-pointer">
-              <option value="ALL TIME">ALL TIME</option><option value="TODAY">TODAY ONLY</option><option value="LAST 7 DAYS">LAST 7 DAYS</option>
-              <option value="LAST 30 DAYS">LAST 30 DAYS</option><option value="LAST 90 DAYS">LAST 90 DAYS</option><option value="LAST 120 DAYS">LAST 120 DAYS</option>
+            <select 
+              value={dateFilter} 
+              onChange={(e) => setDateFilter(e.target.value)} 
+              className="border-2 border-blue-500 dark:border-blue-600 text-blue-700 dark:text-blue-400 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer"
+            >
+              <option value="ALL TIME">ALL TIME</option>
+              <option value="TODAY">TODAY ONLY</option>
+              <option value="LAST 7 DAYS">LAST 7 DAYS</option>
+              <option value="LAST 14 DAYS">LAST 14 DAYS</option>
+              <option value="LAST 21 DAYS">LAST 21 DAYS</option>
+              <option value="LAST 30 DAYS">LAST 30 DAYS</option>
+              <option value="LAST 60 DAYS">LAST 60 DAYS</option>
+              <option value="LAST 90 DAYS">LAST 90 DAYS</option>
+              <option value="LAST 120 DAYS">LAST 120 DAYS</option>
+              <option value="LAST 180 DAYS">LAST 180 DAYS</option>
             </select>
           </div>
           

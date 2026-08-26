@@ -348,7 +348,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 
   const hasUnread = safeComms.some(c => !c.acknowledged);
 
-  return (
+return (
     <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
       {showComplianceWarning && (
         <div className="fixed bottom-6 right-6 z-[9990]">
@@ -386,7 +386,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
                   </button>
                   <button 
                     onClick={() => setCurrentPage('statistics')} 
-                    className="bg-white text-red-700 px-2.5 py-1 rounded font-bold shadow text-[10px] hover:bg-gray-100 transition cursor-pointer"
+                    className="bg-white dark:bg-slate-800 text-red-700 dark:text-red-400 px-2.5 py-1 rounded font-bold shadow text-[10px] hover:bg-gray-100 dark:hover:bg-slate-700 transition cursor-pointer"
                   >
                     Go to Statistics
                   </button>
@@ -405,32 +405,32 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
       )}
 
       <div className="text-center flex flex-col items-center mt-2">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-1 object-contain drop-shadow-md contrast-200 brightness-75" />
-        <h1 className="text-2xl font-extrabold text-gray-900 tracking-wide">UGANDA POLICE FORCE</h1>
-        <h2 className="text-base font-bold text-slate-600 uppercase tracking-wide">KAMPALA METROPOLITAN POLICE HEADQUARTERS</h2>
-        <h3 className="text-[11px] font-bold text-blue-600 mt-2 uppercase tracking-widest bg-blue-50 px-3 py-1 rounded-full border border-blue-200">Centralised Security Data Management System</h3>
+        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-1 object-contain drop-shadow-md contrast-200 brightness-75 dark:contrast-100" />
+        <h1 className="text-2xl font-extrabold text-gray-900 dark:text-white tracking-wide">UGANDA POLICE FORCE</h1>
+        <h2 className="text-base font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide">KAMPALA METROPOLITAN POLICE HEADQUARTERS</h2>
+        <h3 className="text-[11px] font-bold text-blue-600 dark:text-blue-400 mt-2 uppercase tracking-widest bg-blue-50 dark:bg-blue-900/30 px-3 py-1 rounded-full border border-blue-200 dark:border-blue-800">Centralised Security Data Management System</h3>
       </div>
 
       <div className="w-full">
-        <h3 className="text-center text-xs font-bold text-slate-600 bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-          Welcome, <span className="text-blue-700">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
+        <h3 className="text-center text-xs font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+          Welcome, <span className="text-blue-700 dark:text-blue-400">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
         </h3>   
       </div>
 
-      <div onClick={onOpenInbox} className="min-h-[4.5rem] bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-green-400 group relative overflow-hidden mb-2">
+      <div onClick={onOpenInbox} className="min-h-[4.5rem] bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-green-400 dark:hover:border-green-500 group relative overflow-hidden mb-2">
         {hasUnread && (
           <>
             <div className="absolute top-2 right-2 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping"></div>
             <div className="absolute top-2 right-2 w-2.5 h-2.5 bg-green-500 rounded-full"></div>
           </>
         )}
-        <div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center mr-3 group-hover:bg-slate-800 transition-colors shrink-0">
+        <div className="w-10 h-10 rounded-full bg-slate-900 dark:bg-slate-800 text-white flex items-center justify-center mr-3 group-hover:bg-slate-800 dark:group-hover:bg-slate-700 transition-colors shrink-0">
           <RadioReceiver size={18} className={hasUnread ? "text-green-400 animate-pulse" : "text-slate-400"} />
         </div>
         <div className="flex-1">
-          <h3 className="text-sm font-extrabold text-slate-900 leading-tight">Command Dispatches & Alerts</h3>
+          <h3 className="text-sm font-extrabold text-slate-900 dark:text-white leading-tight">Command Dispatches & Alerts</h3>
           <p className="text-[11px] font-medium mt-0.5 line-clamp-2 transition-colors duration-300 flex items-center">
-            {hasUnread ? <span className="text-green-600 font-bold">You have unread Correspondences. Click to view.</span> : <span className="text-slate-500">Secure directives, network alerts, and command communications.</span>}
+            {hasUnread ? <span className="text-green-600 dark:text-green-400 font-bold">You have unread Correspondences. Click to view.</span> : <span className="text-slate-500 dark:text-slate-400">Secure directives, network alerts, and command communications.</span>}
           </p>
         </div>
       </div>
