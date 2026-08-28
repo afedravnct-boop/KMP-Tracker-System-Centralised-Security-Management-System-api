@@ -75,13 +75,26 @@ def parse_safe_date(val) -> Optional[date]:
     if type(val).__name__ == 'Timestamp': return val.date()
     
     val_str = str(val).strip()
-    if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-']: return None
+    if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-', 'n/a', 'nil']: return None
+    
+    # 🟢 NEW: Clean trailing time codes (e.g., "1990-01-01 00:00:00")
+    if ' ' in val_str:
+        val_str = val_str.split(' ')[0]
         
+    # Try multiple common date formats explicitly
+    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%Y/%m/%d', '%d.%m.%Y'):
+        try:
+            return datetime.strptime(val_str, fmt).date()
+        except ValueError:
+            continue
+
+    # Fallback to pandas parser if custom formats miss it
     try:
         parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
         if pd.notna(parsed): return parsed.date()
     except Exception:
         pass
+        
     return None
 
 def get_officer_signature(user):
@@ -596,23 +609,30 @@ def archive_personnel(
     ArchiveModel = get_archive_model()
     
     try:
+        # Decode URL path and clean slashes/spaces safely
         fnum_clean = unquote(fnum).strip().upper()
         
         query_filters = []
-        # Check Force Number variations
         if hasattr(ActiveModel, 'f_num'):
-            query_filters.append(ActiveModel.f_num == fnum_clean)
+            query_filters.append(func.upper(ActiveModel.f_num) == fnum_clean)
         if hasattr(ActiveModel, 'fnum'):
-            query_filters.append(ActiveModel.fnum == fnum_clean)
-            
-        # 🟢 THE FIX: Also check IPPS for civilian staff
+            query_filters.append(func.upper(ActiveModel.fnum) == fnum_clean)
         if hasattr(ActiveModel, 'ipps'):
-            query_filters.append(ActiveModel.ipps == fnum_clean)
+            query_filters.append(func.upper(ActiveModel.ipps) == fnum_clean)
             
         active_record = db.query(ActiveModel).filter(or_(*query_filters)).first()
         
         if not active_record:
-            raise HTTPException(status_code=404, detail="Officer not found in active roll.")
+            # Fallback: try matching without the slash (e.g., E528 if stored flat)
+            alt_fnum = fnum_clean.replace('/', '')
+            if hasattr(ActiveModel, 'f_num'):
+                query_filters.append(func.upper(ActiveModel.f_num) == alt_fnum)
+            if hasattr(ActiveModel, 'fnum'):
+                query_filters.append(func.upper(ActiveModel.fnum) == alt_fnum)
+            active_record = db.query(ActiveModel).filter(or_(*query_filters)).first()
+
+        if not active_record:
+            raise HTTPException(status_code=404, detail=f"Officer '{fnum_clean}' not found in active roll.")
 
         record_data = active_record.__dict__.copy()
         record_data.pop("_sa_instance_state", None) 
@@ -625,7 +645,7 @@ def archive_personnel(
             record_data["f_num"] = fnum_clean
             
         record_data["status"] = "ARCHIVED"
-        record_data["archive_reason"] = request_data.archive_reason
+        record_data["archive_reason"] = request_data.archive_reason if request_data and request_data.archive_reason else "ADMINISTRATIVE"
         record_data["archive_date"] = datetime.now().date()
         record_data["last_updated_by"] = get_officer_signature(current_user)
 
