@@ -369,9 +369,23 @@ async def bulk_upload_nominal_roll(
                     is_archived = db.query(ArchiveModel).filter(or_(*arc_filter)).first()
                     
                     if is_archived:
-                        entry_str = f"{officer_payload['rank']} {officer_payload['name']} ({clean_fnum})"
-                        if entry_str not in skipped_archived:
-                            skipped_archived.append(entry_str)
+                        # Safely format dates for JSON transfer to the frontend
+                        safe_payload_json = {}
+                        for k, v in officer_payload.items():
+                            if isinstance(v, (date, datetime)):
+                                safe_payload_json[k] = v.isoformat()
+                            else:
+                                safe_payload_json[k] = v
+                                
+                        entry_obj = {
+                            "display": f"{officer_payload['rank']} {officer_payload['name']} ({clean_fnum})",
+                            "fnum": clean_fnum,
+                            "payload": safe_payload_json
+                        }
+                        
+                        # Add to skipped list, preventing duplicates by checking fnum
+                        if not any(isinstance(x, dict) and x.get('fnum') == clean_fnum for x in skipped_archived):
+                            skipped_archived.append(entry_obj)
                         continue
                         
                     valid_cols = [c.key for c in ActiveModel.__table__.columns]

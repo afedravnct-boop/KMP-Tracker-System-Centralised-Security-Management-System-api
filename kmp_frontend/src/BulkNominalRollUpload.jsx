@@ -2,6 +2,123 @@ import React, { useState, useRef } from 'react';
 import { Upload, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { authFetch } from './api';
 
+const ReintegrationHelper = ({ skipped, onDismiss }) => {
+  const [selected, setSelected] = useState([]);
+  const [reason, setReason] = useState("");
+  const [processing, setProcessing] = useState(false);
+  const [results, setResults] = useState(null);
+
+  const toggleSelect = (fnum) => {
+    if (selected.includes(fnum)) {
+      setSelected(selected.filter(s => s !== fnum));
+    } else {
+      setSelected([...selected, fnum]);
+    }
+  };
+
+  const handleRestore = async () => {
+    if (selected.length === 0) return alert("Select at least one officer.");
+    if (!reason.trim()) return alert("Please enter a reason for re-integration.");
+    
+    setProcessing(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const fnum of selected) {
+      const officerData = skipped.find(o => o.fnum === fnum);
+      if (!officerData) continue;
+      
+      try {
+        const token = localStorage.getItem("access_token") || localStorage.getItem("token");
+        
+        // Post the FULL excel data back to the single-officer endpoint
+        const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/nominal-roll`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            ...officerData.payload,
+            reintegration_reason: reason
+          })
+        });
+        if (res.ok) successCount++;
+        else failCount++;
+      } catch (err) {
+        failCount++;
+      }
+    }
+    
+    setProcessing(false);
+    setResults(`Successfully re-integrated ${successCount} officers. ${failCount > 0 ? `Failed: ${failCount}` : ''}`);
+  };
+
+  if (results) {
+    return (
+      <div className="bg-green-100 dark:bg-green-900/40 p-3 rounded text-green-800 dark:text-green-300 mt-2">
+         <p className="font-bold text-sm">{results}</p>
+         <button onClick={onDismiss} className="mt-3 text-xs bg-green-200 dark:bg-green-800 px-3 py-1.5 rounded font-bold hover:bg-green-300 transition-colors">
+           Finish & Refresh Table
+         </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-amber-100/60 dark:bg-amber-900/40 p-2.5 rounded-lg border border-amber-300 dark:border-amber-700/50">
+      <div className="mb-2">
+        <p className="font-bold text-red-700 dark:text-red-400 text-[12px] uppercase">
+          ⚠️ {skipped.length} Officers Found In Archive
+        </p>
+        <p className="text-amber-900 dark:text-amber-200 text-[11px] mt-1 leading-tight mb-2">
+          Select the officers you wish to immediately restore to the active roll with the new data from your Excel file.
+        </p>
+        <input 
+          type="text" 
+          placeholder="Enter re-integration reason (e.g., Station Transfer, Returned from leave)" 
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="w-full text-xs p-1.5 rounded border border-amber-300 dark:bg-slate-800 dark:border-amber-700 mb-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+        />
+      </div>
+      
+      <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded p-1.5 max-h-32 overflow-y-auto custom-scrollbar mb-2">
+        <ul className="space-y-1">
+          {skipped.map((off, i) => (
+            <li key={i} className="flex items-center space-x-2 text-[10px] font-mono font-bold text-red-800 dark:text-red-400">
+              <input 
+                type="checkbox" 
+                checked={selected.includes(off.fnum)}
+                onChange={() => toggleSelect(off.fnum)}
+                className="rounded border-amber-400 text-amber-600 focus:ring-amber-500 cursor-pointer"
+              />
+              <span>{off.display}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="flex justify-between items-center px-1">
+         <button 
+           onClick={() => setSelected(selected.length === skipped.length ? [] : skipped.map(s => s.fnum))}
+           className="text-[10px] text-amber-700 dark:text-amber-400 underline hover:text-amber-900 cursor-pointer"
+         >
+           {selected.length === skipped.length ? 'Deselect All' : 'Select All'}
+         </button>
+         
+         <button 
+           onClick={handleRestore}
+           disabled={processing || selected.length === 0}
+           className="text-[10px] bg-red-600 text-white px-3 py-1.5 rounded font-bold hover:bg-red-700 disabled:opacity-50 transition-colors cursor-pointer"
+         >
+           {processing ? 'Processing...' : `Re-integrate Selected (${selected.length})`}
+         </button>
+      </div>
+    </div>
+  );
+};
+
 const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -52,7 +169,6 @@ if (response.ok) {
         if (hasArchived || hasBlanks) {
           setMessage(
             <div className="flex flex-col space-y-3 w-full">
-              {/* 🟢 Added Flex Header with Dismiss Button */}
               <div className="flex justify-between items-start border-b pb-1 border-amber-300 dark:border-amber-700">
                 <p className="font-bold text-amber-900 dark:text-amber-300 text-xs pr-4">{data.message}</p>
                 <button 
@@ -67,15 +183,13 @@ if (response.ok) {
               </div>
               
               {hasArchived && (
-                <div className="bg-amber-100/60 dark:bg-amber-900/40 p-2.5 rounded-lg border border-amber-300 dark:border-amber-700/50">
-                  <p className="font-bold text-red-700 dark:text-red-400 text-[11px] mb-1">⚠️ {data.skipped.length} OFFICERS IN ARCHIVE (Manual Re-entry Required):</p>
-                  <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded p-1.5 max-h-24 overflow-y-auto custom-scrollbar">
-                    <ul className="list-disc pl-4 space-y-0.5 text-red-800 dark:text-red-400 text-[10px] font-mono font-bold">
-                      {data.skipped.slice(0, 15).map((off, i) => <li key={i}>{off}</li>)}
-                      {data.skipped.length > 15 && <li className="italic text-amber-700 dark:text-amber-500">...and {data.skipped.length - 15} more.</li>}
-                    </ul>
-                  </div>
-                </div>
+                <ReintegrationHelper 
+                  skipped={data.skipped} 
+                  onDismiss={() => {
+                    setMessage(null);
+                    if (onUploadSuccess) onUploadSuccess();
+                  }} 
+                />
               )}
 
               {hasBlanks && (
@@ -92,7 +206,6 @@ if (response.ok) {
             </div>
           );
         } else {
-          // 🟢 Only auto-refresh if the upload was 100% clean
           setMessage(data.message || "Bulk upload completed successfully.");
           if (onUploadSuccess) {
             onUploadSuccess();
@@ -102,6 +215,15 @@ if (response.ok) {
         setMessage(data.detail || data.message || "An error occurred during upload. Check your column headers.");
         setStatus('error');
       }
+    } catch (error) {
+      setMessage(`Upload error: ${error.message}`);
+      setStatus('error');
+    } finally {
+      setUploading(false);
+      setFiles([]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   return (
     <div className="space-y-4 w-full">
