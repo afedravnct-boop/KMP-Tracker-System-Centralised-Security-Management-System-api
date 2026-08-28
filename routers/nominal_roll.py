@@ -35,11 +35,9 @@ def normalize_education_level(educ_str):
         return None
     cleaned = str(educ_str).strip().upper()
     
-    # Keep uncertified lower secondary classes as entered
     if any(term in cleaned for term in ['S.1', 'S1', 'S.2', 'S2', 'S.3', 'S3', 'SENIOR 1', 'SENIOR 2', 'SENIOR 3']):
         return cleaned
         
-    # Map certified high school milestones
     if any(term in cleaned for term in ['UACE', 'A-LEVEL', 'A LEVEL', 'S.6', 'S6', 'SENIOR 6']):
         return "UACE"
     if any(term in cleaned for term in ['UCE', 'O-LEVEL', 'O LEVEL', 'S.4', 'S4', 'SENIOR 4', 'PLE', 'P.7']):
@@ -148,7 +146,6 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     clean_results = []
     sequence_counter = 1
 
-    # 1. Process Active Records
     for r in active_records:
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
@@ -171,7 +168,6 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         clean_results.append(r_dict)
         sequence_counter += 1
 
-    # 2. Process Archive Records
     for r in archive_records:
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
@@ -222,9 +218,9 @@ async def bulk_upload_nominal_roll(
     inserted_count = 0
     updated_count = 0
     skipped_archived = []
+    skipped_blank = []
     officer_sig = get_officer_signature(current_user)
 
-    # 🟢 THE FIX: Clean out .0 from purely numeric Excel identifiers
     def clean_numeric(val):
         if pd.isna(val) or val is None: return None
         s = str(val).strip()
@@ -233,7 +229,6 @@ async def bulk_upload_nominal_roll(
         return s
 
     def parse_safe_date(val) -> Optional[date]:
-        """Strictly coerces incoming date values into a Python date object or None for SQL DATE compatibility."""
         if pd.isna(val) or val is None: return None
         if isinstance(val, date) and not isinstance(val, datetime): return val
         if isinstance(val, datetime): return val.date()
@@ -249,7 +244,7 @@ async def bulk_upload_nominal_roll(
             pass
         return None
 
-try:
+    try:
         for single_file in file_list:
             contents = await single_file.read()
             filename = single_file.filename.lower()
@@ -261,17 +256,14 @@ try:
             else:
                 continue
 
-            # 🟢 1. BULLETPROOF HEADER MAPPING (Ignores slashes, dots, and spaces)
             def standardize_header(h):
                 h = str(h).lower().strip()
-                # Catch specific police acronyms first
                 h = h.replace("f/no", "fnum").replace("f-no", "fnum").replace("force no", "fnum")
                 h = h.replace("d.o.b", "dob").replace("d.o.e", "doe").replace("d.o.p", "dopost")
-                return re.sub(r'[^a-z0-9]', '', h) # Erases all remaining special characters
+                return re.sub(r'[^a-z0-9]', '', h)
                 
             df.columns = [standardize_header(col) for col in df.columns]
             
-            # 🟢 2. UPDATED DATE COERCION
             date_columns = ['dob', 'dateofbirth', 'doe', 'dateofenlistment', 'dopost', 'dop', 'dopro', 'dateofpromotion']
             for col in date_columns:
                 if col in df.columns:
@@ -280,12 +272,10 @@ try:
             df = df.replace({np.nan: None, pd.NaT: None, 'nan': None, 'NaN': None, 'NaT': None, '': None})
 
             for idx, row in df.iterrows():
-                # 🟢 3. FUZZY ROW GETTERS
                 fnum_val = row.get("fnum") or row.get("forceno") or row.get("forcenumber") or row.get("fileno") or row.get("fno")
                 ipps_val = clean_numeric(row.get("ipps") or row.get("ippsno") or row.get("ippsnumber"))
                 nin_val = clean_numeric(row.get("nin") or row.get("nationalid") or row.get("ninno"))
                 
-                # Civilian Fallback Check
                 if not fnum_val or str(fnum_val).strip().lower() in ['nan', 'nat', 'none', 'null', '']:
                     if ipps_val: fnum_val = f"CIV-IPPS-{ipps_val}"
                     elif nin_val: fnum_val = f"CIV-NIN-{nin_val}"
@@ -298,7 +288,6 @@ try:
                 stn_val = str(row.get("station") or current_user.station or "HQ").strip().upper()
                 reg_val, dist_val = auto_infer_geography(stn_val, row.get("region"), row.get("district"))
 
-                # Strict SQL DATE parsing
                 dob_val = parse_safe_date(row.get("dob") or row.get("dateofbirth"))
                 doe_val = parse_safe_date(row.get("doe") or row.get("dateofenlistment"))
                 dopost_val = parse_safe_date(row.get("dopost") or row.get("dop"))
@@ -314,7 +303,7 @@ try:
                     "do_post": dopost_val,
                     "do_pro": dopro_val,
                     "contact": clean_numeric(row.get("contact") or row.get("phone") or row.get("phonenumber")),
-                    "educ_level": normalize_education_level(row.get("educlevel") or row.get("education") or row.get("educationlevel")),
+                    "educ_level": normalize_education_level(row.get("educ_level") or row.get("educlevel") or row.get("education")),
                     "ipps": ipps_val,
                     "tin": clean_numeric(row.get("tin") or row.get("tinno") or row.get("tinnumber")),
                     "nin": nin_val,
@@ -356,7 +345,6 @@ try:
                             setattr(existing, k, v)
                     updated_count += 1
                 else:
-                    # 🟢 THE FIX: CHECK ARCHIVE TO PREVENT OVERWRITING HISTORY
                     arc_filter = []
                     if hasattr(ArchiveModel, 'f_num'): arc_filter.append(ArchiveModel.f_num == clean_fnum)
                     if hasattr(ArchiveModel, 'fnum'): arc_filter.append(ArchiveModel.fnum == clean_fnum)
@@ -376,11 +364,11 @@ try:
                 db.flush()
 
         db.commit()
-        
         return {
-            "status": "warning" if skipped_archived else "success",
+            "status": "warning" if (skipped_archived or skipped_blank) else "success",
             "message": f"Batch process complete. {inserted_count} new personnel recorded, {updated_count} updated.",
-            "skipped": skipped_archived
+            "skipped": skipped_archived,
+            "skipped_blank": skipped_blank
         }
 
     except Exception as e:
@@ -470,7 +458,6 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             new_record.last_updated_by = get_officer_signature(current_user)
             
             db.add(new_record)
-            # 🟢 THE FIX: Removed db.delete(archived_officer) to preserve history!
             db.commit()
             
             assigned_id = getattr(new_record, 'id', getattr(new_record, 'sn', 1))
