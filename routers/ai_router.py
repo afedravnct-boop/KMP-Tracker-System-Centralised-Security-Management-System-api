@@ -264,6 +264,23 @@ async def process_tactical_query(
             else:
                 raise primary_err
 
+        # 🟢 THE FIX: Save the AI Interaction to NeonDB
+        try:
+            AIModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
+            if AIModel:
+                new_ai_log = AIModel(
+                    fnum=current_user.fnum,
+                    prompt=payload.prompt,
+                    response=response.text,
+                    target_region=payload.target_region or current_user.region or "ALL REGIONS",
+                    target_station=payload.target_station or current_user.station or "ALL STATIONS"
+                )
+                db.add(new_ai_log)
+                db.commit()
+        except Exception as db_err:
+            db.rollback()
+            print(f"Failed to save AI log to NeonDB: {db_err}")
+
         return {
             "response": response.text,
             "metadata": {
