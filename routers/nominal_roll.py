@@ -296,14 +296,14 @@ async def bulk_upload_nominal_roll(
 
                 officer_payload = {
                     "rank": str(row.get("rank") or "CIVILIAN").strip().upper(),
-                    "name": str(row.get("name") or "UNKNOWN").strip().title(),
+                    "name": str(row.get("name") or "UNKNOWN").strip().upper(),
                     "sex": normalize_sex(row.get("sex") or row.get("gender")),
                     "position": str(row.get("position") or row.get("title") or "GENERAL DUTIES").strip().upper(),
                     "dob": dob_val,
                     "doe": doe_val,
                     "do_post": dopost_val,
                     "do_pro": dopro_val,
-                    "contact": clean_numeric(row.get("contact") or row.get("phone") or row.get("phonenumber")),
+                    "contact": format_phone_number(row.get("contact") or row.get("phone") or row.get("phonenumber")),
                     "educ_level": normalize_education_level(row.get("educ_level") or row.get("educlevel") or row.get("education")),
                     "ipps": ipps_val,
                     "tin": clean_numeric(row.get("tin") or row.get("tinno") or row.get("tinnumber")),
@@ -403,6 +403,13 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         clean_data = {}
         for k, v in data.items():
             clean_data[k] = None if v == "" else v
+
+        if 'contact' in clean_data and clean_data['contact']:
+            phone_str = str(clean_data['contact']).strip()
+            if phone_str.startswith('+'): phone_str = phone_str[1:]
+            if phone_str.startswith('7') and len(phone_str) == 9:
+                phone_str = '0' + phone_str
+            clean_data['contact'] = phone_str
 
         if 'sex' in clean_data:
             clean_data['sex'] = normalize_sex(clean_data['sex'])
