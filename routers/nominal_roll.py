@@ -20,6 +20,9 @@ from auth import get_current_user
 
 router = APIRouter(prefix="/api/v1", tags=["Nominal Roll & HR"])
 
+# ====================================================================
+# GLOBAL HELPER FUNCTIONS
+# ====================================================================
 def normalize_sex(val):
     if not val:
         return "MALE"
@@ -45,6 +48,41 @@ def normalize_education_level(educ_str):
         return "UCE"
         
     return cleaned
+
+def clean_numeric(val):
+    """Cleans numeric strings and removes trailing .0 from Excel floats."""
+    if pd.isna(val) or val is None: return None
+    s = str(val).strip()
+    if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
+    if s.endswith('.0'): s = s[:-2]
+    return s
+
+def format_phone_number(val):
+    """Ensures phone numbers start with a 0 if they are 9 digits and start with 7."""
+    cleaned = clean_numeric(val)
+    if not cleaned: return None
+    if cleaned.startswith('+'):
+        cleaned = cleaned[1:]
+    if cleaned.startswith('7') and len(cleaned) == 9:
+        cleaned = '0' + cleaned
+    return cleaned
+
+def parse_safe_date(val) -> Optional[date]:
+    """Strictly coerces incoming date values into a Python date object or None for SQL DATE compatibility."""
+    if pd.isna(val) or val is None: return None
+    if isinstance(val, date) and not isinstance(val, datetime): return val
+    if isinstance(val, datetime): return val.date()
+    if type(val).__name__ == 'Timestamp': return val.date()
+    
+    val_str = str(val).strip()
+    if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-']: return None
+        
+    try:
+        parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
+        if pd.notna(parsed): return parsed.date()
+    except Exception:
+        pass
+    return None
 
 def get_officer_signature(user):
     if not user:
@@ -107,8 +145,9 @@ def auto_infer_geography(station_name, current_region=None, current_district=Non
             inferred_district = geo_info["district"]
     return inferred_region or "KMP HEADQUARTERS", inferred_district or "KAMPALA"
 
+
 # ====================================================================
-# 1. RETRIEVE ACTIVE AND ARCHIVED NOMINAL ROLL WITH DESCENDING ARCHIVE SORTING
+# 1. RETRIEVE ACTIVE AND ARCHIVED NOMINAL ROLL
 # ====================================================================
 @router.get("/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -222,29 +261,6 @@ async def bulk_upload_nominal_roll(
     skipped_blank = []
     officer_sig = get_officer_signature(current_user)
 
-    def clean_numeric(val):
-        if pd.isna(val) or val is None: return None
-        s = str(val).strip()
-        if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
-        if s.endswith('.0'): s = s[:-2]
-        return s
-
-    def parse_safe_date(val) -> Optional[date]:
-        if pd.isna(val) or val is None: return None
-        if isinstance(val, date) and not isinstance(val, datetime): return val
-        if isinstance(val, datetime): return val.date()
-        if type(val).__name__ == 'Timestamp': return val.date()
-        
-        val_str = str(val).strip()
-        if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-']: return None
-            
-        try:
-            parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
-            if pd.notna(parsed): return parsed.date()
-        except Exception:
-            pass
-        return None
-
     try:
         for single_file in file_list:
             contents = await single_file.read()
@@ -346,7 +362,6 @@ async def bulk_upload_nominal_roll(
                             setattr(existing, k, v)
                     updated_count += 1
                 else:
-                    # 🟢 STRICT ARCHIVE ENFORCEMENT
                     arc_filter = []
                     if hasattr(ArchiveModel, 'f_num'): arc_filter.append(ArchiveModel.f_num == clean_fnum)
                     if hasattr(ArchiveModel, 'fnum'): arc_filter.append(ArchiveModel.fnum == clean_fnum)
@@ -354,7 +369,6 @@ async def bulk_upload_nominal_roll(
                     is_archived = db.query(ArchiveModel).filter(or_(*arc_filter)).first()
                     
                     if is_archived:
-                        # Prevent duplicate entries in the warning list if multiple files/rows are processed
                         entry_str = f"{officer_payload['rank']} {officer_payload['name']} ({clean_fnum})"
                         if entry_str not in skipped_archived:
                             skipped_archived.append(entry_str)
@@ -405,11 +419,10 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             clean_data[k] = None if v == "" else v
 
         if 'contact' in clean_data and clean_data['contact']:
-            phone_str = str(clean_data['contact']).strip()
-            if phone_str.startswith('+'): phone_str = phone_str[1:]
-            if phone_str.startswith('7') and len(phone_str) == 9:
-                phone_str = '0' + phone_str
-            clean_data['contact'] = phone_str
+            clean_data['contact'] = format_phone_number(clean_data['contact'])
+            
+        if 'name' in clean_data and clean_data['name']:
+            clean_data['name'] = str(clean_data['name']).strip().upper()
 
         if 'sex' in clean_data:
             clean_data['sex'] = normalize_sex(clean_data['sex'])
@@ -529,6 +542,12 @@ def update_Nominal_Roll(
     
     if 'educ_level' in data:
         data['educ_level'] = normalize_education_level(data['educ_level'])
+        
+    if 'contact' in data and data['contact']:
+        data['contact'] = format_phone_number(data['contact'])
+        
+    if 'name' in data and data['name']:
+        data['name'] = str(data['name']).strip().upper()
     
     perms = current_user.permissions or {}
     if current_user.role not in ["SUPER_ADMIN", "RPC", "ADMIN"] and not perms.get("global_observer"):
