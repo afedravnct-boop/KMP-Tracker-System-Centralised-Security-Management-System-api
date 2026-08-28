@@ -353,7 +353,11 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     e.stopPropagation(); 
     try {
       const token = sessionStorage.getItem('kmp_authToken');
-      const res = await fetch(`${API_URL}/api/v1/communications/${msg.id}/acknowledge`, { 
+      // 🟢 DOUBLE ENCODE FIX: Wrap the message ID or target path if it contains symbols, 
+      // or ensure the backend route matches. If the route uses message ID, ensure it's sanitized.
+      const encodedMsgId = encodeURIComponent(encodeURIComponent(msg.id));
+      
+      const res = await fetch(`${API_URL}/api/v1/communications/${encodedMsgId}/acknowledge`, { 
         method: 'POST', 
         headers: { 
           'Content-Type': 'application/json',
@@ -372,7 +376,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         setNotification({ type: 'success', text: '✅ Message acknowledged successfully.' });
         setTimeout(() => setNotification(null), 3000);
       } else {
-        throw new Error("Server rejected acknowledgment.");
+        const errorBody = await res.text();
+        throw new Error(errorBody || "Server rejected acknowledgment.");
       }
     } catch (err) {
       console.error("Failed to acknowledge receipt:", err);
