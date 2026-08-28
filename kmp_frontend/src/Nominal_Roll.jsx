@@ -164,22 +164,26 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
-  const handleArchivePersonnel = async () => {
+const handleArchivePersonnel = async () => {
     if (!canEditRecords) return alert("Security Restriction: You do not have clearance to archive personnel.");
-    const targetFnum = formData.fnum || formData.f_num; 
     
-    if (!targetFnum) {
-      return alert("Missing Force Number. Cannot archive this record.");
+    // Ensure we safely capture the force number from any variant
+    const targetFnum = formData.fnum || formData.f_num || formData.ipps;  
+    
+    if (!targetFnum || String(targetFnum).trim() === '') {
+      return alert("Missing Force Number or IPPS. Cannot archive this record.");
     }
     
-    if (!window.confirm(`Are you sure you want to move ${formData.name} (${targetFnum}) to archives?`)) {
+    const cleanFnum = String(targetFnum).trim().toUpperCase();
+
+    if (!window.confirm(`Are you sure you want to move ${formData.name || 'this officer'} (${cleanFnum}) to archives?`)) {
       return;
     }
 
     try {
       setNotification("Moving record to archive...");
       
-      const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(targetFnum)}/archive`, {
+      const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(cleanFnum)}/archive`, {
         method: "PUT", 
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ archive_reason: archiveReason })

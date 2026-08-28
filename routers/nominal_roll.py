@@ -598,13 +598,18 @@ def archive_personnel(
     try:
         fnum_clean = unquote(fnum).strip().upper()
         
-        fnum_filter = []
+        query_filters = []
+        # Check Force Number variations
         if hasattr(ActiveModel, 'f_num'):
-            fnum_filter.append(ActiveModel.f_num == fnum_clean)
+            query_filters.append(ActiveModel.f_num == fnum_clean)
         if hasattr(ActiveModel, 'fnum'):
-            fnum_filter.append(ActiveModel.fnum == fnum_clean)
+            query_filters.append(ActiveModel.fnum == fnum_clean)
             
-        active_record = db.query(ActiveModel).filter(or_(*fnum_filter)).first()
+        # 🟢 THE FIX: Also check IPPS for civilian staff
+        if hasattr(ActiveModel, 'ipps'):
+            query_filters.append(ActiveModel.ipps == fnum_clean)
+            
+        active_record = db.query(ActiveModel).filter(or_(*query_filters)).first()
         
         if not active_record:
             raise HTTPException(status_code=404, detail="Officer not found in active roll.")
