@@ -346,6 +346,7 @@ async def bulk_upload_nominal_roll(
                             setattr(existing, k, v)
                     updated_count += 1
                 else:
+                    # 🟢 STRICT ARCHIVE ENFORCEMENT
                     arc_filter = []
                     if hasattr(ArchiveModel, 'f_num'): arc_filter.append(ArchiveModel.f_num == clean_fnum)
                     if hasattr(ArchiveModel, 'fnum'): arc_filter.append(ArchiveModel.fnum == clean_fnum)
@@ -353,7 +354,10 @@ async def bulk_upload_nominal_roll(
                     is_archived = db.query(ArchiveModel).filter(or_(*arc_filter)).first()
                     
                     if is_archived:
-                        skipped_archived.append(f"{officer_payload['rank']} {officer_payload['name']} ({clean_fnum})")
+                        # Prevent duplicate entries in the warning list if multiple files/rows are processed
+                        entry_str = f"{officer_payload['rank']} {officer_payload['name']} ({clean_fnum})"
+                        if entry_str not in skipped_archived:
+                            skipped_archived.append(entry_str)
                         continue
                         
                     valid_cols = [c.key for c in ActiveModel.__table__.columns]
