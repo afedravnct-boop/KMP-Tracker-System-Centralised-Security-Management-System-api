@@ -249,7 +249,7 @@ async def bulk_upload_nominal_roll(
             pass
         return None
 
-    try:
+try:
         for single_file in file_list:
             contents = await single_file.read()
             filename = single_file.filename.lower()
@@ -261,37 +261,48 @@ async def bulk_upload_nominal_roll(
             else:
                 continue
 
-            df.columns = [str(col).strip().lower().replace(" ", "_").replace("/", "_") for col in df.columns]
+            # 🟢 1. BULLETPROOF HEADER MAPPING (Ignores slashes, dots, and spaces)
+            def standardize_header(h):
+                h = str(h).lower().strip()
+                # Catch specific police acronyms first
+                h = h.replace("f/no", "fnum").replace("f-no", "fnum").replace("force no", "fnum")
+                h = h.replace("d.o.b", "dob").replace("d.o.e", "doe").replace("d.o.p", "dopost")
+                return re.sub(r'[^a-z0-9]', '', h) # Erases all remaining special characters
+                
+            df.columns = [standardize_header(col) for col in df.columns]
             
-            # 🟢 Force strict date parsing across the entire dataframe
-            date_columns = ['dob', 'date_of_birth', 'doe', 'date_of_enlistment', 'do_post', 'dopost', 'dop', 'do_pro', 'dopro']
+            # 🟢 2. UPDATED DATE COERCION
+            date_columns = ['dob', 'dateofbirth', 'doe', 'dateofenlistment', 'dopost', 'dop', 'dopro', 'dateofpromotion']
             for col in date_columns:
                 if col in df.columns:
                     df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
 
-            # Catch all Pandas NaT, NaN, and empty strings
             df = df.replace({np.nan: None, pd.NaT: None, 'nan': None, 'NaN': None, 'NaT': None, '': None})
 
-            for _, row in df.iterrows():
-                fnum_val = row.get("f_num") or row.get("fnum") or row.get("force_number") or row.get("file_number")
-                ipps_val = clean_numeric(row.get("ipps"))
-                nin_val = clean_numeric(row.get("nin"))
+            for idx, row in df.iterrows():
+                # 🟢 3. FUZZY ROW GETTERS
+                fnum_val = row.get("fnum") or row.get("forceno") or row.get("forcenumber") or row.get("fileno") or row.get("fno")
+                ipps_val = clean_numeric(row.get("ipps") or row.get("ippsno") or row.get("ippsnumber"))
+                nin_val = clean_numeric(row.get("nin") or row.get("nationalid") or row.get("ninno"))
                 
-                # 🟢 THE FIX: Civilian Fallback Check
+                # Civilian Fallback Check
                 if not fnum_val or str(fnum_val).strip().lower() in ['nan', 'nat', 'none', 'null', '']:
                     if ipps_val: fnum_val = f"CIV-IPPS-{ipps_val}"
                     elif nin_val: fnum_val = f"CIV-NIN-{nin_val}"
-                    else: continue # Completely blank ghost row
+                    else: 
+                        name_val = str(row.get("name") or "Unknown Person")
+                        skipped_blank.append(f"Row {idx+2}: {name_val} (Missing F/No, IPPS, & NIN)")
+                        continue 
 
                 clean_fnum = str(fnum_val).strip().upper()
                 stn_val = str(row.get("station") or current_user.station or "HQ").strip().upper()
                 reg_val, dist_val = auto_infer_geography(stn_val, row.get("region"), row.get("district"))
 
                 # Strict SQL DATE parsing
-                dob_val = parse_safe_date(row.get("dob") or row.get("date_of_birth"))
-                doe_val = parse_safe_date(row.get("doe") or row.get("date_of_enlistment"))
-                dopost_val = parse_safe_date(row.get("do_post") or row.get("dopost") or row.get("dop"))
-                dopro_val = parse_safe_date(row.get("do_pro") or row.get("dopro"))
+                dob_val = parse_safe_date(row.get("dob") or row.get("dateofbirth"))
+                doe_val = parse_safe_date(row.get("doe") or row.get("dateofenlistment"))
+                dopost_val = parse_safe_date(row.get("dopost") or row.get("dop"))
+                dopro_val = parse_safe_date(row.get("dopro") or row.get("dateofpromotion"))
 
                 officer_payload = {
                     "rank": str(row.get("rank") or "CIVILIAN").strip().upper(),
@@ -302,20 +313,20 @@ async def bulk_upload_nominal_roll(
                     "doe": doe_val,
                     "do_post": dopost_val,
                     "do_pro": dopro_val,
-                    "contact": clean_numeric(row.get("contact") or row.get("phone")),
-                    "educ_level": normalize_education_level(row.get("educ_level") or row.get("educlevel") or row.get("education")),
+                    "contact": clean_numeric(row.get("contact") or row.get("phone") or row.get("phonenumber")),
+                    "educ_level": normalize_education_level(row.get("educlevel") or row.get("education") or row.get("educationlevel")),
                     "ipps": ipps_val,
-                    "tin": clean_numeric(row.get("tin")),
+                    "tin": clean_numeric(row.get("tin") or row.get("tinno") or row.get("tinnumber")),
                     "nin": nin_val,
-                    "home_dist": str(row.get("home_dist") or row.get("homedist") or "") or None,
+                    "home_dist": str(row.get("homedist") or row.get("homedistrict") or "") or None,
                     "tribe": str(row.get("tribe") or "") or None,
-                    "acc_no": clean_numeric(row.get("acc_no") or row.get("accno")),
-                    "bank_branch": str(row.get("bank_branch") or row.get("bankbranch") or "") or None,
+                    "acc_no": clean_numeric(row.get("accno") or row.get("accountno") or row.get("accountnumber")),
+                    "bank_branch": str(row.get("bankbranch") or row.get("bank") or "") or None,
                     "station": stn_val,
                     "district": dist_val,
                     "region": reg_val,
                     "section": str(row.get("section") or "") or None,
-                    "dir": str(row.get("dir") or "") or None,
+                    "dir": str(row.get("dir") or row.get("directorate") or "") or None,
                     "status": str(row.get("status") or "ACTIVE").strip().upper(),
                     "last_updated_by": officer_sig
                 }

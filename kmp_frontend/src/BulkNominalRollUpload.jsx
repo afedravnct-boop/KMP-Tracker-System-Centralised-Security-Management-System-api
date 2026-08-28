@@ -6,7 +6,7 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState(null);
-  const [status, setStatus] = useState('idle'); // 'idle', 'success', 'warning', 'error'
+  const [status, setStatus] = useState('idle');
   
   const fileInputRef = useRef(null);
 
@@ -31,9 +31,6 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
     setStatus('idle');
 
     const formData = new FormData();
-    
-    // 🟢 Always append using the key "file" which FastAPI natively expects. 
-    // If multiple=true is used, FastAPI will accept it as a List[UploadFile] under the "file" key.
     files.forEach((file) => {
       formData.append("file", file);
     });
@@ -41,8 +38,6 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
     try {
       const response = await authFetch('/api/v1/nominal-roll/bulk-upload', {
         method: 'POST',
-        // Note: Do NOT manually set the Content-Type header here. 
-        // Our api.js correctly allows the browser to set the 'multipart/form-data' boundary automatically.
         body: formData
       });
 
@@ -51,27 +46,37 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
       if (response.ok) {
         setStatus(data.status === 'warning' ? 'warning' : 'success');
         
-        // 🟢 THE FIX: Explicitly list archived returnees and explain WHY they must use the form
-        if (data.skipped && data.skipped.length > 0) {
+        const hasArchived = data.skipped && data.skipped.length > 0;
+        const hasBlanks = data.skipped_blank && data.skipped_blank.length > 0;
+
+        if (hasArchived || hasBlanks) {
           setMessage(
-            <div className="flex flex-col space-y-2">
-              <p className="font-bold text-amber-900 dark:text-amber-300">{data.message}</p>
-              <div className="bg-amber-100/50 dark:bg-amber-900/40 p-3 rounded-lg border border-amber-300 dark:border-amber-700/50 shadow-inner">
-                <p className="font-bold text-red-700 dark:text-red-400 underline mb-1.5 flex items-center">
-                  <AlertTriangle size={14} className="mr-1" /> MANUAL RE-INTEGRATION REQUIRED
-                </p>
-                <p className="text-[11px] text-amber-900 dark:text-amber-200 mb-2 leading-relaxed font-medium">
-                  The following <strong>{data.skipped.length} officers</strong> were found in the Archive Ledger. Because officers often return on transfer with new ranks or different positions (but the same particulars), the system requires you to directly enter them using the <strong>"Register New"</strong> input form. 
-                  <br/><br/>
-                  This ensures their historical archive is preserved while explicitly capturing their new deployment status and Re-integration Reason.
-                </p>
-                <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded p-2 max-h-32 overflow-y-auto custom-scrollbar">
-                  <ul className="list-disc pl-4 space-y-1 text-red-800 dark:text-red-400 text-[11px] font-mono font-bold">
-                    {data.skipped.slice(0, 15).map((officer, i) => <li key={i}>{officer}</li>)}
-                    {data.skipped.length > 15 && <li className="italic text-amber-700 dark:text-amber-500">...and {data.skipped.length - 15} more officers.</li>}
-                  </ul>
+            <div className="flex flex-col space-y-3 w-full">
+              <p className="font-bold text-amber-900 dark:text-amber-300 text-xs">{data.message}</p>
+              
+              {hasArchived && (
+                <div className="bg-amber-100/60 dark:bg-amber-900/40 p-2.5 rounded-lg border border-amber-300 dark:border-amber-700/50">
+                  <p className="font-bold text-red-700 dark:text-red-400 text-[11px] mb-1">⚠️ {data.skipped.length} OFFICERS IN ARCHIVE (Manual Re-entry Required):</p>
+                  <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded p-1.5 max-h-24 overflow-y-auto custom-scrollbar">
+                    <ul className="list-disc pl-4 space-y-0.5 text-red-800 dark:text-red-400 text-[10px] font-mono font-bold">
+                      {data.skipped.slice(0, 15).map((off, i) => <li key={i}>{off}</li>)}
+                      {data.skipped.length > 15 && <li className="italic text-amber-700 dark:text-amber-500">...and {data.skipped.length - 15} more.</li>}
+                    </ul>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {hasBlanks && (
+                <div className="bg-slate-100 dark:bg-slate-800 p-2.5 rounded-lg border border-slate-300 dark:border-slate-600">
+                  <p className="font-bold text-slate-700 dark:text-slate-300 text-[11px] mb-1">🚫 {data.skipped_blank.length} ROWS REJECTED (Missing Identifiers):</p>
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded p-1.5 max-h-24 overflow-y-auto custom-scrollbar">
+                    <ul className="list-disc pl-4 space-y-0.5 text-slate-800 dark:text-slate-400 text-[10px] font-mono">
+                      {data.skipped_blank.slice(0, 15).map((row, i) => <li key={i}>{row}</li>)}
+                      {data.skipped_blank.length > 15 && <li className="italic text-slate-500">...and {data.skipped_blank.length - 15} more.</li>}
+                    </ul>
+                  </div>
+                </div>
+              )}
             </div>
           );
         } else {
@@ -97,7 +102,6 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
 
   return (
     <div className="space-y-4 w-full">
-      {/* Upload Controls */}
       <div className="flex flex-col sm:flex-row items-center gap-3">
         <input 
           ref={fileInputRef}
@@ -123,9 +127,8 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
         </button>
       </div>
 
-      {/* Status / Message Display */}
       {message && (
-        <div className={`p-4 rounded-xl border text-xs leading-relaxed font-medium shadow-sm max-h-40 overflow-y-auto custom-scrollbar break-words flex items-start transition-colors ${
+        <div className={`p-4 rounded-xl border text-xs leading-relaxed font-medium shadow-sm max-h-48 overflow-y-auto custom-scrollbar break-words flex items-start transition-colors ${
           status === 'error' ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-900/50 text-red-800 dark:text-red-300' : 
           status === 'warning' ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-300' : 
           status === 'success' ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-emerald-900/50 text-green-800 dark:text-emerald-300' : 
