@@ -43,7 +43,7 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
 
       const data = await response.json().catch(() => ({}));
 
-      if (response.ok) {
+if (response.ok) {
         setStatus(data.status === 'warning' ? 'warning' : 'success');
         
         const hasArchived = data.skipped && data.skipped.length > 0;
@@ -52,7 +52,19 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
         if (hasArchived || hasBlanks) {
           setMessage(
             <div className="flex flex-col space-y-3 w-full">
-              <p className="font-bold text-amber-900 dark:text-amber-300 text-xs">{data.message}</p>
+              {/* 🟢 Added Flex Header with Dismiss Button */}
+              <div className="flex justify-between items-start border-b pb-1 border-amber-300 dark:border-amber-700">
+                <p className="font-bold text-amber-900 dark:text-amber-300 text-xs pr-4">{data.message}</p>
+                <button 
+                  onClick={() => {
+                    setMessage(null);
+                    if (onUploadSuccess) onUploadSuccess();
+                  }} 
+                  className="shrink-0 text-[10px] bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-200 px-2 py-1 rounded font-bold hover:bg-amber-300 cursor-pointer transition-colors"
+                >
+                  Dismiss & Refresh
+                </button>
+              </div>
               
               {hasArchived && (
                 <div className="bg-amber-100/60 dark:bg-amber-900/40 p-2.5 rounded-lg border border-amber-300 dark:border-amber-700/50">
@@ -80,25 +92,16 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
             </div>
           );
         } else {
+          // 🟢 Only auto-refresh if the upload was 100% clean
           setMessage(data.message || "Bulk upload completed successfully.");
-        }
-        
-        if (onUploadSuccess && (data.status === 'success' || data.status === 'warning')) {
-          onUploadSuccess();
+          if (onUploadSuccess) {
+            onUploadSuccess();
+          }
         }
       } else {
         setMessage(data.detail || data.message || "An error occurred during upload. Check your column headers.");
         setStatus('error');
       }
-    } catch (error) {
-      setMessage(`Upload error: ${error.message}`);
-      setStatus('error');
-    } finally {
-      setUploading(false);
-      setFiles([]);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
 
   return (
     <div className="space-y-4 w-full">
