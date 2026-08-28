@@ -191,7 +191,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
     const activeRegion = (filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion.trim().toUpperCase() : null;
     const activeStation = (filterStation && filterStation !== 'ALL STATIONS') ? filterStation.trim().toUpperCase() : null;
 
-    const results = reports.filter(r => {
+    return reports.filter(r => {
       if (r.is_hq_general_total || (r.offence || '').toUpperCase().includes("LOCK-UP TOTAL")) return false;
 
       const stn = stripHtmlTags(r.station || '').trim().toUpperCase();
@@ -246,7 +246,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         if (!textMatch) return false;
       }
       
-      // 🟢 FIX: Corrected variable to `r.date`
       const diffDays = Math.ceil(Math.abs(new Date() - new Date(r.date)) / (1000 * 60 * 60 * 24));
       
       if (dateFilter === 'TODAY') {
@@ -257,15 +256,14 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       else if (dateFilter === 'LAST 14 DAYS') { if (diffDays > 14) return false; } 
       else if (dateFilter === 'LAST 21 DAYS') { if (diffDays > 21) return false; } 
       else if (dateFilter === 'LAST 30 DAYS') { if (diffDays > 30) return false; } 
+      else if (dateFilter === 'LAST 60 DAYS') { if (diffDays > 60) return false; } 
       else if (dateFilter === 'LAST 90 DAYS') { if (diffDays > 90) return false; } 
       else if (dateFilter === 'LAST 120 DAYS') { if (diffDays > 120) return false; } 
       else if (dateFilter === 'LAST 180 DAYS') { if (diffDays > 180) return false; }
       
       return true;
-    });
+    }); // 🟢 FIX: Added the missing closing bracket for the filter method here!
 
-    return results;
-  // 🟢 FIX: Ensure 'reports' is in the dependency array
   }, [reports, filterRegion, filterStation, dateFilter, canViewGlobalActive, showAgriculturalOnly, searchQuery]);
 
   const isStationSpecific = filterStation && filterStation !== 'ALL STATIONS';

@@ -255,7 +255,16 @@ async def bulk_upload_nominal_roll(
                 continue
 
             df.columns = [str(col).strip().lower().replace(" ", "_").replace("/", "_") for col in df.columns]
-            df = df.replace({np.nan: None, 'NaT': None, 'NaN': None})
+            
+            # 🟢 THE FIX: Force strict date parsing across the entire dataframe
+            date_columns = ['dob', 'date_of_birth', 'doe', 'date_of_enlistment', 'do_post', 'dopost', 'dop', 'do_pro', 'dopro']
+            for col in date_columns:
+                if col in df.columns:
+                    # errors='coerce' turns bad text/spaces into NaT (Not a Time) while keeping real dates untouched
+                    df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
+
+            # 🟢 UPDATED REPLACEMENT: Catch all Pandas NaT, NaN, and empty strings
+            df = df.replace({np.nan: None, pd.NaT: None, 'nan': None, 'NaN': None, 'NaT': None, '': None})
 
             for _, row in df.iterrows():
                 fnum_val = row.get("f_num") or row.get("fnum") or row.get("force_number") or row.get("file_number")
@@ -267,7 +276,7 @@ async def bulk_upload_nominal_roll(
                 stn_val = str(row.get("station") or current_user.station or "HQ").strip().upper()
                 reg_val, dist_val = auto_infer_geography(stn_val, row.get("region"), row.get("district"))
 
-                # Strict SQL DATE parsing
+                # Strict SQL DATE parsing (This stays exactly as you have it!)
                 dob_val = parse_safe_date(row.get("dob") or row.get("date_of_birth"))
                 doe_val = parse_safe_date(row.get("doe") or row.get("date_of_enlistment"))
                 dopost_val = parse_safe_date(row.get("do_post") or row.get("dopost") or row.get("dop"))
