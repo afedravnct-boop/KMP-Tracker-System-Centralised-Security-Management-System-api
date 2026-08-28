@@ -439,7 +439,7 @@ def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = D
         print(f"Audit log fetch error: {e}")
         return []
 
-@app.put("/api/v1/users/{fnum}/access")
+@app.put("/api/v1/users/{fnum:path}/access")
 @app.post("/api/v1/admin/bulk-permissions")
 @app.put("/api/v1/admin/bulk-permissions")
 def update_user_access(
@@ -452,10 +452,19 @@ def update_user_access(
     if not target_fnum:
         raise HTTPException(status_code=400, detail="Officer force number (fnum) is required.")
 
-    clean_fnum = str(target_fnum).strip().upper()
+    # 🟢 Fully decode double-encoded slashes (%252F -> %2F -> /) and match case-insensitively
+    clean_fnum = unquote(unquote(target_fnum)).strip().upper()
+    
     user = db.query(models.Users).filter(
         func.trim(func.upper(models.Users.fnum)) == clean_fnum
     ).first()
+    
+    # Fallback query if formatting lacks slashes in storage
+    if not user:
+        alt_fnum = clean_fnum.replace('/', '')
+        user = db.query(models.Users).filter(
+            func.trim(func.upper(models.Users.fnum)) == alt_fnum
+        ).first()
     
     if not user:
         raise HTTPException(status_code=404, detail="Officer record not found.")
