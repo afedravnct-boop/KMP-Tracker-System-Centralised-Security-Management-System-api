@@ -49,8 +49,34 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
       const data = await response.json().catch(() => ({}));
 
       if (response.ok) {
-        setMessage(data.message || "Bulk upload completed successfully.");
         setStatus(data.status === 'warning' ? 'warning' : 'success');
+        
+        // 🟢 THE FIX: Explicitly list archived returnees and explain WHY they must use the form
+        if (data.skipped && data.skipped.length > 0) {
+          setMessage(
+            <div className="flex flex-col space-y-2">
+              <p className="font-bold text-amber-900 dark:text-amber-300">{data.message}</p>
+              <div className="bg-amber-100/50 dark:bg-amber-900/40 p-3 rounded-lg border border-amber-300 dark:border-amber-700/50 shadow-inner">
+                <p className="font-bold text-red-700 dark:text-red-400 underline mb-1.5 flex items-center">
+                  <AlertTriangle size={14} className="mr-1" /> MANUAL RE-INTEGRATION REQUIRED
+                </p>
+                <p className="text-[11px] text-amber-900 dark:text-amber-200 mb-2 leading-relaxed font-medium">
+                  The following <strong>{data.skipped.length} officers</strong> were found in the Archive Ledger. Because officers often return on transfer with new ranks or different positions (but the same particulars), the system requires you to directly enter them using the <strong>"Register New"</strong> input form. 
+                  <br/><br/>
+                  This ensures their historical archive is preserved while explicitly capturing their new deployment status and Re-integration Reason.
+                </p>
+                <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded p-2 max-h-32 overflow-y-auto custom-scrollbar">
+                  <ul className="list-disc pl-4 space-y-1 text-red-800 dark:text-red-400 text-[11px] font-mono font-bold">
+                    {data.skipped.slice(0, 15).map((officer, i) => <li key={i}>{officer}</li>)}
+                    {data.skipped.length > 15 && <li className="italic text-amber-700 dark:text-amber-500">...and {data.skipped.length - 15} more officers.</li>}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          );
+        } else {
+          setMessage(data.message || "Bulk upload completed successfully.");
+        }
         
         if (onUploadSuccess && (data.status === 'success' || data.status === 'warning')) {
           onUploadSuccess();

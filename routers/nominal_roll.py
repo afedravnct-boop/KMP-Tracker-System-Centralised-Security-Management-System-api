@@ -197,7 +197,7 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     return clean_results
 
 # ====================================================================
-# 2. BULK NOMINAL ROLL IMPORT / EXCEL BATCH PROCESSING (STRICT DATE COERCION)
+# 2. BULK NOMINAL ROLL IMPORT / EXCEL BATCH PROCESSING 
 # ====================================================================
 @router.post("/nominal-roll/bulk-upload")
 @router.post("/nominal-roll/upload")
@@ -208,6 +208,8 @@ async def bulk_upload_nominal_roll(
     current_user: models.Users = Depends(get_current_user)
 ):
     ActiveModel = get_active_model()
+    ArchiveModel = get_archive_model()
+    
     file_list = []
     if files:
         file_list.extend(files)
@@ -219,25 +221,30 @@ async def bulk_upload_nominal_roll(
 
     inserted_count = 0
     updated_count = 0
+    skipped_archived = []
     officer_sig = get_officer_signature(current_user)
+
+    # 🟢 THE FIX: Clean out .0 from purely numeric Excel identifiers
+    def clean_numeric(val):
+        if pd.isna(val) or val is None: return None
+        s = str(val).strip()
+        if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
+        if s.endswith('.0'): s = s[:-2]
+        return s
 
     def parse_safe_date(val) -> Optional[date]:
         """Strictly coerces incoming date values into a Python date object or None for SQL DATE compatibility."""
-        if val is None:
-            return None
-        if isinstance(val, date) and not isinstance(val, datetime):
-            return val
-        if isinstance(val, datetime):
-            return val.date()
+        if pd.isna(val) or val is None: return None
+        if isinstance(val, date) and not isinstance(val, datetime): return val
+        if isinstance(val, datetime): return val.date()
+        if type(val).__name__ == 'Timestamp': return val.date()
         
         val_str = str(val).strip()
-        if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-']:
-            return None
+        if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-']: return None
             
         try:
             parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
-            if pd.notna(parsed):
-                return parsed.date()
+            if pd.notna(parsed): return parsed.date()
         except Exception:
             pass
         return None
@@ -256,34 +263,38 @@ async def bulk_upload_nominal_roll(
 
             df.columns = [str(col).strip().lower().replace(" ", "_").replace("/", "_") for col in df.columns]
             
-            # 🟢 THE FIX: Force strict date parsing across the entire dataframe
+            # 🟢 Force strict date parsing across the entire dataframe
             date_columns = ['dob', 'date_of_birth', 'doe', 'date_of_enlistment', 'do_post', 'dopost', 'dop', 'do_pro', 'dopro']
             for col in date_columns:
                 if col in df.columns:
-                    # errors='coerce' turns bad text/spaces into NaT (Not a Time) while keeping real dates untouched
                     df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
 
-            # 🟢 UPDATED REPLACEMENT: Catch all Pandas NaT, NaN, and empty strings
+            # Catch all Pandas NaT, NaN, and empty strings
             df = df.replace({np.nan: None, pd.NaT: None, 'nan': None, 'NaN': None, 'NaT': None, '': None})
 
             for _, row in df.iterrows():
                 fnum_val = row.get("f_num") or row.get("fnum") or row.get("force_number") or row.get("file_number")
+                ipps_val = clean_numeric(row.get("ipps"))
+                nin_val = clean_numeric(row.get("nin"))
                 
+                # 🟢 THE FIX: Civilian Fallback Check
                 if not fnum_val or str(fnum_val).strip().lower() in ['nan', 'nat', 'none', 'null', '']:
-                    continue
+                    if ipps_val: fnum_val = f"CIV-IPPS-{ipps_val}"
+                    elif nin_val: fnum_val = f"CIV-NIN-{nin_val}"
+                    else: continue # Completely blank ghost row
 
                 clean_fnum = str(fnum_val).strip().upper()
                 stn_val = str(row.get("station") or current_user.station or "HQ").strip().upper()
                 reg_val, dist_val = auto_infer_geography(stn_val, row.get("region"), row.get("district"))
 
-                # Strict SQL DATE parsing (This stays exactly as you have it!)
+                # Strict SQL DATE parsing
                 dob_val = parse_safe_date(row.get("dob") or row.get("date_of_birth"))
                 doe_val = parse_safe_date(row.get("doe") or row.get("date_of_enlistment"))
                 dopost_val = parse_safe_date(row.get("do_post") or row.get("dopost") or row.get("dop"))
                 dopro_val = parse_safe_date(row.get("do_pro") or row.get("dopro"))
 
                 officer_payload = {
-                    "rank": str(row.get("rank") or "PC").strip().upper(),
+                    "rank": str(row.get("rank") or "CIVILIAN").strip().upper(),
                     "name": str(row.get("name") or "UNKNOWN").strip().title(),
                     "sex": normalize_sex(row.get("sex") or row.get("gender")),
                     "position": str(row.get("position") or row.get("title") or "GENERAL DUTIES").strip().upper(),
@@ -291,14 +302,14 @@ async def bulk_upload_nominal_roll(
                     "doe": doe_val,
                     "do_post": dopost_val,
                     "do_pro": dopro_val,
-                    "contact": str(row.get("contact") or row.get("phone") or "") or None,
+                    "contact": clean_numeric(row.get("contact") or row.get("phone")),
                     "educ_level": normalize_education_level(row.get("educ_level") or row.get("educlevel") or row.get("education")),
-                    "ipps": str(row.get("ipps") or "") or None,
-                    "tin": str(row.get("tin") or "") or None,
-                    "nin": str(row.get("nin") or "") or None,
+                    "ipps": ipps_val,
+                    "tin": clean_numeric(row.get("tin")),
+                    "nin": nin_val,
                     "home_dist": str(row.get("home_dist") or row.get("homedist") or "") or None,
                     "tribe": str(row.get("tribe") or "") or None,
-                    "acc_no": str(row.get("acc_no") or row.get("accno") or "") or None,
+                    "acc_no": clean_numeric(row.get("acc_no") or row.get("accno")),
                     "bank_branch": str(row.get("bank_branch") or row.get("bankbranch") or "") or None,
                     "station": stn_val,
                     "district": dist_val,
@@ -309,7 +320,7 @@ async def bulk_upload_nominal_roll(
                     "last_updated_by": officer_sig
                 }
 
-                for key, value in officer_payload.items():
+                for key, value in list(officer_payload.items()):
                     if isinstance(value, str) and value.strip().lower() in ['nan', 'nat', 'none', 'null', '']:
                         officer_payload[key] = None
                     elif isinstance(value, float) and math.isnan(value):
@@ -334,16 +345,31 @@ async def bulk_upload_nominal_roll(
                             setattr(existing, k, v)
                     updated_count += 1
                 else:
+                    # 🟢 THE FIX: CHECK ARCHIVE TO PREVENT OVERWRITING HISTORY
+                    arc_filter = []
+                    if hasattr(ArchiveModel, 'f_num'): arc_filter.append(ArchiveModel.f_num == clean_fnum)
+                    if hasattr(ArchiveModel, 'fnum'): arc_filter.append(ArchiveModel.fnum == clean_fnum)
+                    
+                    is_archived = db.query(ArchiveModel).filter(or_(*arc_filter)).first()
+                    
+                    if is_archived:
+                        skipped_archived.append(f"{officer_payload['rank']} {officer_payload['name']} ({clean_fnum})")
+                        continue
+                        
                     valid_cols = [c.key for c in ActiveModel.__table__.columns]
                     safe_payload = {k: v for k, v in officer_payload.items() if k in valid_cols}
                     new_entry = ActiveModel(**safe_payload)
                     db.add(new_entry)
                     inserted_count += 1
+                
+                db.flush()
 
         db.commit()
+        
         return {
-            "status": "success",
-            "message": f"Batch process complete. {inserted_count} new personnel recorded, {updated_count} updated."
+            "status": "warning" if skipped_archived else "success",
+            "message": f"Batch process complete. {inserted_count} new personnel recorded, {updated_count} updated.",
+            "skipped": skipped_archived
         }
 
     except Exception as e:
@@ -433,7 +459,7 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             new_record.last_updated_by = get_officer_signature(current_user)
             
             db.add(new_record)
-            db.delete(archived_officer)
+            # 🟢 THE FIX: Removed db.delete(archived_officer) to preserve history!
             db.commit()
             
             assigned_id = getattr(new_record, 'id', getattr(new_record, 'sn', 1))
