@@ -111,15 +111,15 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   }, [canViewGlobal, currentUser?.station, currentUser?.region]);
 
-  const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
-  const [archiveDetails, setArchiveDetails] = useState(null);
-  const [customReason, setCustomReason] = useState('');
-  const [previousFnum, setPreviousFnum] = useState('');
-
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [selectedOfficers, setSelectedOfficers] = useState([]);
   const [bulkArchiveReason, setBulkArchiveReason] = useState('TRANSFERRED');
   const [isBulkArchiving, setIsBulkArchiving] = useState(false);
+
+  const [isArchivedReturnee, setIsArchivedReturnee] = useState(false);
+  const [archiveDetails, setArchiveDetails] = useState(null);
+  const [customReason, setCustomReason] = useState('');
+  const [previousFnum, setPreviousFnum] = useState('');
 
   const [viewMode, setViewMode] = useState('active'); 
   const [showAnalytics, setShowAnalytics] = useState(false); 
