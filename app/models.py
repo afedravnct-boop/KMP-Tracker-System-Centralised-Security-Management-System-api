@@ -182,6 +182,10 @@ class NominalRoll(Base):
     region = Column(String)
     section = Column(String)
     dir = Column(String)
+    
+    # 🟢 NEW: Added exactly where requested
+    reintegration_reason = Column(String, nullable=True) 
+    
     status = Column(String)
     last_updated_by = Column(String)
     created_at = Column(DateTime, server_default=func.now())
@@ -395,11 +399,11 @@ class LockupMatrix(Base):
 
     sn = Column(Integer, primary_key=True, index=True, autoincrement=True)
     sd_ref = Column(String, unique=True, index=True, nullable=False) 
-    date = Column(String, index=True, nullable=False)               
+    date = Column(String, index=True, nullable=False)                
     time = Column(String, nullable=True)                               
     region = Column(String, index=True, nullable=False)              
     station = Column(String, index=True, nullable=False)             
-    suspects = Column(Integer, default=0, nullable=False)             
+    suspects = Column(Integer, default=0, nullable=False)              
     
     male_count = Column(Integer, default=0, nullable=False)          
     male_juvenile_count = Column(Integer, default=0, nullable=False)

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field, EmailStr
+from pydantic import BaseModel, ConfigDict, Field, EmailStr, AliasChoices
 from typing import Optional, List, Union, Dict, Any
 from datetime import datetime, date
 
@@ -160,51 +160,94 @@ class EstablishmentResponse(EstablishmentBase):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 # ==========================================
-# 5. NOMINAL ROLL (Personnel Registry)
+# 5. NOMINAL ROLL (Personnel Registry - ACTIVE)
 # ==========================================
 class NominalRollCreate(BaseModel):
     sn: Optional[int] = None
-    fnum: str = Field(..., validation_alias="f_num")
+    f_num: str = Field(..., validation_alias=AliasChoices("fnum", "f_num"))
     rank: str
     name: str
     sex: Optional[str] = "MALE"
     position: Optional[str] = ""
     dob: Optional[str] = ""
     doe: Optional[str] = ""
-    doPost: Optional[str] = Field(None, validation_alias="do_post")
-    doPro: Optional[str] = Field(None, validation_alias="do_pro")
+    do_post: Optional[str] = Field(None, validation_alias=AliasChoices("do_post", "dopost", "doPost"))
+    do_pro: Optional[str] = Field(None, validation_alias=AliasChoices("do_pro", "dopro", "doPro"))
     contact: Optional[str] = ""
-    educLevel: Optional[str] = Field(None, validation_alias="educ_level")
+    educ_level: Optional[str] = Field(None, validation_alias=AliasChoices("educ_level", "educlevel", "educLevel"))
     ipps: Optional[str] = ""
     tin: Optional[str] = ""
     nin: Optional[str] = ""
-    homeDist: Optional[str] = Field(None, validation_alias="home_dist")
+    home_dist: Optional[str] = Field(None, validation_alias=AliasChoices("home_dist", "homedist", "homeDist"))
     tribe: Optional[str] = ""
-    accNo: Optional[str] = Field(None, validation_alias="acc_no")
-    bankBranch: Optional[str] = Field(None, validation_alias="bank_branch")
+    acc_no: Optional[str] = Field(None, validation_alias=AliasChoices("acc_no", "accno", "accNo"))
+    bank_branch: Optional[str] = Field(None, validation_alias=AliasChoices("bank_branch", "bankbranch", "bankBranch"))
     station: str
     district: Optional[str] = ""
     region: str
     section: Optional[str] = ""
     dir: Optional[str] = ""
+    
+    # Reintegration specific fields
+    reintegration_reason: Optional[str] = None 
+    previous_fnum: Optional[str] = None
+    
     status: Optional[str] = "ACTIVE"
-    archiveReason: Optional[str] = Field(None, validation_alias="archive_reason")
-    archiveDate: Optional[str] = Field(None, validation_alias="archive_date")
     last_updated_by: Optional[str] = None
     created_at: Optional[datetime] = None
 
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)    
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 class NominalRollResponse(NominalRollCreate):
     id: int
+
+
+# ==========================================
+# 6. NOMINAL ROLL ARCHIVE (Historical Ledger)
+# ==========================================
+class NominalRollArchiveResponse(BaseModel):
+    id: int
+    sn: Optional[int] = None
     
+    # Explicitly matching the archive table columns without underscores
+    fnum: str = Field(..., validation_alias=AliasChoices("fnum", "f_num"))
+    rank: str
+    name: str
+    sex: Optional[str] = "MALE"
+    position: Optional[str] = ""
+    dob: Optional[str] = ""
+    doe: Optional[str] = ""
+    dopost: Optional[str] = Field(None, validation_alias=AliasChoices("do_post", "dopost", "doPost"))
+    dopro: Optional[str] = Field(None, validation_alias=AliasChoices("do_pro", "dopro", "doPro"))
+    contact: Optional[str] = ""
+    educlevel: Optional[str] = Field(None, validation_alias=AliasChoices("educ_level", "educlevel", "educLevel"))
+    ipps: Optional[str] = ""
+    tin: Optional[str] = ""
+    nin: Optional[str] = ""
+    homedist: Optional[str] = Field(None, validation_alias=AliasChoices("home_dist", "homedist", "homeDist"))
+    tribe: Optional[str] = ""
+    accno: Optional[str] = Field(None, validation_alias=AliasChoices("acc_no", "accno", "accNo"))
+    bankbranch: Optional[str] = Field(None, validation_alias=AliasChoices("bank_branch", "bankbranch", "bankBranch"))
+    station: str
+    district: Optional[str] = ""
+    region: str
+    section: Optional[str] = ""
+    dir: Optional[str] = ""
+    status: Optional[str] = "ARCHIVED"
+    last_updated_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+    
+    # Archive specific fields
+    archive_reason: Optional[str] = None
+    archive_date: Optional[date] = None
+
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 class ArchiveRequest(BaseModel):
     archive_reason: str
 
 # ==========================================
-# 6. USER ACCOUNTS
+# 7. USER ACCOUNTS
 # ==========================================
 class LoginRequest(BaseModel):
     fnum: str
@@ -253,7 +296,7 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 # ==========================================
-# 7. SYSTEM AUDIT LOGS & HR REQUESTS
+# 8. SYSTEM AUDIT LOGS & HR REQUESTS
 # ==========================================
 class ModificationRequestCreate(BaseModel):
     fnum: str
@@ -338,7 +381,7 @@ class LockupMatrixResponse(LockupMatrixBase):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 # ==========================================
-# 8. AI ASSISTANT SCHEMA
+# 9. AI ASSISTANT SCHEMA
 # ==========================================
 class AIQueryRequest(BaseModel):
     prompt: str
@@ -364,7 +407,7 @@ class AILogResponse(AILogBase):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 # ==========================================
-# 9. AGRICULTURAL CRIME SUMMARY LEDGER
+# 10. AGRICULTURAL CRIME SUMMARY LEDGER
 # ==========================================
 class AgricSummaryBase(BaseModel):
     region: str

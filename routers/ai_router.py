@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import traceback
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -87,11 +88,11 @@ async def process_tactical_query(
         if isinstance(user_perms, str):
             try:
                 user_perms = json.loads(user_perms)
-            except:
+            except Exception:
                 user_perms = {}
                 
-        has_ai_hr_access = current_user.role in ['SUPER_ADMIN', 'ADMIN'] or user_perms.get('ai_hr_access') == True
-        user_tier_scope = f"Global Scope (All Regions/Stations)" if is_global_viewer else f"Restricted Tier Scope: Station {current_user.station}, Region {current_user.region}"
+        has_ai_hr_access = current_user.role in ['SUPER_ADMIN', 'ADMIN'] or user_perms.get('ai_hr_access') is True
+        user_tier_scope = "Global Scope (All Regions/Stations)" if is_global_viewer else f"Restricted Tier Scope: Station {current_user.station}, Region {current_user.region}"
 
         live_data_context = ""
         agric_records = []
@@ -101,8 +102,8 @@ async def process_tactical_query(
 
         if db_queries_allowed:
             try:
-                AgricModel = getattr(models, 'Agricultural_Crime_Summary', None)
-                StatsModel = getattr(models, 'Operational_Statistics', None)
+                AgricModel = getattr(models, 'Agricultural_Crime_Summary', getattr(models, 'AgriculturalCrimeSummary', None))
+                StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', None))
                 
                 HrModel = None
                 for m_name in ['Nominal_Roll', 'NominalRoll', 'nominal_roll', 'NominalRolls']:
@@ -110,7 +111,7 @@ async def process_tactical_query(
                         HrModel = getattr(models, m_name)
                         break
                 if not HrModel:
-                    HrModel = getattr(models, 'User', None)
+                    HrModel = getattr(models, 'User', getattr(models, 'Users', None))
                 
                 agric_query = db.query(AgricModel) if AgricModel else None
                 stats_query = db.query(StatsModel) if StatsModel else None
@@ -135,11 +136,14 @@ async def process_tactical_query(
                         live_data_context += f"  * [{s.region} / {s.station}] Date: {s.date} | Arrested={s.arrested}, Remanded={s.remanded}, Convicted={s.convicted}\n"
                 
                 if has_ai_hr_access and HrModel:
+                    fnum_attr = getattr(HrModel, 'f_num', getattr(HrModel, 'fnum', getattr(HrModel, 'fNum', None)))
+                    id_col = getattr(HrModel, 'id', getattr(HrModel, 'sn', fnum_attr))
+                    
                     agg_query = db.query(
                         getattr(HrModel, 'rank', 'rank'),
                         getattr(HrModel, 'sex', 'sex'),
                         getattr(HrModel, 'status', 'status'),
-                        func.count(getattr(HrModel, 'id', getattr(HrModel, 'sn', HrModel.fnum)))
+                        func.count(id_col)
                     )
                     if not is_global_viewer and hasattr(HrModel, 'station'):
                         agg_query = agg_query.filter(HrModel.station == current_user.station)
@@ -155,7 +159,6 @@ async def process_tactical_query(
                         for r_rank, r_sex, r_status, r_count in hr_aggregates:
                             live_data_context += f"  * Rank: {r_rank} | Sex: {r_sex} | Status: {r_status} => Total: {r_count}\n"
                     
-                    # B. Detailed Personnel Directory with Smart Extractor
                     hr_sample_query = db.query(HrModel)
                     if not is_global_viewer and hasattr(HrModel, 'station'):
                         hr_sample_query = hr_sample_query.filter(HrModel.station == current_user.station)
@@ -169,14 +172,15 @@ async def process_tactical_query(
                         search_conditions = []
                         for term in search_terms:
                             term_cond = []
-                            # Search by safe operational identifiers
                             if hasattr(HrModel, 'name'): term_cond.append(HrModel.name.ilike(f"%{term}%"))
                             if hasattr(HrModel, 'f_num'): term_cond.append(HrModel.f_num.ilike(f"%{term}%"))
                             elif hasattr(HrModel, 'fnum'): term_cond.append(HrModel.fnum.ilike(f"%{term}%"))
+                            elif hasattr(HrModel, 'fNum'): term_cond.append(HrModel.fNum.ilike(f"%{term}%"))
                             if hasattr(HrModel, 'ipps'): term_cond.append(HrModel.ipps.ilike(f"%{term}%"))
                             if hasattr(HrModel, 'station'): term_cond.append(HrModel.station.ilike(f"%{term}%"))
                             
-                            search_conditions.append(or_(*term_cond))
+                            if term_cond:
+                                search_conditions.append(or_(*term_cond))
                         
                         if search_conditions:
                             hr_sample_query = hr_sample_query.filter(or_(*search_conditions))
@@ -186,8 +190,7 @@ async def process_tactical_query(
                     if hr_sample:
                         live_data_context += "- Nominal Roll Personnel Directory (SAFE OPSEC COLUMNS):\n"
                         for u in hr_sample:
-                            # 🟢 Stripped to EXACTLY the requested fields
-                            u_fnum = getattr(u, 'f_num', getattr(u, 'fnum', 'N/A'))
+                            u_fnum = getattr(u, 'f_num', getattr(u, 'fnum', getattr(u, 'fNum', 'N/A')))
                             u_rank = getattr(u, 'rank', 'N/A')
                             u_name = getattr(u, 'name', 'N/A')
                             u_age = getattr(u, 'age', getattr(u, 'dob', getattr(u, 'date_of_birth', 'N/A')))
@@ -202,7 +205,7 @@ async def process_tactical_query(
 
             except Exception as db_fetch_err:
                 print(f"Error fetching live data for AI: {db_fetch_err}")
-                live_data_context += f"\n[Database extraction skipped due to formatting error]"
+                live_data_context += "\n[Database extraction skipped due to formatting error]"
         else:
             live_data_context = "🛑 System Note: Super Admin has disabled direct database querying for the AI. Responses are restricted to navigation guidance and uploaded document searches."
 
@@ -242,7 +245,7 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-        used_model = 'gemini-3.6-flash'
+        used_model = 'gemini-2.5-flash'
         try:
             response = client.models.generate_content(
                 model=used_model,
@@ -250,8 +253,8 @@ async def process_tactical_query(
                 config=types.GenerateContentConfig(system_instruction=system_rules)
             )
         except Exception as primary_err:
-            if "503" in str(primary_err) or "UNAVAILABLE" in str(primary_err):
-                print("Gemini 3.6 is experiencing high demand. Triggering automatic fallback to 1.5-flash...")
+            if "503" in str(primary_err) or "UNAVAILABLE" in str(primary_err) or "404" in str(primary_err):
+                print("Primary model demand fallback. Triggering gemini-1.5-flash...")
                 used_model = 'gemini-1.5-flash'
                 try:
                     response = client.models.generate_content(
@@ -260,29 +263,33 @@ async def process_tactical_query(
                         config=types.GenerateContentConfig(system_instruction=system_rules)
                     )
                 except Exception as fallback_err:
-                    raise Exception(f"All Google AI servers are currently overloaded. Please wait a moment and try again. Details: {str(fallback_err)}")
+                    raise Exception(f"AI server latency: {str(fallback_err)}")
             else:
                 raise primary_err
 
-        # 🟢 THE FIX: Save the AI Interaction to NeonDB
+        # 🟢 DIRECT DB LOGGING COMMIT TO NEONDB
         try:
-            AIModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
-            if AIModel:
-                new_ai_log = AIModel(
-                    fnum=current_user.fnum,
-                    prompt=payload.prompt,
-                    response=response.text,
-                    target_region=payload.target_region or current_user.region or "ALL REGIONS",
-                    target_station=payload.target_station or current_user.station or "ALL STATIONS"
+            LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
+            if LogModel:
+                new_ai_log = LogModel(
+                    fnum=str(current_user.fnum or "UNKNOWN"),
+                    prompt=str(payload.prompt),
+                    response=str(response.text if hasattr(response, 'text') else response),
+                    target_region=str(payload.target_region or current_user.region or "ALL REGIONS"),
+                    target_station=str(payload.target_station or current_user.station or "ALL STATIONS")
                 )
                 db.add(new_ai_log)
                 db.commit()
+                print(">> [AI LOG SUCCESS] Captured query in ai_command_logs table.")
+            else:
+                print(">> [AI LOG WARN] models.AI_Command_Logs model not located.")
         except Exception as db_err:
             db.rollback()
-            print(f"Failed to save AI log to NeonDB: {db_err}")
+            print(f">> [AI LOG ERROR] Failed to write query log: {db_err}")
+            traceback.print_exc()
 
         return {
-            "response": response.text,
+            "response": response.text if hasattr(response, 'text') else str(response),
             "metadata": {
                 "database_query_status": "Active (Tier Restricted)" if db_queries_allowed else "Disabled by Super Admin",
                 "jurisdiction_tier": user_tier_scope,
@@ -293,6 +300,5 @@ async def process_tactical_query(
         }
 
     except Exception as e:
-        import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Google API Connectivity Issue: {str(e)}")

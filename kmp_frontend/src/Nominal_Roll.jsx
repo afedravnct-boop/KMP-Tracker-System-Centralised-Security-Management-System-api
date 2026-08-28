@@ -164,26 +164,26 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
-const handleArchivePersonnel = async () => {
+  const handleArchivePersonnel = async () => {
     if (!canEditRecords) return alert("Security Restriction: You do not have clearance to archive personnel.");
     
-    // Ensure we safely capture the force number from any variant
-    const targetFnum = formData.fnum || formData.f_num || formData.ipps;  
+    // 🟢 Sanitize the Force Number to completely strip accidental suffixes like "/ARCHIVE"
+    let rawFnum = formData.fnum || formData.f_num || '';
+    const cleanTargetFnum = rawFnum.toString().split('/ARCHIVE')[0].trim();
     
-    if (!targetFnum || String(targetFnum).trim() === '') {
-      return alert("Missing Force Number or IPPS. Cannot archive this record.");
+    if (!cleanTargetFnum) {
+      return alert("Missing Force Number. Cannot archive this record.");
     }
     
-    const cleanFnum = String(targetFnum).trim().toUpperCase();
-
-    if (!window.confirm(`Are you sure you want to move ${formData.name || 'this officer'} (${cleanFnum}) to archives?`)) {
+    if (!window.confirm(`Are you sure you want to move ${formData.name} (${cleanTargetFnum}) to archives?`)) {
       return;
     }
 
     try {
       setNotification("Moving record to archive...");
       
-      const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(cleanFnum)}/archive`, {
+      // 🟢 DOUBLE ENCODE FIX: Bypasses Vercel/Render %2F 404 block for "A/2408"
+      const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(encodeURIComponent(cleanTargetFnum))}/archive`, {
         method: "PUT", 
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ archive_reason: archiveReason })
@@ -195,7 +195,7 @@ const handleArchivePersonnel = async () => {
       }
 
       const archivedRecord = {
-          sn: formData.sn, f_num: targetFnum, rank: formData.rank, name: formData.name, sex: formData.sex, position: formData.position,
+          sn: formData.sn, f_num: cleanTargetFnum, rank: formData.rank, name: formData.name, sex: formData.sex, position: formData.position,
           dob: formData.dob, doe: formData.doe, do_post: formData.dopost, do_pro: formData.dopro, contact: formData.contact, educ_level: formData.educlevel,         
           ipps: formData.ipps, tin: formData.tin, nin: formData.nin, home_dist: formData.homedist, tribe: formData.tribe, acc_no: formData.accno,         
           bank_branch: formData.bankbranch, station: formData.station, district: formData.district, region: formData.region, section: formData.section,
@@ -204,7 +204,7 @@ const handleArchivePersonnel = async () => {
       };
       
       setNominal_Roll_archives([archivedRecord, ...(Array.isArray(Nominal_Roll_archives) ? Nominal_Roll_archives : [])]);
-      setNominal_Rolls((Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => (n.fnum || n.f_num) !== targetFnum));
+      setNominal_Rolls((Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => (n.fnum || n.f_num) !== cleanTargetFnum));
       setNotification(`Officer ${formData.name} archived successfully.`);
       handleOperationToggle('new');
     } catch (error) { 
@@ -228,7 +228,8 @@ const handleArchivePersonnel = async () => {
 
     await Promise.all(selectedOfficers.map(async (targetFnum) => {
       try {
-        const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(targetFnum)}/archive`, {
+        // 🟢 DOUBLE ENCODE FIX: Bypasses Vercel/Render %2F 404 block for "A/2408"
+        const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(encodeURIComponent(targetFnum.trim()))}/archive`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ archive_reason: bulkArchiveReason })
@@ -316,7 +317,9 @@ const handleArchivePersonnel = async () => {
     } else if (operation === 'update') {
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       try {
-          const response = await authFetch(`/api/v1/nominal-roll/${formData.fnum || formData.f_num || formData.sn}`, {
+          // 🟢 DOUBLE ENCODE FIX: Bypasses Vercel/Render %2F 404 block for "A/2408"
+          const targetIdentifier = String(formData.fnum || formData.f_num || formData.sn).trim();
+          const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(encodeURIComponent(targetIdentifier))}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(updatedRecord) 

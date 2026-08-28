@@ -81,7 +81,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
-  
+ 
   const isSuperAdminOrTopCommand = (
     canViewGlobalActive ||
     userRoleClean === 'SUPER_ADMIN' ||
@@ -311,7 +311,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: newPermissions } : u));
 
     try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(encodeURIComponent(cleanFnum.trim()))}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
@@ -353,7 +353,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
 
     try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(encodeURIComponent(cleanFnum.trim()))}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
@@ -394,7 +394,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
     try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(encodeURIComponent(cleanFnum.trim()))}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
@@ -458,7 +458,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
 
     try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(encodeURIComponent(cleanFnum.trim()))}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
@@ -517,7 +517,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
     try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(encodeURIComponent(cleanFnum.trim()))}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
@@ -536,7 +536,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const handleApproveUser = async (fnum) => {
     try {
       const cleanFnum = stripHtmlTags(fnum);
-      const safeFnum = encodeURIComponent(cleanFnum.trim());
+      const safeFnum = encodeURIComponent(encodeURIComponent(cleanFnum.trim()));
 
       const response = await authFetch(`/api/v1/admin/approve-user/${safeFnum}`, {
         method: "PATCH",
