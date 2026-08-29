@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {  
   UploadCloud, FileText, Download, CheckCircle, AlertTriangle,  
-  Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, Server, Trash2, Filter
+  Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, Server, Trash2, Filter, X
 } from 'lucide-react';
 import { authFetch } from './api';
 
@@ -42,6 +42,9 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const [actionLoading, setActionLoading] = useState(null);
 
   const [templateCustomName, setTemplateCustomName] = useState('');
+
+  // 🟢 READER MODAL STATE
+  const [previewModal, setPreviewModal] = useState({ isOpen: false, title: '', content: '', loading: false });
 
   const canViewGlobalActive = canViewGlobal || 
     ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
@@ -187,52 +190,61 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-// 🟢 RESTORED FILE ACTION HANDLER: Restores Live Preview and Forces Original Filenames on Download
-  const handleFileAction = async (docId, action, isTemplate = false, fileName = 'document') => {
-    if (action === 'download' && !hasDownloadClearance) {
+  // 🟢 SEPARATE HANDLERS FOR READ (IN-APP MODAL PREVIEW) AND DOWNLOAD (FILE RETENTION)
+  const handleReadDoc = async (docId, isTemplate = false, docName = 'Document') => {
+    setPreviewModal({ isOpen: true, title: docName, content: '', loading: true });
+    try {
+      const endpoint = isTemplate ? `/api/v1/templates/download/${docId}` : `/api/v1/reports/download/${docId}`;
+      const response = await authFetch(endpoint, { method: "GET" });
+      if (!response.ok) throw new Error("Could not retrieve file content for reading.");
+
+      const blob = await response.blob();
+      const textContent = await blob.text();
+      
+      // Check if text blob is readable raw text or binary binary data stream
+      if (textContent.includes('PK\x03\x04') || textContent.includes('')) {
+        setPreviewModal({ 
+          isOpen: true, 
+          title: docName, 
+          content: `[Binary Document Package Detected]\n\nThis file format (${docName.split('.').pop().toUpperCase()}) is structured as an encrypted or compressed office package container. Binary execution streams cannot be displayed as plain text directly in the reader.\n\nPlease use the 'Download' action button to open it locally using your system's compatible software suite (Microsoft Office, WPS, or Adobe Reader).`, 
+          loading: false 
+        });
+      } else {
+        setPreviewModal({ isOpen: true, title: docName, content: textContent, loading: false });
+      }
+    } catch (err) {
+      setPreviewModal({ isOpen: true, title: docName, content: `Error loading document preview: ${err.message}`, loading: false });
+    }
+  };
+
+  const handleDownloadDoc = async (docId, isTemplate = false, fileName = 'document') => {
+    if (!hasDownloadClearance) {
       return alert("Security Restriction: You do not have command clearance to download documents.");
     }
 
-    setActionLoading(`${action}-${docId}`);
+    setActionLoading(`download-${docId}`);
     try {
-      const endpoint = isTemplate 
-        ? `/api/v1/templates/download/${docId}`
-        : `/api/v1/reports/download/${docId}`;
-
-      const response = await authFetch(endpoint, {
-        method: "GET"
-      });
+      const endpoint = isTemplate ? `/api/v1/templates/download/${docId}` : `/api/v1/reports/download/${docId}`;
+      const response = await authFetch(endpoint, { method: "GET" });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.detail || "Requested document not found.");
       }
 
-      // Grab the exact Content-Type sent by your Python backend
-      const contentType = response.headers.get('Content-Type') || 'application/octet-stream';
       const blob = await response.blob();
-      
-      // Package the blob with the exact content type so your browser knows how to render it live
-      const finalBlob = new Blob([blob], { type: contentType });
-      const blobUrl = window.URL.createObjectURL(finalBlob);
+      const blobUrl = window.URL.createObjectURL(blob);
 
-      if (action === 'read') {
-        // Restores your live viewing! Opens the document stream in a new tab.
-        window.open(blobUrl, '_blank');
-      } else {
-        // Triggers the physical download WITH THE ORIGINAL FILENAME
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.setAttribute('download', fileName);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
 
       setTimeout(() => window.URL.revokeObjectURL(blobUrl), 15000);
-
     } catch (err) {
-      alert(`Document Action Error: ${err.message}`);
+      alert(`Download Error: ${err.message}`);
     } finally {
       setActionLoading(null);
     }
@@ -260,6 +272,32 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   return (
     <div className="max-w-[1600px] mx-auto space-y-6 font-sans mb-8">
       
+      {/* 🟢 IN-APP DOCUMENT READER MODAL */}
+      {previewModal.isOpen && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-slate-300 animate-in zoom-in-95">
+            <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
+              <h3 className="font-extrabold uppercase text-xs tracking-wider flex items-center truncate max-w-[80%]">
+                <FileText className="mr-2 text-blue-400 shrink-0" size={16} /> Reading: {previewModal.title}
+              </h3>
+              <button onClick={() => setPreviewModal({ isOpen: false, title: '', content: '', loading: false })} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer"><X size={18}/></button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1 bg-slate-50 font-mono text-xs text-slate-800 whitespace-pre-wrap leading-relaxed select-text custom-scrollbar">
+              {previewModal.loading ? (
+                <div className="flex flex-col items-center justify-center py-20 text-slate-500 font-bold">
+                  <Loader2 className="w-8 h-8 animate-spin mb-2 text-blue-600" /> Decrypting and loading document stream...
+                </div>
+              ) : (
+                previewModal.content
+              )}
+            </div>
+            <div className="bg-slate-100 px-6 py-3 border-t border-slate-200 flex justify-end shrink-0">
+              <button type="button" onClick={() => setPreviewModal({ isOpen: false, title: '', content: '', loading: false })} className="px-5 py-2 bg-slate-900 hover:bg-black text-white rounded-lg font-bold text-xs uppercase shadow cursor-pointer">Close Reader</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-slate-900 text-white px-6 py-4 rounded-xl shadow-md flex items-center">
         <div>
           <h2 className="text-lg font-extrabold uppercase tracking-wider flex items-center">
@@ -494,19 +532,20 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                     
                     <td className="px-4 py-4 whitespace-nowrap text-right">
                       <div className="flex justify-end space-x-2">
+                        {/* 🟢 DEDICATED IN-APP READ BUTTON */}
                         <button 
-                          onClick={() => handleFileAction(doc.id, 'read', doc.isTemplate)}
-                          disabled={actionLoading === `read-${doc.id}`}
-                          className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
+                          onClick={() => handleReadDoc(doc.id, doc.isTemplate, doc.name)}
+                          className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer"
                         >
-                          {actionLoading === `read-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Eye className="w-3 h-3 mr-1" />}
+                          <Eye className="w-3 h-3 mr-1 text-blue-600" />
                           Read
                         </button>
 
                         {hasDownloadClearance ? (
                           <>
+                            {/* 🟢 DEDICATED FILE DOWNLOAD BUTTON */}
                             <button 
-                              onClick={() => handleFileAction(doc.id, 'download', doc.isTemplate)}
+                              onClick={() => handleDownloadDoc(doc.id, doc.isTemplate, doc.name)}
                               disabled={actionLoading === `download-${doc.id}`}
                               className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
                             >
