@@ -101,9 +101,12 @@ export const stripHtmlTags = (str) => {
   return str.toString().replace(/<[^>]*>?/gm, '');
 };
 
+// 🟢 FIX: Removed hardcoded ADMIN/RPC from global view. It now strictly respects HQ assignment or explicit permissions.
 export const canViewGlobalJurisdiction = (user) => {
   if (!user) return false;
-  if (['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(user.role)) return true;
+  if (user.role === 'SUPER_ADMIN') return true;
+  if (['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((user.region || '').trim().toUpperCase())) return true;
+  
   return user.permissions?.view_global_roster === true || user.permissions?.global_observer === true;
 };
 

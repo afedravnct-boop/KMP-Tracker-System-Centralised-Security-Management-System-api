@@ -2,6 +2,7 @@ import os
 import asyncio
 from datetime import datetime
 from typing import Optional, List, Union
+from urllib.parse import unquote
 
 import pytz
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
@@ -37,6 +38,10 @@ def get_reads_model():
     if not model:
         raise HTTPException(status_code=500, detail="Communication Reads database model not configured.")
     return model
+
+def get_fnum_col(model_class):
+    """Dynamically locates the fnum column to prevent TypeError crashes."""
+    return getattr(model_class, 'fnum', getattr(model_class, 'f_num', getattr(model_class, 'user_fnum', None)))
 
 async def send_command_briefing(email_to: List[str], subject: str, html_body: str):
     if not email_to or not conf.MAIL_USERNAME or not conf.MAIL_PASSWORD:
@@ -168,13 +173,13 @@ def get_admin_communications(
 ):
     CommModel = get_comm_model()
     ReadsModel = get_reads_model()
+    read_fnum_col = get_fnum_col(ReadsModel)
     
     query = db.query(CommModel)
     clean_user_fnum = (current_user.fnum or "").strip().upper()
     user_region = (current_user.region or "").strip().upper()
     user_role = (current_user.role or "").strip().upper()
 
-    # 🟢 STRICT INBOX VISIBILITY: Non-super admins only see messages meant for them or general broadcasts
     if user_role != "SUPER_ADMIN":
         visibility_conditions = [
             or_(
@@ -221,8 +226,9 @@ def get_admin_communications(
     comms = query.order_by(CommModel.created_at.desc()).all()
  
     read_records = db.query(ReadsModel.comm_id).filter(
-        func.trim(func.upper(ReadsModel.fnum)) == clean_user_fnum
+        func.trim(func.upper(read_fnum_col)) == clean_user_fnum
     ).all()
+    
     read_comm_ids = {r[0] for r in read_records} 
     
     eat_tz = pytz.timezone("Africa/Nairobi")
@@ -261,24 +267,32 @@ def get_admin_communications(
 
     return clean_comms
 
-@router.post("/communications/{comm_id}/acknowledge")
-@router.post("/Admin_Communication/{comm_id}/acknowledge")
+# 🟢 FIX: Added path modifier to handle encoded strings and dynamic column assignment
+@router.post("/communications/{comm_id:path}/acknowledge")
+@router.post("/Admin_Communication/{comm_id:path}/acknowledge")
 def acknowledge_communication(
-    comm_id: int, 
+    comm_id: str, 
     db: Session = Depends(get_db), 
     current_user: models.Users = Depends(get_current_user)
 ):
+    clean_comm_id_str = unquote(unquote(comm_id)).strip()
+    clean_comm_id = int(clean_comm_id_str) if clean_comm_id_str.isdigit() else clean_comm_id_str
+
     ReadsModel = get_reads_model()
     CommModel = get_comm_model()
+    read_fnum_col = get_fnum_col(ReadsModel)
 
-    comm = db.query(CommModel).filter((CommModel.id == comm_id) | (CommModel.sn == comm_id)).first()
+    query_filters = [CommModel.id == clean_comm_id]
+    if hasattr(CommModel, 'sn'):
+        query_filters.append(CommModel.sn == clean_comm_id)
+
+    comm = db.query(CommModel).filter(or_(*query_filters)).first()
     if not comm:
         raise HTTPException(status_code=404, detail="Communication not found.")
 
     audience = (comm.target_audience or "").strip().upper()
     target_region = (comm.target_region or "").strip().upper()
     
-    # 🟢 FIX: Safe JSON / String parsing for target_fnum
     raw_fnums = comm.target_fnum
     if isinstance(raw_fnums, list):
         target_fnums = [str(f).strip().upper() for f in raw_fnums if str(f).strip()]
@@ -304,18 +318,27 @@ def acknowledge_communication(
 
     try:
         existing_read = db.query(ReadsModel).filter(
-            ReadsModel.comm_id == comm_id,
-            func.trim(func.upper(ReadsModel.fnum)) == clean_user_fnum
+            ReadsModel.comm_id == clean_comm_id,
+            func.trim(func.upper(read_fnum_col)) == clean_user_fnum
         ).first()
 
         if not existing_read:
             eat_tz = pytz.timezone("Africa/Nairobi")
             uganda_time = datetime.now(eat_tz).replace(tzinfo=None)
+            
             new_read = ReadsModel(
-                comm_id=comm_id, 
-                fnum=clean_user_fnum, # 🟢 FIX: Corrected variable name
+                comm_id=clean_comm_id, 
                 read_at=uganda_time
             )
+            
+            # 🟢 FIX: Set attribute dynamically based on how the table is structured
+            if hasattr(ReadsModel, 'fnum'):
+                new_read.fnum = clean_user_fnum
+            elif hasattr(ReadsModel, 'f_num'):
+                new_read.f_num = clean_user_fnum
+            elif hasattr(ReadsModel, 'user_fnum'):
+                new_read.user_fnum = clean_user_fnum
+
             db.add(new_read)
             db.commit()
             
@@ -325,24 +348,31 @@ def acknowledge_communication(
         raise HTTPException(status_code=500, detail=f"Failed to record receipt: {str(e)}")
 
 
-@router.get("/communications/{comm_id}/readers")
-@router.get("/Admin_Communication/{comm_id}/readers")
+@router.get("/communications/{comm_id:path}/readers")
+@router.get("/Admin_Communication/{comm_id:path}/readers")
 def get_communication_readers(
-    comm_id: int, 
+    comm_id: str, 
     db: Session = Depends(get_db), 
     current_user: models.Users = Depends(get_current_user)
 ):
+    clean_comm_id_str = unquote(unquote(comm_id)).strip()
+    clean_comm_id = int(clean_comm_id_str) if clean_comm_id_str.isdigit() else clean_comm_id_str
+
     CommModel = get_comm_model()
     ReadsModel = get_reads_model()
+    read_fnum_col = get_fnum_col(ReadsModel)
 
-    comm = db.query(CommModel).filter((CommModel.id == comm_id) | (CommModel.sn == comm_id)).first()
+    query_filters = [CommModel.id == clean_comm_id]
+    if hasattr(CommModel, 'sn'):
+        query_filters.append(CommModel.sn == clean_comm_id)
+
+    comm = db.query(CommModel).filter(or_(*query_filters)).first()
     if not comm:
         raise HTTPException(status_code=404, detail="Communication record not found.")
 
     audience = (comm.target_audience or "").strip().upper()
     target_region = (comm.target_region or "").strip().upper()
     
-    # 🟢 FIX: Safe JSON / String parsing for target_fnum
     raw_fnums = comm.target_fnum
     if isinstance(raw_fnums, list):
         target_fnums = [str(f).strip().upper() for f in raw_fnums if str(f).strip()]
@@ -379,8 +409,8 @@ def get_communication_readers(
         readers = db.query(
             ReadsModel.read_at, models.Users.name, models.Users.fnum, models.Users.rank
         ).join(
-            models.Users, func.trim(func.upper(ReadsModel.fnum)) == func.trim(func.upper(models.Users.fnum))
-        ).filter(ReadsModel.comm_id == comm_id).order_by(ReadsModel.read_at.desc()).all()
+            models.Users, func.trim(func.upper(read_fnum_col)) == func.trim(func.upper(models.Users.fnum))
+        ).filter(ReadsModel.comm_id == clean_comm_id).order_by(ReadsModel.read_at.desc()).all()
 
         eat_tz = pytz.timezone("Africa/Nairobi")
         results = []

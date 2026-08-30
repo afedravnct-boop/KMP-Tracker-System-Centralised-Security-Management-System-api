@@ -1,6 +1,9 @@
 import React, { useState, useMemo } from 'react';
+import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X, Filter, FileText, ChevronDown, ChevronUp, Shield } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
+// 🟢 FIX 1: Import the central authFetch from your api module
+import { authFetch } from './api';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -10,35 +13,82 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-const autoCapitalize = (str) => str;
+const getOfficialRegionForStation = (stationName, dbRegion) => {
+  const cleanStation = (stationName || '').trim().toUpperCase();
+  const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
 
-// 🟢 PREMIUM EXPANDABLE CARD WITH FULL-SCREEN OVERLAY & STOP-PROPAGATION
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
+    return cleanDbRegion;
+  }
+
+  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
+    if (stationsList.includes(cleanStation)) {
+      return regionName;
+    }
+  }
+
+  return cleanDbRegion || 'KMP GENERAL';
+};
+
 const ExpandableTableCard = ({ title, children, onToggle }) => {
-  const [expanded, setExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const openFullScreen = () => {
+    setIsExpanded(true);
+    if (typeof onToggle === 'function') onToggle(true);
+  };
+
+  const closeFullScreen = () => {
+    setIsExpanded(false);
+    if (typeof onToggle === 'function') onToggle(false);
+  };
+
   return (
     <>
-      {expanded && <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9990] animate-in fade-in" />}
-      <div className={expanded ? "fixed inset-4 sm:inset-10 z-[9999] bg-white rounded-xl shadow-2xl border border-slate-300 flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden" : "bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col"}>
-        <div className="bg-slate-900 px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200 flex justify-between items-center shrink-0">
-          <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{title}</h3>
-          <button 
-            onClick={(e) => { 
-              e.stopPropagation(); 
-              const nextState = !expanded; 
-              setExpanded(nextState); 
-              if (onToggle) onToggle(nextState); 
-            }} 
-            className="text-xs text-blue-400 hover:text-white font-bold transition flex items-center bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 shadow-inner cursor-pointer"
-          >
-            {expanded ? 'Collapse View ↙' : 'Expand View ↗'}
-          </button>
+      {isExpanded ? (
+        // 🟢 FULL SCREEN OVERLAY MODE
+        <div className="fixed inset-0 z-[250] bg-slate-100/95 backdrop-blur-sm flex flex-col p-4 sm:p-8 animate-in fade-in zoom-in duration-200">
+          <div className="bg-slate-900 px-6 py-4 flex justify-between items-center rounded-t-xl shadow-2xl shrink-0">
+            <h3 className="font-extrabold text-white text-lg uppercase tracking-wider">
+              {title} (FULL SCREEN)
+            </h3>
+            <button 
+              onClick={closeFullScreen} 
+              className="text-sm text-blue-400 hover:text-white font-bold cursor-pointer transition-colors bg-slate-800 px-4 py-2 rounded-lg border border-slate-700"
+            >
+              Collapse ↙
+            </button>
+          </div>
+          <div className="bg-white flex-1 overflow-auto rounded-b-xl shadow-2xl p-4 border border-slate-300 custom-scrollbar">
+            {children}
+          </div>
         </div>
-        <div className={`w-full ${expanded ? 'flex-1 overflow-hidden [&>div]:max-h-full [&>div]:h-full' : ''}`}>
-          {children}
+      ) : (
+        // 🟢 DEFAULT INLINE GRID MODE
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full relative z-10">
+          <div className="bg-slate-900 px-4 py-3 flex justify-between items-center shrink-0">
+            <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{title}</h3>
+            <button 
+              onClick={openFullScreen} 
+              className="text-xs text-blue-400 hover:text-white font-bold cursor-pointer transition-colors"
+            >
+              Expand ↗
+            </button>
+          </div>
+          <div className="w-full overflow-auto max-h-[600px] custom-scrollbar">
+            {children}
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
+};
+
+const autoCapitalize = (text) => {
+  if (!text) return text;
+  return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
+    return separator + letter.toUpperCase();
+  });
 };
 
 const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false, establishments, setEstablishments, setSidebarOpen }) => {
@@ -105,16 +155,15 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
     if (requiredFields.some(field => !formData[field] || String(formData[field]).trim() === '')) return setNotification("Error: All required fields must be filled.");
 
     setIsSubmitting(true); 
-    const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-    const token = localStorage.getItem('kmp_authToken');
 
     if (operation === 'new') {
       const newEntry = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       delete newEntry.sn; delete newEntry.id;
       
       try {
-        const response = await fetch(`${API_URL}/api/v1/establishments`, {
-          method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(newEntry)
+        // 🟢 FIX 2: Use authFetch without hardcoding localhost/tokens
+        const response = await authFetch("/api/v1/establishments", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newEntry)
         });
 
         if (!response.ok) {
@@ -143,8 +192,9 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
       delete updatedRecord.id; delete updatedRecord.sn;
 
       try {
-        const response = await fetch(`${API_URL}/api/v1/establishments/${recordId}`, {
-          method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(updatedRecord)
+        // 🟢 FIX 3: Use authFetch for updates
+        const response = await authFetch(`/api/v1/establishments/${recordId}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord)
         });
 
         if (!response.ok) {

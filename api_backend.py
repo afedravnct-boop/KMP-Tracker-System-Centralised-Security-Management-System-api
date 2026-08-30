@@ -74,7 +74,6 @@ load_dotenv()
 
 app = FastAPI(title="KMP Centralised Security Data Management System")
 
-
 from routers import (
     document_upload,
     general_documents,
@@ -135,6 +134,19 @@ s3_client = boto3.client(
 )
 BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 
+# ==========================================
+# UNIVERSAL EXPORT HELPERS
+# ==========================================
+def clean_html_for_export(raw_text):
+    """Strips HTML tags and converts entities into readable plain text for Excel exports."""
+    if not raw_text or not isinstance(raw_text, str):
+        return raw_text
+    
+    text = html.unescape(raw_text)
+    text = re.sub(r'<[^>]+>', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
 def get_officer_signature(user):
     if not user:
         return "UNKNOWN COMMANDER"
@@ -153,6 +165,9 @@ def sanitize_df_for_excel(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = df[col].astype(str)
     for col in df.select_dtypes(include=['object']).columns:
         df[col] = df[col].apply(lambda x: x.replace(tzinfo=None) if isinstance(x, datetime) and x.tzinfo is not None else x)
+        # Apply HTML scrubber to text fields during export
+        if col in ['narrative', 'comment', 'message', 'details', 'archive_reason']:
+            df[col] = df[col].apply(clean_html_for_export)
     return df
 
 def serialize_model_row(row):
@@ -452,14 +467,12 @@ def update_user_access(
     if not target_fnum:
         raise HTTPException(status_code=400, detail="Officer force number (fnum) is required.")
 
-    # 🟢 Fully decode double-encoded slashes (%252F -> %2F -> /) and match case-insensitively
     clean_fnum = unquote(unquote(target_fnum)).strip().upper()
     
     user = db.query(models.Users).filter(
         func.trim(func.upper(models.Users.fnum)) == clean_fnum
     ).first()
     
-    # Fallback query if formatting lacks slashes in storage
     if not user:
         alt_fnum = clean_fnum.replace('/', '')
         user = db.query(models.Users).filter(
@@ -577,8 +590,7 @@ def heartbeat(
         user.last_active_at = datetime.now(eat_tz).replace(tzinfo=None)
         db.commit()
         
-        # 🟢 THE FIX: Generate and return a new token to keep the React frontend alive automatically
-        expire = datetime.utcnow() + timedelta(minutes=60) # Extends session lock by an hour per heartbeat
+        expire = datetime.utcnow() + timedelta(minutes=60)
         new_token = jwt.encode(
             {"sub": str(user.fnum).strip().upper(), "exp": expire},
             security.SECRET_KEY,
@@ -853,7 +865,8 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
             cell.fill = header_fill; cell.font = header_font; cell.alignment = Alignment(horizontal="center", vertical="center")
 
         for log in logs:
-            ws.append([log.id, getattr(log, 'event_type', ''), getattr(log, 'target_user', ''), getattr(log, 'status', ''), getattr(log, 'details', ''), str(getattr(log, 'created_at', '')), getattr(log, 'user_fnum', '')])
+            details_clean = clean_html_for_export(getattr(log, 'details', ''))
+            ws.append([log.id, getattr(log, 'event_type', ''), getattr(log, 'target_user', ''), getattr(log, 'status', ''), details_clean, str(getattr(log, 'created_at', '')), getattr(log, 'user_fnum', '')])
 
         for col in ws.columns:
             col_letter = col[0].column_letter
@@ -898,7 +911,19 @@ def export_hr_ledger(db: Session = Depends(get_db), current_user: models.Users =
             try:
                 query = db.query(ModelClass)
                 if not is_global and hasattr(ModelClass, 'region'): query = query.filter(ModelClass.region == current_user.region)
-                return [[str(getattr(r, col, '') if not isinstance(getattr(r, col, ''), datetime) else getattr(r, col, '').strftime("%Y-%m-%d %H:%M")) for col in columns] for r in query.all()]
+                
+                rows = []
+                for r in query.all():
+                    row_data = []
+                    for col in columns:
+                        val = getattr(r, col, '')
+                        if isinstance(val, datetime):
+                            val = val.strftime("%Y-%m-%d %H:%M")
+                        elif isinstance(val, str) and col in ['narrative', 'comment', 'message', 'details', 'archive_reason']:
+                            val = clean_html_for_export(val)
+                        row_data.append(str(val) if val is not None else '')
+                    rows.append(row_data)
+                return rows
             except: return []
 
         nr_records = get_orm_data(NomModel, ['f_num', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status'])
@@ -963,7 +988,19 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
             try:
                 query = db.query(ModelClass)
                 if not is_global and hasattr(ModelClass, 'region'): query = query.filter(ModelClass.region == current_user.region)
-                return [[str(getattr(r, col, '') if not isinstance(getattr(r, col, ''), datetime) else getattr(r, col, '').strftime("%Y-%m-%d %H:%M")) for col in columns] for r in query.all()]
+                
+                rows = []
+                for r in query.all():
+                    row_data = []
+                    for col in columns:
+                        val = getattr(r, col, '')
+                        if isinstance(val, datetime):
+                            val = val.strftime("%Y-%m-%d %H:%M")
+                        elif isinstance(val, str) and col in ['narrative', 'comment', 'message', 'details', 'archive_reason']:
+                            val = clean_html_for_export(val)
+                        row_data.append(str(val) if val is not None else '')
+                    rows.append(row_data)
+                return rows
             except: return []
 
         cr_records = get_orm_data(CrimeModel, ['sd_ref', 'region', 'station', 'date', 'time', 'offence', 'status', 'suspects', 'last_updated_by'])
@@ -979,7 +1016,7 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
             try:
                 for r in db.query(AIModel).all():
                     v_time = r.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(r.created_at, 'strftime') else str(r.created_at)
-                    ai_records.append(["AI_PROMPT_EXECUTION", f"Prompt: {r.prompt} | Response: {r.response}", r.fnum, v_time])
+                    ai_records.append(["AI_PROMPT_EXECUTION", clean_html_for_export(f"Prompt: {r.prompt} | Response: {r.response}"), r.fnum, v_time])
             except: pass
             
         if ActivityModel:
@@ -987,7 +1024,7 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
                 ai_act = db.query(ActivityModel).filter(or_(ActivityModel.module.ilike('%AI%'), ActivityModel.module.ilike('%ai_console%'))).all()
                 for r in ai_act:
                     v_time = r.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(r.created_at, 'strftime') else str(getattr(r, 'created_at', ''))
-                    ai_records.append(["PAGE_ACCESS_LOG", getattr(r, 'details', 'AI Console Access'), getattr(r, 'fnum', ''), v_time])
+                    ai_records.append(["PAGE_ACCESS_LOG", clean_html_for_export(getattr(r, 'details', 'AI Console Access')), getattr(r, 'fnum', ''), v_time])
             except: pass
 
         wb = openpyxl.Workbook()

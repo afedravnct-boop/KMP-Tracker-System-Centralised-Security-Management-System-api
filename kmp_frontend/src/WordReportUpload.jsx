@@ -4,6 +4,7 @@ import {
   Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, Server, Trash2, Filter, X
 } from 'lucide-react';
 import { authFetch } from './api';
+import * as mammoth from 'mammoth';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -44,7 +45,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const [templateCustomName, setTemplateCustomName] = useState('');
 
   // 🟢 READER MODAL STATE
-  const [previewModal, setPreviewModal] = useState({ isOpen: false, title: '', content: '', loading: false });
+  const [previewModal, setPreviewModal] = useState({ isOpen: false, title: '', content: '', isHtml: false, loading: false });
 
   const canViewGlobalActive = canViewGlobal || 
     ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
@@ -190,30 +191,64 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-  // 🟢 SEPARATE HANDLERS FOR READ (IN-APP MODAL PREVIEW) AND DOWNLOAD (FILE RETENTION)
+  // 🟢 SMART READER IMPLEMENTATION (HANDLES NATIVE BLOB VIEWER + DOCX HTML EXTRACTION)
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document') => {
-    setPreviewModal({ isOpen: true, title: docName, content: '', loading: true });
+    setPreviewModal({ isOpen: true, title: docName, content: '', isHtml: false, loading: true });
+    
     try {
       const endpoint = isTemplate ? `/api/v1/templates/download/${docId}` : `/api/v1/reports/download/${docId}`;
       const response = await authFetch(endpoint, { method: "GET" });
       if (!response.ok) throw new Error("Could not retrieve file content for reading.");
 
       const blob = await response.blob();
-      const textContent = await blob.text();
-      
-      // Check if text blob is readable raw text or binary binary data stream
-      if (textContent.includes('PK\x03\x04') || textContent.includes('')) {
+      const lowerName = (docName || '').toLowerCase();
+
+      // 1. NATIVE BROWSER SUPPORT (PDFs, Images)
+      if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
+        const viewType = lowerName.endsWith('.pdf') ? 'application/pdf' : (lowerName.endsWith('.png') ? 'image/png' : 'image/jpeg');
+        const finalBlob = new Blob([blob], { type: viewType });
+        const blobUrl = window.URL.createObjectURL(finalBlob);
+        
+        window.open(blobUrl, '_blank');
+        setPreviewModal({ isOpen: false, title: '', content: '', isHtml: false, loading: false }); // Close modal, let new tab handle it
+        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 15000);
+      } 
+      // 2. WORD DOCUMENTS (DOCX) - PARSE WITH MAMMOTH TO HTML
+      else if (lowerName.endsWith('.docx')) {
+        const arrayBuffer = await blob.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
+        
         setPreviewModal({ 
           isOpen: true, 
           title: docName, 
-          content: `[Binary Document Package Detected]\n\nThis file format (${docName.split('.').pop().toUpperCase()}) is structured as an encrypted or compressed office package container. Binary execution streams cannot be displayed as plain text directly in the reader.\n\nPlease use the 'Download' action button to open it locally using your system's compatible software suite (Microsoft Office, WPS, or Adobe Reader).`, 
+          content: result.value || "Document is empty or cannot be rendered.", 
+          isHtml: true, 
           loading: false 
         });
-      } else {
-        setPreviewModal({ isOpen: true, title: docName, content: textContent, loading: false });
+      } 
+      // 3. PLAIN TEXT FALLBACK
+      else if (lowerName.endsWith('.txt')) {
+        const textContent = await blob.text();
+        setPreviewModal({
+          isOpen: true,
+          title: docName,
+          content: textContent,
+          isHtml: false,
+          loading: false
+        });
+      }
+      // 4. EXCEL/PPT FALLBACK
+      else {
+        setPreviewModal({
+          isOpen: true,
+          title: docName,
+          content: `[Preview Unavailable]\n\nThis file format (${lowerName.split('.').pop().toUpperCase()}) cannot be securely rendered inside the browser matrix.\n\nPlease use the 'Download' action button to view it using Microsoft Office.`,
+          isHtml: false,
+          loading: false
+        });
       }
     } catch (err) {
-      setPreviewModal({ isOpen: true, title: docName, content: `Error loading document preview: ${err.message}`, loading: false });
+      setPreviewModal({ isOpen: true, title: docName, content: `Error loading document preview: ${err.message}`, isHtml: false, loading: false });
     }
   };
 
@@ -280,19 +315,28 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
               <h3 className="font-extrabold uppercase text-xs tracking-wider flex items-center truncate max-w-[80%]">
                 <FileText className="mr-2 text-blue-400 shrink-0" size={16} /> Reading: {previewModal.title}
               </h3>
-              <button onClick={() => setPreviewModal({ isOpen: false, title: '', content: '', loading: false })} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer"><X size={18}/></button>
+              <button onClick={() => setPreviewModal({ isOpen: false, title: '', content: '', isHtml: false, loading: false })} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer"><X size={18}/></button>
             </div>
-            <div className="p-6 overflow-y-auto flex-1 bg-slate-50 font-mono text-xs text-slate-800 whitespace-pre-wrap leading-relaxed select-text custom-scrollbar">
+            
+            <div className="p-8 overflow-y-auto flex-1 bg-slate-50 text-slate-800 custom-scrollbar">
               {previewModal.loading ? (
                 <div className="flex flex-col items-center justify-center py-20 text-slate-500 font-bold">
                   <Loader2 className="w-8 h-8 animate-spin mb-2 text-blue-600" /> Decrypting and loading document stream...
                 </div>
+              ) : previewModal.isHtml ? (
+                <div 
+                  className="prose prose-sm max-w-none prose-slate" 
+                  dangerouslySetInnerHTML={{ __html: previewModal.content }} 
+                />
               ) : (
-                previewModal.content
+                <div className="font-mono text-xs whitespace-pre-wrap leading-relaxed select-text">
+                  {previewModal.content}
+                </div>
               )}
             </div>
+
             <div className="bg-slate-100 px-6 py-3 border-t border-slate-200 flex justify-end shrink-0">
-              <button type="button" onClick={() => setPreviewModal({ isOpen: false, title: '', content: '', loading: false })} className="px-5 py-2 bg-slate-900 hover:bg-black text-white rounded-lg font-bold text-xs uppercase shadow cursor-pointer">Close Reader</button>
+              <button type="button" onClick={() => setPreviewModal({ isOpen: false, title: '', content: '', isHtml: false, loading: false })} className="px-5 py-2 bg-slate-900 hover:bg-black text-white rounded-lg font-bold text-xs uppercase shadow cursor-pointer">Close Reader</button>
             </div>
           </div>
         </div>

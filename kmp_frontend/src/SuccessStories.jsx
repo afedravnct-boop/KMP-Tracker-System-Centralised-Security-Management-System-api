@@ -231,7 +231,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
   const populateUpdateForm = (storyData) => setFormData({ ...storyData, updateText: '' });
 
-  const handleFormSubmit = async (e) => {
+const handleFormSubmit = async (e) => {
     e.preventDefault();
 
     const activeRegion = (canViewGlobalActive && filterRegion !== 'ALL REGIONS') ? filterRegion : formData.region;
@@ -253,16 +253,21 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         const response = await authFetch("/api/v1/stories", {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newStory)
         });
-        if (!response.ok) throw new Error("Failed to save to database");
-        const resData = await response.json();
+        
+        const resData = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(resData.detail || "Failed to save to database");
+        
         if (resData.sn) newStory.sn = resData.sn;
+        
+        // 🟢 Execute state updates ONLY on verified server success
+        setStories([newStory, ...stories]);
+        setNotification(`Success story SN ${newStory.sn} logged successfully!`);
+        setFormData({ ...formData, time: '', narrative: '', sn: null, updateText: '', photo_url: '' });
+
       } catch (err) {
         console.error("Cloud sync failed:", err);
+        return setNotification(`Error: ${err.message}`); // 🟢 Halt and display error to UI
       }
-
-      setStories([newStory, ...stories]);
-      setNotification(`Success story SN ${newStory.sn} logged successfully!`);
-      setFormData({ ...formData, time: '', narrative: '', sn: null, updateText: '', photo_url: '' });
 
     } else if (operation === 'update') {
       if (!submissionData.sn) return setNotification("Error: Please select a story to update first.");
@@ -275,15 +280,21 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       delete updatedRecord.updateText;
 
       try {
-        await authFetch(`/api/v1/stories/${submissionData.sn}`, {
+        const response = await authFetch(`/api/v1/stories/${submissionData.sn}`, {
           method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord)
         });
+        
+        const resData = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(resData.detail || "Failed to update record in database");
+
+        // 🟢 Execute state updates ONLY on verified server success
+        setStories((stories || []).map(s => (s.sn === submissionData.sn || s.id === submissionData.sn) ? updatedRecord : s));
+        setNotification(`Success story SN ${submissionData.sn} successfully updated!`);
+
       } catch (err) {
         console.error("Cloud sync failed:", err);
+        return setNotification(`Error: ${err.message}`); // 🟢 Halt and display error to UI
       }
-
-      setStories((stories || []).map(s => (s.sn === submissionData.sn || s.id === submissionData.sn) ? updatedRecord : s));
-      setNotification(`Success story SN ${submissionData.sn} successfully updated!`);
     }
 
     setTimeout(() => setNotification(null), 4000);

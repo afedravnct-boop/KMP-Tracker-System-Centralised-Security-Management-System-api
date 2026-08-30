@@ -363,9 +363,9 @@ async def bulk_upload_nominal_roll(
 
                 fnum_filter = []
                 if hasattr(ActiveModel, 'f_num'):
-                    fnum_filter.append(ActiveModel.f_num == clean_fnum)
+                    fnum_filter.append(func.trim(func.upper(ActiveModel.f_num)) == clean_fnum)
                 if hasattr(ActiveModel, 'fnum'):
-                    fnum_filter.append(ActiveModel.fnum == clean_fnum)
+                    fnum_filter.append(func.trim(func.upper(ActiveModel.fnum)) == clean_fnum)
 
                 existing = db.query(ActiveModel).filter(or_(*fnum_filter)).first()
 
@@ -376,8 +376,8 @@ async def bulk_upload_nominal_roll(
                     updated_count += 1
                 else:
                     arc_filter = []
-                    if hasattr(ArchiveModel, 'f_num'): arc_filter.append(ArchiveModel.f_num == clean_fnum)
-                    if hasattr(ArchiveModel, 'fnum'): arc_filter.append(ArchiveModel.fnum == clean_fnum)
+                    if hasattr(ArchiveModel, 'f_num'): arc_filter.append(func.trim(func.upper(ArchiveModel.f_num)) == clean_fnum)
+                    if hasattr(ArchiveModel, 'fnum'): arc_filter.append(func.trim(func.upper(ArchiveModel.fnum)) == clean_fnum)
                     
                     is_archived = db.query(ArchiveModel).filter(or_(*arc_filter)).first()
                     
@@ -469,9 +469,9 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
 
         fnum_filter = []
         if hasattr(ActiveModel, 'f_num'):
-            fnum_filter.append(ActiveModel.f_num == clean_fnum)
+            fnum_filter.append(func.trim(func.upper(ActiveModel.f_num)) == clean_fnum)
         if hasattr(ActiveModel, 'fnum'):
-            fnum_filter.append(ActiveModel.fnum == clean_fnum)
+            fnum_filter.append(func.trim(func.upper(ActiveModel.fnum)) == clean_fnum)
 
         active_officer = db.query(ActiveModel).filter(or_(*fnum_filter)).first()
         if active_officer:
@@ -480,9 +480,9 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         search_fnum = str(previous_fnum).strip().upper() if previous_fnum else clean_fnum
         arc_filter = []
         if hasattr(ArchiveModel, 'fnum'):
-            arc_filter.append(ArchiveModel.fnum == search_fnum)
+            arc_filter.append(func.trim(func.upper(ArchiveModel.fnum)) == search_fnum)
         if hasattr(ArchiveModel, 'f_num'):
-            arc_filter.append(ArchiveModel.f_num == search_fnum)
+            arc_filter.append(func.trim(func.upper(ArchiveModel.f_num)) == search_fnum)
 
         archived_officer = db.query(ArchiveModel).filter(or_(*arc_filter)).first()
         
@@ -546,14 +546,24 @@ def update_Nominal_Roll(
     current_user: models.Users = Depends(get_current_user)
 ):
     ActiveModel = get_active_model()
-    clean_id = unquote(identifier).strip().upper()
+    # 🟢 Double Unquote fix to handle Cloud Proxy URL formatting for strings with Slashes e.g. M%252F2744 -> M%2F2744 -> M/2744
+    clean_id = unquote(unquote(identifier)).strip().upper()
     
     query_filters = []
+    
+    # 🟢 Wrapped queries in func.trim() to ignore Excel whitespace trailing spaces
     if hasattr(ActiveModel, 'fnum'):
-        query_filters.append(ActiveModel.fnum == clean_id)
+        query_filters.append(func.trim(func.upper(ActiveModel.fnum)) == clean_id)
     if hasattr(ActiveModel, 'f_num'):
-        query_filters.append(ActiveModel.f_num == clean_id)
+        query_filters.append(func.trim(func.upper(ActiveModel.f_num)) == clean_id)
         
+    # 🟢 Flat fallback check in case M/2744 was saved as M2744
+    alt_id = clean_id.replace('/', '')
+    if hasattr(ActiveModel, 'fnum'):
+        query_filters.append(func.trim(func.upper(ActiveModel.fnum)) == alt_id)
+    if hasattr(ActiveModel, 'f_num'):
+        query_filters.append(func.trim(func.upper(ActiveModel.f_num)) == alt_id)
+
     if clean_id.isdigit():
         pk_col = getattr(ActiveModel, 'id', getattr(ActiveModel, 'sn', None))
         if pk_col is not None:
@@ -609,27 +619,33 @@ def archive_personnel(
     ArchiveModel = get_archive_model()
     
     try:
-        # Decode URL path and clean slashes/spaces safely
-        fnum_clean = unquote(fnum).strip().upper()
+        # 🟢 Double decode URL path and clean slashes/spaces safely 
+        fnum_clean = unquote(unquote(fnum)).strip().upper()
         
         query_filters = []
+        # 🟢 Wrapped queries in func.trim() to catch numeric entries that have accidental trailing spaces in the DB
         if hasattr(ActiveModel, 'f_num'):
-            query_filters.append(func.upper(ActiveModel.f_num) == fnum_clean)
+            query_filters.append(func.trim(func.upper(ActiveModel.f_num)) == fnum_clean)
         if hasattr(ActiveModel, 'fnum'):
-            query_filters.append(func.upper(ActiveModel.fnum) == fnum_clean)
+            query_filters.append(func.trim(func.upper(ActiveModel.fnum)) == fnum_clean)
         if hasattr(ActiveModel, 'ipps'):
-            query_filters.append(func.upper(ActiveModel.ipps) == fnum_clean)
+            query_filters.append(func.trim(func.upper(ActiveModel.ipps)) == fnum_clean)
             
         active_record = db.query(ActiveModel).filter(or_(*query_filters)).first()
         
         if not active_record:
-            # Fallback: try matching without the slash (e.g., E528 if stored flat)
+            # 🟢 Fallback: try matching without the slash (e.g., E528 if stored flat)
             alt_fnum = fnum_clean.replace('/', '')
+            query_filters_alt = []
+            
             if hasattr(ActiveModel, 'f_num'):
-                query_filters.append(func.upper(ActiveModel.f_num) == alt_fnum)
+                query_filters_alt.append(func.trim(func.upper(ActiveModel.f_num)) == alt_fnum)
             if hasattr(ActiveModel, 'fnum'):
-                query_filters.append(func.upper(ActiveModel.fnum) == alt_fnum)
-            active_record = db.query(ActiveModel).filter(or_(*query_filters)).first()
+                query_filters_alt.append(func.trim(func.upper(ActiveModel.fnum)) == alt_fnum)
+            if hasattr(ActiveModel, 'ipps'):
+                query_filters_alt.append(func.trim(func.upper(ActiveModel.ipps)) == alt_fnum)
+                
+            active_record = db.query(ActiveModel).filter(or_(*query_filters_alt)).first()
 
         if not active_record:
             raise HTTPException(status_code=404, detail=f"Officer '{fnum_clean}' not found in active roll.")
