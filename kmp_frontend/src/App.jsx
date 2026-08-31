@@ -101,7 +101,6 @@ export const stripHtmlTags = (str) => {
   return str.toString().replace(/<[^>]*>?/gm, '');
 };
 
-// 🟢 FIX: Removed hardcoded ADMIN/RPC from global view. It now strictly respects HQ assignment or explicit permissions.
 export const canViewGlobalJurisdiction = (user) => {
   if (!user) return false;
   if (user.role === 'SUPER_ADMIN') return true;
@@ -299,7 +298,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const canExportData = checkClearance(currentUser, 'export_data', isRPC || currentUser?.permissions?.export_data);
 
   const today = new Date().getDay();
-  const isEndOfWeek = today === 4 || today === 6 || today === 0;
+  const isMondayMonday = today === 1; 
 
   const userRole = (currentUser?.role || '').toUpperCase();
   const userPosition = (currentUser?.position || '').toUpperCase();
@@ -313,25 +312,29 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const matchesFieldRole = targetKeywords.some(keyword => userPosition.includes(keyword) || userRole.includes(keyword));
 
   const isTargetOfficer = matchesFieldRole && !isPoliceHQ && !isSystemManager;
-  const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+  
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const distanceToMonday = (dayOfWeek + 6) % 7;
+  const startOfThisWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - distanceToMonday).getTime();
 
   const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => {
     if (!r.date) return false;
     const matchesStation = (r.station || '').trim().toUpperCase() === userStation;
     const reportTime = new Date(r.date.toString().split('T')[0]).getTime();
-    return matchesStation && reportTime >= oneWeekAgo;
+    return matchesStation && reportTime >= startOfThisWeek;
   });
 
   const hasSubmittedStats = (Array.isArray(stats) ? stats : []).some(s => {
     if (!s.date) return false;
     const matchesStation = (s.station || '').trim().toUpperCase() === userStation;
     const statTime = new Date(s.date.toString().split('T')[0]).getTime();
-    return matchesStation && statTime >= oneWeekAgo;
+    return matchesStation && statTime >= startOfThisWeek;
   });
 
   const hasSubmittedThisWeek = hasSubmittedReport || hasSubmittedStats;
-  const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && isTargetOfficer;
-  const showComplianceSuccess = isEndOfWeek && hasSubmittedThisWeek && isTargetOfficer;
+  const showComplianceWarning = isMondayMonday && !hasSubmittedThisWeek && isTargetOfficer;
+  const showComplianceSuccess = isMondayMonday && hasSubmittedThisWeek && isTargetOfficer;
 
   const [isBannerFolded, setIsBannerFolded] = useState(false);
 
@@ -351,7 +354,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 
   const hasUnread = safeComms.some(c => !c.acknowledged);
 
-return (
+  return (
     <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
       {showComplianceWarning && (
         <div className="fixed bottom-6 right-6 z-[9990]">
@@ -372,13 +375,13 @@ return (
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-400"></span>
                 </span>
-                <span className="text-[10px] font-extrabold tracking-wide uppercase">⚠️ Overdue</span>
+                <span className="text-[10px] font-extrabold tracking-wide uppercase">⚠️ Monday Mail Overdue</span>
               </div>
             ) : (
               <div className="flex flex-col space-y-2 p-1 max-w-xs text-left" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-start text-[11px] leading-snug font-extrabold">
                   <AlertTriangle className="mr-2 w-4 h-4 shrink-0 text-yellow-300 animate-bounce mt-0.5" />
-                  <span>COMPLIANCE ALERT: Your weekly entries are overdue for {currentUser.station}. Please submit records immediately.</span>
+                  <span>MONDAY COMPLIANCE ALERT: Weekly returns and morning reports are pending for {currentUser.station}. Please file immediately.</span>
                 </div>
                 <div className="flex space-x-2 justify-end">
                   <button 
@@ -403,7 +406,7 @@ return (
       {showComplianceSuccess && (
         <div className="bg-emerald-600 text-white font-extrabold p-3 rounded-lg shadow-2xl flex items-center border border-emerald-400 max-w-sm fixed bottom-24 right-6 z-[9980]">
           <CheckCircle className="mr-2 w-5 h-5 shrink-0 text-emerald-200" />
-          <span className="text-[11px]">COMMENDATION: Thank you, {currentUser.rank} {currentUser.name}, for duly filing your weekly returns.</span>
+          <span className="text-[11px]">COMMENDATION: Thank you, {currentUser.rank} {currentUser.name}, for filing your Monday morning returns on schedule.</span>
         </div>
       )}
 
@@ -438,9 +441,7 @@ return (
         </div>
       </div>
 
-      {/* 🟢 OPTIMIZED MODULE GRID (Colorful Tactical Theme) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full">
-        
         {canViewCrime && (
           <div onClick={() => setCurrentPage('reports')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-blue-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 dark:hover:border-blue-500 dark:hover:bg-slate-800 group">
             <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center mr-3 group-hover:bg-blue-600 group-hover:text-white dark:group-hover:bg-blue-500 dark:group-hover:shadow-[0_0_15px_rgba(59,130,246,0.5)] transition-all shrink-0">
@@ -553,8 +554,6 @@ return (
   );
 };
 
-
-// 🟢 Official UPF Command Seniority Weighting (Lower index = Higher rank)
 const RANK_SENIORITY = {
   "IGP": 1,
   "DIGP": 2,
@@ -654,9 +653,6 @@ const parseEducationLevel = (rawVal) => {
   return str;
 };
 
-// ====================================================================
-// --- PROFILE UPDATE SYSTEM ---
-// ====================================================================
 const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isRequestMode, setIsRequestMode] = useState(false);
@@ -1004,9 +1000,6 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
   );
 };
 
-// ====================================================================
-// --- SECURE IN-MEMORY LOGIN SCREEN ---
-// ====================================================================
 const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUsers = [] }) => {
   const [mode, setMode] = useState('login');
   const [fnum, setfnum] = useState('');
@@ -1248,7 +1241,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
             <>
               {authMessage && (
                 <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${authMessage.includes('Error') || authMessage.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
-                 <span className="text-sm font-medium">{typeof authMessage === 'string' ? authMessage : JSON.stringify(authMessage)}</span>
+                   <span className="text-sm font-medium">{typeof authMessage === 'string' ? authMessage : JSON.stringify(authMessage)}</span>
                 </div>
               )}
               
@@ -1456,9 +1449,6 @@ const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals
   );
 };
 
-// ====================================================================
-// --- GLOBAL WORKSPACE SECURITY IDLE CURTAIN & SESSION TIMEOUT ---
-// ====================================================================
 const WorkspaceSecurityCurtain = () => {
   const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
   const [isReadingMode, setIsReadingMode] = useState(false);
@@ -1468,15 +1458,12 @@ const WorkspaceSecurityCurtain = () => {
   const [idleCountdown, setIdleCountdown] = useState(60);
   const [isTimedOut, setIsTimedOut] = useState(false);
 
-  // Background passive tracker (immune to memory leaks from rapid mouse movement)
   const activityRef = useRef(Date.now());
 
-  // 1. Passively update the reference timestamp when user interacts
   useEffect(() => {
     const handleActivity = () => {
       activityRef.current = Date.now();
       
-      // If the warning modal is up, dismiss it instantly upon ANY user activity
       if (showIdleWarning) {
         setShowIdleWarning(false);
         setIdleCountdown(60);
@@ -1484,7 +1471,6 @@ const WorkspaceSecurityCurtain = () => {
       }
     };
 
-    // Use capture and passive phase to guarantee rapid background execution without locking the browser UI
     const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
     events.forEach(event => window.addEventListener(event, handleActivity, { capture: true, passive: true }));
 
@@ -1493,23 +1479,19 @@ const WorkspaceSecurityCurtain = () => {
     };
   }, [showIdleWarning]); 
 
-  // 2. A single, decoupled timer that simply checks the gap between NOW and the last activity timestamp
   useEffect(() => {
     if (isReadingMode || isTimedOut) return;
 
     const checkInterval = setInterval(() => {
       const idleTimeMs = Date.now() - activityRef.current;
 
-      // Check for 29 Minutes Warning (29 * 60 * 1000 = 1740000 ms)
       if (idleTimeMs >= 1740000 && !showIdleWarning) {
         setShowIdleWarning(true);
         setIsWorkspaceIdle(true);
       }
-      // Check for 1 Minute Visual Idle Curtain (60000 ms)
       else if (idleTimeMs >= 60000 && idleTimeMs < 1740000 && !showIdleWarning && !isWorkspaceIdle) {
         setIsWorkspaceIdle(true);
       }
-      // If user became active, hide the idle curtain
       else if (idleTimeMs < 60000 && isWorkspaceIdle && !showIdleWarning) {
         setIsWorkspaceIdle(false);
       }
@@ -1518,7 +1500,6 @@ const WorkspaceSecurityCurtain = () => {
     return () => clearInterval(checkInterval);
   }, [isReadingMode, isTimedOut, showIdleWarning, isWorkspaceIdle]);
 
-  // 3. Independent countdown interval exclusively for the warning screen
   useEffect(() => {
     if (isTimedOut || !showIdleWarning) return;
 
@@ -1527,7 +1508,7 @@ const WorkspaceSecurityCurtain = () => {
         if (prev <= 1) {
           clearInterval(countdownInterval);
           setShowIdleWarning(false);
-          setIsTimedOut(true); // Triggers permanent lock screen
+          setIsTimedOut(true); 
           return 0;
         }
         return prev - 1;
@@ -1699,11 +1680,6 @@ const WorkspaceSecurityCurtain = () => {
   );
 };
 
-
-
-// ====================================================================
-// --- MAIN LAYOUT COMPONENT ---
-// ====================================================================
 const DashboardLayout = ({ 
   currentUser, 
   currentPage, 
@@ -1829,7 +1805,6 @@ const DashboardLayout = ({
 
 const handleExportLogs = async () => {
     try {
-      // 1. Call the backend export endpoint directly
       const response = await authFetch('/api/v1/audit-logs/export', {
         method: 'GET'
       });
@@ -1839,14 +1814,12 @@ const handleExportLogs = async () => {
         throw new Error(errData.detail || "Security Clearance Denied or Export Failed");
       }
 
-      // 2. Force the browser to download the secure .zip blob
       const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.style.display = 'none';
       link.href = downloadUrl;
       
-      // 🟢 ENSURE IT SAVES AS A .ZIP FILE
       const today = new Date().toISOString().split('T')[0];
       link.download = `SECURE_AUDIT_LOGS_${today}.zip`; 
       
@@ -1868,7 +1841,6 @@ const handleExportLogs = async () => {
     <>
       <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
         
-        {/* 🟢 SIDEBAR */}
         <div className={`transition-all duration-300 flex flex-col bg-slate-900 border-r border-slate-700 flex-shrink-0 overflow-hidden ${
           isFullScreen 
             ? 'hidden w-0' 
@@ -2221,7 +2193,6 @@ const App = () => {
     return calculateGrandTotals(reports, currentUser, filterRegion, filterStation);
   }, [reports, currentUser, filterRegion, filterStation]);
 
-// 🟢 AUTOMATIC NIGHT SHIFT (DARK MODE) CONTROLLER
   useEffect(() => {
     const applyThemeBasedOnTime = () => {
       const hour = new Date().getHours();
@@ -2250,7 +2221,6 @@ const App = () => {
         }
       }
     };
-
 
     window.addEventListener('online', handleOnlineStatus);
     
@@ -2300,7 +2270,9 @@ const App = () => {
     };
   }, []);
 
-// 🟢 REAL-TIME LISTENER & SYNC: Polls server every 5s ONLY when user is active
+  // ====================================================================
+  // --- REAL-TIME LISTENER & SYNC (Safety-Optimized & Cleaned) ---
+  // ====================================================================
   useEffect(() => {
     if (!currentUser?.fnum || !hasValidSession()) return; 
     const controller = new AbortController();
@@ -2313,15 +2285,15 @@ const App = () => {
 
       try {
         const [resUsers, resReports, resStats, resStories, resEst, resNom, resArc, resComms, resDocs] = await Promise.all([
-          authFetch('/api/v1/users', { signal: controller.signal }),
-          authFetch('/api/v1/reports', { signal: controller.signal }),
-          authFetch('/api/v1/stats', { signal: controller.signal }),
-          authFetch('/api/v1/stories', { signal: controller.signal }),
-          authFetch('/api/v1/establishments', { signal: controller.signal }),
-          authFetch('/api/v1/nominal-roll', { signal: controller.signal }),
-          authFetch('/api/v1/nominal-roll-archive', { signal: controller.signal }), 
-          authFetch('/api/v1/communications', { signal: controller.signal }),
-          authFetch('/api/v1/general-documents', { signal: controller.signal })
+          authFetch('/api/v1/users', { signal: controller.signal }).catch(() => null),
+          authFetch('/api/v1/reports', { signal: controller.signal }).catch(() => null),
+          authFetch('/api/v1/stats', { signal: controller.signal }).catch(() => null),
+          authFetch('/api/v1/stories', { signal: controller.signal }).catch(() => null),
+          authFetch('/api/v1/establishments', { signal: controller.signal }).catch(() => null),
+          authFetch('/api/v1/nominal-roll', { signal: controller.signal }).catch(() => null),
+          authFetch('/api/v1/nominal-roll-archive', { signal: controller.signal }).catch(() => null), 
+          authFetch('/api/v1/communications', { signal: controller.signal }).catch(() => null),
+          authFetch('/api/v1/general-documents', { signal: controller.signal }).catch(() => null)
         ]);
 
         if (resReports && resReports.ok) setReports(await resReports.json());
@@ -2333,7 +2305,6 @@ const App = () => {
         if (resComms && resComms.ok) setAdminCommsData(await resComms.json());
         if (resDocs && resDocs.ok) setGeneralDocs(await resDocs.json());
 
-        // Sync dynamic matrix permissions in RAM only
         if (resUsers && resUsers.ok) {
           const allUsers = await resUsers.json();
           setUsers(allUsers);
@@ -2370,7 +2341,6 @@ const App = () => {
 
               const resolvedRole = isSuperAdmin ? 'SUPER_ADMIN' : (me.role || prev.role);
 
-              // Prevent infinite re-renders by doing a deep comparison
               const permissionsUnchanged = JSON.stringify(mergedPermissions) === JSON.stringify(prevPerms);
               const roleUnchanged = resolvedRole === prev.role;
 
@@ -2388,13 +2358,13 @@ const App = () => {
         }
       } catch (error) { 
         if (error.name !== 'AbortError' && error.message !== 'UNAUTHORIZED') {
-          console.error("Data Sync Error:", error);
+          console.warn("Network congestion or temporary blip intercepted. Holding execution:", error.message);
         }
       } 
-    };   
+    };    
 
     fetchAllData();
-    const pollingInterval = setInterval(fetchAllData, 5000);
+    const pollingInterval = setInterval(fetchAllData, 15000);
 
     const handleVisibilityChange = () => {
       if (!document.hidden) {
@@ -2753,7 +2723,6 @@ const App = () => {
 
       const blob = await response.blob();
       
-      // Force the browser to download it as a .zip
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -2843,7 +2812,6 @@ const App = () => {
           {renderPage()}
         </div>
 
-        {/* 🟢 FLOATING AI INTELLIGENCE ASSISTANT */}
         <SystemAssistant 
           currentUser={currentUser} 
           canViewGlobal={canViewGlobalJurisdiction(currentUser)} 

@@ -311,7 +311,7 @@ async def bulk_upload_nominal_roll(
                 
             df.columns = [standardize_header(col) for col in df.columns]
             
-date_columns = ['dob', 'dateofbirth', 'doe', 'dateofenlistment', 'dopost', 'dop', 'dopro', 'dateofpromotion']
+            date_columns = ['dob', 'dateofbirth', 'doe', 'dateofenlistment', 'dopost', 'dop', 'dopro', 'dateofpromotion']
             for col in date_columns:
                 if col in df.columns:
                     series = df[col].replace(r'^\s*[-–—]?\s*$', np.nan, regex=True)
@@ -327,7 +327,6 @@ date_columns = ['dob', 'dateofbirth', 'doe', 'dateofenlistment', 'dopost', 'dop'
                     if non_numeric.any():
                         parsed[non_numeric] = pd.to_datetime(series[non_numeric], errors='coerce', format='mixed', dayfirst=True)
                         
-                    # Filter out any out-of-bounds years before converting to date
                     valid_dates = parsed.dt.year.between(1900, 2100, inclusive='both')
                     df[col] = parsed.where(valid_dates, None).dt.date
 
