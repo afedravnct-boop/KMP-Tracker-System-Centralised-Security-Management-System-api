@@ -715,67 +715,139 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       </div>
                     </div>
 
-                    {operation === 'new' && isArchivedReturnee && archiveDetails && (
-                      <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 p-3 rounded-lg mt-3 animate-in fade-in zoom-in-95 shadow-sm">
-                        <div className="flex items-start mb-2">
-                          <AlertTriangle className="text-amber-500 w-4 h-4 mr-1.5 mt-0.5 shrink-0" />
-                          <div>
-                            <h4 className="text-xs font-bold text-amber-900 dark:text-amber-300">Historical Record Match</h4>
-                            <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
-                              Found in archives: 
-                              <span className="font-mono bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded mx-1 font-bold text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
-                                {archiveDetails.old_rank} {archiveDetails.old_fnum}
-                              </span>
-                            </p>
-                          </div>
-                        </div>
-                         
-                        <div className="space-y-3 bg-white dark:bg-slate-800 p-3 rounded-md border border-amber-100 dark:border-amber-900">
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Re-integration Authority / Reason *</label>
-                            <input
-                              type="text"
-                              required
-                              value={customReason}
-                              onChange={(e) => setCustomReason(e.target.value)}
-                              placeholder="e.g., Deployed from HR HQs back to KMP..."
-                              className="w-full text-xs py-1.5 px-2 border border-slate-300 dark:border-slate-700 rounded shadow-sm focus:ring-1 focus:ring-amber-500 outline-none bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                            />
-                          </div>
-                           
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5 flex items-center">
-                              Previous Force No. <span className="text-slate-400 font-normal ml-1">(If promoted to Gazetted File No.)</span>
-                            </label>
-                            <div className="flex flex-col sm:flex-row sm:items-center space-y-1.5 sm:space-y-0 sm:space-x-1.5">
-                              <input
-                                type="text"
-                                value={previousFnum}
-                                onChange={(e) => setPreviousFnum(e.target.value)}
-                                placeholder="Leave blank if unchanged"
-                                className="flex-1 text-xs py-1.5 px-2 border border-slate-300 dark:border-slate-700 rounded shadow-sm focus:ring-1 focus:ring-amber-500 outline-none uppercase bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                              />
-                              {previousFnum && (
-                                <div className="flex items-center text-[9px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900 px-1.5 py-1 rounded border border-amber-200 dark:border-amber-800">
-                                  {previousFnum} <ArrowRight className="w-2.5 h-2.5 mx-0.5"/> {formData.fnum}
-                                </div>
-                              )}
+import React, { useState } from 'react';
+import { AlertTriangle, ArrowRight, PieChart } from 'lucide-react';
+
+const Nominal_Roll = () => {
+  const [operation, setOperation] = useState('new');
+  const [isArchivedReturnee, setIsArchivedReturnee] = useState(true);
+  const [archiveDetails, setArchiveDetails] = useState({
+    old_rank: 'IP',
+    old_fnum: 'AFL-089'
+  });
+  const [customReason, setCustomReason] = useState('');
+  const [previousFnum, setPreviousFnum] = useState('');
+  const [formData, setFormData] = useState({
+    fnum: 'AFL-104',
+    rank: 'ASP',
+    name: ''
+  });
+
+  const [viewMode, setViewMode] = useState('active');
+  const [canEditRecords] = useState(true);
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [selectedOfficers, setSelectedOfficers] = useState([]);
+  const [bulkArchiveReason, setBulkArchiveReason] = useState('TRANSFERRED');
+  const [bulkArchiveDetail, setBulkArchiveDetail] = useState('');
+  const [bulkCorrRef, setBulkCorrRef] = useState('');
+  const [isBulkArchiving, setIsBulkArchiving] = useState(false);
+  const [filterRegion, setFilterRegion] = useState('ALL REGIONS');
+  const [filterStation, setFilterStation] = useState('ALL STATIONS');
+  const [canViewGlobal] = useState(true);
+  const [isCommandOrHR] = useState(true);
+  const [currentUser] = useState({ region: 'Kampala', station: 'Central' });
+  const [showAnalytics] = useState(false);
+  const [metricCategory, setMetricCategory] = useState('RANK');
+  const [calculatedMetrics] = useState([]);
+  const [filteredRolls] = useState([]);
+  const [filteredNominal_Roll_archives] = useState([]);
+  const [selectedOfficer, setSelectedOfficer] = useState(null);
+
+  const REGIONAL_HIERARCHY = {
+    'Kampala': ['Central', 'CPS', 'KMP HQ']
+  };
+
+  const handleBulkArchive = () => {
+    setIsBulkArchiving(true);
+    setTimeout(() => setIsBulkArchiving(false), 1000);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    console.log('Submitted', formData);
+  };
+
+  return (
+    <div className="p-4 max-w-7xl mx-auto space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="lg:col-span-5 space-y-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-md overflow-hidden">
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Personnel Management Panel</h3>
+            </div>
+            <div className="p-4">
+              <form onSubmit={handleSubmit} className="space-y-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Operation Mode</label>
+                  <select 
+                    value={operation} 
+                    onChange={(e) => setOperation(e.target.value)}
+                    className="w-full text-xs py-1.5 px-2 border border-slate-300 dark:border-slate-700 rounded shadow-sm focus:ring-1 focus:ring-blue-500 outline-none bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 cursor-pointer"
+                  >
+                    <option value="new">New Record Entry</option>
+                    <option value="update">Update Existing Record</option>
+                  </select>
+                </div>
+
+                {operation === 'new' && isArchivedReturnee && archiveDetails && (
+                  <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 p-3 rounded-lg mt-3 animate-in fade-in zoom-in-95 shadow-sm">
+                    <div className="flex items-start mb-2">
+                      <AlertTriangle className="text-amber-500 w-4 h-4 mr-1.5 mt-0.5 shrink-0" />
+                      <div>
+                        <h4 className="text-xs font-bold text-amber-900 dark:text-amber-300">Historical Record Match</h4>
+                        <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
+                          Found in archives: 
+                          <span className="font-mono bg-amber-100 dark:bg-amber-900 px-1 py-0.5 rounded mx-1 font-bold text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+                            {archiveDetails.old_rank} {archiveDetails.old_fnum}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                     
+                    <div className="space-y-3 bg-white dark:bg-slate-800 p-3 rounded-md border border-amber-100 dark:border-amber-900">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Re-integration Authority / Reason *</label>
+                        <input
+                          type="text"
+                          required
+                          value={customReason}
+                          onChange={(e) => setCustomReason(e.target.value)}
+                          placeholder="e.g., Deployed from HR HQs back to KMP..."
+                          className="w-full text-xs py-1.5 px-2 border border-slate-300 dark:border-slate-700 rounded shadow-sm focus:ring-1 focus:ring-amber-500 outline-none bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                        />
+                      </div>
+                       
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5 flex items-center">
+                          Previous Force No. <span className="text-slate-400 font-normal ml-1">(If promoted to Gazetted File No.)</span>
+                        </label>
+                        <div className="flex flex-col sm:flex-row sm:items-center space-y-1.5 sm:space-y-0 sm:space-x-1.5">
+                          <input
+                            type="text"
+                            value={previousFnum}
+                            onChange={(e) => setPreviousFnum(e.target.value)}
+                            placeholder="Leave blank if unchanged"
+                            className="flex-1 text-xs py-1.5 px-2 border border-slate-300 dark:border-slate-700 rounded shadow-sm focus:ring-1 focus:ring-amber-500 outline-none uppercase bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
+                          />
+                          {previousFnum && (
+                            <div className="flex items-center text-[9px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900 px-1.5 py-1 rounded border border-amber-200 dark:border-amber-800">
+                              {previousFnum} <ArrowRight className="w-2.5 h-2.5 mx-0.5"/> {formData.fnum}
                             </div>
-                          </div>
+                          )}
                         </div>
                       </div>
-                    )}
+                    </div>
+                  </div>
+                )}
 
-                    <button type="submit" className={`w-full transition-colors text-white py-2.5 font-bold rounded-lg shadow text-xs uppercase flex justify-center items-center cursor-pointer ${isArchivedReturnee ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-700 hover:bg-blue-800'}`}>
-                      {operation === 'new' 
-                        ? (isArchivedReturnee ? '⚠️ Execute Safe Re-integration' : '💾 Log Personnel Record') 
-                        : '💾 Save Updates'}
-                    </button>
-                  </form>
-                </div>
-              </div>
-            </>
-          )}
+                <button type="submit" className={`w-full transition-colors text-white py-2.5 font-bold rounded-lg shadow text-xs uppercase flex justify-center items-center cursor-pointer ${isArchivedReturnee ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-700 hover:bg-blue-800'}`}>
+                  {operation === 'new' 
+                    ? (isArchivedReturnee ? '⚠️ Execute Safe Re-integration' : '💾 Log Personnel Record') 
+                    : '💾 Save Updates'}
+                </button>
+              </form>
+            </div>
+          </div>
         </div>
 
         <div className="lg:col-span-7 space-y-4">
@@ -800,7 +872,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       <select
                           value={bulkArchiveReason}
                           onChange={(e) => setBulkArchiveReason(e.target.value)}
-                          className="w-full sm:w-auto text-xs border border-slate-300 dark:border-slate-700 rounded p-1.5 outline-none font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800"
+                          className="w-full sm:w-auto text-xs border border-slate-300 dark:border-slate-700 rounded p-1.5 outline-none font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 cursor-pointer"
                       >
                           <option value="TRANSFERRED">Transferred</option>
                           <option value="DEATH">Death</option>
@@ -843,12 +915,12 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           <div className="flex flex-col sm:flex-row gap-3">
             <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobal} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-700 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
               {canViewGlobal ? (
-                <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(Nominal_Rolls || []).map(n => n.region).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+                <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(filteredRolls || []).map(n => n.region).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
               ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
             </select>
             <select value={filterStation} onChange={(e) => setFilterStation(e.target.value) } disabled={!(isCommandOrHR || canViewGlobal)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-700 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
               {(isCommandOrHR || canViewGlobal) ? (
-                <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(Nominal_Rolls || []).filter(n => filterRegion === 'ALL REGIONS' || n.region === filterRegion).map(n => n.station).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
+                <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(filteredRolls || []).filter(n => filterRegion === 'ALL REGIONS' || n.region === filterRegion).map(n => n.station).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
               ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
             </select>
           </div>
@@ -894,7 +966,10 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                 </table>
             </div>
           ) : (
-            <ExpandableTableCard title={viewMode === 'active' ? "Active Nominal Roll (Full Screen Mode)" : "Archived Personnel Ledger"} onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden">
+              <div className="p-3 border-b border-slate-200 dark:border-slate-700 font-bold text-xs text-slate-800 dark:text-slate-200">
+                {viewMode === 'active' ? "Active Nominal Roll (Full Screen Mode)" : "Archived Personnel Ledger"}
+              </div>
               <div className="overflow-x-auto w-full">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-700">
                   <thead className="bg-gray-50 dark:bg-slate-900 sticky top-0 z-10">
@@ -978,7 +1053,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                                 }}
                                 className="w-4 h-4 cursor-pointer accent-red-600"
                               />
-                        </td>
+                            </td>
                         )}
                         <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-gray-900 dark:text-slate-100">{index + 1}</td>
                         <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800 dark:text-blue-400">{n.f_num || n.fnum || ''}</td>
@@ -1020,17 +1095,10 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                   </tbody>
                 </table>
               </div>
-            </ExpandableTableCard>
+            </div>
           )}
         </div>
       </div>
-
-      {selectedOfficer && (
-        <OfficerDossierModal 
-          officer={selectedOfficer} 
-          onClose={() => setSelectedOfficer(null)} 
-        />
-      )}
     </div>  
   );
 };

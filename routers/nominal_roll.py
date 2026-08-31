@@ -672,10 +672,7 @@ def archive_personnel(
     
     try:
         raw_fnum = unquote(unquote(fnum)).strip().upper()
-        if raw_fnum.endswith("/ARCHIVE"):
-            raw_fnum = raw_fnum[:-8].strip()
-        
-        fnum_clean = raw_fnum
+        fnum_clean = raw_fnum.removesuffix("/ARCHIVE").strip()
         
         query_filters = []
         if hasattr(ActiveModel, 'f_num'):
