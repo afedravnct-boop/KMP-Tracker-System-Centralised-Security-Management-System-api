@@ -311,7 +311,7 @@ async def bulk_upload_nominal_roll(
                 
             df.columns = [standardize_header(col) for col in df.columns]
             
-            date_columns = ['dob', 'dateofbirth', 'doe', 'dateofenlistment', 'dopost', 'dop', 'dopro', 'dateofpromotion']
+date_columns = ['dob', 'dateofbirth', 'doe', 'dateofenlistment', 'dopost', 'dop', 'dopro', 'dateofpromotion']
             for col in date_columns:
                 if col in df.columns:
                     series = df[col].replace(r'^\s*[-–—]?\s*$', np.nan, regex=True)
@@ -320,15 +320,16 @@ async def bulk_upload_nominal_roll(
                     
                     if is_numeric.any():
                         numeric_vals = pd.to_numeric(series[is_numeric], errors='coerce')
-                        parsed[is_numeric] = pd.to_datetime(numeric_vals, unit='D', origin='1899-12-30', errors='coerce')
+                        valid_mask = (numeric_vals > 1) & (numeric_vals < 73050)
+                        parsed[is_numeric & valid_mask] = pd.to_datetime(numeric_vals[valid_mask], unit='D', origin='1899-12-30', errors='coerce')
                     
                     non_numeric = ~is_numeric & series.notnull()
                     if non_numeric.any():
                         parsed[non_numeric] = pd.to_datetime(series[non_numeric], errors='coerce', format='mixed', dayfirst=True)
                         
-                    df[col] = parsed.dt.date
-
-            df = df.replace({np.nan: None, pd.NaT: None, 'nan': None, 'NaN': None, 'NaT': None, '': None})
+                    # Filter out any out-of-bounds years before converting to date
+                    valid_dates = parsed.dt.year.between(1900, 2100, inclusive='both')
+                    df[col] = parsed.where(valid_dates, None).dt.date
 
             for idx, row in df.iterrows():
                 fnum_val = row.get("fnum") or row.get("forceno") or row.get("forcenumber") or row.get("fileno") or row.get("fno")
