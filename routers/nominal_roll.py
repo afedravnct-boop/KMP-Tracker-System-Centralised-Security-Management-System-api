@@ -67,6 +67,18 @@ def format_phone_number(val):
         cleaned = '0' + cleaned
     return cleaned
 
+def is_uniformed_rank(rank_str: str) -> bool:
+    """Returns True if the rank falls within official UPF uniformed ranks (SPC to IGP)."""
+    if not rank_str:
+        return False
+    r = rank_str.strip().upper()
+    uniformed_ranks = {
+        'IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'SASP', 'ASP',
+        'IP', 'AIP', 'HCM', 'HC', 'S/SGT', 'SSGT', 'SGT', 'CPL', 'L/CPL', 'LCPL',
+        'PC', 'PPC', 'SPC'
+    }
+    return r in uniformed_ranks
+
 def parse_safe_date(val) -> Optional[date]:
     """Strictly coerces incoming date values into a Python date object or None for SQL DATE compatibility."""
     if pd.isna(val) or val is None: return None
@@ -80,6 +92,14 @@ def parse_safe_date(val) -> Optional[date]:
     if ' ' in val_str:
         val_str = val_str.split(' ')[0]
         
+    try:
+        if val_str.replace('.', '', 1).isdigit():
+            float_val = float(val_str)
+            if float_val > 1000:  
+                return pd.to_datetime(float_val, unit='D', origin='1899-12-30').date()
+    except Exception:
+        pass
+
     for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%Y/%m/%d', '%d.%m.%Y'):
         try:
             return datetime.strptime(val_str, fmt).date()
@@ -87,7 +107,7 @@ def parse_safe_date(val) -> Optional[date]:
             continue
 
     try:
-        parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
+        parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce', format='mixed')
         if pd.notna(parsed): return parsed.date()
     except Exception:
         pass
@@ -294,7 +314,19 @@ async def bulk_upload_nominal_roll(
             date_columns = ['dob', 'dateofbirth', 'doe', 'dateofenlistment', 'dopost', 'dop', 'dopro', 'dateofpromotion']
             for col in date_columns:
                 if col in df.columns:
-                    df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
+                    series = df[col].replace(r'^\s*[-–—]?\s*$', np.nan, regex=True)
+                    is_numeric = pd.to_numeric(series, errors='coerce').notnull()
+                    parsed = pd.Series(pd.NaT, index=df.index)
+                    
+                    if is_numeric.any():
+                        numeric_vals = pd.to_numeric(series[is_numeric], errors='coerce')
+                        parsed[is_numeric] = pd.to_datetime(numeric_vals, unit='D', origin='1899-12-30', errors='coerce')
+                    
+                    non_numeric = ~is_numeric & series.notnull()
+                    if non_numeric.any():
+                        parsed[non_numeric] = pd.to_datetime(series[non_numeric], errors='coerce', format='mixed', dayfirst=True)
+                        
+                    df[col] = parsed.dt.date
 
             df = df.replace({np.nan: None, pd.NaT: None, 'nan': None, 'NaN': None, 'NaT': None, '': None})
 
@@ -302,13 +334,17 @@ async def bulk_upload_nominal_roll(
                 fnum_val = row.get("fnum") or row.get("forceno") or row.get("forcenumber") or row.get("fileno") or row.get("fno")
                 ipps_val = clean_numeric(row.get("ipps") or row.get("ippsno") or row.get("ippsnumber"))
                 nin_val = clean_numeric(row.get("nin") or row.get("nationalid") or row.get("ninno"))
-                
+                rank_val = str(row.get("rank") or "").strip().upper()
+                name_val = str(row.get("name") or "").strip().upper()
+
                 if not fnum_val or str(fnum_val).strip().lower() in ['nan', 'nat', 'none', 'null', '']:
-                    if ipps_val: fnum_val = f"CIV-IPPS-{ipps_val}"
+                    if is_uniformed_rank(rank_val):
+                        skipped_blank.append(f"Row {idx+2}: {rank_val} {name_val} (Uniformed rank missing F/No. Cannot assign civilian number)")
+                        continue
+                    elif ipps_val: fnum_val = f"CIV-IPPS-{ipps_val}"
                     elif nin_val: fnum_val = f"CIV-NIN-{nin_val}"
                     else: 
-                        name_val = str(row.get("name") or "Unknown Person")
-                        skipped_blank.append(f"Row {idx+2}: {name_val} (Missing F/No, IPPS, & NIN)")
+                        skipped_blank.append(f"Row {idx+2}: {name_val or 'Unknown Person'} (Missing F/No, IPPS, & NIN)")
                         continue 
 
                 clean_fnum = str(fnum_val).strip().upper()
@@ -321,8 +357,8 @@ async def bulk_upload_nominal_roll(
                 dopro_val = parse_safe_date(row.get("dopro") or row.get("dateofpromotion"))
 
                 officer_payload = {
-                    "rank": str(row.get("rank") or "CIVILIAN").strip().upper(),
-                    "name": str(row.get("name") or "UNKNOWN").strip().upper(),
+                    "rank": rank_val or "CIVILIAN",
+                    "name": name_val or "UNKNOWN",
                     "sex": normalize_sex(row.get("sex") or row.get("gender")),
                     "position": str(row.get("position") or row.get("title") or "GENERAL DUTIES").strip().upper(),
                     "dob": dob_val,
@@ -435,7 +471,6 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         for k, v in data.items():
             clean_data[k] = None if v == "" else v
 
-        # 🟢 Enforce user signup limits for non-global users
         perms = current_user.permissions or {}
         user_role = (current_user.role or "").upper()
         is_global_user = (
@@ -460,6 +495,10 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             
         if 'educ_level' in clean_data:
             clean_data['educ_level'] = normalize_education_level(clean_data['educ_level'])
+
+        for date_field in ['dob', 'doe', 'do_post', 'do_pro']:
+            if date_field in clean_data and clean_data[date_field]:
+                clean_data[date_field] = parse_safe_date(clean_data[date_field])
 
         target_fnum = clean_data.get('f_num') or clean_data.get('fnum')
         if not target_fnum:
@@ -586,6 +625,10 @@ def update_Nominal_Roll(
         
     if 'name' in data and data['name']:
         data['name'] = str(data['name']).strip().upper()
+
+    for date_field in ['dob', 'doe', 'do_post', 'do_pro']:
+        if date_field in data and data[date_field]:
+            data[date_field] = parse_safe_date(data[date_field])
     
     perms = current_user.permissions or {}
     user_role = (current_user.role or "").upper()
@@ -628,7 +671,6 @@ def archive_personnel(
     ArchiveModel = get_archive_model()
     
     try:
-        # 🟢 Clean the path parameter to strip out any trailing "/ARCHIVE" segment sent by the frontend URL wrapper
         raw_fnum = unquote(unquote(fnum)).strip().upper()
         if raw_fnum.endswith("/ARCHIVE"):
             raw_fnum = raw_fnum[:-8].strip()
