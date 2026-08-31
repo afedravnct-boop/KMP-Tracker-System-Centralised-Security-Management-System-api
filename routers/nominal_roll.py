@@ -707,3 +707,78 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
         return clean_list
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch archives: {str(e)}")
+
+@router.post("/nominal-roll/bulk-archive")
+def bulk_archive_personnel(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    ActiveModel = get_active_model()
+    ArchiveModel = get_archive_model()
+    
+    fnums = payload.get("fnums", [])
+    archive_reason = payload.get("archive_reason", "ADMINISTRATIVE")
+    
+    if not fnums:
+        raise HTTPException(status_code=400, detail="No officers specified for bulk archive.")
+        
+    success_count = 0
+    fail_count = 0
+    officer_sig = get_officer_signature(current_user)
+
+    try:
+        for fnum in fnums:
+            fnum_clean = unquote(unquote(str(fnum))).strip().upper()
+            
+            query_filters = []
+            if hasattr(ActiveModel, 'f_num'):
+                query_filters.append(func.trim(func.upper(ActiveModel.f_num)) == fnum_clean)
+            if hasattr(ActiveModel, 'fnum'):
+                query_filters.append(func.trim(func.upper(ActiveModel.fnum)) == fnum_clean)
+            if hasattr(ActiveModel, 'ipps'):
+                query_filters.append(func.trim(func.upper(ActiveModel.ipps)) == fnum_clean)
+                
+            active_record = db.query(ActiveModel).filter(or_(*query_filters)).first()
+            
+            if not active_record:
+                alt_fnum = fnum_clean.replace('/', '')
+                query_filters_alt = []
+                if hasattr(ActiveModel, 'f_num'): query_filters_alt.append(func.trim(func.upper(ActiveModel.f_num)) == alt_fnum)
+                if hasattr(ActiveModel, 'fnum'): query_filters_alt.append(func.trim(func.upper(ActiveModel.fnum)) == alt_fnum)
+                active_record = db.query(ActiveModel).filter(or_(*query_filters_alt)).first()
+
+            if active_record:
+                record_data = active_record.__dict__.copy()
+                record_data.pop("_sa_instance_state", None)
+                record_data.pop("id", None)
+                record_data.pop("sn", None)
+                
+                if hasattr(ArchiveModel, 'fnum'): record_data["fnum"] = fnum_clean
+                if hasattr(ArchiveModel, 'f_num'): record_data["f_num"] = fnum_clean
+                
+                record_data["status"] = "ARCHIVED"
+                record_data["archive_reason"] = archive_reason
+                record_data["archive_date"] = datetime.now().date()
+                record_data["last_updated_by"] = officer_sig
+
+                valid_archive_columns = [c.key for c in ArchiveModel.__table__.columns]
+                safe_record_data = {k: v for k, v in record_data.items() if k in valid_archive_columns}
+
+                archived_record = ArchiveModel(**safe_record_data)
+                db.add(archived_record)
+                db.delete(active_record)
+                success_count += 1
+            else:
+                fail_count += 1
+
+        db.commit()
+        return {
+            "status": "success", 
+            "success_count": success_count, 
+            "fail_count": fail_count,
+            "message": f"Bulk archive complete: {success_count} succeeded, {fail_count} failed."
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Bulk archive transaction failed: {str(e)}")

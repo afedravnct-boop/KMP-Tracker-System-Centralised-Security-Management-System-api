@@ -29,14 +29,10 @@ const ReintegrationHelper = ({ skipped, onDismiss }) => {
       if (!officerData) continue;
       
       try {
-        const token = localStorage.getItem("access_token") || localStorage.getItem("token");
-        
-        // Post the FULL excel data back to the single-officer endpoint
-        const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/nominal-roll`, {
+        const res = await authFetch('/api/v1/nominal-roll', {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`
+            "Content-Type": "application/json"
           },
           body: JSON.stringify({
             ...officerData.payload,
@@ -58,7 +54,7 @@ const ReintegrationHelper = ({ skipped, onDismiss }) => {
     return (
       <div className="bg-green-100 dark:bg-green-900/40 p-3 rounded text-green-800 dark:text-green-300 mt-2">
          <p className="font-bold text-sm">{results}</p>
-         <button onClick={onDismiss} className="mt-3 text-xs bg-green-200 dark:bg-green-800 px-3 py-1.5 rounded font-bold hover:bg-green-300 transition-colors">
+         <button onClick={onDismiss} className="mt-3 text-xs bg-green-200 dark:bg-green-800 px-3 py-1.5 rounded font-bold hover:bg-green-300 transition-colors cursor-pointer">
            Finish & Refresh Table
          </button>
       </div>
@@ -160,7 +156,7 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
 
       const data = await response.json().catch(() => ({}));
 
-if (response.ok) {
+      if (response.ok) {
         setStatus(data.status === 'warning' ? 'warning' : 'success');
         
         const hasArchived = data.skipped && data.skipped.length > 0;

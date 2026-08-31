@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X, Filter, FileText, ChevronDown, ChevronUp, Shield } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
+import { authFetch } from './api'; // 🟢 FIX: Import centralized authFetch from api.js
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -82,11 +83,6 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const authFetch = async (url, options = {}) => {
-  const token = localStorage.getItem('kmp_authToken');
-  const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-  return fetch(`${API_URL}${url}`, { ...options, headers: { ...options.headers, "Authorization": `Bearer ${token}` } });
-};
 
 const autoCapitalize = (text) => {
   if (!text) return text;
@@ -233,6 +229,10 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
 const handleFormSubmit = async (e) => {
     e.preventDefault();
+
+    const cleanedNarrative = formData.narrative
+      ? formData.narrative.replace(/color:\s*(white|#fff|#ffffff);?/gi, '')
+      : '';
 
     const activeRegion = (canViewGlobalActive && filterRegion !== 'ALL REGIONS') ? filterRegion : formData.region;
     const activeStation = (canViewGlobalActive && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
