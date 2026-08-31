@@ -43,6 +43,15 @@ def get_fnum_col(model_class):
     """Dynamically locates the fnum column to prevent TypeError crashes."""
     return getattr(model_class, 'fnum', getattr(model_class, 'f_num', getattr(model_class, 'user_fnum', None)))
 
+def check_global_view(user):
+    role = (user.role or "").upper()
+    perms = user.permissions or {}
+    return (
+        role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True
+    )
+
 async def send_command_briefing(email_to: List[str], subject: str, html_body: str):
     if not email_to or not conf.MAIL_USERNAME or not conf.MAIL_PASSWORD:
         return
@@ -100,6 +109,7 @@ def create_admin_communication(
         eat_tz = pytz.timezone("Africa/Nairobi")
         uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
 
+        # Write permissions remain strictly bound to their default station/region regardless of global view status
         db_comm = CommModel(
             msg_ref=generated_msg_ref,
             sender_fnum=comm.sender_fnum, 
@@ -180,7 +190,8 @@ def get_admin_communications(
     user_region = (current_user.region or "").strip().upper()
     user_role = (current_user.role or "").strip().upper()
 
-    if user_role != "SUPER_ADMIN":
+    # Global view permission check: allows reading globally if granted, otherwise defaults to local station/region visibility rules.
+    if not check_global_view(current_user):
         visibility_conditions = [
             or_(
                 CommModel.target_audience == "ALL",
@@ -267,7 +278,6 @@ def get_admin_communications(
 
     return clean_comms
 
-# 🟢 FIX: Added path modifier to handle encoded strings and dynamic column assignment
 @router.post("/communications/{comm_id:path}/acknowledge")
 @router.post("/Admin_Communication/{comm_id:path}/acknowledge")
 def acknowledge_communication(
@@ -313,7 +323,7 @@ def acknowledge_communication(
         (comm.sender_fnum == current_user.fnum)
     )
 
-    if not is_intended and user_role != "SUPER_ADMIN":
+    if not is_intended and not check_global_view(current_user):
         raise HTTPException(status_code=403, detail="Clearance Denied: Message not addressed to your jurisdiction.")
 
     try:
@@ -331,7 +341,6 @@ def acknowledge_communication(
                 read_at=uganda_time
             )
             
-            # 🟢 FIX: Set attribute dynamically based on how the table is structured
             if hasattr(ReadsModel, 'fnum'):
                 new_read.fnum = clean_user_fnum
             elif hasattr(ReadsModel, 'f_num'):
@@ -402,7 +411,7 @@ def get_communication_readers(
         "RPC" in position_str
     )
 
-    if not is_intended_recipient and not is_high_command:
+    if not is_intended_recipient and not is_high_command and not check_global_view(current_user):
         raise HTTPException(status_code=403, detail="Clearance Denied: You are not authorized to view read receipts for this communication.")
 
     try:

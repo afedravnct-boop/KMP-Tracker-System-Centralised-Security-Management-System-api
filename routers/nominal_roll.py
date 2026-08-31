@@ -77,18 +77,15 @@ def parse_safe_date(val) -> Optional[date]:
     val_str = str(val).strip()
     if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-', 'n/a', 'nil']: return None
     
-    # 🟢 NEW: Clean trailing time codes (e.g., "1990-01-01 00:00:00")
     if ' ' in val_str:
         val_str = val_str.split(' ')[0]
         
-    # Try multiple common date formats explicitly
     for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%Y/%m/%d', '%d.%m.%Y'):
         try:
             return datetime.strptime(val_str, fmt).date()
         except ValueError:
             continue
 
-    # Fallback to pandas parser if custom formats miss it
     try:
         parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
         if pd.notna(parsed): return parsed.date()
@@ -382,7 +379,6 @@ async def bulk_upload_nominal_roll(
                     is_archived = db.query(ArchiveModel).filter(or_(*arc_filter)).first()
                     
                     if is_archived:
-                        # Safely format dates for JSON transfer to the frontend
                         safe_payload_json = {}
                         for k, v in officer_payload.items():
                             if isinstance(v, (date, datetime)):
@@ -396,7 +392,6 @@ async def bulk_upload_nominal_roll(
                             "payload": safe_payload_json
                         }
                         
-                        # Add to skipped list, preventing duplicates by checking fnum
                         if not any(isinstance(x, dict) and x.get('fnum') == clean_fnum for x in skipped_archived):
                             skipped_archived.append(entry_obj)
                         continue
@@ -436,14 +431,23 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         data.pop('sn', None) 
         data.pop('id', None)
         
-        perms = current_user.permissions or {}
-        if current_user.role not in ["SUPER_ADMIN", "RPC", "ADMIN"] and not perms.get("global_observer"):
-            data["region"] = current_user.region
-            data["station"] = current_user.station
-            
         clean_data = {}
         for k, v in data.items():
             clean_data[k] = None if v == "" else v
+
+        # 🟢 Enforce user signup limits for non-global users
+        perms = current_user.permissions or {}
+        user_role = (current_user.role or "").upper()
+        is_global_user = (
+            user_role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
+            "HR" in (current_user.position or "").upper() or
+            perms.get("view_global_roster") is True or
+            perms.get("global_observer") is True
+        )
+
+        if not is_global_user:
+            clean_data["region"] = current_user.region
+            clean_data["station"] = current_user.station
 
         if 'contact' in clean_data and clean_data['contact']:
             clean_data['contact'] = format_phone_number(clean_data['contact'])
@@ -546,18 +550,15 @@ def update_Nominal_Roll(
     current_user: models.Users = Depends(get_current_user)
 ):
     ActiveModel = get_active_model()
-    # 🟢 Double Unquote fix to handle Cloud Proxy URL formatting for strings with Slashes e.g. M%252F2744 -> M%2F2744 -> M/2744
     clean_id = unquote(unquote(identifier)).strip().upper()
     
     query_filters = []
     
-    # 🟢 Wrapped queries in func.trim() to ignore Excel whitespace trailing spaces
     if hasattr(ActiveModel, 'fnum'):
         query_filters.append(func.trim(func.upper(ActiveModel.fnum)) == clean_id)
     if hasattr(ActiveModel, 'f_num'):
         query_filters.append(func.trim(func.upper(ActiveModel.f_num)) == clean_id)
         
-    # 🟢 Flat fallback check in case M/2744 was saved as M2744
     alt_id = clean_id.replace('/', '')
     if hasattr(ActiveModel, 'fnum'):
         query_filters.append(func.trim(func.upper(ActiveModel.fnum)) == alt_id)
@@ -587,7 +588,15 @@ def update_Nominal_Roll(
         data['name'] = str(data['name']).strip().upper()
     
     perms = current_user.permissions or {}
-    if current_user.role not in ["SUPER_ADMIN", "RPC", "ADMIN"] and not perms.get("global_observer"):
+    user_role = (current_user.role or "").upper()
+    is_global_user = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        "HR" in (current_user.position or "").upper() or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True
+    )
+
+    if not is_global_user:
         data.pop('region', None)
         data.pop('station', None)
 
@@ -619,11 +628,14 @@ def archive_personnel(
     ArchiveModel = get_archive_model()
     
     try:
-        # 🟢 Double decode URL path and clean slashes/spaces safely 
-        fnum_clean = unquote(unquote(fnum)).strip().upper()
+        # 🟢 Clean the path parameter to strip out any trailing "/ARCHIVE" segment sent by the frontend URL wrapper
+        raw_fnum = unquote(unquote(fnum)).strip().upper()
+        if raw_fnum.endswith("/ARCHIVE"):
+            raw_fnum = raw_fnum[:-8].strip()
+        
+        fnum_clean = raw_fnum
         
         query_filters = []
-        # 🟢 Wrapped queries in func.trim() to catch numeric entries that have accidental trailing spaces in the DB
         if hasattr(ActiveModel, 'f_num'):
             query_filters.append(func.trim(func.upper(ActiveModel.f_num)) == fnum_clean)
         if hasattr(ActiveModel, 'fnum'):
@@ -634,7 +646,6 @@ def archive_personnel(
         active_record = db.query(ActiveModel).filter(or_(*query_filters)).first()
         
         if not active_record:
-            # 🟢 Fallback: try matching without the slash (e.g., E528 if stored flat)
             alt_fnum = fnum_clean.replace('/', '')
             query_filters_alt = []
             

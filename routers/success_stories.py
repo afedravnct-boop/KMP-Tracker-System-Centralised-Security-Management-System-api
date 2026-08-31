@@ -15,24 +15,36 @@ def get_officer_signature(user):
     name = (user.name or "").strip()
     return f"{fnum} {rank} {name}".strip().upper()
 
+def check_global_view(user):
+    role = (user.role or "").upper()
+    perms = user.permissions or {}
+    return (
+        role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True
+    )
+
 @router.get("/stories")
 def get_stories(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     query = db.query(models.Success_Stories)
-    if current_user.role == "SUPER_ADMIN":
-        pass
-    elif current_user.role in ["ADMIN", "RPC"]:
-        query = query.filter(models.Success_Stories.region == current_user.region)
-    else:
-        query = query.filter(models.Success_Stories.station == current_user.station)
+    
+    # Global read permission check: if granted, they view everything. Otherwise restricted to station/region defaults.
+    if not check_global_view(current_user):
+        if (current_user.role or "").upper() in ["ADMIN", "RPC"]:
+            query = query.filter(models.Success_Stories.region == current_user.region)
+        else:
+            query = query.filter(models.Success_Stories.station == current_user.station)
+            
     return query.order_by(models.Success_Stories.sn.desc()).all()
 
 @router.post("/stories")
 def create_story(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         data.pop('sn', None) 
-        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
-            data["region"] = current_user.region
-            data["station"] = current_user.station
+        
+        # Write permissions remain strictly bound to their default station/region regardless of global view status
+        data["region"] = current_user.region
+        data["station"] = current_user.station
             
         new_record = models.Success_Stories(**data)
         new_record.last_updated_by = get_officer_signature(current_user)
@@ -44,7 +56,6 @@ def create_story(data: dict, db: Session = Depends(get_db), current_user: models
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-# 🟢 ADDED: Missing Update Endpoint for Success Stories
 @router.put("/stories/{sn}")
 def update_story(sn: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
@@ -52,7 +63,14 @@ def update_story(sn: int, data: dict, db: Session = Depends(get_db), current_use
         if not record:
             raise HTTPException(status_code=404, detail="Success story record not found.")
 
-        # Update fields dynamically from incoming dictionary
+        # Ensure users can only modify stories belonging to their station/region unless they are national admins
+        user_role = (current_user.role or "").upper()
+        is_national_admin = user_role in ["SUPER_ADMIN", "ADMIN"] or (current_user.permissions or {}).get("system_admin") is True
+
+        if not is_national_admin:
+            data.pop('region', None)
+            data.pop('station', None)
+
         for key, value in data.items():
             if key not in ['sn', 'id']:
                 setattr(record, key, value)

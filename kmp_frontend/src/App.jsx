@@ -298,8 +298,9 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const canViewConsolidated = checkClearance(currentUser, 'acc_consolidated', isAdmin || currentUser?.permissions?.consolidated);
   const canExportData = checkClearance(currentUser, 'export_data', isRPC || currentUser?.permissions?.export_data);
 
+  // 🟢 Updated Monday morning check (1 = Monday, or keep end-of-week triggers like Thursday/Friday/Sunday if desired)
   const today = new Date().getDay();
-  const isEndOfWeek = today === 4 || today === 6 || today === 0;
+  const isMondayMorning = today === 1; 
 
   const userRole = (currentUser?.role || '').toUpperCase();
   const userPosition = (currentUser?.position || '').toUpperCase();
@@ -313,25 +314,30 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const matchesFieldRole = targetKeywords.some(keyword => userPosition.includes(keyword) || userRole.includes(keyword));
 
   const isTargetOfficer = matchesFieldRole && !isPoliceHQ && !isSystemManager;
-  const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+  
+  // 🟢 Calculate start of the current week (Monday midnight) to verify Monday morning submissions accurately
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const distanceToMonday = (dayOfWeek + 6) % 7;
+  const startOfThisWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - distanceToMonday).getTime();
 
   const hasSubmittedReport = (Array.isArray(reports) ? reports : []).some(r => {
     if (!r.date) return false;
     const matchesStation = (r.station || '').trim().toUpperCase() === userStation;
     const reportTime = new Date(r.date.toString().split('T')[0]).getTime();
-    return matchesStation && reportTime >= oneWeekAgo;
+    return matchesStation && reportTime >= startOfThisWeek;
   });
 
   const hasSubmittedStats = (Array.isArray(stats) ? stats : []).some(s => {
     if (!s.date) return false;
     const matchesStation = (s.station || '').trim().toUpperCase() === userStation;
     const statTime = new Date(s.date.toString().split('T')[0]).getTime();
-    return matchesStation && statTime >= oneWeekAgo;
+    return matchesStation && statTime >= startOfThisWeek;
   });
 
   const hasSubmittedThisWeek = hasSubmittedReport || hasSubmittedStats;
-  const showComplianceWarning = isEndOfWeek && !hasSubmittedThisWeek && isTargetOfficer;
-  const showComplianceSuccess = isEndOfWeek && hasSubmittedThisWeek && isTargetOfficer;
+  const showComplianceWarning = isMondayMorning && !hasSubmittedThisWeek && isTargetOfficer;
+  const showComplianceSuccess = isMondayMorning && hasSubmittedThisWeek && isTargetOfficer;
 
   const [isBannerFolded, setIsBannerFolded] = useState(false);
 
@@ -351,7 +357,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
 
   const hasUnread = safeComms.some(c => !c.acknowledged);
 
-return (
+  return (
     <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
       {showComplianceWarning && (
         <div className="fixed bottom-6 right-6 z-[9990]">
@@ -372,13 +378,13 @@ return (
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-300 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-400"></span>
                 </span>
-                <span className="text-[10px] font-extrabold tracking-wide uppercase">⚠️ Overdue</span>
+                <span className="text-[10px] font-extrabold tracking-wide uppercase">⚠️ Monday Mail Overdue</span>
               </div>
             ) : (
               <div className="flex flex-col space-y-2 p-1 max-w-xs text-left" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-start text-[11px] leading-snug font-extrabold">
                   <AlertTriangle className="mr-2 w-4 h-4 shrink-0 text-yellow-300 animate-bounce mt-0.5" />
-                  <span>COMPLIANCE ALERT: Your weekly entries are overdue for {currentUser.station}. Please submit records immediately.</span>
+                  <span>MONDAY COMPLIANCE ALERT: Weekly returns and morning reports are pending for {currentUser.station}. Please file immediately.</span>
                 </div>
                 <div className="flex space-x-2 justify-end">
                   <button 
@@ -403,9 +409,11 @@ return (
       {showComplianceSuccess && (
         <div className="bg-emerald-600 text-white font-extrabold p-3 rounded-lg shadow-2xl flex items-center border border-emerald-400 max-w-sm fixed bottom-24 right-6 z-[9980]">
           <CheckCircle className="mr-2 w-5 h-5 shrink-0 text-emerald-200" />
-          <span className="text-[11px]">COMMENDATION: Thank you, {currentUser.rank} {currentUser.name}, for duly filing your weekly returns.</span>
+          <span className="text-[11px]">COMMENDATION: Thank you, {currentUser.rank} {currentUser.name}, for filing your Monday morning returns on schedule.</span>
         </div>
       )}
+
+      {/* Rest of Dashboard layout components... */}
 
       <div className="text-center flex flex-col items-center mt-2">
         <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-1 object-contain drop-shadow-md contrast-200 brightness-75 dark:contrast-100" />

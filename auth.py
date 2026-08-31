@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Form
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -58,8 +58,6 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         "phone": user.phone,
         "profile_photo_path": getattr(user, 'profile_photo_path', '')
     }
-
-# 🟢 FIX: Removed the duplicate /signup route to eliminate architectural conflicts.
 
 # MOVED OUT OF THE SIGNUP FUNCTION SO API_BACKEND CAN IMPORT IT
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(database.get_db)):
@@ -122,3 +120,70 @@ def require_export_privilege(current_user: models.Users = Depends(get_current_us
     if user_role not in ["ADMIN", "SUPER_ADMIN", "RPC"] and not perms.get("export_data", False):
         raise HTTPException(status_code=403, detail="Clearance Denied: Data Export Privileges Required.")
     return current_user
+
+# 🟢 RESTORED /SIGNUP ROUTE AT THE BOTTOM
+@router.post("/signup", status_code=status.HTTP_201_CREATED)
+def signup(
+    fnum: str = Form(...),
+    ipps: str = Form(...),
+    name: str = Form(...),
+    rank: str = Form(...),
+    sex: str = Form("MALE"),
+    region: str = Form(...),
+    station: str = Form(...),
+    position: str = Form(...),
+    email: str = Form(...),
+    phone: str = Form(...),
+    password: str = Form(...),
+    role: str = Form("USER"),
+    db: Session = Depends(database.get_db)
+):
+    if len(password) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Password exceeds maximum allowed length."
+        )
+
+    clean_fnum = fnum.strip().upper()
+
+    existing_user = db.query(models.Users).filter(
+        func.trim(func.upper(models.Users.fnum)) == clean_fnum
+    ).first()
+    
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Registration Error: Force Number already registered."
+        )
+
+    hashed_password = security.get_password_hash(password)
+    
+    new_user = models.Users(
+        fnum=clean_fnum,
+        ipps=ipps.strip(),
+        name=name.strip().upper(),
+        rank=rank.strip().upper(),
+        sex=sex.strip().upper(),
+        region=region.strip().upper(),
+        station=station.strip().upper(),
+        position=position.strip().upper(),
+        email=email.strip(),
+        phone=phone.strip(),
+        role=role.strip().upper(),
+        hashed_password=hashed_password
+    )
+
+    try:
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        return {
+            "status": "success",
+            "message": "Account successfully registered."
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Registration database error: {str(e)}"
+        )

@@ -19,7 +19,7 @@ const REGIONAL_HIERARCHY = {
 const getRankWeight = (rank) => {
   if (!rank) return 99;
   const r = rank.toUpperCase().trim();
-  
+   
   if (r === 'IGP') return 1;
   if (r === 'DIGP') return 2;
   if (r === 'AIGP') return 3;
@@ -41,7 +41,7 @@ const getRankWeight = (rank) => {
   if (r === 'PC') return 19;
   if (r === 'PPC') return 20;
   if (r === 'SPC') return 21;
-  
+   
   return 50;
 };
 
@@ -89,10 +89,10 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                         currentUser?.permissions?.system_admin === true;
 
   const canEditRecords = isCommandOrHR || currentUser?.permissions?.upload_hr === true;
-  
+   
   const canViewGlobal = propCanViewGlobal !== undefined 
     ? propCanViewGlobal 
-    : (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'RPC' || currentUser?.role === 'Deputy Commander' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true);
+    : (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'RPC' || currentUser?.role === 'Deputy Commander' || isCommandOrHR || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true);
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobal ? 'ALL STATIONS' : ((isCommandOrHR) ? 'ALL STATIONS' : currentUser?.station || ''));
@@ -123,7 +123,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
   const [viewMode, setViewMode] = useState('active'); 
   const [showAnalytics, setShowAnalytics] = useState(false); 
-  
+   
   const [metricCategory, setMetricCategory] = useState('RANK');  
   const [archiveReason, setArchiveReason] = useState('TRANSFERRED');
 
@@ -166,21 +166,21 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
   const handleArchivePersonnel = async () => {
     if (!canEditRecords) return alert("Security Restriction: You do not have clearance to archive personnel.");
-    
+     
     let rawFnum = formData.fnum || formData.f_num || '';
     const cleanTargetFnum = rawFnum.toString().split('/ARCHIVE')[0].trim();
-    
+     
     if (!cleanTargetFnum) {
       return alert("Missing Force Number. Cannot archive this record.");
     }
-    
+     
     if (!window.confirm(`Are you sure you want to move ${formData.name} (${cleanTargetFnum}) to archives?`)) {
       return;
     }
 
     try {
       setNotification("Moving record to archive...");
-      
+       
       const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(encodeURIComponent(cleanTargetFnum))}/archive`, {
         method: "PUT", 
         headers: { "Content-Type": "application/json" }, 
@@ -200,7 +200,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           dir: formData.dir, status: "ARCHIVED", last_updated_by: `${currentUser.name} (${currentUser.fnum})`, archive_reason: archiveReason,
           archive_date: new Date().toISOString().split('T')[0]
       };
-      
+       
       setNominal_Roll_archives([archivedRecord, ...(Array.isArray(Nominal_Roll_archives) ? Nominal_Roll_archives : [])]);
       setNominal_Rolls((Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => (n.fnum || n.f_num) !== cleanTargetFnum));
       setNotification(`Officer ${formData.name} archived successfully.`);
@@ -218,7 +218,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
     setIsBulkArchiving(true);
     setNotification(`Archiving ${selectedOfficers.length} officers. Please wait...`);
-    
+     
     try {
       const response = await authFetch(`/api/v1/nominal-roll/bulk-archive`, {
         method: "POST",
@@ -228,7 +228,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           archive_reason: bulkArchiveReason
         })
       });
-      
+       
       const resData = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(resData.detail || "Bulk archive request failed.");
 
@@ -260,7 +260,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     if (!canEditRecords) return alert("Security Restriction: You do not have clearance to modify the Nominal Roll.");
 
     const currentRolls = Array.isArray(Nominal_Rolls) ? Nominal_Rolls : [];
-    
+     
     if (formData.nin) {
         const cleanNin = formData.nin.toUpperCase().trim();
         if (!/^C[MF][A-Z0-9]{12}$/.test(cleanNin)) return setNotification("⚠️ Error: National ID must start with CM or CF, be exactly 14 characters.");
@@ -269,21 +269,21 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
     if (operation === 'new') {
       const exactNextSN = currentRolls.length > 0 ? Math.max(...currentRolls.map(n => n.sn || 0)) + 1 : 1;
-      
+       
       const newEntryPayload = { 
         ...formData, 
         sn: exactNextSN, 
         last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
         ...(isArchivedReturnee && { reintegration_reason: customReason, previous_fnum: previousFnum || formData.fnum })
       };
-      
+       
       try {
         const response = await authFetch(`/api/v1/nominal-roll`, {
           method: "POST", 
           headers: { "Content-Type": "application/json" }, 
           body: JSON.stringify(newEntryPayload)
         });
-        
+         
         const responseData = await response.json().catch(() => ({}));
 
         if (!response.ok) {
@@ -295,12 +295,12 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             }
             throw new Error(responseData.detail || "Database rejected the entry.");
         }
-        
+         
         setNominal_Rolls([newEntryPayload, ...currentRolls]); 
         setNotification(`Officer ${formData.name} recorded successfully!`); 
         handleOperationToggle('new');
       } catch (err) { setNotification(`Error: ${err.message}`); }
-      
+       
     } else if (operation === 'update') {
       const updatedRecord = { ...formData, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
       try {
@@ -407,18 +407,18 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const calculatedMetrics = useMemo(() => {
       if (!showAnalytics) return [];
       const grouped = {};
-      
+       
       currentRollDataset.forEach(n => {
           let key = 'Unknown';
           const sexStr = (n.sex || '').trim().toUpperCase();
           const ninStr = (n.nin || '').trim().toUpperCase();
           const isFemale = sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF');
           const isMale = sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM');
-          
+           
           const homeDistrict = n.homedist || n.home_dist || '';
           const bankBranch = n.bankbranch || n.bank_branch || '';
           const educLevel = n.educlevel || n.educ_level || '';
-          
+           
           if (metricCategory === 'RANK') key = n.rank ? n.rank.trim().toUpperCase() : 'UNRANKED';
           else if (metricCategory === 'UNIT') key = `${n.station || 'UNKNOWN'} ${n.section ? '- ' + n.section : ''}`.trim();
           else if (metricCategory === 'SEX') key = isFemale ? 'FEMALE' : (isMale ? 'MALE' : 'UNSPECIFIED');
@@ -440,7 +440,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                   key = 'Age Not Recorded'; 
               }
           }
-          
+           
           if (!grouped[key]) grouped[key] = { category: key, total: 0, male: 0, female: 0, unknown: 0 };
           grouped[key].total += 1;
           if (isFemale) grouped[key].female += 1;
@@ -465,7 +465,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     currentRollDataset.forEach(n => {
       const sexStr = (n.sex || '').trim().toUpperCase();
       const ninStr = (n.nin || '').trim().toUpperCase();
-      
+       
       if (sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF')) {
         femaleCount++;
       } else if (sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM')) {
@@ -493,7 +493,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         <h1 className="text-3xl font-extrabold text-gray-700 dark:text-slate-100 tracking-tight">Master Nominal Roll</h1>
         <h3 className="text-lg text-indigo-500 dark:text-indigo-400 mt-2 font-medium">Man-Power Auditing & Deployment Registry</h3>
       </div>
-      
+       
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 p-4 mb-6">
         <div className="flex flex-col md:flex-row justify-between items-center mb-4 border-b border-gray-200 dark:border-slate-700 pb-2">
           <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center">
@@ -531,7 +531,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       <Upload className="w-4 h-4 mr-2 text-blue-600 dark:text-blue-400 shrink-0" /> Batch Excel / Multi-File Import
                     </h4>
                   </div>
-                  
+                   
                   <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-[10px] font-mono text-slate-700 dark:text-slate-300 flex flex-wrap gap-1 max-h-24 overflow-y-auto">
                     <span className="bg-white dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-700 shadow-sm font-bold">sn</span>
                     <span className="bg-white dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-700 shadow-sm font-bold">f_num</span>
@@ -587,7 +587,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                         </div>
                       </div>
                     )}
-                    
+                     
                     <form onSubmit={handleFormSubmit} className="space-y-3">
                       {operation === 'update' && (formData.sn || formData.fnum) && (
                         <div className="bg-red-50 dark:bg-red-950/40 p-3 rounded-lg border border-red-200 dark:border-red-900 space-y-2 mb-4 shadow-sm">
@@ -602,7 +602,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       )}
 
                       {operation === 'update' && (formData.sn || formData.fnum) && <div className="bg-slate-800 text-white text-[11px] font-bold px-2.5 py-1.5 rounded">Editing: {formData.fnum}</div>}
-                      
+                       
                       <div className="bg-gray-50 dark:bg-slate-900 p-3 rounded-lg border border-gray-200 dark:border-slate-700 space-y-2.5">
                         <h4 className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase border-b dark:border-slate-700 pb-0.5">1. Identifiers</h4>
                         <div className="grid grid-cols-2 gap-2">
@@ -665,7 +665,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                               </p>
                             </div>
                           </div>
-                          
+                           
                           <div className="space-y-3 bg-white dark:bg-slate-800 p-3 rounded-md border border-amber-100 dark:border-amber-900">
                             <div>
                               <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Re-integration Authority / Reason *</label>
@@ -678,7 +678,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                                 className="w-full text-xs py-1.5 px-2 border border-slate-300 dark:border-slate-700 rounded shadow-sm focus:ring-1 focus:ring-amber-500 outline-none bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
                               />
                             </div>
-                            
+                             
                             <div>
                               <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5 flex items-center">
                                 Previous Force No. <span className="text-slate-400 font-normal ml-1">(If promoted to Gazetted File No.)</span>
@@ -715,7 +715,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           </div>
 
           <div className="lg:col-span-7 space-y-4">
-            
+             
             {viewMode === 'active' && canEditRecords && (
   <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row justify-between items-center gap-3">
     <button
@@ -724,7 +724,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     >
         {bulkSelectMode ? 'Cancel Bulk Select' : '☑️ Enable Bulk Archive'}
     </button>
-    
+     
     {bulkSelectMode && selectedOfficers.length > 0 && (
         <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-left-4 bg-white dark:bg-slate-900 p-1.5 rounded-lg shadow-sm border border-red-200 dark:border-red-900">
             {/* 🟢 Live Counter Badge */}
@@ -871,7 +871,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                           className={`${viewMode === 'archive' ? 'bg-slate-50 dark:bg-slate-900/50 opacity-80' : bulkSelectMode && selectedOfficers.includes(n.f_num || n.fnum) ? 'bg-red-50 dark:bg-red-950/40' : 'hover:bg-blue-50 dark:hover:bg-slate-700'} transition-colors ${canEditRecords ? 'cursor-pointer' : ''}`} 
                           onClick={() => {
                               if (!canEditRecords) return;
-                              
+                               
                               if (bulkSelectMode && viewMode === 'active') {
                                 const target = n.f_num || n.fnum;
                                 if (selectedOfficers.includes(target)) {
@@ -899,35 +899,35 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                               </td>
                           )}
                           <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-gray-900 dark:text-slate-100">{index + 1}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800 dark:text-blue-400">{n.f_num || n.fnum}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-slate-800 dark:text-slate-100">{n.rank}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-medium uppercase text-slate-800 dark:text-slate-100">{n.name}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.sex}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-slate-300">{n.position}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400">{n.dob || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400">{n.doe || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400">{n.do_post || n.dopost || n.dop || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400">{n.do_pro || n.dopro || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.contact || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.educ_level || n.educlevel || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-mono text-slate-700 dark:text-slate-300">{n.ipps || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.tin || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.nin || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.home_dist || n.homedist || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.tribe || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.acc_no || n.accno || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.bank_branch || n.bankbranch || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-700 dark:text-blue-400">{n.station || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.district || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.region || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.section || '-'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.dir || '-'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800 dark:text-blue-400">{n.f_num || n.fnum || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-slate-800 dark:text-slate-100">{n.rank || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-medium uppercase text-slate-800 dark:text-slate-100">{n.name || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.sex || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-slate-300">{n.position || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400">{n.dob || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400">{n.doe || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400">{n.do_post || n.dopost || n.dop || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400">{n.do_pro || n.dopro || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.contact || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.educ_level || n.educlevel || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-mono text-slate-700 dark:text-slate-300">{n.ipps || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.tin || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.nin || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.home_dist || n.homedist || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.tribe || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.acc_no || n.accno || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.bank_branch || n.bankbranch || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-700 dark:text-blue-400">{n.station || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.district || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.region || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.section || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{n.dir || ''}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-green-700 dark:text-green-400">{n.status || 'ACTIVE'}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400">{n.last_updated_by || '-'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400">{n.last_updated_by || ''}</td>
                           {viewMode === 'archive' && (
                             <>
-                              <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-red-700 dark:text-red-400 bg-red-50/50 dark:bg-red-950/20">{n.archive_reason || '-'}</td>
-                              <td className="px-3 py-2 whitespace-nowrap text-xs text-red-500 dark:text-red-400 bg-red-50/50 dark:bg-red-950/20">{n.archive_date || '-'}</td>
+                              <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-red-700 dark:text-red-400 bg-red-50/50 dark:bg-red-950/20">{n.archive_reason || ''}</td>
+                              <td className="px-3 py-2 whitespace-nowrap text-xs text-red-500 dark:text-red-400 bg-red-50/50 dark:bg-red-950/20">{n.archive_date || ''}</td>
                             </>
                           )}
                         </tr>

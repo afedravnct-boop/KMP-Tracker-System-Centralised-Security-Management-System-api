@@ -44,8 +44,15 @@ def export_hr_establishments_zip(
     current_user = Depends(get_current_user)
 ):
     try:
-        # 1. Scope Jurisdiction
-        is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or current_user.region in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
+        # 1. Scope Jurisdiction using unified global clearance rules
+        user_role = (current_user.role or "").upper()
+        perms = current_user.permissions or {}
+        is_global = (
+            user_role in ['SUPER_ADMIN', 'ADMIN', 'RPC', 'DEPUTY COMMANDER'] or
+            (current_user.region or "").strip().upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'] or
+            perms.get("view_global_roster") is True or
+            perms.get("global_observer") is True
+        )
         
         nr_query = "SELECT fnum, name, rank, sex, region, station, position, educ_level, status FROM nominal_roll"
         est_query = "SELECT id, region, division, station, personnel_in_station, sub_station, personnel_in_sub_station, post, personnel_in_post, booths, personnel_in_booth, installed_by, location, status, comment, last_updated_by, created_at FROM establishments"
@@ -79,17 +86,15 @@ def export_hr_establishments_zip(
         # 3. Build Formatted Two-Page A4 Landscape Word Document matching UI Structure
         doc = Document()
         
-        # Configure A4 Landscape Dimensions and Custom Narrow Margins
         section = doc.sections[0]
         section.orientation = WD_ORIENT.LANDSCAPE
-        section.page_width = Inches(11.69)  # Landscape width
-        section.page_height = Inches(8.27)  # Landscape height
+        section.page_width = Inches(11.69) 
+        section.page_height = Inches(8.27) 
         section.top_margin = Inches(0.4)
         section.bottom_margin = Inches(0.4)
         section.left_margin = Inches(0.4)
         section.right_margin = Inches(0.4)
 
-        # Header Title block
         title_p = doc.add_paragraph()
         title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         title_run = title_p.add_run("KAMPALA METROPOLITAN POLICE - HR & ESTABLISHMENTS LEDGER")
@@ -105,7 +110,6 @@ def export_hr_establishments_zip(
         sub_run.font.size = Pt(9)
         sub_run.font.color.rgb = RGBColor(100, 116, 139)
 
-        # Page 1 Section: Nominal Roll Table
         h1 = doc.add_paragraph()
         h1_run = h1.add_run("1. Master Personnel Nominal Roll")
         h1_run.font.bold = True
@@ -134,10 +138,8 @@ def export_hr_establishments_zip(
                     for r in p.runs:
                         r.font.size = Pt(8)
 
-        # Force Page Break to ensure strict 2-Page landscape layout
         doc.add_page_break()
 
-        # Page 2 Section: Establishments Ledger Table
         h2 = doc.add_paragraph()
         h2_run = h2.add_run("2. Regional Establishments Breakdown")
         h2_run.font.bold = True
@@ -170,7 +172,6 @@ def export_hr_establishments_zip(
         doc.save(doc_stream)
         doc_stream.seek(0)
 
-        # 4. Encrypt inside a ZIP using Force Number
         eat_tz = pytz.timezone("Africa/Nairobi")
         eat_time = datetime.now(eat_tz).replace(tzinfo=None)
         
@@ -188,7 +189,6 @@ def export_hr_establishments_zip(
 
         zip_stream.seek(0)
 
-        # 5. Send ZIP to Frontend
         zip_filename = f"SECURE_HR_LEDGER_{eat_time.strftime('%Y%m%d')}.zip"
         headers = {
             'Content-Disposition': f'attachment; filename="{zip_filename}"',

@@ -34,6 +34,16 @@ def is_db_query_globally_enabled(db: Session) -> bool:
         return False
     return True
 
+def check_global_view(user):
+    role = (user.role or "").upper()
+    perms = user.permissions or {}
+    return (
+        role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        (user.region or "").strip().upper() in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True
+    )
+
 @router.post("/admin/toggle-db-query")
 async def toggle_ai_database_queries(
     current_user = Depends(get_current_user),
@@ -81,8 +91,8 @@ async def process_tactical_query(
         client = genai.Client(api_key=api_key)
         db_queries_allowed = is_db_query_globally_enabled(db)
 
-        is_global_viewer = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or \
-                           str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
+        # 🟢 Use unified check_global_view function for consistent scoping
+        is_global_viewer = check_global_view(current_user)
 
         user_perms = current_user.permissions or {}
         if isinstance(user_perms, str):
@@ -116,11 +126,12 @@ async def process_tactical_query(
                 agric_query = db.query(AgricModel) if AgricModel else None
                 stats_query = db.query(StatsModel) if StatsModel else None
 
+                # 🟢 Restrict extraction queries for non-global users to their default station
                 if not is_global_viewer:
                     if AgricModel and hasattr(AgricModel, 'station'): 
-                        agric_query = agric_query.filter(AgricModel.station == current_user.station)
+                        agric_query = agric_query.filter(func.upper(AgricModel.station) == str(current_user.station).strip().upper())
                     if StatsModel and hasattr(StatsModel, 'station'): 
-                        stats_query = stats_query.filter(StatsModel.station == current_user.station)
+                        stats_query = stats_query.filter(func.upper(StatsModel.station) == str(current_user.station).strip().upper())
 
                 agric_records = agric_query.limit(20).all() if agric_query else []
                 stats_records = stats_query.limit(20).all() if stats_query else []
@@ -146,7 +157,7 @@ async def process_tactical_query(
                         func.count(id_col)
                     )
                     if not is_global_viewer and hasattr(HrModel, 'station'):
-                        agg_query = agg_query.filter(HrModel.station == current_user.station)
+                        agg_query = agg_query.filter(func.upper(HrModel.station) == str(current_user.station).strip().upper())
                         
                     hr_aggregates = agg_query.group_by(
                         getattr(HrModel, 'rank', 'rank'), 
@@ -161,7 +172,7 @@ async def process_tactical_query(
                     
                     hr_sample_query = db.query(HrModel)
                     if not is_global_viewer and hasattr(HrModel, 'station'):
-                        hr_sample_query = hr_sample_query.filter(HrModel.station == current_user.station)
+                        hr_sample_query = hr_sample_query.filter(func.upper(HrModel.station) == str(current_user.station).strip().upper())
                     
                     stop_words = {"what", "is", "the", "for", "who", "where", "tell", "me", "about", "find", "search", "officer", "stationed", "details", "give", "show", "can", "you", "of", "in", "on", "at", "and", "a", "an", "how", "many", "does", "have", "age", "unit", "rank", "sex", "name"}
                     
@@ -267,7 +278,6 @@ async def process_tactical_query(
             else:
                 raise primary_err
 
-        # 🟢 DIRECT DB LOGGING COMMIT TO NEONDB
         try:
             LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
             if LogModel:

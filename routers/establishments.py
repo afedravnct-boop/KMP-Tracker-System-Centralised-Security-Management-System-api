@@ -24,12 +24,20 @@ def get_est_model():
         raise HTTPException(status_code=500, detail="Establishments database model not configured.")
     return model
 
+def check_global_view(user):
+    role = (user.role or "").upper()
+    perms = user.permissions or {}
+    return (
+        role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True
+    )
+
 def serialize_row(row):
     if not row:
         return {}
     d = row.__dict__.copy()
     d.pop('_sa_instance_state', None)
-    # Ensure standardized 'id' field is always present for frontend mapping
     if 'sn' in d and 'id' not in d:
         d['id'] = d['sn']
     for k, v in d.items():
@@ -44,16 +52,10 @@ def get_all_establishments(db: Session = Depends(get_db), current_user: models.U
     EstModel = get_est_model()
     query = db.query(EstModel)
     
-    perms = current_user.permissions or {}
-    is_global_viewer = (
-        current_user.role in ["SUPER_ADMIN", "ADMIN", "RPC", "Deputy Commander"] or
-        perms.get("view_global_roster") is True or
-        perms.get("global_observer") is True
-    )
-
-    if is_global_viewer:
+    # Read Access: Uses global view permissions check
+    if check_global_view(current_user):
         pass
-    elif current_user.role in ["REGIONAL_ADMIN", "DIVISION_ADMIN"] or "HR" in (current_user.position or "").upper():
+    elif (current_user.role or "").upper() in ["REGIONAL_ADMIN", "DIVISION_ADMIN"] or "HR" in (current_user.position or "").upper():
         query = query.filter(func.upper(EstModel.region) == str(current_user.region).strip().upper())
     else:
         query = query.filter(func.upper(EstModel.station) == str(current_user.station).strip().upper())
@@ -73,7 +75,6 @@ def create_establishment(data: dict, db: Session = Depends(get_db), current_user
         data.pop('sn', None)
         data.pop('id', None)
         
-        # Sanitize numeric fields to prevent database type rejection (fixed !== to !=)
         numeric_fields = ['personnel_in_station', 'personnel_in_sub_station', 'personnel_in_post', 'booths', 'personnel_in_booth']
         for field in numeric_fields:
             if field in data:
@@ -82,6 +83,7 @@ def create_establishment(data: dict, db: Session = Depends(get_db), current_user
                 except (ValueError, TypeError):
                     data[field] = 0
 
+        # Write Access: Strictly bound to default station/region unless user has explicit global assignment rights
         perms = current_user.permissions or {}
         can_assign_jurisdiction = (
             current_user.role in ["SUPER_ADMIN", "RPC", "ADMIN"] or
@@ -119,7 +121,6 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
     est_update.pop('sn', None) 
     est_update.pop('id', None) 
     
-    # Sanitize numeric fields (fixed !== to !=)
     numeric_fields = ['personnel_in_station', 'personnel_in_sub_station', 'personnel_in_post', 'booths', 'personnel_in_booth']
     for field in numeric_fields:
         if field in est_update:
@@ -128,6 +129,7 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
             except (ValueError, TypeError):
                 est_update[field] = 0
 
+        # Write/Update Access: Prevent overriding jurisdiction fields unless authorized globally
     perms = current_user.permissions or {}
     can_reassign = (
         current_user.role in ["SUPER_ADMIN", "RPC", "ADMIN"] or

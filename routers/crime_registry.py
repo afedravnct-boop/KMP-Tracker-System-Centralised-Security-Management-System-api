@@ -62,14 +62,25 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
         return []
 
     query = db.query(CrimeModel)
-    if current_user.role == "SUPER_ADMIN" or (current_user.permissions or {}).get("view_all_reports", False):
-        pass 
-    elif current_user.role in ["ADMIN", "RPC"]:
-        if hasattr(CrimeModel, 'region'):
-            query = query.filter(CrimeModel.region == current_user.region)
-    else:
-        if hasattr(CrimeModel, 'station'):
-            query = query.filter(CrimeModel.station == current_user.station)
+    
+    # 🟢 Global view permission check: allows reading globally if granted, otherwise falls back to regional/station scope
+    user_role = (current_user.role or "").upper()
+    perms = current_user.permissions or {}
+    is_global_view = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        (current_user.region or "").strip().upper() in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True or
+        perms.get("view_all_reports", False) is True
+    )
+
+    if not is_global_view:
+        if user_role in ["ADMIN", "RPC"]:
+            if hasattr(CrimeModel, 'region'):
+                query = query.filter(CrimeModel.region == current_user.region)
+        else:
+            if hasattr(CrimeModel, 'station'):
+                query = query.filter(CrimeModel.station == current_user.station)
         
     pk_col = getattr(CrimeModel, 'sn', getattr(CrimeModel, 'id', None))
     reports = query.order_by(pk_col.desc()).all() if pk_col is not None else query.all()
