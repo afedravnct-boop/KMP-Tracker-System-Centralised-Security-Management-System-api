@@ -720,7 +720,7 @@ def update_Nominal_Roll(
 @router.put("/nominal-roll/{fnum:path}/archive")
 def archive_personnel(
     fnum: str, 
-    request_data: schemas.ArchiveRequest, 
+    request_data: Optional[schemas.ArchiveRequest] = None, 
     db: Session = Depends(get_db), 
     current_user: models.Users = Depends(get_current_user)
 ):
@@ -729,33 +729,31 @@ def archive_personnel(
     
     try:
         raw_fnum = unquote(unquote(fnum)).strip().upper()
-        fnum_clean = raw_fnum.removesuffix("/ARCHIVE").strip()
+        fnum_clean = raw_fnum.split('/ARCHIVE')[0].replace('/ARCHIVE', '').strip()
+        
+        if not fnum_clean:
+            raise HTTPException(status_code=400, detail="Missing or invalid Force Number identifier for archiving.")
+
+        alt_fnum = fnum_clean.replace('/', '')
         
         query_filters = []
         if hasattr(ActiveModel, 'f_num'):
-            query_filters.append(func.trim(func.upper(ActiveModel.f_num)) == fnum_clean)
+            query_filters.extend([
+                func.trim(func.upper(ActiveModel.f_num)) == fnum_clean,
+                func.trim(func.upper(ActiveModel.f_num)) == alt_fnum
+            ])
         if hasattr(ActiveModel, 'fnum'):
-            query_filters.append(func.trim(func.upper(ActiveModel.fnum)) == fnum_clean)
+            query_filters.extend([
+                func.trim(func.upper(ActiveModel.fnum)) == fnum_clean,
+                func.trim(func.upper(ActiveModel.fnum)) == alt_fnum
+            ])
         if hasattr(ActiveModel, 'ipps'):
             query_filters.append(func.trim(func.upper(ActiveModel.ipps)) == fnum_clean)
             
         active_record = db.query(ActiveModel).filter(or_(*query_filters)).first()
-        
-        if not active_record:
-            alt_fnum = fnum_clean.replace('/', '')
-            query_filters_alt = []
-            
-            if hasattr(ActiveModel, 'f_num'):
-                query_filters_alt.append(func.trim(func.upper(ActiveModel.f_num)) == alt_fnum)
-            if hasattr(ActiveModel, 'fnum'):
-                query_filters_alt.append(func.trim(func.upper(ActiveModel.fnum)) == alt_fnum)
-            if hasattr(ActiveModel, 'ipps'):
-                query_filters_alt.append(func.trim(func.upper(ActiveModel.ipps)) == alt_fnum)
-                
-            active_record = db.query(ActiveModel).filter(or_(*query_filters_alt)).first()
 
         if not active_record:
-            raise HTTPException(status_code=404, detail=f"Officer '{fnum_clean}' not found in active roll.")
+            raise HTTPException(status_code=404, detail=f"Officer record '{fnum_clean}' not found in active Nominal Roll.")
 
         record_data = active_record.__dict__.copy()
         record_data.pop("_sa_instance_state", None) 
