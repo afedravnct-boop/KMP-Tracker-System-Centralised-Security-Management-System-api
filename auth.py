@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import timedelta
+from typing import Optional
 from jose import jwt, JWTError
 
 # Import logic
@@ -15,17 +16,20 @@ router = APIRouter()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
+# ====================================================================
+# LOGIN ENDPOINT (Supports both /login, /api/auth/login, & /api/v1/auth/login)
+# ====================================================================
 @router.post("/login")
+@router.post("/api/auth/login")
+@router.post("/api/v1/auth/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(database.get_db)):
-    
-    # 🚨 Stop giant passwords at the door!
+    # 🚨 Stop oversized passwords
     if len(form_data.password) > 72:
-         raise HTTPException(
+        raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
             detail="Password exceeds maximum allowed length."
         )
 
-    # 🟢 FIX: Handle q/1 -> Q/1 conversion cleanly during login
     clean_username = form_data.username.strip().upper()
     user = db.query(models.Users).filter(func.trim(func.upper(models.Users.fnum)) == clean_username).first()
     
@@ -35,7 +39,6 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             detail="Incorrect Force Number or password"
         )
     
-    # 🟢 FIX: Synchronized token expiration with global security settings
     access_token = security.create_access_token(
         data={"sub": user.fnum}, 
         expires_delta=timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -56,10 +59,13 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         "position": user.position,  
         "email": user.email,
         "phone": user.phone,
-        "profile_photo_path": getattr(user, 'profile_photo_path', '')
+        "permissions": getattr(user, 'permissions', {}) or {},
+        "profile_photo_path": getattr(user, 'profile_photo_path', '') or ''
     }
 
-# MOVED OUT OF THE SIGNUP FUNCTION SO API_BACKEND CAN IMPORT IT
+# ====================================================================
+# AUTHENTICATION DEPENDENCY
+# ====================================================================
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(database.get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -74,7 +80,6 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     except JWTError:
         raise credentials_exception
  
-    # 🟢 FIX: Ensure decoded token payload is matched accurately against database
     clean_fnum = fnum.strip().upper()
     user = db.query(models.Users).filter(func.trim(func.upper(models.Users.fnum)) == clean_fnum).first()
     
@@ -82,33 +87,33 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     return user
 
+# ====================================================================
+# PROFILE UPDATE ENDPOINT
+# ====================================================================
 @router.put("/me")
 def update_profile(
     update_data: schemas.UserUpdate, 
     current_user: models.Users = Depends(get_current_user), 
     db: Session = Depends(database.get_db)
 ):
-    # 1. Update standard text fields if they were provided
     if update_data.name:
-        current_user.name = update_data.name
+        current_user.name = update_data.name.strip().upper()
     if update_data.rank:
-        current_user.rank = update_data.rank
+        current_user.rank = update_data.rank.strip().upper()
     if update_data.region:
-        current_user.region = update_data.region
+        current_user.region = update_data.region.strip().upper()
     if update_data.station:
-        current_user.station = update_data.station
+        current_user.station = update_data.station.strip().upper()
     if update_data.email:
-        current_user.email = update_data.email
+        current_user.email = update_data.email.strip()
     if update_data.phone:
-        current_user.phone = update_data.phone
+        current_user.phone = update_data.phone.strip()
     if update_data.profile_photo_path:
         current_user.profile_photo_path = update_data.profile_photo_path
 
-    # 2. Only update the password if a new one was actually typed in
     if update_data.password and len(update_data.password.strip()) > 0:
         current_user.hashed_password = security.get_password_hash(update_data.password)
 
-    # 3. Save changes to the Neon database
     db.commit()
     db.refresh(current_user)
     
@@ -121,8 +126,12 @@ def require_export_privilege(current_user: models.Users = Depends(get_current_us
         raise HTTPException(status_code=403, detail="Clearance Denied: Data Export Privileges Required.")
     return current_user
 
-# 🟢 RESTORED /SIGNUP ROUTE AT THE BOTTOM
+# ====================================================================
+# SIGNUP ENDPOINT (Supports both /signup, /api/auth/signup, & /api/v1/auth/signup)
+# ====================================================================
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
+@router.post("/api/auth/signup", status_code=status.HTTP_201_CREATED)
+@router.post("/api/v1/auth/signup", status_code=status.HTTP_201_CREATED)
 def signup(
     fnum: str = Form(...),
     ipps: str = Form(...),
@@ -136,6 +145,8 @@ def signup(
     phone: str = Form(...),
     password: str = Form(...),
     role: str = Form("USER"),
+    profile_photo_path: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
     db: Session = Depends(database.get_db)
 ):
     if len(password) > 72:
@@ -170,7 +181,8 @@ def signup(
         email=email.strip(),
         phone=phone.strip(),
         role=role.strip().upper(),
-        hashed_password=hashed_password
+        hashed_password=hashed_password,
+        profile_photo_path=profile_photo_path or ""
     )
 
     try:
@@ -179,7 +191,7 @@ def signup(
         db.refresh(new_user)
         return {
             "status": "success",
-            "message": "Account successfully registered."
+            "message": "Account successfully registered. Awaiting approval."
         }
     except Exception as e:
         db.rollback()

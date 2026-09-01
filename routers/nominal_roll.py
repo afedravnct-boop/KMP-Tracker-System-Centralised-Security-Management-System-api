@@ -80,38 +80,108 @@ def is_uniformed_rank(rank_str: str) -> bool:
     return r in uniformed_ranks
 
 def parse_safe_date(val) -> Optional[date]:
-    """Strictly coerces incoming date values into a Python date object or None for SQL DATE compatibility."""
-    if pd.isna(val) or val is None: return None
-    if isinstance(val, date) and not isinstance(val, datetime): return val
-    if isinstance(val, datetime): return val.date()
-    if type(val).__name__ == 'Timestamp': return val.date()
-    
+    """Strictly coerces incoming date values into a Python date object or None without triggering OutOfBoundsDatetime."""
+    if pd.isna(val) or val is None:
+        return None
+    if isinstance(val, date) and not isinstance(val, datetime):
+        if 1900 <= val.year <= 2100:
+            return val
+        return None
+    if isinstance(val, datetime):
+        if 1900 <= val.year <= 2100:
+            return val.date()
+        return None
+    if type(val).__name__ == 'Timestamp':
+        try:
+            if 1900 <= val.year <= 2100:
+                return val.date()
+        except Exception:
+            return None
+        return None
+
     val_str = str(val).strip()
-    if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-', 'n/a', 'nil']: return None
-    
+    if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-', 'n/a', 'nil', '0', 'undefined']:
+        return None
+
+    # Strip time component if present
     if ' ' in val_str:
         val_str = val_str.split(' ')[0]
-        
+    if 'T' in val_str:
+        val_str = val_str.split('T')[0]
+
+    val_str = val_str.strip()
+    if not val_str:
+        return None
+
+    # Handle Excel float serial numbers safely
     try:
         if val_str.replace('.', '', 1).isdigit():
             float_val = float(val_str)
-            if float_val > 1000:  
-                return pd.to_datetime(float_val, unit='D', origin='1899-12-30').date()
+            if 1000 < float_val < 73050:
+                try:
+                    dt = pd.to_datetime(float_val, unit='D', origin='1899-12-30', errors='coerce')
+                    if pd.notna(dt) and 1900 <= dt.year <= 2100:
+                        return dt.date()
+                except Exception:
+                    pass
     except Exception:
         pass
 
-    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%Y/%m/%d', '%d.%m.%Y'):
+    # Normalize delimiters to standard hyphens
+    clean_str = re.sub(r'[\./\\]', '-', val_str)
+    parts = clean_str.split('-')
+
+    if len(parts) == 3:
+        p0, p1, p2 = parts[0].strip(), parts[1].strip(), parts[2].strip()
+        if p0.isdigit() and p1.isdigit() and p2.isdigit():
+            # YYYY-MM-DD
+            if len(p0) == 4:
+                y, m, d = int(p0), int(p1), int(p2)
+                try:
+                    res_date = date(y, m, d)
+                    if 1900 <= res_date.year <= 2100:
+                        return res_date
+                except Exception:
+                    pass
+            # DD-MM-YYYY
+            elif len(p2) == 4:
+                d, m, y = int(p0), int(p1), int(p2)
+                try:
+                    res_date = date(y, m, d)
+                    if 1900 <= res_date.year <= 2100:
+                        return res_date
+                except Exception:
+                    pass
+            # Corrupted 2-digit years or single-digit prefixes (e.g., '1-01-24', '01-01-24')
+            elif len(p0) <= 2 and len(p2) <= 2:
+                for (day_val, month_val, year_val) in [(int(p0), int(p1), int(p2)), (int(p2), int(p1), int(p0))]:
+                    y = year_val
+                    if y < 100:
+                        y = 1900 + y if y > 40 else 2000 + y
+                    try:
+                        res_date = date(y, month_val, day_val)
+                        if 1900 <= res_date.year <= 2100:
+                            return res_date
+                    except Exception:
+                        continue
+
+    for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y', '%Y/%m/%d', '%d.%m.%Y', '%m/%d/%Y', '%m-%d-%Y'):
         try:
-            return datetime.strptime(val_str, fmt).date()
-        except ValueError:
+            d = datetime.strptime(val_str, fmt).date()
+            if 1900 <= d.year <= 2100:
+                return d
+        except Exception:
             continue
 
     try:
-        parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce', format='mixed')
-        if pd.notna(parsed): return parsed.date()
+        parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
+        if pd.notna(parsed):
+            py_dt = parsed.to_pydatetime()
+            if 1900 <= py_dt.year <= 2100:
+                return py_dt.date()
     except Exception:
         pass
-        
+
     return None
 
 def get_officer_signature(user):
@@ -311,24 +381,11 @@ async def bulk_upload_nominal_roll(
                 
             df.columns = [standardize_header(col) for col in df.columns]
             
+            # Use safe item-by-item date coercion to prevent nanosecond out-of-bounds crashes
             date_columns = ['dob', 'dateofbirth', 'doe', 'dateofenlistment', 'dopost', 'dop', 'dopro', 'dateofpromotion']
             for col in date_columns:
                 if col in df.columns:
-                    series = df[col].replace(r'^\s*[-–—]?\s*$', np.nan, regex=True)
-                    is_numeric = pd.to_numeric(series, errors='coerce').notnull()
-                    parsed = pd.Series(pd.NaT, index=df.index)
-                    
-                    if is_numeric.any():
-                        numeric_vals = pd.to_numeric(series[is_numeric], errors='coerce')
-                        valid_mask = (numeric_vals > 1) & (numeric_vals < 73050)
-                        parsed[is_numeric & valid_mask] = pd.to_datetime(numeric_vals[valid_mask], unit='D', origin='1899-12-30', errors='coerce')
-                    
-                    non_numeric = ~is_numeric & series.notnull()
-                    if non_numeric.any():
-                        parsed[non_numeric] = pd.to_datetime(series[non_numeric], errors='coerce', format='mixed', dayfirst=True)
-                        
-                    valid_dates = parsed.dt.year.between(1900, 2100, inclusive='both')
-                    df[col] = parsed.where(valid_dates, None).dt.date
+                    df[col] = df[col].apply(parse_safe_date)
 
             for idx, row in df.iterrows():
                 fnum_val = row.get("fnum") or row.get("forceno") or row.get("forcenumber") or row.get("fileno") or row.get("fno")
@@ -351,10 +408,10 @@ async def bulk_upload_nominal_roll(
                 stn_val = str(row.get("station") or current_user.station or "HQ").strip().upper()
                 reg_val, dist_val = auto_infer_geography(stn_val, row.get("region"), row.get("district"))
 
-                dob_val = parse_safe_date(row.get("dob") or row.get("dateofbirth"))
-                doe_val = parse_safe_date(row.get("doe") or row.get("dateofenlistment"))
-                dopost_val = parse_safe_date(row.get("dopost") or row.get("dop"))
-                dopro_val = parse_safe_date(row.get("dopro") or row.get("dateofpromotion"))
+                dob_val = row.get("dob") if isinstance(row.get("dob"), date) else parse_safe_date(row.get("dob") or row.get("dateofbirth"))
+                doe_val = row.get("doe") if isinstance(row.get("doe"), date) else parse_safe_date(row.get("doe") or row.get("dateofenlistment"))
+                dopost_val = row.get("dopost") if isinstance(row.get("dopost"), date) else parse_safe_date(row.get("dopost") or row.get("dop"))
+                dopro_val = row.get("dopro") if isinstance(row.get("dopro"), date) else parse_safe_date(row.get("dopro") or row.get("dateofpromotion"))
 
                 officer_payload = {
                     "rank": rank_val or "CIVILIAN",
