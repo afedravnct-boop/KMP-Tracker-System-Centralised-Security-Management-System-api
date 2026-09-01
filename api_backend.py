@@ -489,6 +489,12 @@ def update_user_access(
     if "role" in data and data["role"]:
         user.role = str(data["role"]).strip().upper()
 
+    # 🟢 AUTOMATICALLY SET APPROVAL TO TRUE UPON ACCESS ASSIGNMENT
+    user.is_approved = True
+
+    if "is_approved" in data:
+        user.is_approved = bool(data["is_approved"])
+
     if "permissions" in data and data["permissions"] is not None:
         merged_perms = dict(user.permissions or {})
         if isinstance(data["permissions"], dict):
@@ -501,9 +507,10 @@ def update_user_access(
         db.refresh(user)
         return {
             "status": "success",
-            "message": f"Access matrix permanently committed for {user.fnum}",
+            "message": f"Access matrix and approval permanently committed for {user.fnum}",
             "permissions": user.permissions,
-            "role": user.role
+            "role": user.role,
+            "is_approved": user.is_approved
         }
     except Exception as e:
         db.rollback()

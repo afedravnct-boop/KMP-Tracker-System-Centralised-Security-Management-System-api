@@ -241,6 +241,7 @@ class Users(Base):
     name = Column(String, nullable=False)
     sex = Column(String, default="MALE")
     ipps = Column(String, unique=True, nullable=True)
+    nin = Column(String, unique=True, nullable=True)  
     region = Column(String, nullable=False)
     division = Column(String, nullable=True)
     station = Column(String, nullable=False)
