@@ -103,7 +103,6 @@ def parse_safe_date(val) -> Optional[date]:
     if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-', 'n/a', 'nil', '0', 'undefined']:
         return None
 
-    # Strip time component if present
     if ' ' in val_str:
         val_str = val_str.split(' ')[0]
     if 'T' in val_str:
@@ -113,7 +112,6 @@ def parse_safe_date(val) -> Optional[date]:
     if not val_str:
         return None
 
-    # Handle Excel float serial numbers safely
     try:
         if val_str.replace('.', '', 1).isdigit():
             float_val = float(val_str)
@@ -127,14 +125,12 @@ def parse_safe_date(val) -> Optional[date]:
     except Exception:
         pass
 
-    # Normalize delimiters to standard hyphens
     clean_str = re.sub(r'[\./\\]', '-', val_str)
     parts = clean_str.split('-')
 
     if len(parts) == 3:
         p0, p1, p2 = parts[0].strip(), parts[1].strip(), parts[2].strip()
         if p0.isdigit() and p1.isdigit() and p2.isdigit():
-            # YYYY-MM-DD
             if len(p0) == 4:
                 y, m, d = int(p0), int(p1), int(p2)
                 try:
@@ -143,7 +139,6 @@ def parse_safe_date(val) -> Optional[date]:
                         return res_date
                 except Exception:
                     pass
-            # DD-MM-YYYY
             elif len(p2) == 4:
                 d, m, y = int(p0), int(p1), int(p2)
                 try:
@@ -152,7 +147,6 @@ def parse_safe_date(val) -> Optional[date]:
                         return res_date
                 except Exception:
                     pass
-            # Corrupted 2-digit years or single-digit prefixes (e.g., '1-01-24', '01-01-24')
             elif len(p0) <= 2 and len(p2) <= 2:
                 for (day_val, month_val, year_val) in [(int(p0), int(p1), int(p2)), (int(p2), int(p1), int(p0))]:
                     y = year_val
@@ -381,7 +375,6 @@ async def bulk_upload_nominal_roll(
                 
             df.columns = [standardize_header(col) for col in df.columns]
             
-            # Use safe item-by-item date coercion to prevent nanosecond out-of-bounds crashes
             date_columns = ['dob', 'dateofbirth', 'doe', 'dateofenlistment', 'dopost', 'dop', 'dopro', 'dateofpromotion']
             for col in date_columns:
                 if col in df.columns:
@@ -636,6 +629,78 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 # ====================================================================
+# 5. ARCHIVE PERSONNEL (VIA REQUEST BODY - PLACED BEFORE WILDCARD PATH)
+# ====================================================================
+@router.put("/nominal-roll/archive-record")
+def archive_personnel(
+    payload: dict, 
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
+    ActiveModel = get_active_model()
+    ArchiveModel = get_archive_model()
+    
+    try:
+        raw_fnum = payload.get("fnum") or payload.get("f_num")
+        archive_reason = payload.get("archive_reason", "ADMINISTRATIVE")
+        
+        if not raw_fnum:
+            raise HTTPException(status_code=400, detail="Missing Force Number identifier for archiving.")
+
+        fnum_clean = str(raw_fnum).split('/ARCHIVE')[0].replace('/ARCHIVE', '').strip().upper()
+        alt_fnum = fnum_clean.replace('/', '')
+        
+        query_filters = []
+        if hasattr(ActiveModel, 'f_num'):
+            query_filters.extend([
+                func.trim(func.upper(ActiveModel.f_num)) == fnum_clean,
+                func.trim(func.upper(ActiveModel.f_num)) == alt_fnum
+            ])
+        if hasattr(ActiveModel, 'fnum'):
+            query_filters.extend([
+                func.trim(func.upper(ActiveModel.fnum)) == fnum_clean,
+                func.trim(func.upper(ActiveModel.fnum)) == alt_fnum
+            ])
+        if hasattr(ActiveModel, 'ipps'):
+            query_filters.append(func.trim(func.upper(ActiveModel.ipps)) == fnum_clean)
+            
+        active_record = db.query(ActiveModel).filter(or_(*query_filters)).first()
+
+        if not active_record:
+            raise HTTPException(status_code=404, detail=f"Officer record '{fnum_clean}' not found in active roll.")
+
+        record_data = active_record.__dict__.copy()
+        record_data.pop("_sa_instance_state", None) 
+        record_data.pop("id", None) 
+        record_data.pop("sn", None) 
+        
+        if hasattr(ArchiveModel, 'fnum'):
+            record_data["fnum"] = fnum_clean
+        if hasattr(ArchiveModel, 'f_num'):
+            record_data["f_num"] = fnum_clean
+            
+        record_data["status"] = "ARCHIVED"
+        record_data["archive_reason"] = archive_reason
+        record_data["archive_date"] = datetime.now().date()
+        record_data["last_updated_by"] = get_officer_signature(current_user)
+
+        valid_archive_columns = [c.key for c in ArchiveModel.__table__.columns]
+        safe_record_data = {k: v for k, v in record_data.items() if k in valid_archive_columns}
+
+        archived_record = ArchiveModel(**safe_record_data)
+        db.add(archived_record)
+        db.delete(active_record)
+        db.commit()
+        
+        return {"status": "success", "message": "Officer successfully moved to archives."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to migrate record: {str(e)}")
+
+# ====================================================================
 # 4. SINGLE OFFICER UPDATE ENDPOINT
 # ====================================================================
 @router.put("/nominal-roll/{identifier:path}")
@@ -713,78 +778,6 @@ def update_Nominal_Roll(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update officer record: {str(e)}")
-
-# ====================================================================
-# 5. ARCHIVE PERSONNEL (VIA REQUEST BODY)
-# ====================================================================
-@router.put("/nominal-roll/archive-record")
-def archive_personnel(
-    payload: dict, 
-    db: Session = Depends(get_db), 
-    current_user: models.Users = Depends(get_current_user)
-):
-    ActiveModel = get_active_model()
-    ArchiveModel = get_archive_model()
-    
-    try:
-        raw_fnum = payload.get("fnum") or payload.get("f_num")
-        archive_reason = payload.get("archive_reason", "ADMINISTRATIVE")
-        
-        if not raw_fnum:
-            raise HTTPException(status_code=400, detail="Missing Force Number identifier for archiving.")
-
-        fnum_clean = str(raw_fnum).split('/ARCHIVE')[0].replace('/ARCHIVE', '').strip().upper()
-        alt_fnum = fnum_clean.replace('/', '')
-        
-        query_filters = []
-        if hasattr(ActiveModel, 'f_num'):
-            query_filters.extend([
-                func.trim(func.upper(ActiveModel.f_num)) == fnum_clean,
-                func.trim(func.upper(ActiveModel.f_num)) == alt_fnum
-            ])
-        if hasattr(ActiveModel, 'fnum'):
-            query_filters.extend([
-                func.trim(func.upper(ActiveModel.fnum)) == fnum_clean,
-                func.trim(func.upper(ActiveModel.fnum)) == alt_fnum
-            ])
-        if hasattr(ActiveModel, 'ipps'):
-            query_filters.append(func.trim(func.upper(ActiveModel.ipps)) == fnum_clean)
-            
-        active_record = db.query(ActiveModel).filter(or_(*query_filters)).first()
-
-        if not active_record:
-            raise HTTPException(status_code=404, detail=f"Officer record '{fnum_clean}' not found in active Nominal Roll.")
-
-        record_data = active_record.__dict__.copy()
-        record_data.pop("_sa_instance_state", None) 
-        record_data.pop("id", None) 
-        record_data.pop("sn", None) 
-        
-        if hasattr(ArchiveModel, 'fnum'):
-            record_data["fnum"] = fnum_clean
-        if hasattr(ArchiveModel, 'f_num'):
-            record_data["f_num"] = fnum_clean
-            
-        record_data["status"] = "ARCHIVED"
-        record_data["archive_reason"] = archive_reason
-        record_data["archive_date"] = datetime.now().date()
-        record_data["last_updated_by"] = get_officer_signature(current_user)
-
-        valid_archive_columns = [c.key for c in ArchiveModel.__table__.columns]
-        safe_record_data = {k: v for k, v in record_data.items() if k in valid_archive_columns}
-
-        archived_record = ArchiveModel(**safe_record_data)
-        db.add(archived_record)
-        db.delete(active_record)
-        db.commit()
-        
-        return {"status": "success", "message": "Officer successfully moved to archives."}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to migrate record: {str(e)}")
 
 # ====================================================================
 # 6. GET ARCHIVED PERSONNEL (DESCENDING ORDER)
