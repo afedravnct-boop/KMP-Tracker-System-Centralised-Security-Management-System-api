@@ -18,6 +18,7 @@ class UserCreate(BaseModel):
     name: str
     sex: str
     ipps: str
+    nin: Optional[str] = None
     region: str
     division: str
     station: str
@@ -35,6 +36,7 @@ class UserUpdate(BaseModel):
     station: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    nin: Optional[str] = None
     profile_photo_path: Optional[str] = None
     password: Optional[str] = None
 
@@ -209,7 +211,6 @@ class NominalRollArchiveResponse(BaseModel):
     id: int
     sn: Optional[int] = None
     
-    # Explicitly matching the archive table columns without underscores
     fnum: str = Field(..., validation_alias=AliasChoices("fnum", "f_num"))
     rank: str
     name: str
@@ -237,7 +238,6 @@ class NominalRollArchiveResponse(BaseModel):
     last_updated_by: Optional[str] = None
     created_at: Optional[datetime] = None
     
-    # Archive specific fields
     archive_reason: Optional[str] = None
     archive_date: Optional[date] = None
 
@@ -259,6 +259,7 @@ class SignupRequest(BaseModel):
     name: str
     sex: str
     ipps: str
+    nin: Optional[str] = None
     region: str
     division: str
     station: str
@@ -272,6 +273,7 @@ class SignupRequest(BaseModel):
 class ProfileUpdate(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
+    nin: Optional[str] = None
     photoUrl: Optional[str] = None
     password: Optional[str] = None
 
@@ -282,6 +284,7 @@ class UserResponse(BaseModel):
     name: str
     sex: str
     ipps: str
+    nin: Optional[str] = None
     region: str
     division: str
     station: str

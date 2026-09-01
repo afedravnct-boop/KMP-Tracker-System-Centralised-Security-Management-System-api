@@ -1007,12 +1007,30 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   const [authMessage, setAuthMessage] = useState(null);
   
   const [signupData, setSignupData] = useState({
-    fnum: '', ipps: '', name: '', rank: '', sex: 'MALE', region: 'KMP NORTH', station: 'KAWEMPE', position: '', email: '', phone: '', password: '', profile_photo_path: ''
+    fnum: '', 
+    ipps: '', 
+    nin: '', 
+    name: '', 
+    rank: '', 
+    sex: 'MALE', 
+    region: 'KMP NORTH', 
+    station: 'KAWEMPE', 
+    position: '', 
+    email: '', 
+    phone: '', 
+    password: '', 
+    profile_photo_path: ''
   });
   const [photoFile, setPhotoFile] = useState(null);
 
   const availablePositions = [
-    ...POSITIONS.ADMIN, ...POSITIONS.RPC, `${signupData.region} Commander`, `Divisional Commander ${signupData.station}`, `CID Officer ${signupData.station}`, `Data Officer ${signupData.station}`, `Data Assistant Officer ${signupData.station}`
+    ...POSITIONS.ADMIN, 
+    ...POSITIONS.RPC, 
+    `${signupData.region} Commander`, 
+    `Divisional Commander ${signupData.station}`, 
+    `CID Officer ${signupData.station}`, 
+    `Data Officer ${signupData.station}`, 
+    `Data Assistant Officer ${signupData.station}`
   ];
 
   const [attempts, setAttempts] = useState(0);
@@ -1048,16 +1066,33 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     if (!lockoutEnd) return;
     const interval = setInterval(() => {
       const remaining = Math.ceil((lockoutEnd - Date.now()) / 1000);
-      if (remaining <= 0) { setLockoutEnd(null); setAttempts(0); setTimeLeft(0); } else { setTimeLeft(remaining); }
+      if (remaining <= 0) { 
+        setLockoutEnd(null); 
+        setAttempts(0); 
+        setTimeLeft(0); 
+      } else { 
+        setTimeLeft(remaining); 
+      }
     }, 1000);
     return () => clearInterval(interval);
   }, [lockoutEnd]);
 
   const handleSignupChange = (e) => {
     const { name, value } = e.target;
-    if (name === 'region') setSignupData({ ...signupData, region: value, station: REGIONAL_HIERARCHY[value][0], position: '' });
-    else if (name === 'station') setSignupData({ ...signupData, station: value, position: '' });
-    else setSignupData({ ...signupData, [name]: value });
+    if (name === 'region') {
+      setSignupData({ 
+        ...signupData, 
+        region: value, 
+        station: REGIONAL_HIERARCHY[value]?.[0] || '', 
+        position: '' 
+      });
+    } else if (name === 'station') {
+      setSignupData({ ...signupData, station: value, position: '' });
+    } else if (name === 'fnum' || name === 'nin' || name === 'rank') {
+      setSignupData({ ...signupData, [name]: value.toUpperCase() });
+    } else {
+      setSignupData({ ...signupData, [name]: value });
+    }
   };
 
   const handlePhotoUpload = async (e) => {
@@ -1074,9 +1109,11 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         if (!response.ok) throw new Error("Upload failed on server.");
         const data = await response.json();
         setSignupData(prev => ({ ...prev, profile_photo_path: data.full_s3_url || data.cloud_storage_path }));
-        setAuthMessage("✅ Photo uploaded securely!"); setTimeout(() => setAuthMessage(null), 3000);
+        setAuthMessage("✅ Photo uploaded securely!"); 
+        setTimeout(() => setAuthMessage(null), 3000);
       } catch (error) {
-        setSignupData(prev => ({ ...prev, profile_photo_path: URL.createObjectURL(file) })); setPhotoFile(file);
+        setSignupData(prev => ({ ...prev, profile_photo_path: URL.createObjectURL(file) })); 
+        setPhotoFile(file);
         setAuthMessage("⚠️ Network error: Using local preview. Photo will upload on submit.");
       }
     }
@@ -1087,10 +1124,22 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     if (!signupData.profile_photo_path) return setAuthMessage("⚠️ Error: Profile photo upload is mandatory.");
     if (!/^\d{10}$/.test(signupData.phone)) return setAuthMessage("⚠️ Error: Contact number must be exactly 10 digits.");
 
+    // Strict NIN Validation: Must start with CM or CF and be exactly 14 characters
+    if (signupData.nin) {
+      const cleanNin = signupData.nin.trim().toUpperCase();
+      if (!/^C[MF][A-Z0-9]{12}$/.test(cleanNin)) {
+        return setAuthMessage("⚠️ Error: National ID (NIN) must start with CM or CF and be exactly 14 characters.");
+      }
+    }
+
     setAuthMessage("⏳ Submitting authorization request...");
     try {
       const formData = new FormData();
-      Object.keys(signupData).forEach(key => formData.append(key, signupData[key]));
+      Object.keys(signupData).forEach(key => {
+        if (signupData[key] !== null && signupData[key] !== undefined) {
+          formData.append(key, signupData[key]);
+        }
+      });
       
       let derivedRole = 'USER';
       if (signupData.position === 'System Manager') derivedRole = 'SUPER_ADMIN';
@@ -1098,7 +1147,9 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
       else if (POSITIONS.RPC.includes(signupData.position) || signupData.position.includes(`${signupData.region} Commander`)) derivedRole = 'RPC';
       
       formData.set("role", derivedRole);
-      if (photoFile && signupData.profile_photo_path.startsWith('blob:')) formData.set("file", photoFile);
+      if (photoFile && signupData.profile_photo_path.startsWith('blob:')) {
+        formData.set("file", photoFile);
+      }
 
       const response = await authFetch('/api/v1/auth/signup', { method: 'POST', body: formData });
       const data = await response.json();
@@ -1107,8 +1158,12 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         setAuthMessage("✅ Account Request Submitted! Awaiting Admin Approval.");
         if (onSignup) onSignup({ ...signupData, role: derivedRole });
         setTimeout(() => setMode('login'), 2000);
-      } else { setAuthMessage(`❌ Registration Failed: ${data.detail || "Server error"}`); }
-    } catch (error) { setAuthMessage("❌ Connection error. Could not reach server."); }
+      } else { 
+        setAuthMessage(`❌ Registration Failed: ${data.detail || "Server error"}`); 
+      }
+    } catch (error) { 
+      setAuthMessage("❌ Connection error. Could not reach server."); 
+    }
   };
 
   const handleLoginSubmit = async (e) => { 
@@ -1132,36 +1187,51 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
             name: data.name || 'Afedra Vincent', 
             sex: data.sex || 'MALE', 
             ipps: data.ipps || '950010',
+            nin: data.nin || '',
             region: data.region || 'KMP HEADQUARTERS', 
             division: data.division || 'KMP HEADQUARTERS', 
             station: data.station || 'KMP HEADQUARTERS',
             position: data.position || 'System Manager', 
             email: data.email || 'afedravnct@gmail.com', 
             phone: data.phone || '0779302872', 
-            role: data.role || 'SUPER_ADMIN',
+            role: data.role || 'SUPER_ADMIN', 
             permissions: data.permissions || {}, 
             profile_photo_path: data.profile_photo_path || ''
           });
         } else {
-          setPassword(''); setAuthMessage(data.detail || "Incorrect Force Number or password");
-          const newAttempts = attempts + 1; setAttempts(newAttempts);
+          setPassword(''); 
+          setAuthMessage(data.detail || "Incorrect Force Number or password");
+          const newAttempts = attempts + 1; 
+          setAttempts(newAttempts);
           if (newAttempts >= 3) setLockoutEnd(Date.now() + 30000);
         }
-      } catch (err) { setPassword(''); setAuthMessage("Network error. Could not connect to the server."); }
+      } catch (err) { 
+        setPassword(''); 
+        setAuthMessage("Network error. Could not connect to the server."); 
+      }
     } else if (mode === 'forgot') {
       try {
         const formData = new URLSearchParams(); 
         formData.append('fnum', fnum.trim());
         const response = await authFetch('/api/v1/auth/request-reset', { method: 'POST', body: formData });
         const data = await response.json();
-        if (response.ok) { setMode('login'); setfnum(''); setAuthMessage("✅ " + (data.message || "Account recovery requested.")); } 
-        else { setAuthMessage(`❌ ${data.detail || "Failed to submit request."}`); }
-      } catch (err) { setAuthMessage("❌ Network error. Could not connect to the server."); }
+        if (response.ok) { 
+          setMode('login'); 
+          setfnum(''); 
+          setAuthMessage("✅ " + (data.message || "Account recovery requested.")); 
+        } else { 
+          setAuthMessage(`❌ ${data.detail || "Failed to submit request."}`); 
+        }
+      } catch (err) { 
+        setAuthMessage("❌ Network error. Could not connect to the server."); 
+      }
     }
   };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative overflow-hidden">
+      
+      {/* 🟢 FULL-SCREEN STANDBY CURTAIN */}
       <div 
         className={`security-curtain-overlay fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center transition-opacity duration-700 ease-in-out ${
           isLoginIdle ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -1217,6 +1287,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         <div className="absolute bottom-0 w-full h-2 bg-[#000000]"></div> 
       </div>
 
+      {/* 🟢 MAIN CARD CONTAINER */}
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
         <div className="bg-slate-900 p-6 text-center relative">
           <img 
@@ -1241,7 +1312,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
             <>
               {authMessage && (
                 <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${authMessage.includes('Error') || authMessage.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
-                   <span className="text-sm font-medium">{typeof authMessage === 'string' ? authMessage : JSON.stringify(authMessage)}</span>
+                  <span className="text-sm font-medium">{typeof authMessage === 'string' ? authMessage : JSON.stringify(authMessage)}</span>
                 </div>
               )}
               
@@ -1251,71 +1322,203 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">File/Force Number *</label>
-                      <input type="text" name="fnum" required value={signupData.fnum} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm" placeholder="e.g. A/2408"/>
+                      <input 
+                        type="text" 
+                        name="fnum" 
+                        required 
+                        value={signupData.fnum} 
+                        onChange={handleSignupChange} 
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm" 
+                        placeholder="e.g. A/2408 or 63034"
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">IPPS Number *</label>
-                      <input type="text" name="ipps" required maxLength="6" value={signupData.ipps} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="123456"/>
+                      <input 
+                        type="text" 
+                        name="ipps" 
+                        required 
+                        maxLength="6" 
+                        value={signupData.ipps} 
+                        onChange={handleSignupChange} 
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" 
+                        placeholder="123456"
+                      />
+                    </div>
+                    
+                    {/* 🟢 NATIONAL ID (NIN) */}
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">National ID (NIN) *</label>
+                      <input 
+                        type="text" 
+                        name="nin" 
+                        required 
+                        maxLength="14" 
+                        value={signupData.nin} 
+                        onChange={handleSignupChange} 
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm font-mono" 
+                        placeholder="e.g. CM900000000000"
+                      />
                     </div>
                     <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Gender / Sex *</label>
+                      <select 
+                        name="sex" 
+                        value={signupData.sex} 
+                        onChange={handleSignupChange} 
+                        required 
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm"
+                      >
+                        <option value="MALE">MALE</option>
+                        <option value="FEMALE">FEMALE</option>
+                      </select>
+                    </div>
+
+                    <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
-                      <input type="text" name="name" required value={signupData.name} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
+                      <input 
+                        type="text" 
+                        name="name" 
+                        required 
+                        value={signupData.name} 
+                        onChange={handleSignupChange} 
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm uppercase" 
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Rank *</label>
-                      <input type="text" name="rank" required value={signupData.rank} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. AIP"/>
+                      <input 
+                        type="text" 
+                        name="rank" 
+                        required 
+                        value={signupData.rank} 
+                        onChange={handleSignupChange} 
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm uppercase" 
+                        placeholder="e.g. AIP, IP, ASP, PC"
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Region *</label>
-                      <select name="region" value={signupData.region} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
-                        {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
+                      <select 
+                        name="region" 
+                        value={signupData.region} 
+                        onChange={handleSignupChange} 
+                        required 
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm"
+                      >
+                        {Object.keys(REGIONAL_HIERARCHY).map(reg => (
+                          <option key={reg} value={reg}>{reg}</option>
+                        ))}
                       </select>
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                      <select name="station" value={signupData.station} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
-                        {REGIONAL_HIERARCHY[signupData.region]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                      <select 
+                        name="station" 
+                        value={signupData.station} 
+                        onChange={handleSignupChange} 
+                        required 
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm"
+                      >
+                        {REGIONAL_HIERARCHY[signupData.region]?.map(stat => (
+                          <option key={stat} value={stat}>{stat}</option>
+                        ))}
                       </select>
                     </div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label>
-                    <select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
+                    <select 
+                      name="position" 
+                      value={signupData.position} 
+                      onChange={handleSignupChange} 
+                      required 
+                      className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm"
+                    >
                       <option value="">-- Select Official Title --</option>
-                      {availablePositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
+                      {availablePositions.map(pos => (
+                        <option key={pos} value={pos}>{pos}</option>
+                      ))}
                     </select>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Email *</label>
-                      <input type="email" name="email" required value={signupData.email} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
+                      <input 
+                        type="email" 
+                        name="email" 
+                        required 
+                        value={signupData.email} 
+                        onChange={handleSignupChange} 
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" 
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Telephone *</label>
-                      <input type="tel" name="phone" required maxLength="10" pattern="\d{10}" value={signupData.phone} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. 0772123456" />
+                      <input 
+                        type="tel" 
+                        name="phone" 
+                        required 
+                        maxLength="10" 
+                        pattern="\d{10}" 
+                        value={signupData.phone} 
+                        onChange={handleSignupChange} 
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" 
+                        placeholder="e.g. 0772123456" 
+                      />
                     </div>
                   </div>
                   <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                     <label className="block text-xs font-bold text-gray-700 mb-2">Officer Identification Photo (Mandatory) *</label>
                     <div className="flex items-center space-x-4">
                       {signupData.profile_photo_path ? (
-                        <img src={signupData.profile_photo_path} alt="Preview" className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm" />
+                        <img 
+                          src={signupData.profile_photo_path} 
+                          alt="Preview" 
+                          className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm" 
+                        />
                       ) : (
-                        <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300"><Camera size={24} /></div>
+                        <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300">
+                          <Camera size={24} />
+                        </div>
                       )}
                       <div className="flex-1">
-                        <input type="file" accept="image/*" required onChange={handlePhotoUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          required 
+                          onChange={handlePhotoUpload} 
+                          className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" 
+                        />
                         <p className="text-xs text-gray-400 mt-1">Directly uploads to secure storage</p>
                       </div>
                     </div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Create Password *</label>
-                    <input type="password" name="password" required value={signupData.password} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
+                    <input 
+                      type="password" 
+                      name="password" 
+                      required 
+                      value={signupData.password} 
+                      onChange={handleSignupChange} 
+                      className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" 
+                    />
                   </div>
                   <div className="pt-4 flex flex-col space-y-3">
-                    <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 rounded-lg transition-colors text-sm cursor-pointer">Submit Registration Request</button>
-                    <button type="button" onClick={() => setMode('login')} className="text-sm text-blue-600 hover:underline font-medium cursor-pointer">Cancel and return to Login</button>
+                    <button 
+                      type="submit" 
+                      className="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 rounded-lg transition-colors text-sm cursor-pointer"
+                    >
+                      Submit Registration Request
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => setMode('login')} 
+                      className="text-sm text-blue-600 hover:underline font-medium cursor-pointer"
+                    >
+                      Cancel and return to Login
+                    </button>
                   </div>
                 </form>
               ) : (
@@ -1329,7 +1532,14 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     <label className="block text-sm font-bold text-gray-700 mb-1">Force Number</label>
                     <div className="relative">
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"/>
-                      <input type="text" required value={fnum} onChange={(e) => setfnum(e.target.value)} className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none uppercase text-sm" placeholder="e.g. A/2408 or 63034"/>
+                      <input 
+                        type="text" 
+                        required 
+                        value={fnum} 
+                        onChange={(e) => setfnum(e.target.value)} 
+                        className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none uppercase text-sm" 
+                        placeholder="e.g. A/2408 or 63034"
+                      />
                     </div>
                   </div>
                   {mode === 'login' && (
@@ -1337,19 +1547,37 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       <label className="block text-sm font-bold text-gray-700 mb-1">Security Key (Password)</label>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"/>
-                        <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="••••••••"/>
+                        <input 
+                          type="password" 
+                          required 
+                          value={password} 
+                          onChange={(e) => setPassword(e.target.value)} 
+                          className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" 
+                          placeholder="••••••••"
+                        />
                       </div>
                     </div>
                   )}
-                  <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg transition-colors cursor-pointer text-xs uppercase tracking-wider">
+                  <button 
+                    type="submit" 
+                    className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg transition-colors cursor-pointer text-xs uppercase tracking-wider"
+                  >
                     {mode === 'login' ? 'Authorize Access' : 'Request Password Reset'}
                   </button>
                   <div className="text-center mt-4 flex justify-between px-4">
-                    <button type="button" onClick={() => {setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0);}} className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium cursor-pointer">
+                    <button 
+                      type="button" 
+                      onClick={() => { setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0); }} 
+                      className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium cursor-pointer"
+                    >
                       {mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}
                     </button>
                     {mode === 'login' && (
-                      <button type="button" onClick={() => setMode('signup')} className="text-sm text-blue-600 font-bold hover:underline cursor-pointer">
+                      <button 
+                        type="button" 
+                        onClick={() => setMode('signup')} 
+                        className="text-sm text-blue-600 font-bold hover:underline cursor-pointer"
+                      >
                         Sign Up (Request Access)
                       </button>
                     )}

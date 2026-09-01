@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { User, Lock, ShieldAlert } from 'lucide-react';
-// 1. Import your API_BASE_URL from the api.js file
-import { API_BASE_URL } from './api';
+import { API_BASE_URL, setAuthSession, authFetch } from './api';
 
 export default function Login({ onLoginSuccess, setIsSignUp }) {
   const [fileOrForceNumber, setFileOrForceNumber] = useState('');
@@ -14,14 +13,15 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
     setIsLoading(true);
     setError('');
 
-    // 2. FastAPI OAuth2 requires Form Data, mapping ID to 'username'
+    const cleanFnum = fileOrForceNumber.trim().toUpperCase();
+
+    // FastAPI OAuth2 accepts Form Data mapping Force/File No to 'username'
     const formData = new URLSearchParams();
-    formData.append('username', fileOrForceNumber.trim().toUpperCase());
+    formData.append('username', cleanFnum);
     formData.append('password', password);
 
     try {
-      // 3. Add API_BASE_URL so it talks to backend API
-      const baseUrl = API_BASE_URL || import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+      const baseUrl = API_BASE_URL || import.meta.env.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
       const response = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: {
@@ -31,18 +31,30 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
       });
 
       const data = await response.json();
-      console.log("Server response data:", data);
 
       if (response.ok) {
-        console.log("Saving token to sessionStorage:", data.access_token);
+        // Save session using centralized auth helper
+        setAuthSession(data.access_token, data.fnum || cleanFnum);
 
-        // 4. Save the token securely to sessionStorage (wipes when tab closes)
-        sessionStorage.setItem('kmp_authToken', data.access_token);
-        
-        const userObj = data.user || data;
-        const fnumVal = userObj.fnum || userObj.username || fileOrForceNumber.trim().toUpperCase();
-        
-        sessionStorage.setItem('kmp_currentUser_fnum', fnumVal);
+        const userObj = {
+          fnum: data.fnum || cleanFnum,
+          rank: data.rank || 'PC',
+          name: data.name || 'OFFICER',
+          sex: data.sex || 'MALE',
+          ipps: data.ipps || '',
+          nin: data.nin || '',
+          region: data.region || 'KMP HEADQUARTERS',
+          division: data.division || 'HQ',
+          station: data.station || 'HQ',
+          position: data.position || 'GENERAL DUTIES',
+          email: data.email || '',
+          phone: data.phone || '',
+          role: data.role || 'USER',
+          permissions: data.permissions || {},
+          profile_photo_path: data.profile_photo_path || ''
+        };
+
+        // Persist user object for session restoration
         sessionStorage.setItem('kmp_currentUser', JSON.stringify(userObj));
         sessionStorage.setItem('kmp_loginTime', Date.now().toString());
 
@@ -106,15 +118,15 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
 
           <div>
             <label className="block text-xs font-extrabold text-slate-700 mb-1 uppercase tracking-wide">
-              Force Number
+              Force / File Number
             </label>
             <div className="relative">
               <input 
                 type="text" 
                 placeholder="E.G. A/2408 OR 63034"
                 value={fileOrForceNumber} 
-                onChange={(e) => setFileOrForceNumber(e.target.value)}
-                required
+                onChange={(e) => setFileOrForceNumber(e.target.value.toUpperCase())} 
+                required 
                 className="w-full pl-9 pr-3 py-2 text-xs font-medium border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none uppercase transition"
               />
               <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -130,8 +142,8 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
                 type="password" 
                 placeholder="••••••••"
                 value={password} 
-                onChange={(e) => setPassword(e.target.value)}
-                required
+                onChange={(e) => setPassword(e.target.value)} 
+                required 
                 className="w-full pl-9 pr-3 py-2 text-xs font-medium border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
               />
               <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -139,7 +151,7 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
           </div>
 
           <button 
-            type="submit"
+            type="submit" 
             disabled={isLoading}
             className="w-full bg-blue-700 hover:bg-blue-800 disabled:bg-blue-400 text-white font-black text-xs py-2.5 rounded-lg uppercase tracking-wider shadow-md hover:shadow-lg transition active:scale-[0.99] cursor-pointer flex items-center justify-center space-x-2 mt-2"
           >
@@ -154,14 +166,14 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
             <button 
               type="button" 
               onClick={handleForgotPassword} 
-              className="text-slate-500 hover:text-slate-800 transition"
+              className="text-slate-500 hover:text-slate-800 transition cursor-pointer"
             >
               Forgot Security Key?
             </button>
             <button 
               type="button" 
               onClick={() => typeof setIsSignUp === 'function' && setIsSignUp(true)} 
-              className="text-blue-700 hover:text-blue-900 transition"
+              className="text-blue-700 hover:text-blue-900 transition cursor-pointer"
             >
               Sign Up (Request Access)
             </button>
@@ -170,7 +182,6 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
 
       </div>
 
-      {/* Modern Compact Disclaimer Footer */}
       <p className="text-[10px] text-slate-500 font-bold mt-4 text-center tracking-widest uppercase relative z-10">
         🛡️ Protected by KMP Tracker System - KMPCSDMS160626
       </p>

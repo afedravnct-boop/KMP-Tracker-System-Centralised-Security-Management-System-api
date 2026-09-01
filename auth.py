@@ -29,13 +29,26 @@ BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 
 
 # ====================================================================
-# HELPER: Force/File Number & Rank Normalizer
+# HELPERS & VALIDATORS
 # ====================================================================
 def normalize_fnum(fnum_str: str) -> str:
     """Normalizes both Officer File Numbers (e.g. A/2408) and NCO Force Numbers (e.g. 63034)."""
     if not fnum_str:
         return ""
     return str(fnum_str).strip().upper()
+
+
+def validate_and_normalize_nin(nin_str: Optional[str]) -> Optional[str]:
+    """Validates that NIN starts with CM or CF and consists of exactly 14 characters."""
+    if not nin_str or str(nin_str).strip().lower() in ['nan', 'none', 'null', '', 'n/a']:
+        return None
+    clean_nin = str(nin_str).strip().upper()
+    if not re.match(r"^C[MF][A-Z0-9]{12}$", clean_nin):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid NIN: National ID must start with CM or CF and contain exactly 14 characters."
+        )
+    return clean_nin
 
 
 # ====================================================================
@@ -87,7 +100,6 @@ def require_export_privilege(current_user: models.Users = Depends(get_current_us
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     perms = current_user.permissions or {}
     
-    # Allow Super Admins, Admins, RPCs, or users with explicit export permissions
     if (
         user_role not in ["ADMIN", "SUPER_ADMIN", "RPC"] 
         and not perms.get("export_data", False)
@@ -112,7 +124,6 @@ async def login(
     username = None
     password = None
 
-    # Handle JSON Body or x-www-form-urlencoded / multipart
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:
         body = await request.json()
@@ -130,9 +141,8 @@ async def login(
         )
 
     clean_username = normalize_fnum(username)
-    
-    # Flexible lookup for File Numbers (e.g. A/2408 or A2408) and Force Numbers (63034)
     alt_username = clean_username.replace("/", "")
+    
     user = db.query(models.Users).filter(
         or_(
             func.trim(func.upper(models.Users.fnum)) == clean_username,
@@ -166,6 +176,7 @@ async def login(
         "name": user.name or "OFFICER",
         "sex": user.sex or "MALE",
         "ipps": user.ipps or "",
+        "nin": getattr(user, "nin", "") or "",
         "region": user.region or "KMP HEADQUARTERS",
         "division": user.division or user.station or "HQ",
         "station": user.station or "HQ",
@@ -186,6 +197,7 @@ async def login(
 async def signup(
     fnum: str = Form(...),
     ipps: str = Form(...),
+    nin: Optional[str] = Form(None),
     name: str = Form(...),
     rank: str = Form(...),
     sex: str = Form("MALE"),
@@ -208,22 +220,25 @@ async def signup(
         )
 
     clean_fnum = normalize_fnum(fnum)
+    clean_nin = validate_and_normalize_nin(nin)
+    clean_ipps = str(ipps).strip() if ipps else None
 
-    # Check for existing Force/File Number or IPPS
-    existing_user = db.query(models.Users).filter(
-        or_(
-            func.trim(func.upper(models.Users.fnum)) == clean_fnum,
-            func.trim(models.Users.ipps) == str(ipps).strip()
-        )
-    ).first()
+    # Check for duplicate Force Number, IPPS, or NIN
+    duplicate_filters = [
+        func.trim(func.upper(models.Users.fnum)) == clean_fnum
+    ]
+    if clean_ipps:
+        duplicate_filters.append(func.trim(models.Users.ipps) == clean_ipps)
+    if clean_nin:
+        duplicate_filters.append(func.trim(func.upper(models.Users.nin)) == clean_nin)
 
+    existing_user = db.query(models.Users).filter(or_(*duplicate_filters)).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Registration Error: Force/File Number or IPPS already registered."
+            detail="Registration Error: Force/File Number, IPPS, or NIN is already registered."
         )
 
-    # Handle photo upload if raw file was sent
     uploaded_photo_url = profile_photo_path
     if file and BUCKET_NAME:
         try:
@@ -244,7 +259,8 @@ async def signup(
 
     new_user = models.Users(
         fnum=clean_fnum,
-        ipps=str(ipps).strip() if ipps else None,
+        ipps=clean_ipps,
+        nin=clean_nin,
         name=str(name).strip().upper(),
         rank=str(rank).strip().upper(),
         sex=str(sex).strip().upper(),
@@ -310,7 +326,6 @@ async def upload_user_profile_photo(
             except Exception as s3_err:
                 print(f"S3 Upload failed, saving locally: {s3_err}")
 
-        # Local filesystem fallback
         os.makedirs("uploads/profiles", exist_ok=True)
         local_filename = f"{clean_fnum}_{int(datetime.utcnow().timestamp())}.{ext}"
         local_path = os.path.join("uploads/profiles", local_filename)
@@ -402,6 +417,7 @@ def update_profile(
     if data.station: current_user.station = str(data.station).strip().upper()
     if data.email: current_user.email = str(data.email).strip()
     if data.phone: current_user.phone = str(data.phone).strip()
+    if getattr(data, 'nin', None): current_user.nin = validate_and_normalize_nin(data.nin)
     if data.profile_photo_path: current_user.profile_photo_path = data.profile_photo_path
 
     db.commit()

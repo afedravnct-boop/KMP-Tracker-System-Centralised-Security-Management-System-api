@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
-  Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert
+  Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
+  Eye, XCircle, UserPlus, Camera
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -18,7 +19,7 @@ const REGIONAL_HIERARCHY = {
 // 🟢 EXPANDED SUPER CONTROL PANEL MODULES
 const CLEARANCE_MATRIX_COLS = [
   { key: 'global_observer', label: 'Global Observer (Read-Only)', color: 'fuchsia', bg: 'bg-fuchsia-50/50' },
-  { key: 'ai_hr_access', label: 'AI Nominal Roll', color: 'amber', bg: 'bg-amber-100/60' }, // 🟢 NEW AI HR TOGGLE
+  { key: 'ai_hr_access', label: 'AI Nominal Roll', color: 'amber', bg: 'bg-amber-100/60' },
   { key: 'acc_home', label: 'Home Dash', color: 'slate', bg: 'bg-slate-100/50' },
   { key: 'acc_profile', label: 'Profile', color: 'slate', bg: 'bg-slate-100/50' },
   { key: 'acc_comms', label: 'Command Comms', color: 'blue', bg: 'bg-blue-50/50' },
@@ -64,7 +65,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [allSystemUsers, setAllSystemUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
-  // 🟢 AI Kill Switch State
+  // Modal inspection & photo states
+  const [selectedPendingUser, setSelectedPendingUser] = useState(null);
+  const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
+  const [isProcessingAction, setIsProcessingAction] = useState(false);
+
+  // AI Kill Switch State
   const [isDbKillActive, setIsDbKillActive] = useState(false);
   const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
 
@@ -91,7 +97,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     userPosClean.includes('SO ADMIN')
   );
 
-  // 🟢 NEW EXPLICIT HIGH COMMAND RULE FOR BULK ACTIONS
   const isExplicitHighCommand = [
     'IGP', 'DEPUTY IGP', 'DIRECTOR OPERATIONS', 'DEPUTY DIRECTOR OPERATIONS', 
     'KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN'
@@ -119,7 +124,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
   };
 
-  // 🟢 STABLE DATA FETCHERS (No circular dependencies)
+  // 🟢 DATA FETCHERS
   const fetchPendingUsers = useCallback(async () => {
     if (!hasValidSession()) return;
     setLoadingPending(true);
@@ -200,7 +205,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
   }, []);
 
-  // 🟢 CLEAN TAB SWITCH SYNC (Triggers once per active tab selection)
   useEffect(() => {
     if (activeTab === 'approvals') {
       fetchPendingUsers();
@@ -253,7 +257,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     return allSystemUsers.filter(u => {
       const uReg = stripHtmlTags(u.region || '').trim().toUpperCase();
       const uStat = stripHtmlTags(u.station || '').trim().toUpperCase();
-        
       const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
       const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
@@ -285,14 +288,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
     const cleanFnum = stripHtmlTags(fnum);
-    
-    // 🟢 ENFORCE SELF-EDIT RESTRICTION
     if (cleanFnum === currentUser?.fnum) {
       alert("Security Restriction: You cannot bulk-modify your own clearance access.");
       return;
     }
-    
-    // 🟢 ENFORCE HIGH COMMAND RESTRICTION
     if (!isExplicitHighCommand) {
       alert("Security Restriction: Only High Command or Super Admins are authorized to perform bulk clearance modifications.");
       return;
@@ -311,7 +310,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: newPermissions } : u));
 
     try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(encodeURIComponent(cleanFnum.trim()))}/access`, {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
@@ -325,8 +324,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const executePermissionChange = async (fnum, permissionKey, value, reason = '') => {
     const cleanFnum = stripHtmlTags(fnum);
-    
-    // 🟢 ENFORCE SELF-EDIT RESTRICTION
     if (cleanFnum === currentUser?.fnum) {
       alert("Security Restriction: You cannot modify your own access clearance.");
       return;
@@ -353,7 +350,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
 
     try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(encodeURIComponent(cleanFnum.trim()))}/access`, {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
@@ -371,8 +368,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const executeRoleChange = async (fnum, newRole, reason = '') => {
     const cleanFnum = stripHtmlTags(fnum);
-    
-    // 🟢 ENFORCE SELF-EDIT RESTRICTION
     if (cleanFnum === currentUser?.fnum) {
       alert("Security Restriction: You cannot modify your own access role or tier.");
       return;
@@ -394,7 +389,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
     try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(encodeURIComponent(cleanFnum.trim()))}/access`, {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
@@ -412,15 +407,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     const cleanFnum = stripHtmlTags(fnum);
-    
-    // 🟢 ENFORCE SELF-EDIT RESTRICTION
     if (cleanFnum === currentUser?.fnum) {
       alert("Security Restriction: You cannot modify your own access clearance.");
       return;
     }
-
     if (currentUser?.role === 'SYSTEM_ADMIN') {
-      alert("Security Restriction: SYSTEM ADMIN has viewing and diagnostic access only and is strictly barred from modifying user permissions or access levels.");
+      alert("Security Restriction: SYSTEM ADMIN has viewing access only and cannot modify permissions.");
       return;
     }
 
@@ -428,7 +420,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     if (!targetUser) return;
 
     if (value === true && !isSuperAdminOrTopCommand && targetUser.permissions?.super_admin_locks?.[permissionKey]) {
-      alert("SECURITY OVERRIDE DENIED: This clearance was explicitly locked. Only High Command or Super Admin has the authority to reinstate it.");
+      alert("SECURITY OVERRIDE DENIED: This clearance was locked by High Command.");
       return;
     }
 
@@ -458,7 +450,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
 
     try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(encodeURIComponent(cleanFnum.trim()))}/access`, {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
@@ -476,15 +468,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const handleRoleTierChange = async (fnum, newRole) => {
     const cleanFnum = stripHtmlTags(fnum);
-    
-    // 🟢 ENFORCE SELF-EDIT RESTRICTION
     if (cleanFnum === currentUser?.fnum) {
-      alert("Security Restriction: You cannot modify your own access role or tier.");
+      alert("Security Restriction: You cannot modify your own access role.");
       return;
     }
-
     if (currentUser?.role === 'SYSTEM_ADMIN') {
-      alert("Security Restriction: SYSTEM ADMIN cannot manage or modify access clearance tiers.");
+      alert("Security Restriction: SYSTEM ADMIN cannot manage access clearance tiers.");
       return;
     }
 
@@ -492,7 +481,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     if (!targetUser) return;
 
     if (newRole !== 'REVOKED' && targetUser.role === 'REVOKED' && !isSuperAdminOrTopCommand && targetUser.permissions?.revoked_by === 'SUPER_ADMIN') {
-      alert("SECURITY OVERRIDE DENIED: This officer's access was revoked by a Global Super Admin. Only the Super Admin has the exclusive authority to reinstate them.");
+      alert("SECURITY OVERRIDE DENIED: This access was revoked by a Super Admin.");
       return;
     }
 
@@ -517,7 +506,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
     try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(encodeURIComponent(cleanFnum.trim()))}/access`, {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
@@ -533,24 +522,67 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
   };
 
-  const handleApproveUser = async (fnum) => {
+  // 🟢 APPROVE ACCESS HANDLER
+  const handleApproveUser = async (userToApprove) => {
+    const fnum = typeof userToApprove === 'object' ? userToApprove.fnum : userToApprove;
+    setIsProcessingAction(true);
     try {
       const cleanFnum = stripHtmlTags(fnum);
-      const safeFnum = encodeURIComponent(encodeURIComponent(cleanFnum.trim()));
+      const safeFnum = encodeURIComponent(cleanFnum.trim());
 
-      const response = await authFetch(`/api/v1/admin/approve-user/${safeFnum}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" }
+      const response = await authFetch(`/api/v1/users/${safeFnum}/access`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          role: typeof userToApprove === 'object' ? userToApprove.role || 'USER' : 'USER',
+          is_approved: true 
+        })
       });
 
       const data = await response.json();
       if (!response.ok) throw new Error(stripHtmlTags(data.detail) || "Failed to approve user.");
 
-      alert(`Success: ${stripHtmlTags(data.message)}`);
+      alert(`✅ Success: ${cleanFnum} access has been approved.`);
+      setSelectedPendingUser(null);
       fetchPendingUsers();
       fetchAllSystemUsers();
     } catch (err) {
       alert(`Approval Error: ${stripHtmlTags(err.message)}`);
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
+
+  // 🔴 REJECT REQUEST HANDLER
+  const handleRejectUser = async (userToReject) => {
+    const fnum = typeof userToReject === 'object' ? userToReject.fnum : userToReject;
+    const name = typeof userToReject === 'object' ? userToReject.name : fnum;
+    const rawReason = window.prompt(`Enter official reason for REJECTING ${name} (${fnum}):`);
+    if (rawReason === null) return;
+    if (!rawReason.trim()) return alert("Rejection justification is required.");
+
+    setIsProcessingAction(true);
+    try {
+      const cleanFnum = stripHtmlTags(fnum);
+      const safeFnum = encodeURIComponent(cleanFnum.trim());
+      const safeReason = encodeURIComponent(stripHtmlTags(rawReason));
+
+      const response = await authFetch(`/api/v1/users/${safeFnum}/revoke?reason=${safeReason}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(stripHtmlTags(errData.detail) || "Failed to reject registration request.");
+      }
+
+      alert(`⛔ Request Rejected: ${cleanFnum} has been removed from the queue.`);
+      setSelectedPendingUser(null);
+      fetchPendingUsers();
+    } catch (err) {
+      alert(`Rejection Error: ${stripHtmlTags(err.message)}`);
+    } finally {
+      setIsProcessingAction(false);
     }
   };
 
@@ -617,7 +649,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         <h3 className="text-[11px] text-slate-500 mt-0.5 font-medium">Review pending officer signups, granular clearance tiers, HR transfers, and Audit Logs.</h3>
       </div>
 
-      {/* Global Filter States */}
+      {/* Global Filters & Control Ribbon */}
       <div className="flex flex-col sm:flex-row justify-center gap-2 mb-3">
         <select 
           value={filterRegion} 
@@ -641,7 +673,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           ) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
         </select>
 
-        {/* 🟢 Manual Refresh Button */}
         <button
           onClick={() => {
             if (activeTab === 'approvals') fetchPendingUsers();
@@ -656,7 +687,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           <RefreshCw size={13} className="mr-1.5" /> Refresh Queue
         </button>
 
-        {/* 🟢 Super Admin Kill Switch for AI Database */}
         {currentUser?.role === 'SUPER_ADMIN' && (
           <button
             onClick={handleKillSwitchToggle}
@@ -687,7 +717,216 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         <button onClick={() => setActiveTab('resets')} className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Password Resets ({filteredResets.length})</button>
       </div>
 
-      {/* ACTIVE ROSTER & EXPANDED GRANULAR MATRIX TAB */}
+      {/* TAB 1: NEW ACCOUNT AUTHORIZATIONS (INTERACTIVE INSPECTION & ACTIONS) */}
+      {activeTab === 'approvals' && (
+        <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
+          {loadingPending ? (
+            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs flex items-center justify-center">
+              <Loader2 size={16} className="animate-spin mr-2 text-blue-600" /> Syncing with Command Database...
+            </div>
+          ) : filteredPending.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 font-medium text-xs">No active unapproved access requests pending in selected queue.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold text-[10px]">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left">Officer Details</th>
+                    <th className="px-4 py-2.5 text-left">Command Post</th>
+                    <th className="px-4 py-2.5 text-left">Derived Role Tier</th>
+                    <th className="px-4 py-2.5 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-slate-200">
+                  {filteredPending.map((user) => (
+                    <tr 
+                      key={user.fnum} 
+                      onClick={() => setSelectedPendingUser(user)}
+                      className="hover:bg-blue-50/50 cursor-pointer transition-colors group"
+                    >
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center space-x-3">
+                          <div 
+                            onClick={(e) => {
+                              if (user.profile_photo_path) {
+                                e.stopPropagation();
+                                setViewingPhotoModal(user.profile_photo_path);
+                              }
+                            }}
+                            className="w-9 h-9 rounded-full bg-slate-100 border border-slate-300 flex items-center justify-center font-bold text-xs text-slate-600 shrink-0 overflow-hidden shadow-xs group-hover:border-blue-400"
+                          >
+                            {user.profile_photo_path ? (
+                              <img src={user.profile_photo_path} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              user.name?.charAt(0) || 'U'
+                            )}
+                          </div>
+                          <div>
+                            <div className="font-extrabold text-slate-900 group-hover:text-blue-700 transition-colors">
+                              {formatOfficerHeader(user)}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              NIN: {stripHtmlTags(user.nin || 'N/A')} • Tel: {stripHtmlTags(user.phone || 'N/A')}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="font-bold text-blue-700 uppercase">{stripHtmlTags(user.station)}</div>
+                        <div className="text-[10px] text-slate-500 uppercase">{stripHtmlTags(user.region)}</div>
+                        <div className="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded mt-0.5 inline-block border font-bold text-slate-600">{stripHtmlTags(user.position)}</div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={`px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full border ${
+                          user.role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-800 border-purple-200' :
+                          user.role === 'ADMIN' ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                          user.role === 'RPC' ? 'bg-amber-100 text-amber-800 border-amber-200' :
+                          'bg-slate-100 text-slate-800 border-slate-200'
+                        }`}>
+                          {stripHtmlTags(user.role || 'USER')}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-right space-x-2" onClick={(e) => e.stopPropagation()}>
+                        <button 
+                          type="button"
+                          onClick={() => setSelectedPendingUser(user)}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-1.5 px-3 rounded-md text-[11px] transition inline-flex items-center cursor-pointer border border-slate-300"
+                        >
+                          <Eye size={13} className="mr-1" /> Review
+                        </button>
+                        <button 
+                          type="button"
+                          disabled={isProcessingAction}
+                          onClick={() => handleRejectUser(user)}
+                          className="bg-red-50 hover:bg-red-600 hover:text-white text-red-600 border border-red-200 font-bold py-1.5 px-3 rounded-md text-[11px] transition inline-flex items-center cursor-pointer disabled:opacity-50"
+                        >
+                          <XCircle size={13} className="mr-1" /> Reject
+                        </button>
+                        <button 
+                          type="button"
+                          disabled={isProcessingAction}
+                          onClick={() => handleApproveUser(user)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-md shadow-xs text-[11px] transition inline-flex items-center cursor-pointer disabled:opacity-50"
+                        >
+                          <CheckCircle size={13} className="mr-1" /> Approve Access
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 🟢 OFFICER SIGNUP INSPECTION DOSSIER MODAL */}
+      {selectedPendingUser && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150">
+            
+            <div className="bg-slate-900 text-white p-4 px-6 flex justify-between items-center shrink-0">
+              <h3 className="font-extrabold text-xs uppercase tracking-wider flex items-center">
+                <Shield size={16} className="text-blue-400 mr-2"/> Signup Verification Dossier
+              </h3>
+              <button onClick={() => setSelectedPendingUser(null)} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4 custom-scrollbar flex-1 bg-slate-50">
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex items-center space-x-4">
+                <div 
+                  onClick={() => selectedPendingUser.profile_photo_path && setViewingPhotoModal(selectedPendingUser.profile_photo_path)}
+                  className="w-16 h-16 rounded-full bg-slate-100 border-2 border-blue-500 overflow-hidden shrink-0 flex items-center justify-center cursor-pointer shadow-sm"
+                >
+                  {selectedPendingUser.profile_photo_path ? (
+                    <img src={selectedPendingUser.profile_photo_path} alt="Officer" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="font-black text-xl text-slate-600">{selectedPendingUser.name?.charAt(0) || 'U'}</span>
+                  )}
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-slate-900">{selectedPendingUser.rank} {selectedPendingUser.name}</h4>
+                  <p className="text-xs font-mono font-bold text-blue-700">{selectedPendingUser.fnum}</p>
+                  <p className="text-[11px] text-slate-500 uppercase font-semibold">{selectedPendingUser.position || 'General Duties'}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-2xs text-xs">
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">IPPS Number</span>
+                  <span className="font-extrabold text-slate-800">{selectedPendingUser.ipps || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">National ID (NIN)</span>
+                  <span className="font-extrabold text-slate-800 font-mono">{selectedPendingUser.nin || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Gender / Sex</span>
+                  <span className="font-extrabold text-slate-800">{selectedPendingUser.sex || 'MALE'}</span>
+                </div>
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Role Requested</span>
+                  <span className="font-extrabold text-blue-700 uppercase">{selectedPendingUser.role || 'USER'}</span>
+                </div>
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span>
+                  <span className="font-extrabold text-slate-800">{selectedPendingUser.region}</span>
+                </div>
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span>
+                  <span className="font-extrabold text-slate-800">{selectedPendingUser.station}</span>
+                </div>
+                <div className="col-span-2 border-t border-slate-100 pt-2">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Official Email</span>
+                  <span className="font-bold text-slate-800 break-all">{selectedPendingUser.email || 'N/A'}</span>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Phone Number</span>
+                  <span className="font-bold text-slate-800">{selectedPendingUser.phone || 'N/A'}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 border-t border-slate-200 flex justify-between items-center shrink-0">
+              <button 
+                type="button"
+                onClick={() => setSelectedPendingUser(null)} 
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Close
+              </button>
+              <div className="space-x-2">
+                <button
+                  type="button"
+                  disabled={isProcessingAction}
+                  onClick={() => handleRejectUser(selectedPendingUser)}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  <XCircle size={14} className="inline mr-1"/> Reject Request
+                </button>
+                <button
+                  type="button"
+                  disabled={isProcessingAction}
+                  onClick={() => handleApproveUser(selectedPendingUser)}
+                  className="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-extrabold transition shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  <CheckCircle size={14} className="inline mr-1"/> Approve Access
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Enlarged Photo Modal */}
+      {viewingPhotoModal && (
+        <div className="fixed inset-0 bg-black/90 z-[400] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingPhotoModal(null)}>
+          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg cursor-pointer"><X size={24}/></button>
+          <img src={viewingPhotoModal} alt="Enlarged Profile" className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+
+      {/* ACTIVE ROSTER & CLEARANCE MATRIX TAB */}
       {activeTab === 'matrix' && (
         <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden w-full">
           <div className="bg-slate-900 text-white p-3 text-xs font-extrabold uppercase tracking-wider flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
@@ -733,8 +972,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                     const p = u.permissions || {};
                     const isSuperAdmin = u.role === 'SUPER_ADMIN';
                     const isRevoked = u.role === 'REVOKED';
-                    
-                    // 🟢 VISUAL LOCKS FOR SELF-EDITING
                     const isSelf = u.fnum === currentUser?.fnum;
                     const isRoleSelectDisabled = isSelf || (isSuperAdmin && currentUser?.role !== 'SUPER_ADMIN');
                     const isBulkActionDisabled = isSelf || !isExplicitHighCommand;
@@ -849,57 +1086,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                       </tr>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* APPROVALS TAB */}
-      {activeTab === 'approvals' && (
-        <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
-          {loadingPending ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs flex items-center justify-center">
-              <Loader2 size={16} className="animate-spin mr-2 text-blue-600" /> Syncing with Command Database...
-            </div>
-          ) : filteredPending.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 font-medium text-xs">No active unapproved access requests pending in selected queue.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-50 text-slate-600 uppercase font-extrabold text-[10px]">
-                  <tr>
-                    <th className="px-4 py-2.5 text-left">Officer Details</th>
-                    <th className="px-4 py-2.5 text-left">Command Post</th>
-                    <th className="px-4 py-2.5 text-left">Derived Role Tier</th>
-                    <th className="px-4 py-2.5 text-left">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
-                  {filteredPending.map((user) => (
-                    <tr key={user.fnum} className="hover:bg-blue-50/50">
-                      <td className="px-4 py-2.5 whitespace-nowrap">
-                        <div className="font-bold text-slate-900">{formatOfficerHeader(user)}</div>
-                        <div className="text-[10px] text-slate-400">{stripHtmlTags(user.phone)}</div>
-                      </td>
-                      <td className="px-4 py-2.5 whitespace-nowrap">
-                        <div className="font-bold text-blue-700">{stripHtmlTags(user.station)}</div>
-                        <div className="text-[10px] text-slate-500">{stripHtmlTags(user.region)}</div>
-                        <div className="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded mt-0.5 inline-block border font-bold text-slate-600">{stripHtmlTags(user.position)}</div>
-                      </td>
-                      <td className="px-4 py-2.5 whitespace-nowrap">
-                        <span className={`px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full border ${user.role?.includes('ADMIN') ? 'bg-purple-100 text-purple-800 border-purple-200' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>
-                          {stripHtmlTags(user.role)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 whitespace-nowrap">
-                        <button onClick={() => handleApproveUser(user.fnum)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-md shadow-xs text-[11px] transition flex items-center cursor-pointer">
-                          <CheckCircle size={13} className="mr-1" /> Approve Access
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
                 </tbody>
               </table>
             </div>
