@@ -103,6 +103,10 @@ app.include_router(analytics_export.router)
 app.include_router(admin_communication.router)
 app.include_router(auth_router, prefix="/api/auth")
 app.include_router(ai_router.router)
+app.include_router(auth_router)
+app.include_router(auth_router, prefix="/api/auth")
+app.include_router(auth_router, prefix="/api/v1/auth")
+app.include_router(auth_router, prefix="/api/v1/users")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
