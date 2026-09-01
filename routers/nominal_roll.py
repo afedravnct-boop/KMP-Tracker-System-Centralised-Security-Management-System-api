@@ -715,12 +715,11 @@ def update_Nominal_Roll(
         raise HTTPException(status_code=500, detail=f"Failed to update officer record: {str(e)}")
 
 # ====================================================================
-# 5. ARCHIVE PERSONNEL
+# 5. ARCHIVE PERSONNEL (VIA REQUEST BODY)
 # ====================================================================
-@router.put("/nominal-roll/{fnum:path}/archive")
+@router.put("/nominal-roll/archive-record")
 def archive_personnel(
-    fnum: str, 
-    request_data: Optional[schemas.ArchiveRequest] = None, 
+    payload: dict, 
     db: Session = Depends(get_db), 
     current_user: models.Users = Depends(get_current_user)
 ):
@@ -728,12 +727,13 @@ def archive_personnel(
     ArchiveModel = get_archive_model()
     
     try:
-        raw_fnum = unquote(unquote(fnum)).strip().upper()
-        fnum_clean = raw_fnum.split('/ARCHIVE')[0].replace('/ARCHIVE', '').strip()
+        raw_fnum = payload.get("fnum") or payload.get("f_num")
+        archive_reason = payload.get("archive_reason", "ADMINISTRATIVE")
         
-        if not fnum_clean:
-            raise HTTPException(status_code=400, detail="Missing or invalid Force Number identifier for archiving.")
+        if not raw_fnum:
+            raise HTTPException(status_code=400, detail="Missing Force Number identifier for archiving.")
 
+        fnum_clean = str(raw_fnum).split('/ARCHIVE')[0].replace('/ARCHIVE', '').strip().upper()
         alt_fnum = fnum_clean.replace('/', '')
         
         query_filters = []
@@ -766,7 +766,7 @@ def archive_personnel(
             record_data["f_num"] = fnum_clean
             
         record_data["status"] = "ARCHIVED"
-        record_data["archive_reason"] = request_data.archive_reason if request_data and request_data.archive_reason else "ADMINISTRATIVE"
+        record_data["archive_reason"] = archive_reason
         record_data["archive_date"] = datetime.now().date()
         record_data["last_updated_by"] = get_officer_signature(current_user)
 

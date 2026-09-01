@@ -211,10 +211,13 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     try {
       setNotification("Moving record to archive...");
        
-      const response = await authFetch(`/api/v1/nominal-roll/${encodeURIComponent(cleanTargetFnum)}/archive`, {
+      const response = await authFetch(`/api/v1/nominal-roll/archive-record`, {
         method: "PUT", 
         headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify({ archive_reason: finalArchiveReason })
+        body: JSON.stringify({ 
+          fnum: cleanTargetFnum,
+          archive_reason: finalArchiveReason 
+        })
       });
 
       if (!response.ok) {
