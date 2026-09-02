@@ -615,7 +615,11 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         )}
       </div>
 
-      <div className="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 space-y-2.5 overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-5 space-y-4">
+          {canEditRecords && (
+            <div className="space-y-4">
+              <div className="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 space-y-2.5 overflow-hidden">
                 <div className="border-b border-slate-100 pb-1.5 flex justify-between items-center">
                   <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider flex items-center">
                     <Upload className="w-3.5 h-3.5 mr-1.5 text-blue-600 shrink-0" /> Batch Excel / Multi-File Import
@@ -624,7 +628,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                     ⚠️ Ensure valid date formats (YYYY-MM-DD or DD-MM-YYYY)
                   </span>
                 </div>
-
+                 
                 {/* 🟢 HOVER-TRIGGERED TOOLTIP POPUP FOR FULL NEONDB HEADERS */}
                 <div className="relative group">
                   <div className="w-full">
@@ -663,7 +667,10 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">dir</span>
                       <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">status</span>
                     </div>
-                  
+                  </div>
+                </div>
+              </div>
+
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex justify-between items-center">
                   <h3 className="text-white text-xs font-bold uppercase tracking-wider flex items-center">
@@ -849,7 +856,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                   </form>
                 </div>
               </div>
-            </>
+            </div>
           )}
         </div>
 
