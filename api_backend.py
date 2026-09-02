@@ -994,74 +994,112 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         AIModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
         ArcModel = getattr(models, 'NominalRollArchive', getattr(models, 'Nominal_Roll_Archive', None))
 
-        def get_orm_data(ModelClass, columns):
-            if not ModelClass: return []
+        def get_full_dataframe(ModelClass):
+            if not ModelClass: 
+                return pd.DataFrame()
             try:
                 query = db.query(ModelClass)
-                if not is_global and hasattr(ModelClass, 'region'): query = query.filter(ModelClass.region == current_user.region)
+                if not is_global and hasattr(ModelClass, 'region'): 
+                    query = query.filter(ModelClass.region == current_user.region)
                 
-                rows = []
-                for r in query.all():
-                    row_data = []
-                    for col in columns:
+                records = query.all()
+                if not records:
+                    return pd.DataFrame()
+                
+                data = []
+                for r in records:
+                    row_dict = {}
+                    for col in r.__table__.columns.keys():
                         val = getattr(r, col, '')
                         if isinstance(val, datetime):
                             val = val.strftime("%Y-%m-%d %H:%M")
                         elif isinstance(val, str) and col in ['narrative', 'comment', 'message', 'details', 'archive_reason']:
                             val = clean_html_for_export(val)
-                        row_data.append(str(val) if val is not None else '')
-                    rows.append(row_data)
-                return rows
-            except: return []
+                        row_dict[col] = val if val is not None else ''
+                    data.append(row_dict)
+                return pd.DataFrame(data)
+            except Exception as ex:
+                print(f"DataFrame fetch error for {ModelClass}: {ex}")
+                return pd.DataFrame()
 
-        cr_records = get_orm_data(CrimeModel, ['sd_ref', 'region', 'station', 'date', 'time', 'offence', 'status', 'suspects', 'last_updated_by'])
-        ops_records = get_orm_data(StatsModel, ['date', 'region', 'station', 'arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted'])
-        ss_records = get_orm_data(StoryModel, ['date', 'time', 'region', 'station', 'status', 'narrative'])
-        nr_records = get_orm_data(NomModel, ['f_num', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status'])
-        est_records = get_orm_data(EstModel, ['region', 'division', 'station', 'personnel_in_station', 'sub_station', 'personnel_in_sub_station', 'post', 'personnel_in_post', 'booths', 'personnel_in_booth'])
-        docs_records = get_orm_data(DocsModel, ['file_name', 'doc_type', 'file_size', 'region', 'station', 'uploaded_by', 'upload_date'])
-        arc_records = get_orm_data(ArcModel, ['fnum', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status', 'archive_reason', 'archive_date'])
-        
-        ai_records = []
+        # Fetch full dataframes containing all NeonDB columns
+        df_crime = get_full_dataframe(CrimeModel)
+        df_stats = get_full_dataframe(StatsModel)
+        df_stories = get_full_dataframe(StoryModel)
+        df_users = get_full_dataframe(NomModel)
+        df_est = get_full_dataframe(EstModel)
+        df_docs = get_full_dataframe(DocsModel)
+        df_arc = get_full_dataframe(ArcModel)
+
+        # Compile AI & Activity Command logs
+        ai_rows = []
         if AIModel:
             try:
                 for r in db.query(AIModel).all():
-                    v_time = r.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(r.created_at, 'strftime') else str(r.created_at)
-                    ai_records.append(["AI_PROMPT_EXECUTION", clean_html_for_export(f"Prompt: {r.prompt} | Response: {r.response}"), r.fnum, v_time])
-            except: pass
-            
+                    v_time = r.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(r.created_at, 'strftime') else str(getattr(r, 'created_at', ''))
+                    ai_rows.append({"Interaction Type": "AI_PROMPT_EXECUTION", "Details": clean_html_for_export(f"Prompt: {r.prompt} | Response: {r.response}"), "Officer FNUM": getattr(r, 'fnum', ''), "Timestamp": v_time})
+            except Exception: 
+                pass
+                
         if ActivityModel:
             try:
                 ai_act = db.query(ActivityModel).filter(or_(ActivityModel.module.ilike('%AI%'), ActivityModel.module.ilike('%ai_console%'))).all()
                 for r in ai_act:
                     v_time = r.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(r.created_at, 'strftime') else str(getattr(r, 'created_at', ''))
-                    ai_records.append(["PAGE_ACCESS_LOG", clean_html_for_export(getattr(r, 'details', 'AI Console Access')), getattr(r, 'fnum', ''), v_time])
-            except: pass
+                    ai_rows.append({"Interaction Type": "PAGE_ACCESS_LOG", "Details": clean_html_for_export(getattr(r, 'details', 'AI Console Access')), "Officer FNUM": getattr(r, 'fnum', ''), "Timestamp": v_time})
+            except Exception: 
+                pass
+        df_ai = pd.DataFrame(ai_rows)
 
         wb = openpyxl.Workbook()
-        wb.remove(wb.active) 
+        wb.remove(wb.active)  # Remove default sheet
+        
         header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
         header_align = Alignment(horizontal="center", vertical="center")
 
-        def add_domain_sheets(title, headers, data):
-            ws_gen = wb.create_sheet(title=title)
-            ws_gen.append(["SN"] + headers)
-            for cell in ws_gen[1]:
+        def write_dual_sheets(df, print_title, full_title, print_cols):
+            if df.empty:
+                return
+            
+            # 1. Print / Summarized Copy Sheet
+            ws_print = wb.create_sheet(title=print_title)
+            available_print_cols = [c for c in print_cols if c in df.columns]
+            df_print_subset = df[available_print_cols].copy()
+            
+            ws_print.append(["SN"] + list(df_print_subset.columns))
+            for cell in ws_print[1]:
                 cell.fill = header_fill; cell.font = header_font; cell.alignment = header_align
-            for idx, row in enumerate(data, 1): ws_gen.append([idx] + list(row))
-            for col in ws_gen.columns:
+            
+            for idx, row in enumerate(df_print_subset.values, 1):
+                ws_print.append([idx] + list(row))
+                
+            for col in ws_print.columns:
                 max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-                ws_gen.column_dimensions[col[0].column_letter].width = min(max_len + 3, 50)
+                ws_print.column_dimensions[col[0].column_letter].width = min(max_len + 3, 40)
 
-        add_domain_sheets("Crime Registry", ["SD Ref", "Region", "Station", "Date", "Time", "Offence", "Status", "Suspects", "Logged By"], cr_records)
-        add_domain_sheets("OPS Statistics", ["Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken To Court", "Released", "Remanded", "Convicted"], ops_records)
-        add_domain_sheets("Success Stories", ["Date", "Time", "Region", "Station", "Status", "Narrative"], ss_records)
-        add_domain_sheets("Nominal Roll", ["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status"], nr_records)
-        add_domain_sheets("Archived Personnel", ["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status", "Reason", "Archived On"], arc_records)
-        add_domain_sheets("Establishments", ["Region", "Division", "Station", "Pers(Stn)", "Sub-Station", "Pers(Sub)", "Post", "Pers(Post)", "Booths", "Pers(Booth)"], est_records)
-        add_domain_sheets("Tripartite Reports", ["File Name", "Doc Type", "Size", "Region", "Station", "Uploaded By", "Upload Date"], docs_records)
-        add_domain_sheets("AI Command", ["Interaction Type", "Details", "Officer FNUM", "Timestamp"], ai_records)
+            # 2. Full NeonDB Columns Copy Sheet
+            ws_full = wb.create_sheet(title=full_title)
+            ws_full.append(["SN"] + list(df.columns))
+            for cell in ws_full[1]:
+                cell.fill = header_fill; cell.font = header_font; cell.alignment = header_align
+                
+            for idx, row in enumerate(df.values, 1):
+                ws_full.append([idx] + list(row))
+                
+            for col in ws_full.columns:
+                max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+                ws_full.column_dimensions[col[0].column_letter].width = min(max_len + 3, 60)
+
+        # Generate dual sheets for all domains
+        write_dual_sheets(df_crime, "Crime Registry (Print)", "Crime Registry", ['sd_ref', 'region', 'station', 'date', 'time', 'offence', 'status', 'suspects', 'last_updated_by'])
+        write_dual_sheets(df_stats, "OPS Statistics (Print)", "OPS Statistics", ['date', 'region', 'station', 'arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted'])
+        write_dual_sheets(df_stories, "Success Stories (Print)", "Success Stories", ['date', 'time', 'region', 'station', 'status', 'narrative'])
+        write_dual_sheets(df_users, "Establishments (Print)", "Nominal Roll", ['f_num', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status'])
+        write_dual_sheets(df_arc, "Archived Personnel (Print)", "Archived Personnel", ['fnum', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status', 'archive_reason', 'archive_date'])
+        write_dual_sheets(df_est, "Establishments Print Copy", "Establishments", ['region', 'division', 'station', 'personnel_in_station', 'sub_station', 'personnel_in_sub_station', 'post', 'personnel_in_post', 'booths', 'personnel_in_booth'])
+        write_dual_sheets(df_docs, "Tripartite Reports (Print)", "Tripartite Reports", ['file_name', 'doc_type', 'file_size', 'region', 'station', 'uploaded_by', 'upload_date'])
+        write_dual_sheets(df_ai, "AI Command (Print)", "AI Command", ['Interaction Type', 'Details', 'Officer FNUM', 'Timestamp'])
 
         eat_tz = pytz.timezone("Africa/Nairobi")
         eat_time = datetime.now(eat_tz).replace(tzinfo=None)
