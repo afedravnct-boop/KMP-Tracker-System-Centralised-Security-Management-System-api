@@ -191,7 +191,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
     const activeRegion = (filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion.trim().toUpperCase() : null;
     const activeStation = (filterStation && filterStation !== 'ALL STATIONS') ? filterStation.trim().toUpperCase() : null;
 
-    return reports.filter(r => {
+    const filtered = reports.filter(r => {
       if (r.is_hq_general_total || (r.offence || '').toUpperCase().includes("LOCK-UP TOTAL")) return false;
 
       const stn = stripHtmlTags(r.station || '').trim().toUpperCase();
@@ -267,7 +267,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
           'fire in the sugarcane', 
           'fire on farm house', 
           'crop theft',
-          // 🟢 Added suspected stolen farm produces and items
           'suspected stolen cows', 
           'suspected stolen cattle', 
           'suspected stolen goats', 
@@ -311,6 +310,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
        
       return true;
     });
+
+    // 🟢 Enforce descending chronological order (newest SN/ID first)
+    return filtered.sort((a, b) => (b.sn || b.id || 0) - (a.sn || a.id || 0));
 
   }, [reports, filterRegion, filterStation, dateFilter, canViewGlobalActive, showAgriculturalOnly, searchQuery]);
 
@@ -844,7 +846,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
             </select>
         </div>
          
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
           <MetricCard title={filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? "Computed Sum (All)" : filterStation === 'ALL STATIONS' ? `${filterRegion} Lock-up` : `${filterStation} Lock-up`} value={metrics.localLockup} colorClass="text-slate-800 dark:text-slate-100" />
           <MetricCard title="KMP Master Lock-up" value={metrics.kmpGeneralLockup} colorClass="text-amber-600 dark:text-amber-400" />
           <MetricCard title="Total Cases" value={metrics.newCases} colorClass="text-blue-700 dark:text-blue-400" />
@@ -856,7 +858,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-">
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
             <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center">
