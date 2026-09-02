@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAlert, Inbox, Filter, Clock, ArrowLeft, Eye, X, Edit3, UserPlus } from 'lucide-react';
+import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAlert, Inbox, Filter, Clock, ArrowLeft, Eye, X, Edit3, UserPlus, Reply } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -17,16 +17,14 @@ const autoCapitalize = (text) => {
 const adjustTimeOffset = (dateStr) => {
   if (!dateStr || dateStr === "Unknown Time") return dateStr;
   try {
-    // Check if it's already a clean ISO string or basic format
     const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr; // Fallback to original string if invalid
+    if (isNaN(d.getTime())) return dateStr;
     
     d.setHours(d.getHours() - 3); // 🟢 Re-calibrate time back 3 hours
     
     const pad = (n) => n.toString().padStart(2, '0');
     let adjusted = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     
-    // Only append seconds if they were present in the original string and parseable
     if (dateStr.split(':').length > 2) {
       adjusted += `:${pad(d.getSeconds())}`;
     }
@@ -40,7 +38,6 @@ const adjustTimeOffset = (dateStr) => {
 const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm, initialTab }) => {
   const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
   
-  // 🟢 Dynamically honor initialTab from dashboard notifications
   const [activeTab, setActiveTab] = useState(
     initialTab ? initialTab.toLowerCase() : (canBroadcast ? 'dispatch' : 'inbox')
   ); 
@@ -83,7 +80,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     fetchRecipientsList();
   }, []);
 
-  // 🟢 Keep active tab synchronized when initialTab prop changes
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab.toLowerCase());
@@ -124,6 +120,20 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     } else {
       setFormData({ ...formData, [name]: type === 'checkbox' ? checked : value });
     }
+  };
+
+  // 🟢 HANDLE REPLY BUTTON CLICK
+  const handleReplyToMessage = (msg) => {
+    setActiveTab('dispatch');
+    setFormData({
+      ...formData,
+      targetAudience: 'SPECIFIC_USER',
+      targetFnum: [msg.sender_fnum],
+      messageType: msg.message_type === 'COMPLAINT_GRIEVANCE' ? 'COMPLAINT_GRIEVANCE' : 'DIRECT_MESSAGE',
+      subject: msg.subject.startsWith('RE:') ? msg.subject : `RE: ${msg.subject}`,
+      message: `<p><br></p><blockquote><em>--- Original Message from ${msg.sender_name} (${msg.sender_fnum}) ---</em><br>${msg.message}</blockquote><p><br></p>`
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const finalSelectableRecipients = (filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || [])).filter(user => {
@@ -218,7 +228,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       
       const todayStr = today.toISOString().split('T')[0];
 
-      // Helper to easily calculate X days ago
       const getPastDate = (daysCount) => {
         const pastDate = new Date(today);
         pastDate.setDate(today.getDate() - daysCount);
@@ -241,7 +250,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       else if (dateFilter === 'last_120') { start = getPastDate(120); end = todayStr; }
       else if (dateFilter === 'last_180') { start = getPastDate(180); end = todayStr; }
       else if (dateFilter === 'old') { 
-        end = getPastDate(7); // Caps the end date to 7 days ago, open-ended start
+        end = getPastDate(7);
       } 
       else if (dateFilter === 'custom') { 
         start = customStartDate; 
@@ -683,7 +692,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                 <div className="flex flex-col md:flex-row gap-4 items-end">
                   <div className="flex-1 w-full">
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><Filter size={14} className="mr-1"/> Time Filter</label>
-<select 
+                    <select 
                       value={dateFilter} 
                       onChange={(e) => setDateFilter(e.target.value)} 
                       className="w-full p-2.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-100 border border-slate-300 dark:border-slate-700 rounded-md font-bold outline-none focus:border-blue-500 cursor-pointer"
@@ -856,6 +865,16 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                               </div>
                               
                               <div className="flex items-center space-x-2">
+                                {/* 🟢 REPLY / RESPOND BUTTON */}
+                                {!isSender && (
+                                  <button 
+                                    onClick={(e) => { e.stopPropagation(); handleReplyToMessage(msg); }} 
+                                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 px-4 rounded transition-colors flex items-center shadow-sm cursor-pointer"
+                                  >
+                                    <Reply size={14} className="mr-1.5" /> Reply / Respond
+                                  </button>
+                                )}
+
                                 {!msg.acknowledged && !isSender && (
                                   <button 
                                     onClick={(e) => handleManualAcknowledge(e, msg)} 

@@ -216,23 +216,72 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
 
         const excludedTerms = [
           'accident', 'tar', 'collision', 'hit and run', 'overturned', 'crash', 
-          'boda boda', 'motorcycle', 'motor cycle', 'bajaj', 'tvs', 'boxer', 'scooter', 'traffic'
+          'boda boda', 'motorcycle', 'motor cycle', 'bajaj', 'tvs', 'boxer', 'scooter', 'traffic', 'murder', 'robbery'
         ];
         if (excludedTerms.some(term => combinedText.includes(term))) {
           return false;
         }
 
         const agriCrimeIndicators = [
-          'theft of produce', 'produce theft', 'animal theft', 'cattle theft', 'stole a cow', 'cows', 
-          'bull', 'bulls', 'calf', 'calves', 'ox', 'oxen', 'stole a goat', 'goats', 'sheep', 'ram', 
-          'ewe', 'lamb', 'pig', 'pigs', 'swine', 'poultry', 'chicken', 'chickens', 'duck', 
-          'ducks', 'egg', 'eggs', 'milk', 'dairy', 'stock theft', 'theft of livestock',
-          'granary', 'granaries', 'broke into food store', 'food stores', 'storehouse', 'barn', 'silo', 'silos',
-          'cutting down crops', 'cutting crops', 'slashing crops', 'burning crops', 
-          'burning produce', 'destroying crops', 'crop destruction', 'arson of crops', 'arson of produce',
-          'theft of crops', 'theft of coffee', 'theft of vanilla', 'theft of cassava', 'theft of maize',
-          'coffee theft', 'vanilla theft', 'maize theft', 'matooke theft', 'theft of matooke',
-          'farm break-in', 'farm robbery', 'farm trespass', 'crop theft'
+          'theft of produce', 
+          'produce theft', 
+          'animal theft', 
+          'cattle theft', 
+          'stole a cow', 
+          'stole cattle',
+          'stock theft', 
+          'theft of livestock', 
+          'granary', 
+          'granaries', 
+          'broke into food store', 
+          'food stores', 
+          'storehouse', 
+          'barn', 
+          'silo', 
+          'silos',
+          'cutting down crops', 
+          'cutting crops', 
+          'slashing crops', 
+          'burning crops', 
+          'burning produce', 
+          'destroying crops', 
+          'crop destruction', 
+          'arson of crops', 
+          'arson of produce',
+          'theft of crops', 
+          'theft of coffee', 
+          'theft of vanilla', 
+          'theft of cassava', 
+          'theft of maize', 
+          'coffee theft', 
+          'vanilla theft', 
+          'maize theft', 
+          'matooke theft', 
+          'theft of matooke', 
+          'bribery to receive farm imports', 
+          'extortion of farmers',
+          'farm break-in', 
+          'farm robbery', 
+          'farm trespass', 
+          'fire on crops', 
+          'fire in the sugarcane', 
+          'fire on farm house', 
+          'crop theft',
+          // 🟢 Added suspected stolen farm produces and items
+          'suspected stolen cows', 
+          'suspected stolen cattle', 
+          'suspected stolen goats', 
+          'suspected stolen sheep', 
+          'suspected stolen chicken', 
+          'suspected stolen eggs', 
+          'suspected stolen produce', 
+          'suspected stolen coffee', 
+          'suspected stolen vanilla', 
+          'suspected stolen maize', 
+          'suspected stolen matooke', 
+          'suspected stolen cassava', 
+          'suspected stolen livestock', 
+          'suspected stolen funds for farmers'
         ];
 
         const isAgriCrimeMatch = agriCrimeIndicators.some(indicator => combinedText.includes(indicator));
@@ -766,11 +815,11 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         </div>
       )}
 
-      <div className="text-center mb-8 flex flex-col items-center">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
-        <h1 className="text-4xl text-red-500 mt-1 font-bold">Crime/Incident Registry</h1>
-        <h2 className="text-xl text-red-300 mt-1 font-medium">Centralised Crime/Incident Compilation</h2>
-      </div>
+      <div className="text-center mb-4 flex flex-col items-center">
+        <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 mb-1.5 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
+        <h1 className="text-2xl text-red-500 mt-0.5 font-bold">Crime/Incident Registry</h1>
+        <h2 className="text-xs text-red-300 mt-0.5 font-medium uppercase tracking-wider">Centralised Crime/Incident Compilation</h2>
+     </div>
 
       <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
