@@ -842,11 +842,25 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                             )}
 
                             {isExpanded && (
-                              <div 
-                                className="prose prose-sm max-w-none text-slate-700 mt-4 pt-4 border-t border-slate-100 animate-in fade-in" 
-                                dangerouslySetInnerHTML={{ __html: msg.message }} 
-                                onClick={(e) => e.stopPropagation()} 
-                              />
+                              <div className="prose prose-sm max-w-none text-slate-700 mt-4 pt-4 border-t border-slate-100 animate-in fade-in space-y-4">
+                                <div dangerouslySetInnerHTML={{ __html: msg.message }} onClick={(e) => e.stopPropagation()} />
+                                
+                                {/* 🟢 Conversation Replies Viewer */}
+                                {msg.replies && msg.replies.length > 0 && (
+                                  <div className="mt-4 pl-4 border-l-2 border-blue-400 space-y-3 bg-slate-50 p-3 rounded-r-lg">
+                                    <h4 className="text-xs font-extrabold text-blue-900 uppercase tracking-wider">Conversation Replies ({msg.replies.length})</h4>
+                                    {msg.replies.map((reply, rIdx) => (
+                                      <div key={rIdx} className="bg-white p-3 rounded border border-slate-200 shadow-sm text-xs space-y-1">
+                                        <div className="flex justify-between font-bold text-slate-800">
+                                          <span>{reply.sender_name} ({reply.sender_fnum})</span>
+                                          <span className="text-[10px] text-gray-400 font-mono">{reply.created_at}</span>
+                                        </div>
+                                        <div className="text-slate-600" dangerouslySetInnerHTML={{ __html: reply.message }} />
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
 
