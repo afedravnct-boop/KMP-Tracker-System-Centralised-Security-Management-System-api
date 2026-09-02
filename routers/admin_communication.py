@@ -109,7 +109,6 @@ def create_admin_communication(
         eat_tz = pytz.timezone("Africa/Nairobi")
         uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
 
-        # Write permissions remain strictly bound to their default station/region regardless of global view status
         db_comm = CommModel(
             msg_ref=generated_msg_ref,
             sender_fnum=comm.sender_fnum, 
@@ -190,7 +189,6 @@ def get_admin_communications(
     user_region = (current_user.region or "").strip().upper()
     user_role = (current_user.role or "").strip().upper()
 
-    # Global view permission check: allows reading globally if granted, otherwise defaults to local station/region visibility rules.
     if not check_global_view(current_user):
         visibility_conditions = [
             or_(
@@ -245,10 +243,21 @@ def get_admin_communications(
     eat_tz = pytz.timezone("Africa/Nairobi")
     clean_comms = []
     
+    user_created_at = getattr(current_user, 'created_at', None)
+
     for c in comms:
         sender_clean = (c.sender_fnum or "").strip().upper()
         comm_id = getattr(c, 'id', getattr(c, 'sn', 1))
-        is_read = (comm_id in read_comm_ids) or (sender_clean == clean_user_fnum)
+        
+        # 🟢 If the message was dispatched before the user's account was created, suppress notification/unread heartbeat alerts by treating it as read/acknowledged
+        is_older_than_user = False
+        if user_created_at and c.created_at and isinstance(c.created_at, datetime):
+            msg_dt = c.created_at.replace(tzinfo=None) if c.created_at.tzinfo else c.created_at
+            usr_dt = user_created_at.replace(tzinfo=None) if user_created_at.tzinfo else user_created_at
+            if msg_dt < usr_dt:
+                is_older_than_user = True
+
+        is_read = (comm_id in read_comm_ids) or (sender_clean == clean_user_fnum) or is_older_than_user
         
         local_time = getattr(c, 'created_at', None)
         if local_time:

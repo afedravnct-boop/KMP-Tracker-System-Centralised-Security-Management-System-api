@@ -841,21 +841,29 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                               </p>
                             )}
 
+                            {/* 🟢 EXPANDED VIEW WITH DISTINCT REPLY THREAD STYLING */}
                             {isExpanded && (
                               <div className="prose prose-sm max-w-none text-slate-700 mt-4 pt-4 border-t border-slate-100 animate-in fade-in space-y-4">
-                                <div dangerouslySetInnerHTML={{ __html: msg.message }} onClick={(e) => e.stopPropagation()} />
+                                <div className="p-3 bg-slate-50/70 rounded-lg border border-slate-200/60 leading-relaxed" dangerouslySetInnerHTML={{ __html: msg.message }} onClick={(e) => e.stopPropagation()} />
                                 
-                                {/* 🟢 Conversation Replies Viewer */}
+                                {/* 🟢 Distinct Conversation Replies Box */}
                                 {msg.replies && msg.replies.length > 0 && (
-                                  <div className="mt-4 pl-4 border-l-2 border-blue-400 space-y-3 bg-slate-50 p-3 rounded-r-lg">
-                                    <h4 className="text-xs font-extrabold text-blue-900 uppercase tracking-wider">Conversation Replies ({msg.replies.length})</h4>
+                                  <div className="mt-6 pt-4 border-t-2 border-indigo-200 space-y-3">
+                                    <h4 className="text-xs font-extrabold text-indigo-900 uppercase tracking-wider flex items-center bg-indigo-50/80 p-2 rounded border border-indigo-100">
+                                      <span className="w-2.5 h-2.5 bg-indigo-600 rounded-full mr-2 shadow-sm"></span>
+                                      Thread Responses & Replies ({msg.replies.length})
+                                    </h4>
                                     {msg.replies.map((reply, rIdx) => (
-                                      <div key={rIdx} className="bg-white p-3 rounded border border-slate-200 shadow-sm text-xs space-y-1">
-                                        <div className="flex justify-between font-bold text-slate-800">
-                                          <span>{reply.sender_name} ({reply.sender_fnum})</span>
-                                          <span className="text-[10px] text-gray-400 font-mono">{reply.created_at}</span>
+                                      <div key={rIdx} className="bg-indigo-50/60 p-4 rounded-xl border border-indigo-200/90 shadow-sm text-xs space-y-2 ml-2 sm:ml-4">
+                                        <div className="flex justify-between items-center border-b border-indigo-200/60 pb-2">
+                                          <span className="font-extrabold text-indigo-950 uppercase tracking-tight flex items-center">
+                                            💬 Response From: {reply.sender_name} <span className="font-mono text-indigo-700 font-semibold ml-1">({reply.sender_fnum})</span>
+                                          </span>
+                                          <span className="text-[10px] text-indigo-700 font-mono font-bold bg-white px-2 py-0.5 rounded border border-indigo-300">
+                                            {reply.created_at}
+                                          </span>
                                         </div>
-                                        <div className="text-slate-600" dangerouslySetInnerHTML={{ __html: reply.message }} />
+                                        <div className="text-slate-800 pt-1 leading-relaxed bg-white/60 p-3 rounded-lg border border-indigo-100/50" dangerouslySetInnerHTML={{ __html: reply.message }} />
                                       </div>
                                     ))}
                                   </div>
