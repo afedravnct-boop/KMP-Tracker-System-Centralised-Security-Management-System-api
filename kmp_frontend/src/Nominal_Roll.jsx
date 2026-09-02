@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Users, PlusCircle, Edit, AlertTriangle, CheckCircle, Upload, 
-  BarChart3, PieChart, ArrowRight, Shield, Archive, Eye
+  BarChart3, PieChart, ArrowRight, Shield, Archive, Eye, Search, X
 } from 'lucide-react';
 import { authFetch } from './api';
 import BulkNominalRollUpload from './BulkNominalRollUpload';
@@ -78,23 +78,30 @@ const MetricCard = ({ title, value, colorClass }) => (
 
 const ExpandableTableCard = ({ title, children, onToggle }) => {
   const [expanded, setExpanded] = useState(false);
+
+  const handleToggle = () => {
+    const nextState = !expanded;
+    setExpanded(nextState);
+    if (onToggle) onToggle(nextState);
+  };
+
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+    <div className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col transition-all duration-300 ${
+      expanded ? 'fixed inset-4 z-[999] shadow-2xl max-w-none max-h-none h-[calc(100vh-2rem)]' : 'w-full'
+    }`}>
       <div className="bg-slate-900 px-4 py-3 flex justify-between items-center shrink-0">
-        <h3 className="font-extrabold text-white text-xs sm:text-sm uppercase tracking-wider">{title}</h3>
+        <h3 className="font-extrabold text-white text-xs sm:text-sm uppercase tracking-wider flex items-center">
+          {title} {expanded && <span className="ml-2 text-[10px] bg-blue-600 px-2 py-0.5 rounded text-white font-mono">FULL SCREEN EXPANSION</span>}
+        </h3>
         <button 
           type="button"
-          onClick={() => { 
-            const nextState = !expanded; 
-            setExpanded(nextState); 
-            if (onToggle) onToggle(nextState); 
-          }} 
+          onClick={handleToggle} 
           className="text-xs text-blue-400 hover:text-white font-bold transition flex items-center bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 shadow-inner cursor-pointer"
         >
           {expanded ? 'Collapse ↙' : 'Expand ↗'}
         </button>
       </div>
-      <div className="w-full">{children}</div>
+      <div className={`w-full flex-1 overflow-auto ${expanded ? 'max-h-[calc(100vh-100px)]' : ''}`}>{children}</div>
     </div>
   );
 };
@@ -132,6 +139,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   }, [canViewGlobal, currentUser?.station, currentUser?.region]);
 
+  const [searchTerm, setSearchTerm] = useState('');
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [selectedOfficers, setSelectedOfficers] = useState([]);
   const [bulkArchiveReason, setBulkArchiveReason] = useState('TRANSFERRED');
@@ -292,7 +300,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       setBulkSelectMode(false);
     } catch (err) { 
       setNotification(`❌ Bulk Archive Error: ${err.message}`);
-    } finally {
+    } finally { 
       setIsBulkArchiving(false);
       setTimeout(() => setNotification(null), 5000);
     }
@@ -377,11 +385,24 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
 
       if (canViewGlobal && selRegion === 'ALL REGIONS' && selStation === 'ALL STATIONS') {
-        return true;
+        // pass
+      } else if (selStation !== 'ALL STATIONS' && selStation !== '' && dbStation !== selStation) {
+        return false;
       }
 
-      if (selStation !== 'ALL STATIONS' && selStation !== '' && dbStation !== selStation) {
-        return false;
+      // Real-time Text Search Filter
+      if (searchTerm.trim()) {
+        const query = searchTerm.trim().toLowerCase();
+        const fnum = (n.f_num || n.fnum || '').toLowerCase();
+        const name = (n.name || '').toLowerCase();
+        const rank = (n.rank || '').toLowerCase();
+        const ipps = String(n.ipps || '').toLowerCase();
+        const station = (n.station || '').toLowerCase();
+        const nin = String(n.nin || '').toLowerCase();
+        
+        if (!fnum.includes(query) && !name.includes(query) && !rank.includes(query) && !ipps.includes(query) && !station.includes(query) && !nin.includes(query)) {
+          return false;
+        }
       }
 
       return true;
@@ -393,7 +414,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return (a.name || '').localeCompare(b.name || '');
     });
-  }, [Nominal_Rolls, filterRegion, filterStation, canViewGlobal]);
+  }, [Nominal_Rolls, filterRegion, filterStation, canViewGlobal, searchTerm]);
 
   const filteredNominal_Roll_archives = useMemo(() => {
     if (!Array.isArray(Nominal_Roll_archives)) return [];
@@ -411,11 +432,25 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
 
       if (canViewGlobal && selRegion === 'ALL REGIONS' && selStation === 'ALL STATIONS') {
-        return true;
+        // pass
+      } else if (selStation !== 'ALL STATIONS' && selStation !== '' && dbStation !== selStation) {
+        return false;
       }
 
-      if (selStation !== 'ALL STATIONS' && selStation !== '' && dbStation !== selStation) {
-        return false;
+      // Real-time Text Search Filter for Archives
+      if (searchTerm.trim()) {
+        const query = searchTerm.trim().toLowerCase();
+        const fnum = (n.f_num || n.fnum || '').toLowerCase();
+        const name = (n.name || '').toLowerCase();
+        const rank = (n.rank || '').toLowerCase();
+        const ipps = String(n.ipps || '').toLowerCase();
+        const station = (n.station || '').toLowerCase();
+        const nin = String(n.nin || '').toLowerCase();
+        const reason = (n.archive_reason || '').toLowerCase();
+        
+        if (!fnum.includes(query) && !name.includes(query) && !rank.includes(query) && !ipps.includes(query) && !station.includes(query) && !nin.includes(query) && !reason.includes(query)) {
+          return false;
+        }
       }
 
       return true;
@@ -427,7 +462,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return (a.name || '').localeCompare(b.name || '');
     });
-  }, [Nominal_Roll_archives, filterRegion, filterStation, canViewGlobal]);
+  }, [Nominal_Roll_archives, filterRegion, filterStation, canViewGlobal, searchTerm]);
 
   const currentRollDataset = useMemo(() => {
     return viewMode === 'archive' ? filteredNominal_Roll_archives : filteredRolls;
@@ -458,9 +493,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           const isFemale = sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF');
           const isMale = sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM');
            
-          const homeDistrict = n.homedist || n.home_dist || '';
-          const bankBranch = n.bankbranch || n.bank_branch || '';
-          const educLevel = n.educlevel || n.educ_level || '';
+          const homeDistrict = n.homedist || n.home_dist || n.district || n.home_district || '';
+          const bankBranch = n.bankbranch || n.bank_branch || n.bank || n.bank_name || '';
+          const educLevel = n.educlevel || n.educ_level || n.education || '';
            
           if (metricCategory === 'RANK') key = n.rank ? n.rank.trim().toUpperCase() : 'UNRANKED';
           else if (metricCategory === 'UNIT') key = `${n.station || 'UNKNOWN'} ${n.section ? '- ' + n.section : ''}`.trim();
@@ -546,23 +581,23 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           </h4>
           <div className="inline-flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-inner shrink-0">
              <button 
-               type="button"
-               onClick={() => { setViewMode('active'); setShowAnalytics(false); setBulkSelectMode(false); }} 
-               className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${viewMode === 'active' && !showAnalytics ? 'bg-slate-900 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
+                type="button"
+                onClick={() => { setViewMode('active'); setShowAnalytics(false); setBulkSelectMode(false); }} 
+                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${viewMode === 'active' && !showAnalytics ? 'bg-slate-900 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
              >
-               Active Roll
+                Active Roll
              </button>
              <button 
-               type="button"
-               onClick={() => { setViewMode('archive'); setShowAnalytics(false); setBulkSelectMode(false); }} 
-               className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${viewMode === 'archive' && !showAnalytics ? 'bg-red-700 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
+                type="button"
+                onClick={() => { setViewMode('archive'); setShowAnalytics(false); setBulkSelectMode(false); }} 
+                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${viewMode === 'archive' && !showAnalytics ? 'bg-red-700 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
              >
-               Archived
+                Archived
              </button>
              <button 
-               type="button"
-               onClick={() => setShowAnalytics(!showAnalytics)} 
-               className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${showAnalytics ? 'bg-indigo-700 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
+                type="button"
+                onClick={() => setShowAnalytics(!showAnalytics)} 
+                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${showAnalytics ? 'bg-indigo-700 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
              >
                 {showAnalytics ? 'Close Analytics' : 'Analytics'}
              </button>
@@ -580,36 +615,55 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-5 space-y-4">
-          {canEditRecords && (
-            <>
-              <div className="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 space-y-2.5 overflow-hidden">
-                <div className="border-b border-slate-100 pb-1.5">
+      <div className="bg-white p-3.5 rounded-xl shadow-sm border border-slate-200 space-y-2.5 overflow-hidden">
+                <div className="border-b border-slate-100 pb-1.5 flex justify-between items-center">
                   <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider flex items-center">
                     <Upload className="w-3.5 h-3.5 mr-1.5 text-blue-600 shrink-0" /> Batch Excel / Multi-File Import
                   </h4>
+                  <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded font-bold border border-amber-200">
+                    ⚠️ Ensure valid date formats (YYYY-MM-DD or DD-MM-YYYY)
+                  </span>
                 </div>
-                 
-                <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 text-[10px] font-mono text-slate-600 flex flex-wrap gap-1 max-h-16 overflow-y-auto custom-scrollbar">
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">sn</span>
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">f_num</span>
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">rank</span>
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">name</span>
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">sex</span>
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">position</span>
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">dob</span>
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">doe</span>
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">do_post</span>
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">contact</span>
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">educ_level</span>
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">ipps</span>
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">station</span>
-                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-2xs font-bold text-slate-700">region</span>
-                </div>
-                <BulkNominalRollUpload multiple onUploadSuccess={() => window.location.reload()} />
-              </div>
 
+                {/* 🟢 HOVER-TRIGGERED TOOLTIP POPUP FOR FULL NEONDB HEADERS */}
+                <div className="relative group">
+                  <div className="w-full">
+                    <BulkNominalRollUpload multiple onUploadSuccess={() => window.location.reload()} />
+                  </div>
+
+                  {/* Tooltip box that appears only on hover */}
+                  <div className="absolute left-0 right-0 bottom-full mb-2 hidden group-hover:block z-50 bg-slate-900 text-white p-3 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 duration-150 pointer-events-none">
+                    <p className="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider mb-1.5 border-b border-slate-800 pb-1">
+                      📋 Required NeonDB Column Headers (Full Length):
+                    </p>
+                    <div className="flex flex-wrap gap-1 text-[10px] font-mono">
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">sn</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">f_num</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">rank</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">name</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">sex</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">position</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">dob</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">doe</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">do_post</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">do_pro</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">contact</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">educ_level</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">ipps</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">tin</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">nin</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">home_dist</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">tribe</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">acc_no</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">bank_branch</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">station</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">district</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">region</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">section</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">dir</span>
+                      <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-200 border border-slate-700">status</span>
+                    </div>
+                  
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex justify-between items-center">
                   <h3 className="text-white text-xs font-bold uppercase tracking-wider flex items-center">
@@ -863,17 +917,40 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row gap-2.5">
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobal} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-              {canViewGlobal ? (
-                <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(filteredRolls || []).map(n => n.region).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-              ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
-            </select>
-            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value) } disabled={!(isCommandOrHR || canViewGlobal)} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-              {(isCommandOrHR || canViewGlobal) ? (
-                <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(filteredRolls || []).filter(n => filterRegion === 'ALL REGIONS' || n.region === filterRegion).map(n => n.station).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
-              ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
-            </select>
+          {/* 🟢 DUAL DROPDOWNS + REAL-TIME SEARCH BAR */}
+          <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
+            <div className="flex flex-col sm:flex-row gap-2.5 flex-1">
+              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobal} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+                {canViewGlobal ? (
+                  <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(filteredRolls || []).map(n => n.region).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+                ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+              </select>
+              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value) } disabled={!(isCommandOrHR || canViewGlobal)} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+                {(isCommandOrHR || canViewGlobal) ? (
+                  <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(filteredRolls || []).filter(n => filterRegion === 'ALL REGIONS' || n.region === filterRegion).map(n => n.station).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
+                ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+              </select>
+            </div>
+
+            <div className="relative w-full sm:w-64 shrink-0">
+              <input 
+                type="text"
+                placeholder="Search ledger by name, f/no, rank..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full text-xs border border-slate-300 rounded-lg pl-8 pr-7 py-1.5 bg-white text-slate-800 outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs font-medium"
+              />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
           </div>
 
           {showAnalytics ? (
@@ -919,7 +996,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                 </div>
             </div>
           ) : (
-            /* 🟢 FULL EXPANDABLE TABLE WITH SCROLL LOCK & BLACK EXPAND BAR */
             <ExpandableTableCard 
               title={viewMode === 'active' ? "Active Nominal Roll Ledger" : "Archived Personnel Ledger"}
               onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}
