@@ -392,7 +392,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         return false;
       }
 
-      // Real-time Text Search Filter
       if (searchTerm.trim()) {
         const query = searchTerm.trim().toLowerCase();
         const fnum = (n.f_num || n.fnum || '').toLowerCase();
@@ -414,7 +413,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       if (weightA !== weightB) {
         return weightA - weightB;
       }
-      return (a.name || '').localeCompare(b.name || '');
+      return (a.f_num || a.fnum || '').localeCompare(b.f_num || b.fnum || '', undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [Nominal_Rolls, filterRegion, filterStation, canViewGlobal, searchTerm]);
 
@@ -439,7 +438,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         return false;
       }
 
-      // Real-time Text Search Filter for Archives
       if (searchTerm.trim()) {
         const query = searchTerm.trim().toLowerCase();
         const fnum = (n.f_num || n.fnum || '').toLowerCase();
@@ -462,9 +460,11 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       if (weightA !== weightB) {
         return weightA - weightB;
       }
-      return (a.name || '').localeCompare(b.name || '');
+      return (a.f_num || a.fnum || '').localeCompare(b.f_num || b.fnum || '', undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [Nominal_Roll_archives, filterRegion, filterStation, canViewGlobal, searchTerm]);
+
+  
 
   const currentRollDataset = useMemo(() => {
     return viewMode === 'archive' ? filteredNominal_Roll_archives : filteredRolls;
