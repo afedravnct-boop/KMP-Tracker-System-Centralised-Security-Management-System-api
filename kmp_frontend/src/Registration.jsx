@@ -130,8 +130,13 @@ export default function Registration({ activeTab, user }) {
           <label>Set Initial Status:</label>
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="ACTIVE INVESTIGATION">ACTIVE INVESTIGATION</option>
-            <option value="FORWARDED TO COURT">SANCTIONED (Forwarded to Court)</option>
-            <option value="CLOSED / CONVICTED">CLOSED / CONVICTED</option>
+            <option value="ON POLICE BOND">BOND</option>
+            <option value="FORWARDED TO COURT">FORWARDED TO COURT</option>
+            <option value="REMANDED">REMANDED</option>
+            <option value="ON COURT BAIL">BAIL</option>
+            <option value="CONVICTED">CONVICTED</option>
+            <option value="ACQUITTED">ACQUITTED</option>
+            <option value="CLOSED">CLOSED</option>
             <option value="ADR">ALTERNATIVE DISPUTE RESOLUTION (ADR)</option>
           </select>
 
