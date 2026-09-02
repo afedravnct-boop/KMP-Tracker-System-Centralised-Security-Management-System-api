@@ -101,7 +101,9 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
           {expanded ? 'Collapse ↙' : 'Expand ↗'}
         </button>
       </div>
-      <div className={`w-full bg-white overflow-auto flex-1 ${expanded ? 'h-[calc(100vh-52px)] max-h-none' : 'max-h-[500px]'}`}>{children}</div>
+      <div className="w-full bg-white overflow-hidden flex-1 flex flex-col">
+        {typeof children === 'function' ? children(expanded) : children}
+      </div>
     </div>
   );
 };
@@ -1008,131 +1010,133 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
               title={viewMode === 'active' ? "Active Nominal Roll Ledger" : "Archived Personnel Ledger"}
               onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}
             >
-              <div className="overflow-x-auto overflow-y-auto w-full max-h-[500px] custom-scrollbar">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50 sticky top-0 z-10 shadow-xs">
-                    <tr>
-                      {bulkSelectMode && viewMode === 'active' && canEditRecords && (
-                        <th className="px-2.5 py-2.5 text-center text-xs font-bold text-gray-500 uppercase whitespace-nowrap">
-                           <input 
-                             type="checkbox" 
-                             checked={selectedOfficers.length === filteredRolls.length && filteredRolls.length > 0}
-                             onChange={(e) => {
-                                 if (e.target.checked) setSelectedOfficers(filteredRolls.map(n => n.f_num || n.fnum));
-                                 else setSelectedOfficers([]);
-                             }}
-                             className="w-3.5 h-3.5 cursor-pointer accent-red-600"
-                           />
-                        </th>
-                      )}
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">S/No</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">F/NO</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Rank</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Name</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Sex</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Position</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">DOB</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">DOE</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">D.O. Post</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">D.O. Pro</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Contact</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Educ Level</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">IPPS</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">TIN</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">NIN</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Home Dist</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Tribe</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Acc No</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Bank Branch</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Station</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">District</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Region</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Section</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Dir</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Status</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Last Updated By</th>
-                      {viewMode === 'archive' && (
-                        <>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">Archive Reason</th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">Archive Date</th>
-                        </>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).map((n, index) => (
-                      <tr 
-                        key={n.sn || n.id || n.f_num || n.fnum} 
-                        className={`${viewMode === 'archive' ? 'bg-slate-50 opacity-80' : bulkSelectMode && selectedOfficers.includes(n.f_num || n.fnum) ? 'bg-red-50' : 'hover:bg-blue-50'} transition-colors ${canEditRecords ? 'cursor-pointer' : ''}`} 
-                        onClick={() => {
-                            if (!canEditRecords) return;
-                             
-                            if (bulkSelectMode && viewMode === 'active') {
-                              const target = n.f_num || n.fnum;
-                              if (selectedOfficers.includes(target)) {
-                                  setSelectedOfficers(prev => prev.filter(id => id !== target));
-                              } else {
-                                  setSelectedOfficers(prev => [...prev, target]);
-                              }
-                            } else {
-                              setSelectedOfficer(n);
-                            }
-                        }}
-                      >
+              {(expanded) => (
+                <div className={`overflow-x-auto overflow-y-auto w-full ${expanded ? 'h-full flex-1' : 'max-h-[500px]'} custom-scrollbar`}>
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50 sticky top-0 z-10 shadow-xs">
+                      <tr>
                         {bulkSelectMode && viewMode === 'active' && canEditRecords && (
-                            <td className="px-2.5 py-2 text-center" onClick={(e) => e.stopPropagation()}>
-                              <input 
-                                type="checkbox" 
-                                checked={selectedOfficers.includes(n.f_num || n.fnum)}
-                                onChange={(e) => {
-                                  const target = n.f_num || n.fnum;
-                                  if (e.target.checked) setSelectedOfficers(prev => [...prev, target]);
-                                  else setSelectedOfficers(prev => prev.filter(id => id !== target));
-                                }}
-                                className="w-3.5 h-3.5 cursor-pointer accent-red-600"
-                              />
-                            </td>
+                          <th className="px-2.5 py-2.5 text-center text-xs font-bold text-gray-500 uppercase whitespace-nowrap">
+                             <input 
+                               type="checkbox" 
+                               checked={selectedOfficers.length === filteredRolls.length && filteredRolls.length > 0}
+                               onChange={(e) => {
+                                   if (e.target.checked) setSelectedOfficers(filteredRolls.map(n => n.f_num || n.fnum));
+                                   else setSelectedOfficers([]);
+                               }}
+                               className="w-3.5 h-3.5 cursor-pointer accent-red-600"
+                             />
+                          </th>
                         )}
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-gray-900">{index + 1}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800">{n.f_num || n.fnum || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-slate-800">{n.rank || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-medium uppercase text-slate-800">{n.name || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.sex || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">{n.position || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.dob || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.doe || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.do_post || n.dopost || n.dop || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.do_pro || n.dopro || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.contact || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.educ_level || n.educlevel || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-mono text-slate-700">{n.ipps || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.tin || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.nin || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.home_dist || n.homedist || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.tribe || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.acc_no || n.accno || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.bank_branch || n.bankbranch || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-700">{n.station || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.district || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.region || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.section || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.dir || ''}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-green-700">{n.status || 'ACTIVE'}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.last_updated_by || ''}</td>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">S/No</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">F/NO</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Rank</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Name</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Sex</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Position</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">DOB</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">DOE</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">D.O. Post</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">D.O. Pro</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Contact</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Educ Level</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">IPPS</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">TIN</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">NIN</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Home Dist</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Tribe</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Acc No</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Bank Branch</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Station</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">District</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Region</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Section</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Dir</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Status</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-500 uppercase whitespace-nowrap">Last Updated By</th>
                         {viewMode === 'archive' && (
                           <>
-                            <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-red-700 bg-red-50/50">{n.archive_reason || ''}</td>
-                            <td className="px-3 py-2 whitespace-nowrap text-xs text-red-500 bg-red-50/50">{n.archive_date || ''}</td>
+                            <th className="px-3 py-2.5 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">Archive Reason</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-bold text-red-600 uppercase whitespace-nowrap bg-red-50">Archive Date</th>
                           </>
                         )}
                       </tr>
-                    ))}
-                    {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).length === 0 && (
-                      <tr><td colSpan={viewMode === 'archive' ? "28" : (bulkSelectMode ? "27" : "26")} className="text-center py-6 text-xs text-gray-500 font-medium">No personnel records found in this view.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).map((n, index) => (
+                        <tr 
+                          key={n.sn || n.id || n.f_num || n.fnum} 
+                          className={`${viewMode === 'archive' ? 'bg-slate-50 opacity-80' : bulkSelectMode && selectedOfficers.includes(n.f_num || n.fnum) ? 'bg-red-50' : 'hover:bg-blue-50'} transition-colors ${canEditRecords ? 'cursor-pointer' : ''}`} 
+                          onClick={() => {
+                              if (!canEditRecords) return;
+                               
+                              if (bulkSelectMode && viewMode === 'active') {
+                                const target = n.f_num || n.fnum;
+                                if (selectedOfficers.includes(target)) {
+                                    setSelectedOfficers(prev => prev.filter(id => id !== target));
+                                } else {
+                                    setSelectedOfficers(prev => [...prev, target]);
+                                }
+                              } else {
+                                setSelectedOfficer(n);
+                              }
+                          }}
+                        >
+                          {bulkSelectMode && viewMode === 'active' && canEditRecords && (
+                              <td className="px-2.5 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={selectedOfficers.includes(n.f_num || n.fnum)}
+                                  onChange={(e) => {
+                                    const target = n.f_num || n.fnum;
+                                    if (e.target.checked) setSelectedOfficers(prev => [...prev, target]);
+                                    else setSelectedOfficers(prev => prev.filter(id => id !== target));
+                                  }}
+                                  className="w-3.5 h-3.5 cursor-pointer accent-red-600"
+                                />
+                              </td>
+                          )}
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-gray-900">{index + 1}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800">{n.f_num || n.fnum || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-slate-800">{n.rank || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-medium uppercase text-slate-800">{n.name || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.sex || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">{n.position || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.dob || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.doe || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.do_post || n.dopost || n.dop || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.do_pro || n.dopro || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.contact || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.educ_level || n.educlevel || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-mono text-slate-700">{n.ipps || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.tin || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.nin || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.home_dist || n.homedist || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.tribe || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.acc_no || n.accno || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.bank_branch || n.bankbranch || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-700">{n.station || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.district || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.region || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.section || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.dir || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-green-700">{n.status || 'ACTIVE'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.last_updated_by || ''}</td>
+                          {viewMode === 'archive' && (
+                            <>
+                              <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-red-700 bg-red-50/50">{n.archive_reason || ''}</td>
+                              <td className="px-3 py-2 whitespace-nowrap text-xs text-red-500 bg-red-50/50">{n.archive_date || ''}</td>
+                            </>
+                          )}
+                        </tr>
+                      ))}
+                      {(viewMode === 'active' ? filteredRolls : filteredNominal_Roll_archives).length === 0 && (
+                        <tr><td colSpan={viewMode === 'archive' ? "28" : (bulkSelectMode ? "27" : "26")} className="text-center py-6 text-xs text-gray-500 font-medium">No personnel records found in this view.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </ExpandableTableCard>
           )}
         </div>
