@@ -956,14 +956,13 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
                     {operation === 'update' ? 'Original Incident Narrative (Read-Only)' : 'Incident Narrative *'}
                   </label>
                   <ReactQuill 
-                    theme="snow" 
-                    value={formData.narrative} 
-                    onChange={(content) => setFormData(prev => ({ ...prev, narrative: content }))} 
-                    onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, narrative: autoCapitalize(editor.getHTML()) }))}
-                    readOnly={operation === 'update'} 
-                    className={`bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-md [&_.ql-editor]:min-h-[100px] ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`}
-                    modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
-                  />
+    theme="snow" 
+    value={formData.narrative} 
+    onChange={(content) => setFormData(prev => ({ ...prev, narrative: content }))} 
+    onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, narrative: autoCapitalize(editor.getHTML()) }))}
+    className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-md [&_.ql-editor]:min-h-[100px]"
+    modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
+  />
                 </div>
 
                 {operation === 'update' && (
@@ -972,12 +971,11 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
                     <ReactQuill 
                       theme="snow" 
                       value={formData.updateText || ''} 
-                      onChange={(content) => setFormData(prev => ({ ...prev, updateText: content }))} 
-                      onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, updateText: autoCapitalize(editor.getHTML()) }))}
-                      className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-md border-blue-300 dark:border-slate-700 [&_.ql-editor]:min-h-[100px]" 
-                      placeholder="Enter new developments here. Use the toolbar for numbering..." 
-                      modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
-                    />
+                      onChange={(content) => setFormData(prev => ({ ...prev, narrative: content }))} 
+    onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, narrative: autoCapitalize(editor.getHTML()) }))}
+    className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-md [&_.ql-editor]:min-h-[100px]"
+    modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
+  />
                   </div>
                 )}
 
@@ -1299,7 +1297,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
                 </div>
                 <div>
                   <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 pb-2 mb-3">Official Incident Narrative</div>
-                  <div className="text-sm text-slate-800 dark:text-slate-200 leading-normal ql-editor whitespace-normal break-words p-0 min-h-[150px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
+                  <div className="text-sm text-slate-800 dark:text-slate-200 leading-normal ql-editor whitespace-normal break-words overflow-wrap-anywhere p-0 min-h-[150px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
                 </div>
               </div>
               {selectedCase.suspectDetails && selectedCase.suspectDetails.length > 0 && (
