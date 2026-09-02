@@ -48,13 +48,13 @@ const extractPlainText = (htmlString) => {
 const MetricCard = ({ title, value, colorClass }) => {
   const isKMPMaster = title === 'KMP Master Lock-up' || title === 'KMP Master';
   return (
-    <div className={`bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-[0_1px_2px_rgba(0,0,0,0.05)] flex flex-col items-center justify-center text-center hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ${isKMPMaster ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 ring-1 ring-amber-300 dark:ring-amber-800 shadow-md scale-[1.02]' : ''}`}>
-      <h4 className={`text-[9px] font-extrabold mb-1 uppercase tracking-wider leading-tight w-full break-words ${isKMPMaster ? 'text-amber-800 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
+    <div className={`bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700 shadow-[0_1px_2px_rgba(0,0,0,0.05)] flex flex-col items-center justify-center text-center hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ${isKMPMaster ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 ring-1 ring-amber-300 dark:ring-amber-800 shadow-md scale-[1.02]' : ''}`}>
+      <h4 className={`text-[8px] font-extrabold mb-0.5 uppercase tracking-wider leading-tight w-full break-words ${isKMPMaster ? 'text-amber-800 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
         {stripHtmlTags(title)}
       </h4>
-      <div className={`text-base font-black leading-none flex items-center justify-center ${colorClass}`}>
+      <div className={`text-sm font-black leading-none flex items-center justify-center ${colorClass}`}>
         {value === "Pending" ? (
-          <span className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950 px-2 py-1 rounded border border-red-200 dark:border-red-900 animate-pulse">Pending</span>
+          <span className="text-[10px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-900 animate-pulse">Pending</span>
         ) : (
           stripHtmlTags(String(value))
         )}
@@ -69,9 +69,9 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
     <>
       {expanded && <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9990] animate-in fade-in" />}
       <div className={expanded ? "fixed inset-4 sm:inset-10 z-[9999] bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-300 dark:border-slate-700 flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden" : "bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col"}>
-        <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center shrink-0">
-          <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{stripHtmlTags(title)}</h3>
-          <button onClick={(e) => { e.stopPropagation(); const nextState = !expanded; setExpanded(nextState); if (onToggle) onToggle(nextState); }} className="text-xs text-blue-400 hover:text-white font-bold transition flex items-center bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 shadow-inner cursor-pointer">
+        <div className="bg-slate-900 dark:bg-slate-950 px-3.5 py-2.5 sm:px-5 sm:py-3 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center shrink-0">
+          <h3 className="font-extrabold text-white text-xs uppercase tracking-wider">{stripHtmlTags(title)}</h3>
+          <button onClick={(e) => { e.stopPropagation(); const nextState = !expanded; setExpanded(nextState); if (onToggle) onToggle(nextState); }} className="text-[11px] text-blue-400 hover:text-white font-bold transition flex items-center bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded-md border border-slate-700 shadow-inner cursor-pointer">
             {expanded ? 'Collapse View ↙' : 'Expand View ↗'}
           </button>
         </div>
@@ -708,24 +708,24 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
   };
    
   return (
-    <div className="p-6 max-w-[1600px] mx-auto space-y-6 relative z-10 font-sans">
+    <div className="p-4 max-w-[1600px] mx-auto space-y-4 relative z-10 font-sans">
        
       {showHqGrandModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-amber-300 dark:border-amber-800 animate-in zoom-in-95">
-            <div className="bg-amber-600 dark:bg-amber-700 text-white px-6 py-4 flex justify-between items-center">
-              <h3 className="font-extrabold uppercase text-sm tracking-wider flex items-center"><Shield className="mr-2" size={18} /> Command Fallback: General Grand Total</h3>
-              <button onClick={() => setShowHqGrandModal(false)} className="hover:bg-amber-700 dark:hover:bg-amber-800 p-1 rounded transition"><X size={18}/></button>
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-md w-full overflow-hidden border border-amber-300 dark:border-amber-800 animate-in zoom-in-95">
+            <div className="bg-amber-600 dark:bg-amber-700 text-white px-4 py-3 flex justify-between items-center">
+              <h3 className="font-extrabold uppercase text-xs tracking-wider flex items-center"><Shield className="mr-1.5" size={16} /> Command Fallback: General Grand Total</h3>
+              <button onClick={() => setShowHqGrandModal(false)} className="hover:bg-amber-700 dark:hover:bg-amber-800 p-1 rounded transition"><X size={16}/></button>
             </div>
-            <div className="p-6 space-y-4">
-              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">Use this to log the combined national/regional general grand total if stations fail to submit their cell populations before the deadline.</p>
+            <div className="p-5 space-y-3">
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed font-medium">Use this to log the combined national/regional general grand total if stations fail to submit their cell populations before the deadline.</p>
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Enter Master Grand Total Suspects *</label>
-                <input type="number" min="0" value={hqGrandTotalInput} onChange={(e) => setHqGrandTotalInput(stripHtmlTags(e.target.value))} placeholder="e.g. 450" className="w-full text-lg font-black text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg p-3 outline-none focus:border-amber-600" />
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Enter Master Grand Total Suspects *</label>
+                <input type="number" min="0" value={hqGrandTotalInput} onChange={(e) => setHqGrandTotalInput(stripHtmlTags(e.target.value))} placeholder="e.g. 450" className="w-full text-base font-black text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 outline-none focus:border-amber-600" />
               </div>
-              <div className="flex justify-end space-x-3 pt-2">
-                <button type="button" onClick={() => setShowHqGrandModal(false)} className="px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-xs">Cancel</button>
-                <button type="button" onClick={handleHqGrandTotalSubmit} className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs uppercase shadow">Post Grand Total</button>
+              <div className="flex justify-end space-x-2 pt-1">
+                <button type="button" onClick={() => setShowHqGrandModal(false)} className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-[11px]">Cancel</button>
+                <button type="button" onClick={handleHqGrandTotalSubmit} className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] uppercase shadow">Post Grand Total</button>
               </div>
             </div>
           </div>
@@ -734,104 +734,104 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
 
       {showLockup && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex justify-center items-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh] border border-red-200 dark:border-red-900">
-            <div className="bg-red-700 dark:bg-red-800 text-white px-6 py-4 flex justify-between items-center shrink-0">
-              <h3 className="font-extrabold flex items-center tracking-wider"><Users className="mr-2" size={20}/> SUSPECT LOCKUP REGISTER</h3>
-              <button onClick={() => setShowLockup(false)} className="hover:bg-red-600 dark:hover:bg-red-700 p-1 rounded transition"><X size={20}/></button>
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh] border border-red-200 dark:border-red-900">
+            <div className="bg-red-700 dark:bg-red-800 text-white px-5 py-3 flex justify-between items-center shrink-0">
+              <h3 className="font-extrabold flex items-center text-xs tracking-wider"><Users className="mr-2" size={16}/> SUSPECT LOCKUP REGISTER</h3>
+              <button onClick={() => setShowLockup(false)} className="hover:bg-red-600 dark:hover:bg-red-700 p-1 rounded transition"><X size={16}/></button>
             </div>
-            <div className="p-6 overflow-y-auto bg-slate-50 dark:bg-slate-800 space-y-6 flex-1 custom-scrollbar">
-              <div className="bg-white dark:bg-slate-900 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700">
-                <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-3">Add Suspect Details</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+            <div className="p-5 overflow-y-auto bg-slate-50 dark:bg-slate-800 space-y-4 flex-1 custom-scrollbar">
+              <div className="bg-white dark:bg-slate-900 p-3.5 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700">
+                <h4 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Add Suspect Details</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2.5">
                   <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Full Name *</label>
-                    <input type="text" value={newSuspect.name} onChange={e => setNewSuspect({...newSuspect, name: stripHtmlTags(e.target.value)})} className="w-full text-sm border-gray-300 dark:border-slate-700 rounded border p-2 uppercase bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. OPIO JOHN"/>
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Full Name *</label>
+                    <input type="text" value={newSuspect.name} onChange={e => setNewSuspect({...newSuspect, name: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 uppercase bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. OPIO JOHN"/>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Sex</label>
-                    <select value={newSuspect.sex} onChange={e => setNewSuspect({...newSuspect, sex: stripHtmlTags(e.target.value)})} className="w-full text-sm border-gray-300 dark:border-slate-700 rounded border p-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100">
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Sex</label>
+                    <select value={newSuspect.sex} onChange={e => setNewSuspect({...newSuspect, sex: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100">
                       <option>MALE</option><option>FEMALE</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Age</label>
-                    <input type="number" value={newSuspect.age} onChange={e => setNewSuspect({...newSuspect, age: stripHtmlTags(e.target.value)})} className="w-full text-sm border-gray-300 dark:border-slate-700 rounded border p-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. 24"/>
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Age</label>
+                    <input type="number" value={newSuspect.age} onChange={e => setNewSuspect({...newSuspect, age: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. 24"/>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Tribe</label>
-                    <input type="text" value={newSuspect.tribe} onChange={e => setNewSuspect({...newSuspect, tribe: stripHtmlTags(e.target.value)})} className="w-full text-sm border-gray-300 dark:border-slate-700 rounded border p-2 uppercase bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. ACHOLI"/>
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Tribe</label>
+                    <input type="text" value={newSuspect.tribe} onChange={e => setNewSuspect({...newSuspect, tribe: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 uppercase bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. ACHOLI"/>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Nationality</label>
-                    <input type="text" value={newSuspect.nationality} onChange={e => setNewSuspect({...newSuspect, nationality: stripHtmlTags(e.target.value)})} className="w-full text-sm border-gray-300 dark:border-slate-700 rounded border p-2 uppercase bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. UGANDAN"/>
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Nationality</label>
+                    <input type="text" value={newSuspect.nationality} onChange={e => setNewSuspect({...newSuspect, nationality: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 uppercase bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. UGANDAN"/>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Contact/Phone</label>
-                    <input type="text" value={newSuspect.contact} onChange={e => setNewSuspect({...newSuspect, contact: stripHtmlTags(e.target.value)})} className="w-full text-sm border-gray-300 dark:border-slate-700 rounded border p-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"/>
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Contact/Phone</label>
+                    <input type="text" value={newSuspect.contact} onChange={e => setNewSuspect({...newSuspect, contact: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"/>
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Residence/Location</label>
-                    <input type="text" value={newSuspect.residence} onChange={e => setNewSuspect({...newSuspect, residence: stripHtmlTags(e.target.value)})} className="w-full text-sm border-gray-300 dark:border-slate-700 rounded border p-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. Bwaise Zone 2"/>
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Residence/Location</label>
+                    <input type="text" value={newSuspect.residence} onChange={e => setNewSuspect({...newSuspect, residence: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. Bwaise Zone 2"/>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Mental Health Status</label>
-                    <select value={newSuspect.mental_health_status} onChange={e => setNewSuspect({...newSuspect, mental_health_status: stripHtmlTags(e.target.value)})} className="w-full text-sm border-gray-300 dark:border-slate-700 rounded border p-2 bg-white dark:bg-slate-800 font-bold text-slate-800 dark:text-slate-100">
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Mental Health Status</label>
+                    <select value={newSuspect.mental_health_status} onChange={e => setNewSuspect({...newSuspect, mental_health_status: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 bg-white dark:bg-slate-800 font-bold text-slate-800 dark:text-slate-100">
                       <option value="NORMAL">NORMAL</option><option value="SUSPECTED PSYCHOLOGICAL CONDITION">SUSPECTED PSYCHOLOGICAL CONDITION</option><option value="UNSTABLE">UNSTABLE</option><option value="UNDER OBSERVATION">UNDER OBSERVATION</option>
                     </select>
                   </div>
                 </div>
-                <div className="md:col-span-3 bg-red-50 dark:bg-red-950/40 p-3 rounded-lg border border-red-100 dark:border-red-900 mt-3">
-                  <label className="block text-xs font-bold text-red-800 dark:text-red-400 mb-2 flex items-center"><Camera size={12} className="mr-1"/> Suspect Mugshot (Optional)</label>
-                  <div className="flex items-center space-x-4">
-                    {newSuspect.photo_url ? ( <img src={newSuspect.photo_url} alt="Mugshot" className="w-12 h-12 rounded object-cover border-2 border-red-300 dark:border-red-800 shadow-sm" /> ) : ( <div className="w-12 h-12 rounded bg-red-100 dark:bg-red-950 flex items-center justify-center text-red-300 border-2 border-dashed border-red-200 dark:border-red-900 text-center p-1">No Photo</div> )}
-                    <input type="file" accept="image/*" onChange={handleSuspectPhotoUpload} className="text-xs file:mr-4 file:py-1.5 file:px-4 file:rounded file:border-0 file:text-xs file:font-bold file:bg-red-600 file:text-white hover:file:bg-red-700 w-full cursor-pointer text-slate-700 dark:text-slate-300" />
+                <div className="md:col-span-3 bg-red-50 dark:bg-red-950/40 p-2.5 rounded-lg border border-red-100 dark:border-red-900 mt-2">
+                  <label className="block text-[10px] font-bold text-red-800 dark:text-red-400 mb-1.5 flex items-center"><Camera size={12} className="mr-1"/> Suspect Mugshot (Optional)</label>
+                  <div className="flex items-center space-x-3">
+                    {newSuspect.photo_url ? ( <img src={newSuspect.photo_url} alt="Mugshot" className="w-10 h-10 rounded object-cover border-2 border-red-300 dark:border-red-800 shadow-sm" /> ) : ( <div className="w-10 h-10 rounded bg-red-100 dark:bg-red-950 flex items-center justify-center text-red-300 border border-dashed border-red-200 dark:border-red-900 text-center p-1 text-[9px]">No Photo</div> )}
+                    <input type="file" accept="image/*" onChange={handleSuspectPhotoUpload} className="text-[11px] file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-[11px] file:font-bold file:bg-red-600 file:text-white hover:file:bg-red-700 w-full cursor-pointer text-slate-700 dark:text-slate-300" />
                   </div>
                 </div>
-                <div className="flex justify-end mt-4">
-                  <button type="button" onClick={handleAddSuspect} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded text-sm transition-colors flex items-center"><PlusCircle size={16} className="mr-1"/> Add to Register</button>
+                <div className="flex justify-end mt-3">
+                  <button type="button" onClick={handleAddSuspect} className="bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-3 rounded text-xs transition-colors flex items-center"><PlusCircle size={14} className="mr-1"/> Add to Register</button>
                 </div>
               </div>
               <div>
-                <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 border-b dark:border-slate-700 pb-2">Currently Logged Suspects ({formData.suspectDetails.length})</h4>
+                <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 border-b dark:border-slate-700 pb-1.5">Currently Logged Suspects ({formData.suspectDetails.length})</h4>
                 {formData.suspectDetails.length === 0 ? (
-                  <div className="text-center p-6 bg-white dark:bg-slate-900 border border-dashed border-gray-300 dark:border-slate-700 rounded-lg text-gray-400 dark:text-slate-500 text-sm font-medium">No suspects added to this report yet.</div>
+                  <div className="text-center p-4 bg-white dark:bg-slate-900 border border-dashed border-gray-300 dark:border-slate-700 rounded-lg text-gray-400 dark:text-slate-500 text-xs font-medium">No suspects added to this report yet.</div>
                 ) : (
                   <div className="space-y-2">
                     {formData.suspectDetails.map((suspect, index) => (
-                      <div key={suspect.id} className="bg-white dark:bg-slate-900 border border-red-100 dark:border-red-950 rounded-lg p-3 flex justify-between items-center shadow-sm">
+                      <div key={suspect.id} className="bg-white dark:bg-slate-900 border border-red-100 dark:border-red-950 rounded-lg p-2.5 flex justify-between items-center shadow-sm">
                         <div>
-                          <div className="font-bold text-slate-800 dark:text-slate-100 text-sm uppercase">{index + 1}. {stripHtmlTags(suspect.name)}</div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-1">{stripHtmlTags(suspect.sex)} • {suspect.age ? `${stripHtmlTags(String(suspect.age))}yrs` : 'Age Unknown'} • Tribe: {stripHtmlTags(suspect.tribe || 'N/A')} • Nat: {stripHtmlTags(suspect.nationality || 'N/A')} <br/>Res: {stripHtmlTags(suspect.residence || 'N/A')} | Tel: {stripHtmlTags(suspect.contact || 'N/A')}</div>
+                          <div className="font-bold text-slate-800 dark:text-slate-100 text-xs uppercase">{index + 1}. {stripHtmlTags(suspect.name)}</div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">{stripHtmlTags(suspect.sex)} • {suspect.age ? `${stripHtmlTags(String(suspect.age))}yrs` : 'Age Unknown'} • Tribe: {stripHtmlTags(suspect.tribe || 'N/A')} • Nat: {stripHtmlTags(suspect.nationality || 'N/A')} | Res: {stripHtmlTags(suspect.residence || 'N/A')} | Tel: {stripHtmlTags(suspect.contact || 'N/A')}</div>
                         </div>
-                        <button type="button" onClick={() => handleRemoveSuspect(suspect.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 p-2 rounded transition"><X size={18}/></button>
+                        <button type="button" onClick={() => handleRemoveSuspect(suspect.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 p-1.5 rounded transition"><X size={16}/></button>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
             </div>
-            <div className="bg-white dark:bg-slate-900 p-4 border-t border-gray-200 dark:border-slate-800 flex justify-end shrink-0">
-              <button type="button" onClick={() => setShowLockup(false)} className="bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold py-2 px-6 rounded transition">Confirm & Return to Report</button>
+            <div className="bg-white dark:bg-slate-900 p-3 border-t border-gray-200 dark:border-slate-800 flex justify-end shrink-0">
+              <button type="button" onClick={() => setShowLockup(false)} className="bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold py-1.5 px-4 rounded text-xs transition">Confirm & Return to Report</button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="text-center mb-4 flex flex-col items-center">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 mb-1.5 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
-        <h1 className="text-2xl text-red-500 mt-0.5 font-bold">Crime/Incident Registry</h1>
-        <h2 className="text-xs text-red-300 mt-0.5 font-medium uppercase tracking-wider">Centralised Crime/Incident Compilation</h2>
+      <div className="text-center mb-3 flex flex-col items-center">
+        <img src="/upf_badge.png" alt="UPF Logo" className="w-10 h-10 mb-1 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
+        <h1 className="text-xl text-red-500 mt-0.5 font-bold">Crime/Incident Registry</h1>
+        <h2 className="text-[11px] text-red-300 mt-0.5 font-medium uppercase tracking-wider">Centralised Crime/Incident Compilation</h2>
      </div>
 
-      <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
-          <h4 className="text-xs font-extrabold text-slate-400 dark:text-slate-400 uppercase tracking-wider">
+      <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
+          <h4 className="text-[11px] font-extrabold text-slate-400 dark:text-slate-400 uppercase tracking-wider">
             📋 {filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? 'Global Command Metrics' : filterStation === 'ALL STATIONS' ? `${filterRegion} Lock-up` : `${filterStation} Metrics`}
           </h4>
           <select 
               value={dateFilter} 
               onChange={(e) => setDateFilter(e.target.value)} 
-              className="border-2 border-blue-500 dark:border-blue-600 text-blue-700 dark:text-blue-400 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer"
+              className="border border-blue-500 dark:border-blue-600 text-blue-700 dark:text-blue-400 font-bold rounded-lg px-2.5 py-1 text-xs shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer"
             >
               <option value="ALL TIME">ALL TIME</option>
               <option value="TODAY">TODAY ONLY</option>
@@ -846,7 +846,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
             </select>
         </div>
          
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
           <MetricCard title={filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? "Computed Sum (All)" : filterStation === 'ALL STATIONS' ? `${filterRegion} Lock-up` : `${filterStation} Lock-up`} value={metrics.localLockup} colorClass="text-slate-800 dark:text-slate-100" />
           <MetricCard title="KMP Master Lock-up" value={metrics.kmpGeneralLockup} colorClass="text-amber-600 dark:text-amber-400" />
           <MetricCard title="Total Cases" value={metrics.newCases} colorClass="text-blue-700 dark:text-blue-400" />
@@ -858,36 +858,36 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-10 gap-">
-        <div className="lg:col-span-5 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div className="lg:col-span-5 space-y-4">
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
-            <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center">
-              <h3 className="text-white font-semibold flex items-center"><Shield className="w-5 h-5 mr-2 text-blue-400" /> ⚙️ File Controls</h3>
+            <div className="bg-slate-900 dark:bg-slate-950 px-3.5 py-2.5 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center">
+              <h3 className="text-white font-semibold text-xs flex items-center"><Shield className="w-4 h-4 mr-1.5 text-blue-400" /> ⚙️ File Controls</h3>
             </div>
              
-            <div className="p-5 space-y-6">
-              <div className="flex space-x-2 bg-gray-100 dark:bg-slate-900 p-1 rounded-lg">
-                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'new' ? 'bg-white dark:bg-slate-800 shadow text-blue-700 dark:text-blue-400' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
-                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${operation === 'update' ? 'bg-white dark:bg-slate-800 shadow text-blue-700 dark:text-blue-400' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
+            <div className="p-4 space-y-4">
+              <div className="flex space-x-1.5 bg-gray-100 dark:bg-slate-900 p-0.5 rounded-lg">
+                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-1.5 text-xs font-medium rounded transition-all ${operation === 'new' ? 'bg-white dark:bg-slate-800 shadow text-blue-700 dark:text-blue-400 font-bold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><PlusCircle className="w-3.5 h-3.5 inline mr-1" /> Register New</button>
+                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-1.5 text-xs font-medium rounded transition-all ${operation === 'update' ? 'bg-white dark:bg-slate-800 shadow text-blue-700 dark:text-blue-400 font-bold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><Edit className="w-3.5 h-3.5 inline mr-1" /> Update Existing</button>
               </div>
 
               {notification && (
-                <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
-                  {notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 min-w-[20px]" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 min-w-[20px]" />}
-                  <span className="text-sm font-medium">{stripHtmlTags(notification)}</span>
+                <div className={`border px-3 py-2 rounded-lg flex items-center mb-3 text-xs ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
+                  {notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-4 h-4 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-4 h-4 mr-2 text-green-500 shrink-0" />}
+                  <span className="font-medium">{stripHtmlTags(notification)}</span>
                 </div>
               )}
 
               {operation === 'update' && (
-                <div className="bg-blue-50 dark:bg-slate-900 border border-blue-200 dark:border-slate-700 rounded-lg p-3">
-                  <label className="block text-xs font-bold text-blue-800 dark:text-blue-400 mb-2">🔍 Search & Select Case to Update</label>
-                  <input type="text" placeholder="Search by Reference, SN, or Narrative..." value={updateSearch} onChange={e => setUpdateSearch(stripHtmlTags(e.target.value))} className="w-full text-sm p-2 mb-2 border border-blue-200 dark:border-slate-700 rounded outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
-                  <div className="max-h-40 overflow-y-auto bg-white dark:bg-slate-800 border border-blue-100 dark:border-slate-700 rounded custom-scrollbar">
+                <div className="bg-blue-50 dark:bg-slate-900 border border-blue-200 dark:border-slate-700 rounded-lg p-2.5">
+                  <label className="block text-[11px] font-bold text-blue-800 dark:text-blue-400 mb-1.5">🔍 Search & Select Case to Update</label>
+                  <input type="text" placeholder="Search by Reference, SN, or Narrative..." value={updateSearch} onChange={e => setUpdateSearch(stripHtmlTags(e.target.value))} className="w-full text-xs p-1.5 mb-2 border border-blue-200 dark:border-slate-700 rounded outline-none focus:ring-1 focus:ring-blue-400 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+                  <div className="max-h-36 overflow-y-auto bg-white dark:bg-slate-800 border border-blue-100 dark:border-slate-700 rounded custom-scrollbar">
                     {availableUpdateCases.length === 0 ? (
-                      <div className="p-3 text-xs text-gray-500 dark:text-slate-400 text-center">No cases found matching your search.</div>
+                      <div className="p-2.5 text-[11px] text-gray-500 dark:text-slate-400 text-center">No cases found matching your search.</div>
                     ) : (
                       availableUpdateCases.map(c => (
-                        <div key={c.id || c.sn} onClick={() => { populateUpdateCrimeForm(c); setUpdateSearch(stripHtmlTags(c.sdRef || c.sd_ref || '')); }} className={`p-2 text-xs border-b dark:border-slate-700 cursor-pointer transition-colors ${formData.sn === (c.id || c.sn) ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200'}`}>
+                        <div key={c.id || c.sn} onClick={() => { populateUpdateCrimeForm(c); setUpdateSearch(stripHtmlTags(c.sdRef || c.sd_ref || '')); }} className={`p-1.5 text-[11px] border-b dark:border-slate-700 cursor-pointer transition-colors ${formData.sn === (c.id || c.sn) ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200'}`}>
                           <span className={formData.sn === (c.id || c.sn) ? 'text-blue-200' : 'text-gray-400 dark:text-slate-400'}>DB-ID: {c.id || c.sn}</span> | <span className={formData.sn === (c.id || c.sn) ? 'text-white' : 'font-bold text-blue-700 dark:text-blue-400'}>{stripHtmlTags(c.sdRef || c.sd_ref)}</span> | {stripHtmlTags(c.station)}
                         </div>
                       ))
@@ -896,112 +896,117 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
                 </div>
               )}
 
-              <form onSubmit={handleFormSubmit} className="space-y-4">
-                {operation === 'update' && formData.sn && <div className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing DB-ID: {formData.sn}</div>}
+              <form onSubmit={handleFormSubmit} className="space-y-3 text-xs">
+                {operation === 'update' && formData.sn && <div className="bg-slate-800 text-white text-[11px] font-bold px-2.5 py-1.5 rounded">Currently Editing DB-ID: {formData.sn}</div>}
                  
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2">
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">File Reference Prefix & Number *</label>
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">File Reference Prefix & Number *</label>
                     {operation === 'update' ? (
-                      <input type="text" name="sd_ref" value={stripHtmlTags(formData.sd_ref)} disabled required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm border p-2 font-bold text-blue-700 dark:text-blue-400 bg-gray-100 dark:bg-slate-900 disabled:text-gray-500" />
+                      <input type="text" name="sd_ref" value={stripHtmlTags(formData.sd_ref)} disabled required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm border p-1.5 font-bold text-blue-700 dark:text-blue-400 bg-gray-100 dark:bg-slate-900 disabled:text-gray-500" />
                     ) : (
-                      <div className="flex shadow-sm rounded-md w-full">
-                        <select name="ref_type" value={formData.ref_type || 'SD Ref:'} onChange={handleInputChange} className="bg-gray-100 dark:bg-slate-900 border border-gray-300 dark:border-slate-700 text-gray-800 dark:text-slate-200 text-sm rounded-l-md px-3 py-2 font-bold focus:ring-blue-500 outline-none cursor-pointer">
+                      <div className="flex shadow-sm rounded w-full">
+                        <select name="ref_type" value={formData.ref_type || 'SD Ref:'} onChange={handleInputChange} className="bg-gray-100 dark:bg-slate-900 border border-gray-300 dark:border-slate-700 text-gray-800 dark:text-slate-200 text-xs rounded-l px-2.5 py-1.5 font-bold focus:ring-blue-500 outline-none cursor-pointer">
                           <option value="SD Ref:">SD Ref:</option><option value="CRB:">CRB:</option><option value="DEF:">DEF:</option>
                           <option value="GEF:">GEF:</option><option value="TAR:">TAR:</option><option value="CID:">CID:</option>
                         </select>
-                        <input type="text" name="ref_number" value={stripHtmlTags(formData.ref_number || '')} onChange={handleInputChange} required className="flex-1 text-sm border-gray-300 dark:border-slate-700 border-y border-r rounded-r-md p-2 focus:ring-blue-500 font-bold text-blue-700 dark:text-blue-400 uppercase outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" placeholder="e.g. 04/27/06/2026" />
+                        <input type="text" name="ref_number" value={stripHtmlTags(formData.ref_number || '')} onChange={handleInputChange} required className="flex-1 text-xs border-gray-300 dark:border-slate-700 border-y border-r rounded-r p-1.5 focus:ring-blue-500 font-bold text-blue-700 dark:text-blue-400 uppercase outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" placeholder="e.g. 04/27/06/2026" />
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Select Region *</label>
-                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Select Region *</label>
+                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
                       {canViewGlobalActive ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{stripHtmlTags(currentUser.region)}</option>}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Station *</label>
+                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
                       {operation === 'update' ? <option value={formData.station}>{stripHtmlTags(formData.station)}</option> : canViewGlobalActive ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{stripHtmlTags(currentUser.station)}</option>}
                     </select>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Date Recorded</label>
-                    <input type="date" name="date" value={formData.date} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm border p-2 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Date Recorded</label>
+                    <input type="date" name="date" value={formData.date} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm border p-1.5 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Time of Record</label>
-                    <input type="text" name="time" value={formData.time} onChange={handleInputChange} disabled={operation === 'update'} placeholder="0830Hrs" className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm border p-2 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Time of Record</label>
+                    <input type="text" name="time" value={formData.time} onChange={handleInputChange} disabled={operation === 'update'} placeholder="0830Hrs" className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm border p-1.5 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Offence / Incident Type *</label>
-                  <select name="offence" value={formData.offence} onChange={handleInputChange} required disabled={operation === 'update'} className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
+                  <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Offence / Incident Type *</label>
+                  <select name="offence" value={formData.offence} onChange={handleInputChange} required disabled={operation === 'update'} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
                     <option value="" disabled>-- Select Official Offence Category --</option>
                     <option value="Murder">Murder</option><option value="Aggravated Robbery">Aggravated Robbery</option><option value="Theft">Theft</option><option value="Assault">Assault</option><option value="Burglary">Burglary</option><option value="Defilement / Rape">Defilement / Rape</option><option value="Traffic Accident (Fatal)">Traffic Accident (Fatal)</option><option value="Traffic Accident (Minor)">Traffic Accident (Minor)</option><option value="Fraud / Forgery">Fraud / Forgery</option><option value="Drug Offenses">Drug Offenses</option><option value="Other">Other (Specify Below)</option>
                   </select>
                   {formData.offence === 'Other' && operation === 'new' && (
-                    <input type="text" name="customOffence" required value={stripHtmlTags(formData.customOffence || '')} onChange={handleInputChange} placeholder="Type the specific offence here..." className="mt-2 w-full text-sm border-blue-400 dark:border-slate-700 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-blue-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 uppercase" />
+                    <input type="text" name="customOffence" required value={stripHtmlTags(formData.customOffence || '')} onChange={handleInputChange} placeholder="Type the specific offence here..." className="mt-1.5 w-full text-xs border-blue-400 dark:border-slate-700 rounded shadow-sm border p-1.5 focus:ring-blue-500 bg-blue-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 uppercase" />
                   )}
                 </div>
 
-                <div className="pb-8"> 
-                  <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">
+                <div className="pb-5"> 
+                  <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">
                     {operation === 'update' ? 'Original Incident Narrative (Read-Only)' : 'Incident Narrative *'}
                   </label>
                   <ReactQuill 
-    theme="snow" 
-    value={formData.narrative} 
-    onChange={(content) => setFormData(prev => ({ ...prev, narrative: content }))} 
-    onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, narrative: autoCapitalize(editor.getHTML()) }))}
-    className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-md [&_.ql-editor]:min-h-[100px]"
-    modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
-  />
+                    theme="snow" 
+                    value={formData.narrative} 
+                    onChange={(content) => setFormData(prev => ({ ...prev, narrative: content }))} 
+                    onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, narrative: autoCapitalize(editor.getHTML()) }))}
+                    className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded [&_.ql-editor]:min-h-[80px]"
+                    modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
+                  />
                 </div>
 
                 {operation === 'update' && (
-                  <div className="pb-8 mt-4"> 
-                    <label className="block text-xs font-bold text-blue-700 dark:text-blue-400 mb-1">Append New Update / Action Taken *</label>
+                  <div className="pb-5 mt-2"> 
+                    <label className="block text-[11px] font-bold text-blue-700 dark:text-blue-400 mb-0.5">Append New Update / Action Taken *</label>
                     <ReactQuill 
                       theme="snow" 
                       value={formData.updateText || ''} 
                       onChange={(content) => setFormData(prev => ({ ...prev, narrative: content }))} 
-    onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, narrative: autoCapitalize(editor.getHTML()) }))}
-    className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-md [&_.ql-editor]:min-h-[100px]"
-    modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
-  />
+                      onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, narrative: autoCapitalize(editor.getHTML()) }))}
+                      className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded [&_.ql-editor]:min-h-[80px]"
+                      modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
+                    />
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Status</label>
-                    <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-2">
-                      <option>ACTIVE INVESTIGATION</option><option>FORWARDED TO COURT</option><option>CLOSED / CONVICTED</option><option>ADR</option>
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Status</label>
+                    <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5">
+                      <option>ACTIVE INVESTIGATION</option>
+                      <option>FORWARDED TO COURT</option>
+                      <option>BAIL</option>
+                      <option>ACQUITTED</option>
+                      <option>CLOSED / CONVICTED</option>
+                      <option>ADR</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-red-600 dark:text-red-400 mb-1 flex items-center"><Lock size={12} className="mr-1"/> Suspects in Custody</label>
-                    <div className="flex space-x-2">
-                      <div className="w-12 bg-red-100 dark:bg-red-950 border border-red-200 dark:border-red-900 text-red-800 dark:text-red-200 font-extrabold rounded-md flex items-center justify-center text-sm shadow-inner">
+                    <label className="block text-[11px] font-bold text-red-600 dark:text-red-400 mb-0.5 flex items-center"><Lock size={10} className="mr-1"/> Suspects in Custody</label>
+                    <div className="flex space-x-1.5">
+                      <div className="w-10 bg-red-100 dark:bg-red-950 border border-red-200 dark:border-red-900 text-red-800 dark:text-red-200 font-extrabold rounded flex items-center justify-center text-xs shadow-inner">
                         {operation === 'update' ? formData.suspects : formData.suspectDetails.length}
                       </div>
-                      <button type="button" onClick={() => setShowLockup(true)} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded shadow text-xs transition flex items-center justify-center">
-                        <Users size={14} className="mr-2"/> Add Suspect Data
+                      <button type="button" onClick={() => setShowLockup(true)} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-2 rounded shadow text-[11px] transition flex items-center justify-center">
+                        <Users size={12} className="mr-1"/> Add Suspects
                       </button>
                     </div>
                   </div>
                 </div>
 
-                <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 px-4 rounded-lg shadow transition-colors flex justify-center items-center mt-4">
+                <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-2.5 px-3 rounded-lg shadow transition-colors flex justify-center items-center mt-3 text-xs">
                   {operation === 'new' ? '🚨 Submit New Case / Report' : '💾 Save Case Updates'}
                 </button>
               </form>
@@ -1009,30 +1014,30 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
           </div>
         </div>
 
-        <div className="lg:col-span-7 space-y-6">
-          <div className="flex flex-col sm:flex-row gap-3 items-center">
+        <div className="lg:col-span-7 space-y-4">
+          <div className="flex flex-col sm:flex-row gap-2.5 items-center">
              <div className="relative flex-1 w-full"> 
-               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-               <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(stripHtmlTags(e.target.value))} className="w-full pl-9 pr-4 py-2 border dark:border-slate-700 rounded-lg text-sm shadow-sm outline-none focus:border-blue-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
+               <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(stripHtmlTags(e.target.value))} className="w-full pl-8 pr-3 py-1.5 border dark:border-slate-700 rounded-lg text-xs shadow-sm outline-none focus:border-blue-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
              </div>
 
              <button
                type="button"
                onClick={() => setShowAgriculturalOnly(prev => !prev)}
-               className={`px-4 py-2 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
+               className={`px-3 py-1.5 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
                  showAgriculturalOnly 
                    ? 'bg-emerald-700 text-white border-emerald-800 ring-2 ring-emerald-500/20' 
                    : 'bg-white dark:bg-slate-800 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-slate-700'
                }`}
              >
-               <Sprout className="w-4 h-4 mr-1.5" />
-               {showAgriculturalOnly ? 'Agri-Crimes Filter: ON' : 'Filter Agri-Crimes'}
+               <Sprout className="w-3.5 h-3.5 mr-1" />
+               {showAgriculturalOnly ? 'Agri-Crimes: ON' : 'Filter Agri-Crimes'}
              </button>
 
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+            <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs shadow-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
               {canViewGlobalActive ? <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</> : <option value={currentUser?.region}>{stripHtmlTags(currentUser?.region)}</option>}
             </select>
-            <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+            <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs shadow-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
               {canViewGlobalActive ? (
                 <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
               ) : (
@@ -1042,40 +1047,52 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
           </div>
 
           <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (typeof setSidebarOpen === 'function') setSidebarOpen(!expanded); }}>
-            <div className="overflow-x-hidden overflow-y-auto w-full max-h-[70vh] custom-scrollbar">
+            <div className="overflow-x-hidden overflow-y-auto w-full max-h-[65vh] custom-scrollbar">
               <table className="w-full divide-y divide-gray-200 dark:divide-slate-700 table-fixed">
                 <thead className="bg-gray-50 dark:bg-slate-900 sticky top-0 z-10 shadow-sm">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[5%]">SN</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[15%]">REFERENCE</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[12%]">Date & Time</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[15%]">Region/Post</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[35%]">Incident Narrative</th>
-                    <th className="px-4 py-3 text-center text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[8%]">Suspects</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[10%]">Status</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[5%]">SN</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[15%]">REFERENCE</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[12%]">Date & Time</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[15%]">Region/Post</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[35%]">Incident Narrative</th>
+                    <th className="px-3.5 py-2.5 text-center text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[8%]">Suspects</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[10%]">Status</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
+                <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700 text-xs">
                   {filteredReports.map((report, index) => {
                     const rRegion = getOfficialRegionForStation(report.station, report.region);
                     return (
                       <tr key={report.id || report.sn || index} className="even:bg-slate-50 dark:even:bg-slate-900/50 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors cursor-pointer group" onClick={() => { if (operation === 'update') { populateUpdateCrimeForm(report); } else { setSelectedCase(report); } }}>
-                        <td className="px-4 py-4 whitespace-nowrap text-[13px] font-black text-gray-900 dark:text-slate-100 align-top group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">{isStationSpecific ? (index + 1) : (report.id || report.sn || '—')}</td>
-                        <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-blue-700 dark:text-blue-400 align-top break-words">{stripHtmlTags(report.sdRef || report.sd_ref)}</td>
-                        <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400 align-top">{stripHtmlTags(report.date)}<br/><span className="text-[10px] text-gray-400 dark:text-slate-500">{stripHtmlTags(report.time)}</span></td>
-                        <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-700 dark:text-slate-300 align-top font-bold">{stripHtmlTags(report.station)} <br/><span className="text-[10px] text-gray-400 dark:text-slate-500 font-medium">{rRegion}</span></td>
-                        <td className="px-4 py-4 text-xs text-gray-700 dark:text-slate-300 align-top whitespace-normal break-words overflow-wrap-anywhere">
-                          {report.offence && <div className="font-extrabold text-red-600 dark:text-red-400 uppercase mb-1">{stripHtmlTags(report.offence)}</div>}
-                          <div className="ql-editor p-0 line-clamp-3 text-slate-600 dark:text-slate-300 [&_*]:!text-xs [&_*]:!bg-transparent whitespace-normal break-words" dangerouslySetInnerHTML={{ __html: report.narrative }} />
+                        <td className="px-3.5 py-3 whitespace-nowrap text-xs font-black text-gray-900 dark:text-slate-100 align-top group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">{isStationSpecific ? (index + 1) : (report.id || report.sn || '—')}</td>
+                        <td className="px-3.5 py-3 whitespace-nowrap text-[11px] font-extrabold text-blue-700 dark:text-blue-400 align-top break-words">{stripHtmlTags(report.sdRef || report.sd_ref)}</td>
+                        <td className="px-3.5 py-3 whitespace-nowrap text-[11px] text-gray-500 dark:text-slate-400 align-top">{stripHtmlTags(report.date)}<br/><span className="text-[9px] text-gray-400 dark:text-slate-500">{stripHtmlTags(report.time)}</span></td>
+                        <td className="px-3.5 py-3 whitespace-nowrap text-[11px] text-gray-700 dark:text-slate-300 align-top font-bold">{stripHtmlTags(report.station)} <br/><span className="text-[9px] text-gray-400 dark:text-slate-500 font-medium">{rRegion}</span></td>
+                        <td className="px-3.5 py-3 text-[11px] text-gray-700 dark:text-slate-300 align-top whitespace-normal break-words overflow-wrap-anywhere">
+                          {report.offence && <div className="font-extrabold text-red-600 dark:text-red-400 uppercase mb-0.5">{stripHtmlTags(report.offence)}</div>}
+                          <div className="ql-editor p-0 line-clamp-3 text-slate-600 dark:text-slate-300 [&_*]:!text-[11px] [&_*]:!bg-transparent whitespace-normal break-words" dangerouslySetInnerHTML={{ __html: report.narrative }} />
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-xs font-extrabold text-red-600 dark:text-red-400 text-center align-top">{(report.suspectDetails || report.suspect_details || []).length}</td>
-                        <td className="px-4 py-4 whitespace-normal break-words align-top">
-                          <span className={`px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full ${report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-900' : ''} ${report.status.includes('COURT') ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-900' : ''} ${report.status.includes('CLOSED') ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 border border-green-200 dark:border-green-900' : ''} ${report.status.includes('ADR') ? 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300 border border-orange-200 dark:border-orange-900' : ''}`}>{stripHtmlTags(report.status)}</span>
+                        <td className="px-3.5 py-3 whitespace-nowrap text-[11px] font-extrabold text-red-600 dark:text-red-400 text-center align-top">{(report.suspectDetails || report.suspect_details || []).length}</td>
+                        <td className="px-3.5 py-3 whitespace-normal break-words align-top">
+                          <span className={`px-2 py-0.5 inline-flex text-[9px] font-bold rounded-full ${
+                            report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-900' : ''
+                          } ${
+                            report.status.includes('COURT') ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-900' : ''
+                          } ${
+                            report.status.includes('BAIL') ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-900' : ''
+                          } ${
+                            report.status.includes('ACQUITTED') ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900' : ''
+                          } ${
+                            report.status.includes('CLOSED') ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 border border-green-200 dark:border-green-900' : ''
+                          } ${
+                            report.status.includes('ADR') ? 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300 border border-orange-200 dark:border-orange-900' : ''
+                          }`}>{stripHtmlTags(report.status)}</span>
                         </td>
                       </tr>
                     );
                   })}
-                  {filteredReports.length === 0 && <tr><td colSpan="7" className="text-center py-8 text-gray-500 dark:text-slate-400 font-medium text-sm border-b-0">No records found for this jurisdiction.</td></tr>}
+                  {filteredReports.length === 0 && <tr><td colSpan="7" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium text-xs border-b-0">No records found for this jurisdiction.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -1083,113 +1100,113 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         </div>
       </div>
 
-      <div className="mt-8 space-y-6 animate-in fade-in duration-300 max-w-4xl mx-auto">
-        <div className="bg-amber-50 dark:bg-slate-800 p-6 rounded-2xl border border-amber-200 dark:border-slate-700 shadow-md space-y-4">
+      <div className="mt-6 space-y-4 animate-in fade-in duration-300 max-w-4xl mx-auto">
+        <div className="bg-amber-50 dark:bg-slate-800 p-4 sm:p-5 rounded-xl border border-amber-200 dark:border-slate-700 shadow-sm space-y-3">
           <div>
-            <h3 className="font-extrabold text-amber-900 dark:text-amber-400 uppercase tracking-wider text-sm flex items-center">
-              <HardDrive className="w-5 h-5 mr-2 text-amber-600 dark:text-amber-500"/> Log Independent Daily Lock-Up
+            <h3 className="font-extrabold text-amber-900 dark:text-amber-400 uppercase tracking-wider text-xs flex items-center">
+              <HardDrive className="w-4 h-4 mr-1.5 text-amber-600 dark:text-amber-500"/> Log Independent Daily Lock-Up
             </h3>
-            <p className="text-[11px] font-bold text-amber-700/70 dark:text-amber-300/70 mt-1 leading-relaxed">
+            <p className="text-[10px] font-bold text-amber-700/70 dark:text-amber-300/70 mt-0.5 leading-relaxed">
               Log your station's total cell population with the required Sex, Juvenile breakdown, and Detention Duration directly into the independent Lock-Up Matrix.
             </p>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 pt-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-1.5 pt-1">
             <div>
-              <label className="block text-[9px] font-extrabold text-amber-900 dark:text-amber-300 uppercase mb-1">Total Suspects *</label>
+              <label className="block text-[8px] font-extrabold text-amber-900 dark:text-amber-300 uppercase mb-0.5">Total Suspects *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.total} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, total: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-sm border-amber-300 dark:border-slate-700 rounded-lg shadow-sm border p-2 bg-white dark:bg-slate-900 font-black text-amber-900 dark:text-amber-300 text-center outline-none focus:ring-2 focus:ring-amber-500" 
+                className="w-full text-xs border-amber-300 dark:border-slate-700 rounded shadow-sm border p-1.5 bg-white dark:bg-slate-900 font-black text-amber-900 dark:text-amber-300 text-center outline-none focus:ring-1 focus:ring-amber-500" 
                 placeholder="0" 
               />
             </div>
             <div>
-              <label className="block text-[9px] font-extrabold text-blue-800 dark:text-blue-400 uppercase mb-1">Male *</label>
+              <label className="block text-[8px] font-extrabold text-blue-800 dark:text-blue-400 uppercase mb-0.5">Male *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.male} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, male: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-sm border-blue-300 dark:border-slate-700 rounded-lg shadow-sm border p-2 bg-white dark:bg-slate-900 font-black text-blue-900 dark:text-blue-300 text-center outline-none focus:ring-2 focus:ring-blue-500" 
+                className="w-full text-xs border-blue-300 dark:border-slate-700 rounded shadow-sm border p-1.5 bg-white dark:bg-slate-900 font-black text-blue-900 dark:text-blue-300 text-center outline-none focus:ring-1 focus:ring-blue-500" 
                 placeholder="0" 
               />
             </div>
             <div>
-              <label className="block text-[9px] font-extrabold text-indigo-800 dark:text-indigo-400 uppercase mb-1">Male Juv *</label>
+              <label className="block text-[8px] font-extrabold text-indigo-800 dark:text-indigo-400 uppercase mb-0.5">Male Juv *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.male_juvenile} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, male_juvenile: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-sm border-indigo-300 dark:border-slate-700 rounded-lg shadow-sm border p-2 bg-white dark:bg-slate-900 font-black text-indigo-900 dark:text-indigo-300 text-center outline-none focus:ring-2 focus:ring-indigo-500" 
+                className="w-full text-xs border-indigo-300 dark:border-slate-700 rounded shadow-sm border p-1.5 bg-white dark:bg-slate-900 font-black text-indigo-900 dark:text-indigo-300 text-center outline-none focus:ring-1 focus:ring-indigo-500" 
                 placeholder="0" 
               />
             </div>
             <div>
-              <label className="block text-[9px] font-extrabold text-pink-800 dark:text-pink-400 uppercase mb-1">Female *</label>
+              <label className="block text-[8px] font-extrabold text-pink-800 dark:text-pink-400 uppercase mb-0.5">Female *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.female} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, female: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-sm border-pink-300 dark:border-slate-700 rounded-lg shadow-sm border p-2 bg-white dark:bg-slate-900 font-black text-pink-900 dark:text-pink-300 text-center outline-none focus:ring-2 focus:ring-pink-500" 
+                className="w-full text-xs border-pink-300 dark:border-slate-700 rounded shadow-sm border p-1.5 bg-white dark:bg-slate-900 font-black text-pink-900 dark:text-pink-300 text-center outline-none focus:ring-1 focus:ring-pink-500" 
                 placeholder="0" 
               />
             </div>
             <div>
-              <label className="block text-[9px] font-extrabold text-purple-800 dark:text-purple-400 uppercase mb-1">Female Juv *</label>
+              <label className="block text-[8px] font-extrabold text-purple-800 dark:text-purple-400 uppercase mb-0.5">Female Juv *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.female_juvenile} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, female_juvenile: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-sm border-purple-300 dark:border-slate-700 rounded-lg shadow-sm border p-2 bg-white dark:bg-slate-900 font-black text-purple-900 dark:text-purple-300 text-center outline-none focus:ring-2 focus:ring-purple-500" 
+                className="w-full text-xs border-purple-300 dark:border-slate-700 rounded shadow-sm border p-1.5 bg-white dark:bg-slate-900 font-black text-purple-900 dark:text-purple-300 text-center outline-none focus:ring-1 focus:ring-purple-500" 
                 placeholder="0" 
               />
             </div>
             <div>
-              <label className="block text-[9px] font-extrabold text-slate-700 dark:text-slate-300 uppercase mb-1">1 Day *</label>
+              <label className="block text-[8px] font-extrabold text-slate-700 dark:text-slate-300 uppercase mb-0.5">1 Day *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.d1} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, d1: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-sm border-slate-300 dark:border-slate-700 rounded-lg shadow-sm border p-2 bg-white dark:bg-slate-900 font-black text-slate-900 dark:text-slate-100 text-center outline-none focus:ring-2 focus:ring-slate-500" 
+                className="w-full text-xs border-slate-300 dark:border-slate-700 rounded shadow-sm border p-1.5 bg-white dark:bg-slate-900 font-black text-slate-900 dark:text-slate-100 text-center outline-none focus:ring-1 focus:ring-slate-500" 
                 placeholder="0" 
               />
             </div>
             <div>
-              <label className="block text-[9px] font-extrabold text-slate-700 dark:text-slate-300 uppercase mb-1">2 Days *</label>
+              <label className="block text-[8px] font-extrabold text-slate-700 dark:text-slate-300 uppercase mb-0.5">2 Days *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.d2} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, d2: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-sm border-slate-300 dark:border-slate-700 rounded-lg shadow-sm border p-2 bg-white dark:bg-slate-900 font-black text-slate-900 dark:text-slate-100 text-center outline-none focus:ring-2 focus:ring-slate-500" 
+                className="w-full text-xs border-slate-300 dark:border-slate-700 rounded shadow-sm border p-1.5 bg-white dark:bg-slate-900 font-black text-slate-900 dark:text-slate-100 text-center outline-none focus:ring-1 focus:ring-slate-500" 
                 placeholder="0" 
               />
             </div>
             <div>
-              <label className="block text-[9px] font-extrabold text-slate-700 dark:text-slate-300 uppercase mb-1">3 Days+ *</label>
+              <label className="block text-[8px] font-extrabold text-slate-700 dark:text-slate-300 uppercase mb-0.5">3 Days+ *</label>
               <input 
                 type="number" 
                 value={standalonePopInput.d3} 
                 onChange={(e) => setStandalonePopInput(prev => ({ ...prev, d3: stripHtmlTags(e.target.value) }))} 
                 min="0" 
-                className="w-full text-sm border-slate-300 dark:border-slate-700 rounded-lg shadow-sm border p-2 bg-white dark:bg-slate-900 font-black text-slate-900 dark:text-slate-100 text-center outline-none focus:ring-2 focus:ring-slate-500" 
+                className="w-full text-xs border-slate-300 dark:border-slate-700 rounded shadow-sm border p-1.5 bg-white dark:bg-slate-900 font-black text-slate-900 dark:text-slate-100 text-center outline-none focus:ring-1 focus:ring-slate-500" 
                 placeholder="0" 
               />
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-2">
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-1">
             <button 
               type="button" 
               onClick={handleEditLockupToggle} 
-              className={`text-xs font-bold uppercase transition flex items-center ${isEditingLockup ? 'text-red-600 dark:text-red-400 hover:text-red-800' : 'text-amber-700 dark:text-amber-400 hover:text-amber-900'}`}
+              className={`text-[11px] font-bold uppercase transition flex items-center ${isEditingLockup ? 'text-red-600 dark:text-red-400 hover:text-red-800' : 'text-amber-700 dark:text-amber-400 hover:text-amber-900'}`}
             >
               {isEditingLockup ? <><X className="w-3.5 h-3.5 mr-1"/> Cancel Update</> : <><Edit className="w-3.5 h-3.5 mr-1"/> Correct today's lockup entry</>}
             </button>
@@ -1197,62 +1214,62 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
             <button
               type="button"
               onClick={handleStandalonePopSubmit}
-              className={`w-full sm:w-auto px-8 py-3 text-xs font-black text-white rounded-xl shadow-md transition-all uppercase tracking-wider ${isEditingLockup ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-700 hover:bg-amber-800'}`}
+              className={`w-full sm:w-auto px-6 py-2 text-[11px] font-black text-white rounded-lg shadow-sm transition-all uppercase tracking-wider ${isEditingLockup ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-700 hover:bg-amber-800'}`}
             >
-              {isEditingLockup ? <><Save className="inline w-4 h-4 mr-1"/> Update Matrix Entry</> : 'Push to Matrix'}
+              {isEditingLockup ? <><Save className="inline w-3.5 h-3.5 mr-1"/> Update Matrix Entry</> : 'Push to Matrix'}
             </button>
           </div>
         </div>
 
         <button 
           onClick={() => setShowLockupMatrixModal(true)}
-          className="w-full bg-slate-900 dark:bg-slate-950 hover:bg-slate-800 dark:hover:bg-slate-900 text-white font-extrabold py-4 px-6 rounded-xl shadow-lg transition-all flex items-center justify-center border border-slate-700 group mb-6 cursor-pointer"
+          className="w-full bg-slate-900 dark:bg-slate-950 hover:bg-slate-800 dark:hover:bg-slate-900 text-white font-extrabold py-3 px-5 rounded-xl shadow-md transition-all flex items-center justify-center border border-slate-700 group mb-5 cursor-pointer text-xs"
         >
-          <Filter className="w-5 h-5 mr-3 text-amber-400 group-hover:scale-110 transition-transform" />
+          <Filter className="w-4 h-4 mr-2 text-amber-400 group-hover:scale-110 transition-transform" />
           VIEW INDEPENDENT DAILY SUSPECT LOCK-UP MATRIX
         </button>
 
         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col">
-          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <h3 className="text-xs font-extrabold text-white tracking-wider uppercase">General Crime Summary (Excluding Lock-Ups)</h3>
-            <div className="flex bg-slate-800 dark:bg-slate-900 rounded-lg p-1 border border-slate-700 overflow-x-auto w-full sm:w-auto">
+          <div className="bg-slate-900 dark:bg-slate-950 px-3.5 py-2.5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <h3 className="text-[11px] font-extrabold text-white tracking-wider uppercase">General Crime Summary (Excluding Lock-Ups)</h3>
+            <div className="flex bg-slate-800 dark:bg-slate-900 rounded p-0.5 border border-slate-700 overflow-x-auto w-full sm:w-auto">
               {['TODAY', 'WEEK', 'MONTH', 'YEAR', 'ALL'].map(period => (
-                <button key={period} onClick={() => setSummaryTimeFilter(stripHtmlTags(period))} className={`flex-1 sm:flex-none px-3 py-1 text-[10px] font-bold rounded shadow-sm transition-colors cursor-pointer ${summaryTimeFilter === period ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700 dark:hover:bg-slate-800'}`}>
+                <button key={period} onClick={() => setSummaryTimeFilter(stripHtmlTags(period))} className={`flex-1 sm:flex-none px-2.5 py-0.5 text-[9px] font-bold rounded shadow-sm transition-colors cursor-pointer ${summaryTimeFilter === period ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700 dark:hover:bg-slate-800'}`}>
                   {period}
                 </button>
               ))}
             </div>
           </div>
            
-          <div className="overflow-y-auto max-h-96 custom-scrollbar">
-            <table className="w-full text-left">
+          <div className="overflow-y-auto max-h-80 custom-scrollbar">
+            <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0 border-b border-slate-200 dark:border-slate-700 shadow-sm z-10">
                 <tr>
-                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase">S/N</th>
-                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase">Offence / Incident</th>
-                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase text-center">Number of Cases</th>
-                  <th className="px-4 py-2 text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase text-center">Suspects in Custody</th>
+                  <th className="px-3.5 py-2 text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase">S/N</th>
+                  <th className="px-3.5 py-2 text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase">Offence / Incident</th>
+                  <th className="px-3.5 py-2 text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase text-center">Number of Cases</th>
+                  <th className="px-3.5 py-2 text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase text-center">Suspects in Custody</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700 text-xs">
                 {generalCrimes.length > 0 ? (
                   generalCrimes.map((item, idx) => (
                     <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                      <td className="px-4 py-3 text-xs font-bold text-slate-400 dark:text-slate-400">{idx + 1}</td>
-                      <td className="px-4 py-3 text-xs font-bold text-slate-800 dark:text-slate-100 uppercase">{stripHtmlTags(item.offence)}</td>
-                      <td className="px-4 py-3 text-xs font-black text-blue-600 dark:text-blue-400 text-center">{item.cases}</td>
-                      <td className="px-4 py-3 text-xs font-black text-slate-600 dark:text-slate-300 text-center">{item.suspects}</td>
+                      <td className="px-3.5 py-2.5 text-[11px] font-bold text-slate-400 dark:text-slate-400">{idx + 1}</td>
+                      <td className="px-3.5 py-2.5 text-[11px] font-bold text-slate-800 dark:text-slate-100 uppercase">{stripHtmlTags(item.offence)}</td>
+                      <td className="px-3.5 py-2.5 text-[11px] font-black text-blue-600 dark:text-blue-400 text-center">{item.cases}</td>
+                      <td className="px-3.5 py-2.5 text-[11px] font-black text-slate-600 dark:text-slate-300 text-center">{item.suspects}</td>
                     </tr>
                   ))
                 ) : (
-                  <tr><td colSpan="4" className="px-4 py-8 text-center text-xs text-slate-500 dark:text-slate-400 font-bold">No crimes recorded for the selected duration.</td></tr>
+                  <tr><td colSpan="4" className="px-4 py-6 text-center text-xs text-slate-500 dark:text-slate-400 font-bold">No crimes recorded for the selected duration.</td></tr>
                 )}
               </tbody>
               <tfoot className="bg-emerald-800 dark:bg-emerald-900 sticky bottom-0">
                 <tr>
-                  <td colSpan="2" className="px-4 py-3 text-right text-xs font-black text-white uppercase tracking-wider">Crime Grand Total:</td>
-                  <td className="px-4 py-3 text-center text-sm font-black text-white">{crimeGrandTotal}</td>
-                  <td className="px-4 py-3 text-center text-sm font-black text-white">{suspectGrandTotal}</td>
+                  <td colSpan="2" className="px-3.5 py-2.5 text-right text-xs font-black text-white uppercase tracking-wider">Crime Grand Total:</td>
+                  <td className="px-3.5 py-2.5 text-center text-xs font-black text-white">{crimeGrandTotal}</td>
+                  <td className="px-3.5 py-2.5 text-center text-xs font-black text-white">{suspectGrandTotal}</td>
                 </tr>
               </tfoot>
             </table>
@@ -1272,58 +1289,58 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
 
       {selectedCase && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 sm:p-6 animate-in fade-in zoom-in-95 duration-200">
-          <div className="bg-white dark:bg-slate-900 shadow-2xl max-w-4xl w-full flex flex-col max-h-[95vh] rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700">
-            <div className="bg-slate-900 dark:bg-slate-950 text-white px-6 py-4 flex justify-between items-center shrink-0 shadow-md z-10">
-              <h3 className="font-bold flex items-center text-sm uppercase tracking-wider"><Shield className="text-blue-400 mr-2" size={18} /> OFFICIAL CRIME DOSSIER — REF: {stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref)}</h3>
-              <button onClick={() => setSelectedCase(null)} className="text-slate-400 hover:text-white hover:bg-slate-700 p-1.5 rounded transition-colors cursor-pointer"><X size={20} /></button>
+          <div className="bg-white dark:bg-slate-900 shadow-2xl max-w-3xl w-full flex flex-col max-h-[90vh] rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700">
+            <div className="bg-slate-900 dark:bg-slate-950 text-white px-5 py-3 flex justify-between items-center shrink-0 shadow-md z-10">
+              <h3 className="font-bold flex items-center text-xs uppercase tracking-wider"><Shield className="text-blue-400 mr-2" size={16} /> OFFICIAL CRIME DOSSIER — REF: {stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref)}</h3>
+              <button onClick={() => setSelectedCase(null)} className="text-slate-400 hover:text-white hover:bg-slate-700 p-1 rounded transition-colors cursor-pointer"><X size={18} /></button>
             </div>
-            <div className="p-8 overflow-y-auto space-y-8 flex-1 custom-scrollbar bg-slate-50 dark:bg-slate-900" style={{ backgroundImage: 'radial-gradient(#e5e7eb 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
-              <div className="flex flex-col items-center justify-center text-center border-b-2 border-slate-800 dark:border-slate-700 pb-6">
-                 <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-2 object-contain grayscale contrast-200 brightness-50" onError={(e) => { e.target.style.display = 'none'; }} />
-                 <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100 tracking-widest uppercase">Uganda Police Force</h2>
-                 <h3 className="text-sm font-bold text-slate-600 dark:text-slate-400 uppercase mt-1 tracking-wider">Crime Incident Matrix Profile</h3>
+            <div className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar bg-slate-50 dark:bg-slate-900 text-xs" style={{ backgroundImage: 'radial-gradient(#e5e7eb 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+              <div className="flex flex-col items-center justify-center text-center border-b-2 border-slate-800 dark:border-slate-700 pb-4">
+                 <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 mb-1.5 object-contain grayscale contrast-200 brightness-50" onError={(e) => { e.target.style.display = 'none'; }} />
+                 <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100 tracking-widest uppercase">Uganda Police Force</h2>
+                 <h3 className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mt-0.5 tracking-wider">Crime Incident Matrix Profile</h3>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 bg-white dark:bg-slate-800 p-6 border border-slate-200 dark:border-slate-700 shadow-sm rounded-lg">
-                <div className="border-l-4 border-blue-600 pl-3"><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Database SN (ID)</div><div className="text-sm font-black text-slate-900 dark:text-slate-100">{selectedCase.id || selectedCase.sn}</div></div>
-                <div className="border-l-4 border-slate-600 pl-3"><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Time & Date Logged</div><div className="text-sm font-bold text-slate-900 dark:text-slate-100">{stripHtmlTags(selectedCase.date)} <span className="text-slate-500 dark:text-slate-400 font-medium">@ {stripHtmlTags(selectedCase.time)}</span></div></div>
-                <div className="border-l-4 border-slate-600 pl-3"><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Command Jurisdiction</div><div className="text-sm font-bold text-slate-900 dark:text-slate-100">{stripHtmlTags(selectedCase.station)}</div><div className="text-xs text-slate-500 dark:text-slate-400 font-medium">{getOfficialRegionForStation(selectedCase.station, selectedCase.region)}</div></div>
-                <div className="border-l-4 border-slate-600 pl-3"><div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Investigation Status</div><div className="text-sm font-extrabold text-blue-700 dark:text-blue-400 uppercase">{stripHtmlTags(selectedCase.status)}</div></div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white dark:bg-slate-800 p-4 border border-slate-200 dark:border-slate-700 shadow-sm rounded-lg">
+                <div className="border-l-4 border-blue-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Database SN (ID)</div><div className="text-xs font-black text-slate-900 dark:text-slate-100">{selectedCase.id || selectedCase.sn}</div></div>
+                <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Time & Date Logged</div><div className="text-xs font-bold text-slate-900 dark:text-slate-100">{stripHtmlTags(selectedCase.date)} <span className="text-slate-500 dark:text-slate-400 font-medium">@ {stripHtmlTags(selectedCase.time)}</span></div></div>
+                <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Command Jurisdiction</div><div className="text-xs font-bold text-slate-900 dark:text-slate-100">{stripHtmlTags(selectedCase.station)}</div><div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">{getOfficialRegionForStation(selectedCase.station, selectedCase.region)}</div></div>
+                <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Investigation Status</div><div className="text-xs font-extrabold text-blue-700 dark:text-blue-400 uppercase">{stripHtmlTags(selectedCase.status)}</div></div>
               </div>
-              <div className="bg-white dark:bg-slate-800 p-8 border border-slate-200 dark:border-slate-700 shadow-sm rounded-lg">
-                <div className="mb-6">
-                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 pb-2 mb-3">Primary Offence Matrix</div>
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="text-lg font-black text-red-600 dark:text-red-400 uppercase">{stripHtmlTags(selectedCase.offence || 'UNSPECIFIED OFFENCE')}</div>
-                    <div className="text-sm font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-900 px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 shadow-sm">REF: {stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref)}</div>
+              <div className="bg-white dark:bg-slate-800 p-5 border border-slate-200 dark:border-slate-700 shadow-sm rounded-lg">
+                <div className="mb-4">
+                  <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 pb-1.5 mb-2">Primary Offence Matrix</div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="text-sm font-black text-red-600 dark:text-red-400 uppercase">{stripHtmlTags(selectedCase.offence || 'UNSPECIFIED OFFENCE')}</div>
+                    <div className="text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-900 px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 shadow-sm">REF: {stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref)}</div>
                   </div>
                 </div>
                 <div>
-                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 pb-2 mb-3">Official Incident Narrative</div>
-                  <div className="text-sm text-slate-800 dark:text-slate-200 leading-normal ql-editor whitespace-normal break-words overflow-wrap-anywhere p-0 min-h-[150px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
+                  <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 pb-1.5 mb-2">Official Incident Narrative</div>
+                  <div className="text-xs text-slate-800 dark:text-slate-200 leading-normal ql-editor whitespace-normal break-words overflow-wrap-anywhere p-0 min-h-[100px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
                 </div>
               </div>
               {selectedCase.suspectDetails && selectedCase.suspectDetails.length > 0 && (
-                <div className="bg-white dark:bg-slate-800 p-6 border border-red-200 dark:border-red-900 shadow-sm rounded-lg">
-                  <div className="text-[10px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-2 mb-4 flex items-center"><Lock size={14} className="mr-2"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white dark:bg-slate-800 p-4 border border-red-200 dark:border-red-900 shadow-sm rounded-lg">
+                  <div className="text-[9px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-1.5 mb-3 flex items-center"><Lock size={12} className="mr-1.5"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {selectedCase.suspectDetails.map((s, idx) => (
-                      <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-4 rounded-lg border border-red-200 dark:border-red-900 flex items-start space-x-4">
-                        <div className="shrink-0">{s.photo_url ? ( <img src={s.photo_url} alt={s.name} className="w-16 h-16 rounded object-cover border-2 border-red-300 dark:border-red-800 shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} /> ) : ( <div className="w-16 h-16 rounded bg-red-100 dark:bg-red-900 text-red-400 dark:text-red-300 flex items-center justify-center font-bold text-[10px] border-2 border-dashed border-red-200 dark:border-red-800 text-center p-1">No Photo</div> )}</div>
+                      <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-3 rounded-lg border border-red-200 dark:border-red-900 flex items-start space-x-3">
+                        <div className="shrink-0">{s.photo_url ? ( <img src={s.photo_url} alt={s.name} className="w-12 h-12 rounded object-cover border-2 border-red-300 dark:border-red-800 shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} /> ) : ( <div className="w-12 h-12 rounded bg-red-100 dark:bg-red-900 text-red-400 dark:text-red-300 flex items-center justify-center font-bold text-[9px] border border-dashed border-red-200 dark:border-red-800 text-center p-1">No Photo</div> )}</div>
                         <div className="flex-1 min-w-0">
-                          <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-sm truncate">{idx + 1}. {stripHtmlTags(s.name)}</div>
-                          <div className="text-xs text-red-900 dark:text-red-300 font-medium mt-1">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
-                          <div className="text-xs text-slate-700 dark:text-slate-300 mt-1"><span className="font-bold">Res:</span> {stripHtmlTags(s.residence || 'N/A')} <br/><span className="font-bold">Tel:</span> {stripHtmlTags(s.contact || 'N/A')}</div>
-                          {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( <div className="inline-block mt-2 text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-bold px-2 py-0.5 rounded-sm">Status: {stripHtmlTags(s.mental_health_status)}</div> )}
+                          <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-xs truncate">{idx + 1}. {stripHtmlTags(s.name)}</div>
+                          <div className="text-[11px] text-red-900 dark:text-red-300 font-medium mt-0.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
+                          <div className="text-[11px] text-slate-700 dark:text-slate-300 mt-0.5"><span className="font-bold">Res:</span> {stripHtmlTags(s.residence || 'N/A')} | <span className="font-bold">Tel:</span> {stripHtmlTags(s.contact || 'N/A')}</div>
+                          {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( <div className="inline-block mt-1.5 text-[9px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-bold px-1.5 py-0.5 rounded-sm">Status: {stripHtmlTags(s.mental_health_status)}</div> )}
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
-              <div className="text-center pt-6 opacity-40"><p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">End of Official Record Extract</p><p className="text-[9px] text-slate-400 dark:text-slate-500 mt-1">System Audit ID: {selectedCase.id || selectedCase.sn} • Printed: {new Date().toLocaleString()}</p></div>
+              <div className="text-center pt-4 opacity-40"><p className="text-[9px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">End of Official Record Extract</p><p className="text-[8px] text-slate-400 dark:text-slate-500 mt-0.5">System Audit ID: {selectedCase.id || selectedCase.sn} • Printed: {new Date().toLocaleString()}</p></div>
             </div>
-            <div className="bg-slate-100 dark:bg-slate-950 p-4 border-t border-slate-300 dark:border-slate-800 flex justify-end shrink-0 shadow-inner z-10">
-              <button onClick={() => setSelectedCase(null)} className="bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold py-2.5 px-6 rounded-lg text-sm transition-all shadow border border-slate-950 flex items-center cursor-pointer"><X size={16} className="mr-2"/> Close Dossier</button>
+            <div className="bg-slate-100 dark:bg-slate-950 p-3 border-t border-slate-300 dark:border-slate-800 flex justify-end shrink-0 shadow-inner z-10">
+              <button onClick={() => setSelectedCase(null)} className="bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg text-xs transition-all shadow border border-slate-950 flex items-center cursor-pointer"><X size={14} className="mr-1.5"/> Close Dossier</button>
             </div>
           </div>
         </div>
