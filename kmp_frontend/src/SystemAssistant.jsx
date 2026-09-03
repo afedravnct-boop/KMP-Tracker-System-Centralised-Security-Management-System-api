@@ -49,7 +49,7 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
   const [messages, setMessages] = useState([
     { 
       sender: 'ai', 
-      text: `Greetings ${currentUser?.rank || 'Officer'} ${currentUser?.name || ''}. I am your KMP CSDMS Tactical Intelligence Assistant. I have tier-restricted clearance to query nominal rolls, crime registers, and summary matrices.`,
+      text: `Greetings ${currentUser?.rank || 'Officer'} ${currentUser?.name || ''}. I am your KMP CSDMS Tactical Intelligence Assistant. I have tier-restricted clearance to query nominal rolls, crime registers, summary matrices, terms, security policies, system user guides, and troubleshooting protocols.`,
       metadata: null 
     }
   ]);
@@ -66,7 +66,8 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
   const quickPrompts = [
     "Regional manpower count",
     "Agricultural crimes summary",
-    "Active lockup status"
+    "What are the data export and AES-256 rules?",
+    "How to troubleshoot login lockouts"
   ];
 
   const executeQuery = async (queryText) => {
@@ -199,7 +200,7 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
             {loading && (
               <div className="flex items-center space-x-2 text-slate-600 italic text-[11px] bg-slate-100/90 p-2.5 rounded-xl border border-slate-200 w-fit">
                 <Loader2 size={13} className="animate-spin text-amber-600" />
-                <span>Querying tier-restricted databases...</span>
+                <span>Querying tier-restricted databases and compliance manuals...</span>
               </div>
             )}
           </div>
@@ -209,7 +210,7 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
               type="text" 
               value={inputPrompt} 
               onChange={(e) => setInputPrompt(e.target.value)} 
-              placeholder="Ask for officer deployments or stats..." 
+              placeholder="Ask about deployment stats, policies, or troubleshooting..." 
               className="flex-1 text-[11px] border border-slate-300 rounded-xl px-3 py-2 outline-none focus:border-[#596E47] bg-slate-50 focus:bg-white transition placeholder:text-slate-400"
             />
             <button type="submit" disabled={loading || !inputPrompt.trim()} className="bg-[#3a3225] hover:bg-black text-white p-2.5 rounded-xl transition cursor-pointer disabled:opacity-40 shadow-xs" title="Execute Query">

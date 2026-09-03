@@ -27,7 +27,7 @@ const AICommandConsole = ({ currentUser, onBack }) => {
     {
       id: 'init-1',
       sender: 'ai',
-      text: `**KMP Centralised Security Intelligence Assistant Active.**\n\nStanding by for commander queries across the **Nominal Roll**, **Live Crime Registry**, **Disruptive Ops Statistics**, and **Agricultural Crime Summaries**.\n\n*Clearance Scope:* \`${officerFnum}\` | \`${officerRank}\` | \`${officerName}\`\nRegion: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station || 'ALL'}\``,
+      text: `**KMP Centralised Security Intelligence Assistant Active.**\n\nStanding by for commander queries across the **Nominal Roll**, **Live Crime Registry**, **Disruptive Ops Statistics**, **Agricultural Crime Summaries**, as well as system guidelines, policies, user manuals, and technical troubleshooting protocols.\n\n*Clearance Scope:* \`${officerFnum}\` | \`${officerRank}\` | \`${officerName}\`\nRegion: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station || 'ALL'}\``,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       metadata: null
     }
@@ -116,9 +116,9 @@ const AICommandConsole = ({ currentUser, onBack }) => {
 
   const quickPrompts = [
     "Summarize agricultural thefts and recoveries",
-    "Where is officer IPPS or Force Number stationed?",
-    "Summarize recent aggravated robbery trends",
-    "How many active female NCOs are on the nominal roll?"
+    "What are the rules for data classification and AES-256 exports?",
+    "How do I resolve login lockouts or reset my security key?",
+    "Where is officer IPPS or Force Number stationed?"
   ];
 
   return (

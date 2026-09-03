@@ -502,3 +502,28 @@ class Agricultural_Crime_Summary(Base):
     created_at = Column(DateTime, default=get_eat_time)
 
 AgriculturalCrimeSummary = Agricultural_Crime_Summary
+
+class UserModel(Base):
+    __tablename__ = "users"
+    __table_args__ = {'extend_existing': True}
+
+    fnum = Column(String, primary_key=True, index=True)
+    ipps = Column(String, nullable=True)
+    nin = Column(String, nullable=True)
+    name = Column(String, nullable=False)
+    rank = Column(String, nullable=False)
+    sex = Column(String, default="MALE")
+    region = Column(String, nullable=False)
+    station = Column(String, nullable=False)
+    position = Column(String, nullable=False)
+    email = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    hashed_password = Column(String, nullable=False)
+    role = Column(String, default="USER")
+    permissions = Column(JSON, default={})
+    profile_photo_path = Column(String, nullable=True)
+    
+    # 🟢 New Compliance Columns
+    policy_accepted = Column(Boolean, default=False, nullable=False)
+    policy_accepted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

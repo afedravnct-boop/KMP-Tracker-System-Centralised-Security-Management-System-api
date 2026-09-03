@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { User, Lock, ShieldAlert } from 'lucide-react';
-import { API_BASE_URL, setAuthSession, authFetch } from './api';
+import { User, Lock, ShieldAlert, X } from 'lucide-react';
+import { API_BASE_URL, setAuthSession } from './api';
 
 export default function Login({ onLoginSuccess, setIsSignUp }) {
   const [fileOrForceNumber, setFileOrForceNumber] = useState('');
@@ -8,8 +8,18 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  // Policy modal and agreement states
+  const [showPolicyModal, setShowPolicyModal] = useState(false);
+  const [acceptedPolicy, setAcceptedPolicy] = useState(false);
+
   const handleLogin = async (e) => {
     e.preventDefault();
+
+    if (!acceptedPolicy) {
+      setError("You must read and accept the Terms, Information Security Policy & User Guide before authorizing access.");
+      return;
+    }
+
     setIsLoading(true);
     setError('');
 
@@ -150,10 +160,29 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
             </div>
           </div>
 
+          {/* Mandatory Policy Acceptance Checkbox */}
+          <div className="pt-1">
+            <div className="flex items-start space-x-2 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+              <input 
+                type="checkbox" 
+                id="loginPolicyAgree"
+                required
+                checked={acceptedPolicy}
+                onChange={(e) => setAcceptedPolicy(e.target.checked)}
+                className="mt-0.5 w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer shrink-0"
+              />
+              <label htmlFor="loginPolicyAgree" className="text-[11px] text-slate-700 font-medium leading-snug cursor-pointer">
+                I agree to the <span className="text-blue-700 font-bold underline cursor-pointer" onClick={(e) => { e.preventDefault(); setShowPolicyModal(true); }}>Terms, Information Security Policy & User Guide</span>. *
+              </label>
+            </div>
+          </div>
+
           <button 
             type="submit" 
-            disabled={isLoading}
-            className="w-full bg-blue-700 hover:bg-blue-800 disabled:bg-blue-400 text-white font-black text-xs py-2.5 rounded-lg uppercase tracking-wider shadow-md hover:shadow-lg transition active:scale-[0.99] cursor-pointer flex items-center justify-center space-x-2 mt-2"
+            disabled={isLoading || !acceptedPolicy}
+            className={`w-full font-black text-xs py-2.5 rounded-lg uppercase tracking-wider shadow-md transition flex items-center justify-center space-x-2 mt-2 ${
+              acceptedPolicy ? 'bg-blue-700 hover:bg-blue-800 text-white cursor-pointer' : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+            }`}
           >
             {isLoading ? (
               <span className="animate-pulse">Verifying Credentials...</span>
@@ -185,6 +214,58 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
       <p className="text-[10px] text-slate-500 font-bold mt-4 text-center tracking-widest uppercase relative z-10">
         🛡️ Protected by KMP Tracker System - KMPCSDMS160626
       </p>
+
+      {/* Policy & Terms Modal */}
+      {showPolicyModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[85vh]">
+            <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
+              <h3 className="font-extrabold uppercase text-xs tracking-wider">
+                UGANDA POLICE FORCE — KAMPALA METROPOLITAN POLICE (KMP-CSDMS)
+              </h3>
+              <button onClick={() => setShowPolicyModal(false)} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer text-slate-300 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-4 text-xs text-slate-700 leading-relaxed custom-scrollbar bg-slate-50 flex-1">
+              <h4 className="font-black text-sm text-slate-900 uppercase border-b pb-2">Terms and Conditions, User Policy, and System User Guide</h4>
+              
+              <div className="space-y-3">
+                <h5 className="font-bold text-slate-900 uppercase">Part 1: Terms and Conditions of Use</h5>
+                <p><strong>1. Acceptance of Terms:</strong> By accessing, logging into, or utilizing KMP-CSDMS, you formally acknowledge, accept, and agree to be bound by these Terms and Conditions and operational directives.</p>
+                <p><strong>2. Authorized Use & Eligibility:</strong> Restricted strictly to authorized personnel of the Uganda Police Force and designated national security stakeholders under active deployment status.</p>
+                <p><strong>3. Intellectual Property:</strong> All software architecture, databases, UI designs, and forensic watermarking protocols are exclusive property of the UPF.</p>
+                <p><strong>4. Limitation of Liability:</strong> Command maintains high-grade security standards but assumes no liability for network interruptions or credential compromise resulting from individual user negligence.</p>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <h5 className="font-bold text-slate-900 uppercase">Part 2: User Policy (Information Security & Data Privacy)</h5>
+                <p><strong>1. Purpose & Scope:</strong> Mandatory security standards for all personnel accessing sensitive police records and nominal rolls to maintain operational security (OPSEC).</p>
+                <p><strong>2. Account Security:</strong> Credentials are personal and non-transferable. Leaving active terminals unattended or sharing passwords constitutes a severe disciplinary breach.</p>
+                <p><strong>3. Acceptable Use:</strong> Access modules strictly for official UPF operations. Unauthorized personal lookups or exposing tactical positions via AI prompts is prohibited.</p>
+                <p><strong>4. Data Classification:</strong> All exports are classified as RESTRICTED / LAW ENFORCEMENT RECORDS, cryptographically stamped and AES-256 encrypted keyed to the officer's Force Number.</p>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <h5 className="font-bold text-slate-900 uppercase">Part 3: System User Guide Summary</h5>
+                <p>Covers navigation across the Authentication Portal, Home Dashboard, Command Communications, Crime Registry, Disruptive OPS Statistics, Success Stories, Establishments, Analytics Dashboard, Nominal Roll, Tripartite Reports, and AI Command Console.</p>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0 space-x-3">
+              <button 
+                type="button"
+                onClick={() => { setAcceptedPolicy(true); setShowPolicyModal(false); }} 
+                className="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow cursor-pointer transition"
+              >
+                I Understand & Accept
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

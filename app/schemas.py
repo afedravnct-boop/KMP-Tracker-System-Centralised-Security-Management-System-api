@@ -28,6 +28,7 @@ class UserCreate(BaseModel):
     password: str
     role: str
     photoUrl: Optional[str] = None
+    policy_accepted: bool = False
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
@@ -269,6 +270,7 @@ class SignupRequest(BaseModel):
     password: str
     role: str
     photoUrl: Optional[str] = None
+    policy_accepted: bool = False
 
 class ProfileUpdate(BaseModel):
     email: Optional[str] = None
@@ -294,6 +296,8 @@ class UserResponse(BaseModel):
     role: str
     is_approved: bool
     photoUrl: Optional[str] = Field(None, validation_alias="profile_photo_path") 
+    policy_accepted: Optional[bool] = True
+    policy_accepted_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)

@@ -1006,6 +1006,10 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   const [password, setPassword] = useState('');
   const [authMessage, setAuthMessage] = useState(null);
   
+  // 🟢 Mandatory Policy Agreement States
+  const [acceptedPolicy, setAcceptedPolicy] = useState(false);
+  const [showPolicyModal, setShowPolicyModal] = useState(false);
+  
   const [signupData, setSignupData] = useState({
     fnum: '', 
     ipps: '', 
@@ -1019,7 +1023,8 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     email: '', 
     phone: '', 
     password: '', 
-    profile_photo_path: ''
+    profile_photo_path: '',
+    policy_accepted: false
   });
   const [photoFile, setPhotoFile] = useState(null);
 
@@ -1078,8 +1083,10 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   }, [lockoutEnd]);
 
   const handleSignupChange = (e) => {
-    const { name, value } = e.target;
-    if (name === 'region') {
+    const { name, value, type, checked } = e.target;
+    if (name === 'policy_accepted') {
+      setSignupData({ ...signupData, policy_accepted: checked });
+    } else if (name === 'region') {
       setSignupData({ 
         ...signupData, 
         region: value, 
@@ -1121,6 +1128,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 
   const handleSignupSubmit = async (e) => {
     e.preventDefault();
+    if (!signupData.policy_accepted) return setAuthMessage("⚠️ Error: You must accept the Terms, Information Security Policy & User Guide.");
     if (!signupData.profile_photo_path) return setAuthMessage("⚠️ Error: Profile photo upload is mandatory.");
     if (!/^\d{10}$/.test(signupData.phone)) return setAuthMessage("⚠️ Error: Contact number must be exactly 10 digits.");
 
@@ -1169,6 +1177,11 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   const handleLoginSubmit = async (e) => { 
     e.preventDefault();
     if (lockoutEnd) return;
+
+    if (!acceptedPolicy && mode === 'login') {
+      setAuthMessage("⚠️ You must read and accept the Terms, Information Security Policy & User Guide.");
+      return;
+    }
 
     if (mode === 'login') {
       try {
@@ -1346,7 +1359,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       />
                     </div>
                     
-                    {/* 🟢 NATIONAL ID (NIN) */}
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">National ID (NIN) *</label>
                       <input 
@@ -1505,10 +1517,32 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" 
                     />
                   </div>
+
+                  {/* 🟢 MANDATORY POLICY AGREEMENT CHECKBOX FOR SIGNUP */}
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <div className="flex items-start space-x-2">
+                      <input 
+                        type="checkbox" 
+                        id="policyAcceptSignup"
+                        name="policy_accepted"
+                        required
+                        checked={signupData.policy_accepted}
+                        onChange={handleSignupChange}
+                        className="mt-0.5 w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer shrink-0"
+                      />
+                      <label htmlFor="policyAcceptSignup" className="text-xs text-slate-700 font-medium leading-snug cursor-pointer">
+                        I agree to the <span className="text-blue-700 font-bold underline cursor-pointer" onClick={(e) => { e.preventDefault(); setShowPolicyModal(true); }}>Terms, Information Security Policy & User Guide</span>. *
+                      </label>
+                    </div>
+                  </div>
+
                   <div className="pt-4 flex flex-col space-y-3">
                     <button 
                       type="submit" 
-                      className="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 rounded-lg transition-colors text-sm cursor-pointer"
+                      disabled={!signupData.policy_accepted}
+                      className={`w-full font-bold py-3 rounded-lg transition-colors text-sm ${
+                        !signupData.policy_accepted ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-900 hover:bg-black text-white cursor-pointer'
+                      }`}
                     >
                       Submit Registration Request
                     </button>
@@ -1558,9 +1592,32 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       </div>
                     </div>
                   )}
+
+                  {/* 🟢 MANDATORY POLICY AGREEMENT CHECKBOX FOR LOGIN */}
+                  {mode === 'login' && (
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                      <div className="flex items-start space-x-2">
+                        <input 
+                          type="checkbox" 
+                          id="policyAcceptLogin"
+                          required
+                          checked={acceptedPolicy}
+                          onChange={(e) => setAcceptedPolicy(e.target.checked)}
+                          className="mt-0.5 w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer shrink-0"
+                        />
+                        <label htmlFor="policyAcceptLogin" className="text-xs text-slate-700 font-medium leading-snug cursor-pointer">
+                          I agree to the <span className="text-blue-700 font-bold underline cursor-pointer" onClick={(e) => { e.preventDefault(); setShowPolicyModal(true); }}>Terms, Information Security Policy & User Guide</span>. *
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
                   <button 
                     type="submit" 
-                    className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg transition-colors cursor-pointer text-xs uppercase tracking-wider"
+                    disabled={mode === 'login' && !acceptedPolicy}
+                    className={`w-full font-bold py-3 rounded-lg transition-colors cursor-pointer text-xs uppercase tracking-wider ${
+                      mode === 'login' && !acceptedPolicy ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-700 hover:bg-blue-800 text-white'
+                    }`}
                   >
                     {mode === 'login' ? 'Authorize Access' : 'Request Password Reset'}
                   </button>
@@ -1591,6 +1648,47 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
       <p className="text-xs text-gray-400 mt-6 flex items-center relative z-10">
         <Lock className="w-3 h-3 mr-1"/> Protected by Central Command Security Protocols
       </p>
+
+      {/* 🟢 POLICY & TERMS MODAL FOR LOGIN/SIGNUP */}
+      {showPolicyModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[85vh]">
+            <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
+              <h3 className="font-extrabold uppercase text-xs tracking-wider">
+                UGANDA POLICE FORCE — KAMPALA METROPOLITAN POLICE (KMP-CSDMS)
+              </h3>
+              <button onClick={() => setShowPolicyModal(false)} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer text-slate-300 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-4 text-xs text-slate-700 leading-relaxed custom-scrollbar bg-slate-50 flex-1">
+              <h4 className="font-black text-sm text-slate-900 uppercase border-b pb-2">Terms and Conditions, User Policy, and System User Guide</h4>
+              <p><strong>1. Acceptance of Terms:</strong> By accessing KMP-CSDMS, you agree to be bound by these Terms and Conditions and operational security directives.</p>
+              <p><strong>2. Authorized Use:</strong> Restricted strictly to authorized personnel of the Uganda Police Force under active deployment status.</p>
+              <p><strong>3. Account Security:</strong> Credentials are non-transferable. Leaving terminals unattended or sharing passwords violates UPF standing orders.</p>
+              <p><strong>4. Data Classification:</strong> All system exports are classified as RESTRICTED / LAW ENFORCEMENT RECORDS, cryptographically watermarked and AES-256 encrypted.</p>
+            </div>
+
+            <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
+              <button 
+                type="button"
+                onClick={() => { 
+                  if (mode === 'signup') {
+                    setSignupData(prev => ({ ...prev, policy_accepted: true }));
+                  } else {
+                    setAcceptedPolicy(true);
+                  }
+                  setShowPolicyModal(false); 
+                }} 
+                className="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow cursor-pointer transition"
+              >
+                I Understand & Accept
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
