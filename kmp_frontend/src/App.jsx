@@ -31,6 +31,8 @@ import SystemAssistant from './SystemAssistant';
 import AICommandConsole from "./AICommandConsole";
 import { authFetch, hasValidSession, getAuthToken, setAuthSession, clearAuthSession } from './api';
 
+
+
 // ====================================================================
 // 1. CONSTANTS & CONFIGURATION
 // ====================================================================
@@ -1598,12 +1600,12 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                       <div className="flex items-start space-x-2">
                         <input 
-                          type="checkbox" 
-                          id="policyAcceptLogin"
-                          required
-                          checked={acceptedPolicy}
-                          onChange={(e) => setAcceptedPolicy(e.target.checked)}
-                          className="mt-0.5 w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer shrink-0"
+                            type="checkbox" 
+                            id="policyAcceptLogin"
+                            required
+                            checked={acceptedPolicy}
+                            onChange={(e) => setAcceptedPolicy(e.target.checked)}
+                            className="mt-0.5 w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer shrink-0"
                         />
                         <label htmlFor="policyAcceptLogin" className="text-xs text-slate-700 font-medium leading-snug cursor-pointer">
                           I agree to the <span className="text-blue-700 font-bold underline cursor-pointer" onClick={(e) => { e.preventDefault(); setShowPolicyModal(true); }}>Terms, Information Security Policy & User Guide</span>. *
@@ -1617,7 +1619,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     disabled={mode === 'login' && !acceptedPolicy}
                     className={`w-full font-bold py-3 rounded-lg transition-colors cursor-pointer text-xs uppercase tracking-wider ${
                       mode === 'login' && !acceptedPolicy ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-700 hover:bg-blue-800 text-white'
-                    }`}
+                  }`}
                   >
                     {mode === 'login' ? 'Authorize Access' : 'Request Password Reset'}
                   </button>
@@ -1625,29 +1627,35 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     <button 
                       type="button" 
                       onClick={() => { setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0); }} 
-                      className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium cursor-pointer"
+                    className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium cursor-pointer"
+                  >
+                    {mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}
+                  </button>
+                  {mode === 'login' && (
+                    <button 
+                      type="button" 
+                      onClick={() => setMode('signup')} 
+                      className="text-sm text-blue-600 font-bold hover:underline cursor-pointer"
                     >
-                      {mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}
+                      Sign Up (Request Access)
                     </button>
-                    {mode === 'login' && (
-                      <button 
-                        type="button" 
-                        onClick={() => setMode('signup')} 
-                        className="text-sm text-blue-600 font-bold hover:underline cursor-pointer"
-                      >
-                        Sign Up (Request Access)
-                      </button>
-                    )}
-                  </div>
-                </form>
-              )}
-            </>
+                  )}
+                </div>
+
+                <div className="text-center mt-6 space-y-1 relative z-10">
+                  <p className="text-xs text-gray-400 flex items-center justify-center">
+                    <Lock className="w-3 h-3 mr-1"/> Protected by Central Command Security Protocols
+                  </p>
+                  <p className="text-[10px] text-slate-500 font-mono tracking-wider uppercase">
+                    © 2026 Uganda Police Force — Kampala Metropolitan Police (KMP-CSDMS)
+                  </p>
+                </div>
+              </form>
+            )}
+          </>
           )}
         </div>
       </div>
-      <p className="text-xs text-gray-400 mt-6 flex items-center relative z-10">
-        <Lock className="w-3 h-3 mr-1"/> Protected by Central Command Security Protocols
-      </p>
 
       {/* 🟢 POLICY & TERMS MODAL FOR LOGIN/SIGNUP */}
       {showPolicyModal && (
@@ -1655,10 +1663,10 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[85vh]">
             <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
               <h3 className="font-extrabold uppercase text-xs tracking-wider">
-                UGANDA POLICE FORCE — KAMPALA METROPOLITAN POLICE (KMP-CSDMS)
+                  UGANDA POLICE FORCE — KAMPALA METROPOLITAN POLICE (KMP-CSDMS)
               </h3>
               <button onClick={() => setShowPolicyModal(false)} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer text-slate-300 hover:text-white">
-                <X size={18} />
+                  <X size={18} />
               </button>
             </div>
             
@@ -1670,22 +1678,22 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
               <p><strong>4. Data Classification:</strong> All system exports are classified as RESTRICTED / LAW ENFORCEMENT RECORDS, cryptographically watermarked and AES-256 encrypted.</p>
             </div>
 
-            <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
+          <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
               <button 
-                type="button"
-                onClick={() => { 
-                  if (mode === 'signup') {
-                    setSignupData(prev => ({ ...prev, policy_accepted: true }));
-                  } else {
-                    setAcceptedPolicy(true);
-                  }
-                  setShowPolicyModal(false); 
-                }} 
-                className="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow cursor-pointer transition"
+                  type="button"
+                  onClick={() => { 
+                    if (mode === 'signup') {
+                      setSignupData(prev => ({ ...prev, policy_accepted: true }));
+                    } else {
+                      setAcceptedPolicy(true);
+                    }
+                    setShowPolicyModal(false); 
+                  }} 
+                  className="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow cursor-pointer transition"
               >
                 I Understand & Accept
               </button>
-            </div>
+          </div>
           </div>
         </div>
       )}

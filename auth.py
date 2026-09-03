@@ -184,7 +184,8 @@ async def login(
         "email": user.email or "",
         "phone": user.phone or "",
         "permissions": user.permissions or {},
-        "profile_photo_path": getattr(user, 'profile_photo_path', '') or ''
+        "profile_photo_path": getattr(user, 'profile_photo_path', '') or '',
+        "policy_accepted": getattr(user, 'policy_accepted', True)
     }
 
 
@@ -210,9 +211,16 @@ async def signup(
     role: str = Form("USER"),
     division: Optional[str] = Form(None),
     profile_photo_path: Optional[str] = Form(None),
+    policy_accepted: bool = Form(False),
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(database.get_db)
 ):
+    if not policy_accepted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Error: You must accept the Terms, Information Security Policy & User Guide to register."
+        )
+
     if len(password) > 72:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -275,7 +283,9 @@ async def signup(
         profile_photo_path=uploaded_photo_url or "",
         is_approved=False,
         permissions={},
-        comments=None
+        comments=None,
+        policy_accepted=True,
+        policy_accepted_at=datetime.utcnow()
     )
 
     try:
