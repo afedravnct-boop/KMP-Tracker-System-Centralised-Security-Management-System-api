@@ -269,19 +269,25 @@ async def process_tactical_query(
                 config=types.GenerateContentConfig(system_instruction=system_rules)
             )
         except Exception as primary_err:
-            if "503" in str(primary_err) or "UNAVAILABLE" in str(primary_err) or "404" in str(primary_err):
-                print("Gemini 3.6 is experiencing high demand. Triggering automatic fallback to 1.5-flash...")
-                used_model = 'gemini-1.5-flash'
+            print(f"Primary model {used_model} encountered an issue: {primary_err}. Falling back to gemini-3.5-flash...")
+            used_model = 'gemini-3.5-flash'
+            try:
+                response = client.models.generate_content(
+                    model=used_model,
+                    contents=tactical_context,
+                    config=types.GenerateContentConfig(system_instruction=system_rules)
+                )
+            except Exception as secondary_err:
+                print(f"Fallback model gemini-3.5-flash failed: {secondary_err}. Falling back to stable gemini-2.5-flash...")
+                used_model = 'gemini-2.5-flash'
                 try:
                     response = client.models.generate_content(
                         model=used_model,
                         contents=tactical_context,
                         config=types.GenerateContentConfig(system_instruction=system_rules)
                     )
-                except Exception as fallback_err:
-                    raise Exception(f"All Google AI servers are currently overloaded. Please wait a moment and try again. Details: {str(fallback_err)}")
-            else:
-                raise primary_err
+                except Exception as final_err:
+                    raise Exception(f"All Google AI fallback servers are currently unavailable. Details: {str(final_err)}")
 
         try:
             LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
