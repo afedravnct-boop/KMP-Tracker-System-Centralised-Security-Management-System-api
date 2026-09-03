@@ -109,7 +109,9 @@ export const canViewGlobalJurisdiction = (user) => {
   if (user.role === 'SUPER_ADMIN') return true;
   if (['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((user.region || '').trim().toUpperCase())) return true;
   
-  return user.permissions?.view_global_roster === true || user.permissions?.global_observer === true;
+  const perms = user.permissions || {};
+  // 🟢 Explicitly check both global roster and global observer permissions
+  return perms.view_global_roster === true || perms.global_observer === true;
 };
 
 export const formatEATDateTime = (dateStr) => {

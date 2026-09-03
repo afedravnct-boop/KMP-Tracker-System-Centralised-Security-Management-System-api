@@ -70,6 +70,18 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
 
+{['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role?.toUpperCase()) && (
+    <button
+      type="button"
+      onClick={handleSystemMaintenanceToggle}
+      className="bg-amber-950 border border-amber-600 text-amber-200 hover:bg-amber-900 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center justify-center transition cursor-pointer shadow-xs"
+      title="Configure System, Regional, Station, or Module Lockdowns"
+    >
+      <ShieldAlert size={13} className="mr-1.5" />
+      System Maintenance Lockdown
+    </button>
+  )}
+
   // AI Kill Switch State
   const [isDbKillActive, setIsDbKillActive] = useState(false);
   const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
@@ -737,6 +749,8 @@ useEffect(() => {
             <><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
           ) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
         </select>
+
+
 
         <button
           onClick={() => {
