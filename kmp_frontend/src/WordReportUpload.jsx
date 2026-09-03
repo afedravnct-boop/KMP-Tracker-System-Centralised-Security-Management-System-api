@@ -9,7 +9,7 @@ import * as XLSX from 'xlsx';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
   "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
   "POLICE HEADQUARTERS": ["NAGURU"]
@@ -233,13 +233,17 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
         setPreviewModal(prev => ({ ...prev, isOpen: false, loading: false }));
         setTimeout(() => window.URL.revokeObjectURL(blobUrl), 15000);
       } 
-      // 2. EXCEL SPREADSHEETS (.XLSX, .XLS, .CSV) - PARSE WITH SHEETJS TO LIVE HTML TABLES
-      else if (['xlsx', 'xls', 'csv'].some(ext => lowerName.endsWith(ext))) {
+      // 2. EXCEL SPREADSHEETS (.XLSX, .XLS, .CSV) - FULL SHEETJS TABLE PARSING
+      else if (['xlsx', 'xls', 'csv'].some(ext => lowerName.endsWith(ext)) || blob.type.includes('spreadsheet') || blob.type.includes('excel')) {
         const workbook = XLSX.read(arrayBuffer, { type: 'array' });
         const sheetsData = {};
+        
         workbook.SheetNames.forEach(name => {
           const worksheet = workbook.Sheets[name];
-          const htmlTable = XLSX.utils.sheet_to_html(worksheet, { header: 1 });
+          let htmlTable = XLSX.utils.sheet_to_html(worksheet, { header: '' });
+          htmlTable = htmlTable.replace('<table', '<table class="border-collapse w-full text-xs font-sans shadow-sm"');
+          htmlTable = htmlTable.replace(/<th/g, '<th class="bg-slate-900 text-white font-bold p-2.5 border border-slate-300 text-left sticky top-0 z-10"');
+          htmlTable = htmlTable.replace(/<td/g, '<td class="p-2 border border-slate-200 text-slate-800 bg-white"');
           sheetsData[name] = htmlTable;
         });
 
@@ -254,14 +258,19 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
           loading: false
         });
       }
-      // 3. WORD DOCUMENTS (.DOCX) - PARSE WITH MAMMOTH TO HTML
-      else if (lowerName.endsWith('.docx')) {
+      // 3. WORD DOCUMENTS (.DOCX) - MAMMOTH HTML CONVERSION WITH CLEAN STYLING
+      else if (lowerName.endsWith('.docx') || blob.type.includes('word')) {
         const result = await mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
+        let cleanHtml = result.value || "<p>Document is empty or cannot be rendered.</p>";
         
+        cleanHtml = cleanHtml.replace(/<table/g, '<table class="border-collapse w-full border border-slate-300 my-4 text-slate-800"');
+        cleanHtml = cleanHtml.replace(/<th/g, '<th class="bg-slate-100 border border-slate-300 p-2 font-bold text-left"');
+        cleanHtml = cleanHtml.replace(/<td/g, '<td class="border border-slate-300 p-2"');
+
         setPreviewModal({ 
           isOpen: true, 
           title: docName, 
-          content: result.value || "Document is empty or cannot be rendered.", 
+          content: cleanHtml, 
           isHtml: true, 
           isExcel: false,
           excelSheets: {},
@@ -270,26 +279,13 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
         });
       } 
       // 4. PLAIN TEXT FALLBACK
-      else if (lowerName.endsWith('.txt')) {
+      else {
         const textDecoder = new TextDecoder('utf-8');
         const textContent = textDecoder.decode(arrayBuffer);
         setPreviewModal({
           isOpen: true,
           title: docName,
           content: textContent,
-          isHtml: false,
-          isExcel: false,
-          excelSheets: {},
-          activeSheet: '',
-          loading: false
-        });
-      }
-      // 5. UNSUPPORTED FORMAT FALLBACK
-      else {
-        setPreviewModal({
-          isOpen: true,
-          title: docName,
-          content: `[Preview Unavailable]\n\nThis file format (${lowerName.split('.').pop().toUpperCase()}) cannot be rendered directly inside the live reader matrix.\n\nPlease use the 'Download' action button to view it using Microsoft Office.`,
           isHtml: false,
           isExcel: false,
           excelSheets: {},
@@ -419,7 +415,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                   </div>
                 )}
                 <div 
-                  className="flex-1 overflow-auto p-4 sm:p-6 bg-white text-slate-900 custom-scrollbar excel-grid-container"
+                  className="flex-1 overflow-auto p-4 sm:p-6 bg-white text-slate-900 custom-scrollbar"
                   dangerouslySetInnerHTML={{ __html: previewModal.excelSheets[previewModal.activeSheet] || '<p class="p-6 text-gray-500">Empty Sheet</p>' }}
                 />
               </div>

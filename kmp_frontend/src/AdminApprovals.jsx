@@ -70,18 +70,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
 
-{['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role?.toUpperCase()) && (
-    <button
-      type="button"
-      onClick={handleSystemMaintenanceToggle}
-      className="bg-amber-950 border border-amber-600 text-amber-200 hover:bg-amber-900 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center justify-center transition cursor-pointer shadow-xs"
-      title="Configure System, Regional, Station, or Module Lockdowns"
-    >
-      <ShieldAlert size={13} className="mr-1.5" />
-      System Maintenance Lockdown
-    </button>
-  )}
-
   // AI Kill Switch State
   const [isDbKillActive, setIsDbKillActive] = useState(false);
   const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
@@ -117,7 +105,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
   const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
 
-useEffect(() => {
+  useEffect(() => {
     if (canViewGlobalActive || isSuperAdminOrTopCommand) {
       setFilterRegion('ALL REGIONS');
       setFilterStation('ALL STATIONS');
@@ -125,62 +113,61 @@ useEffect(() => {
   }, [canViewGlobalActive, isSuperAdminOrTopCommand]);
 
   const handleSystemMaintenanceToggle = async () => {
-  // 1. Prompt for lockdown scope
-  const scopeChoice = window.prompt(
-    "Select Lockdown Scope:\n1 - Force-Wide System\n2 - Specific Region\n3 - Specific Station\n4 - Specific Module/Page\n\nEnter number (1-4):",
-    "1"
-  );
-  if (!scopeChoice) return;
+    const scopeChoice = window.prompt(
+      "Select Lockdown Scope:\n1 - Force-Wide System\n2 - Specific Region\n3 - Specific Station\n4 - Specific Module/Page\n\nEnter number (1-4):",
+      "1"
+    );
+    if (!scopeChoice) return;
 
-  let lockdownType = "SYSTEM";
-  let targetName = "GLOBAL";
-  let reason = "";
+    let lockdownType = "SYSTEM";
+    let targetName = "GLOBAL";
+    let reason = "";
 
-  if (scopeChoice === "1") {
-    lockdownType = "SYSTEM";
-    targetName = "GLOBAL";
-  } else if (scopeChoice === "2") {
-    lockdownType = "REGION";
-    targetName = window.prompt("Enter exact Region Name (e.g. KMP NORTH):", "KMP NORTH")?.trim().toUpperCase();
-    if (!targetName) return;
-  } else if (scopeChoice === "3") {
-    lockdownType = "STATION";
-    targetName = window.prompt("Enter exact Station Name (e.g. KAWEMPE):", "KAWEMPE")?.trim().toUpperCase();
-    if (!targetName) return;
-  } else if (scopeChoice === "4") {
-    lockdownType = "MODULE";
-    targetName = window.prompt("Enter module key (e.g. acc_crime, ai_console):", "acc_crime")?.trim().toLowerCase();
-    if (!targetName) return;
-  } else {
-    return alert("Invalid selection.");
-  }
-
-  const rawReason = window.prompt(`State operational reason for locking down [${lockdownType}: ${targetName}]:`);
-  if (rawReason === null) return;
-  reason = stripHtmlTags(rawReason || "Command Maintenance");
-
-  try {
-    const res = await authFetch('/api/v1/admin/toggle-maintenance', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        lockdown_type: lockdownType,
-        target_name: targetName,
-        reason: reason
-      })
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      alert(`✅ Lockdown Executed Successfully:\n${data.message || 'Restrictions updated.'}`);
+    if (scopeChoice === "1") {
+      lockdownType = "SYSTEM";
+      targetName = "GLOBAL";
+    } else if (scopeChoice === "2") {
+      lockdownType = "REGION";
+      targetName = window.prompt("Enter exact Region Name (e.g. KMP NORTH):", "KMP NORTH")?.trim().toUpperCase();
+      if (!targetName) return;
+    } else if (scopeChoice === "3") {
+      lockdownType = "STATION";
+      targetName = window.prompt("Enter exact Station Name (e.g. KAWEMPE):", "KAWEMPE")?.trim().toUpperCase();
+      if (!targetName) return;
+    } else if (scopeChoice === "4") {
+      lockdownType = "MODULE";
+      targetName = window.prompt("Enter module key (e.g. acc_crime, ai_console):", "acc_crime")?.trim().toLowerCase();
+      if (!targetName) return;
     } else {
-      const err = await res.json().catch(() => ({}));
-      alert(`❌ Failed to apply lockdown: ${err.detail || 'Server error'}`);
+      return alert("Invalid selection.");
     }
-  } catch (err) {
-    alert("❌ Error communicating with the command server.");
-  }
-};
+
+    const rawReason = window.prompt(`State operational reason for locking down [${lockdownType}: ${targetName}]:`);
+    if (rawReason === null) return;
+    reason = stripHtmlTags(rawReason || "Command Maintenance");
+
+    try {
+      const res = await authFetch('/api/v1/admin/toggle-maintenance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lockdown_type: lockdownType,
+          target_name: targetName,
+          reason: reason
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        alert(`✅ Lockdown Executed Successfully:\n${data.message || 'Restrictions updated.'}`);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`❌ Failed to apply lockdown: ${err.detail || 'Server error'}`);
+      }
+    } catch (err) {
+      alert("❌ Error communicating with the command server.");
+    }
+  };
 
   // 🟢 AI Kill Switch Handler
   const handleKillSwitchToggle = async () => {
@@ -750,8 +737,6 @@ useEffect(() => {
           ) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
         </select>
 
-
-
         <button
           onClick={() => {
             if (activeTab === 'approvals') fetchPendingUsers();
@@ -765,6 +750,18 @@ useEffect(() => {
         >
           <RefreshCw size={13} className="mr-1.5" /> Refresh Queue
         </button>
+
+        {['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role?.toUpperCase()) && (
+          <button
+            type="button"
+            onClick={handleSystemMaintenanceToggle}
+            className="bg-amber-950 border border-amber-600 text-amber-200 hover:bg-amber-900 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center justify-center transition cursor-pointer shadow-xs"
+            title="Configure System, Regional, Station, or Module Lockdowns"
+          >
+            <ShieldAlert size={13} className="mr-1.5" />
+            System Maintenance Lockdown
+          </button>
+        )}
 
         {currentUser?.role === 'SUPER_ADMIN' && (
           <button
