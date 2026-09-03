@@ -294,7 +294,12 @@ def require_admin(current_user: models.Users = Depends(get_current_user)):
 def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     perms = current_user.permissions or {}
-    if user_role not in ["ADMIN", "SUPER_ADMIN", "RPC"] and not perms.get("export_data", False):
+    if (
+        user_role not in ["ADMIN", "SUPER_ADMIN", "RPC"] and 
+        not perms.get("export_data", False) and 
+        not perms.get("global_observer", False) and
+        not perms.get("view_global_roster", False)
+    ):
         raise HTTPException(status_code=403, detail="Clearance Denied: Data Export Privileges Required.")
     return current_user
 
@@ -319,6 +324,23 @@ def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, chang
     except Exception as e:
         print(f"Audit Log Failed: {e}")
         db.rollback()
+
+def check_is_global_user(user) -> bool:
+    if not user:
+        return False
+    if user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC']:
+        return True
+    if str(user.region or "").strip().upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']:
+        return True
+        
+    perms = user.permissions or {}
+    if isinstance(perms, str):
+        try:
+            perms = json.loads(perms)
+        except:
+            perms = {}
+            
+    return perms.get("global_observer") is True or perms.get("view_global_roster") is True
 
 # ==========================================
 # 4. USERS, HEARTBEAT & ACTIVITY LOGS
@@ -736,11 +758,18 @@ def get_consolidated_ledger(
         EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
         NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
 
-        crimes = db.query(CrimeModel).all() if CrimeModel else []
-        stats = db.query(StatsModel).all() if StatsModel else []
-        stories = db.query(StoryModel).all() if StoryModel else []
-        establishments = db.query(EstModel).all() if EstModel else []
-        nominal_roll = db.query(NomModel).all() if NomModel else []
+        is_global = check_is_global_user(current_user) # 🟢 Evaluates global observer permission
+
+        def apply_scope(query, ModelClass):
+            if not is_global and hasattr(ModelClass, 'region'):
+                return query.filter(ModelClass.region == current_user.region)
+            return query
+
+        crimes = apply_scope(db.query(CrimeModel), CrimeModel).all() if CrimeModel else []
+        stats = apply_scope(db.query(StatsModel), StatsModel).all() if StatsModel else []
+        stories = apply_scope(db.query(StoryModel), StoryModel).all() if StoryModel else []
+        establishments = apply_scope(db.query(EstModel), EstModel).all() if EstModel else []
+        nominal_roll = apply_scope(db.query(NomModel), NomModel).all() if NomModel else []
         
         return {
             "status": "success",
@@ -982,7 +1011,16 @@ def export_hr_ledger(db: Session = Depends(get_db), current_user: models.Users =
 @app.get("/api/v1/reports/export")
 def export_master_database(timeframe: str = "all", scope: Optional[str] = None, value: Optional[str] = None, db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):
     try:
-        is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
+        user_role = (current_user.role or "").upper()
+        perms = current_user.permissions or {}
+        
+        # 🟢 Unified global scope check supporting Global Observer & Roster permissions
+        is_global = (
+            user_role in ['SUPER_ADMIN', 'ADMIN', 'RPC', 'DEPUTY COMMANDER'] or
+            (current_user.region or "").strip().upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'] or
+            perms.get("view_global_roster") is True or
+            perms.get("global_observer") is True
+        )
         
         CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
         StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', getattr(models, 'Stats', None)))
@@ -996,6 +1034,30 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
 
         def get_full_dataframe(ModelClass):
             if not ModelClass: 
+                return pd.DataFrame()
+            try:
+                query = db.query(ModelClass)
+                if not is_global and hasattr(ModelClass, 'region'): 
+                    query = query.filter(ModelClass.region == current_user.region)
+                
+                records = query.all()
+                if not records:
+                    return pd.DataFrame()
+                
+                data = []
+                for r in records:
+                    row_dict = {}
+                    for col in r.__table__.columns.keys():
+                        val = getattr(r, col, '')
+                        if isinstance(val, datetime):
+                            val = val.strftime("%Y-%m-%d %H:%M")
+                        elif isinstance(val, str) and col in ['narrative', 'comment', 'message', 'details', 'archive_reason']:
+                            val = clean_html_for_export(val)
+                        row_dict[col] = val if val is not None else ''
+                    data.append(row_dict)
+                return pd.DataFrame(data)
+            except Exception as ex:
+                print(f"DataFrame fetch error for {ModelClass}: {ex}")
                 return pd.DataFrame()
             try:
                 query = db.query(ModelClass)
@@ -1152,6 +1214,55 @@ def export_establishments_summary(db: Session = Depends(get_db), current_user = 
     except Exception as e:
         print(f"HR export error: {e}")
         raise HTTPException(status_code=500, detail=f"HR export failed: {str(e)}")
+
+class LockdownPayload(BaseModel):
+    lockdown_type: str # "SYSTEM", "REGION", "STATION", "MODULE"
+    target_name: str   # "GLOBAL", "KMP NORTH", "KAWEMPE", "acc_crime"
+    reason: str
+
+@app.post("/api/v1/admin/toggle-maintenance")
+def toggle_granular_maintenance(
+    payload: LockdownPayload,
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    if current_user.role != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Clearance Denied: Super Admin status required for system lockdowns.")
+
+    try:
+        # Construct unique config key for this specific target
+        config_key = f"lockdown_{payload.lockdown_type.lower()}_{payload.target_name.lower().replace(' ', '_')}"
+        
+        # Check if already exists, then toggle or update state
+        config_entry = db.query(models.SystemConfig).filter(
+            models.SystemConfig.config_key == config_key
+        ).first()
+
+        current_status = False
+        if config_entry:
+            # Toggle current state
+            current_status = str(config_entry.config_value).strip().upper() == "TRUE"
+            new_status = "FALSE" if current_status else "TRUE"
+            config_entry.config_value = new_status
+        else:
+            new_status = "TRUE"
+            new_config = models.SystemConfig(
+                config_key=config_key,
+                config_value=new_status,
+                description=f"Lockdown reason: {payload.reason}"
+            )
+            db.add(new_config)
+
+        db.commit()
+        
+        action_text = "ACTIVATED" if new_status == "TRUE" else "LIFTED"
+        return {
+            "status": "success",
+            "message": f"Lockdown {action_text} for [{payload.lockdown_type}: {payload.target_name}]. Reason: {payload.reason}"
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to execute lockdown toggle: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run("api_backend:app", host="0.0.0.0", port=8000, reload=True)
