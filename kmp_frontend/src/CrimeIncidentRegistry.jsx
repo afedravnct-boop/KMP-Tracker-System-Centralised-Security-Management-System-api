@@ -215,10 +215,11 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         const combinedText = `${offenceText} ${narrativeText}`;
 
         const excludedTerms = [
-          'accident', 'tar', 'collision', 'hit and run', 'overturned', 'crash', 
-          'boda boda', 'motorcycle', 'motor cycle', 'bajaj', 'tvs', 'boxer', 'scooter', 'traffic', 'murder', 'robbery'
+          'murder', 'homicide', 'killed', 'death', 'accident', 'tar', 'collision', 
+          'hit and run', 'overturned', 'crash', 'boda boda', 'motorcycle', 'motor cycle', 
+          'bajaj', 'tvs', 'boxer', 'scooter', 'traffic', 'aggravated robbery', 'defilement', 'rape'
         ];
-        if (excludedTerms.some(term => combinedText.includes(term))) {
+        if (excludedTerms.some(term => offenceText.includes(term) || combinedText.includes(term))) {
           return false;
         }
 
@@ -258,7 +259,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
           'maize theft', 
           'matooke theft', 
           'theft of matooke', 
-          'bribery to receive farm imports', 
+          'bribery to receive farm inputs', 
           'extortion of farmers',
           'farm break-in', 
           'farm robbery', 
