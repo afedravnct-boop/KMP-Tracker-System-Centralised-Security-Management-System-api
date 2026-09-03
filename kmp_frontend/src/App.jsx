@@ -30,6 +30,7 @@ import SuccessStories from './SuccessStories';
 import SystemAssistant from './SystemAssistant';
 import AICommandConsole from "./AICommandConsole";
 import { authFetch, hasValidSession, getAuthToken, setAuthSession, clearAuthSession } from './api';
+import { FullUserPolicyText } from './policyContent';
 
 
 
