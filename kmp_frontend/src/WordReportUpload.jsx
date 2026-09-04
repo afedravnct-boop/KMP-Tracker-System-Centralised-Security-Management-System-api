@@ -188,6 +188,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   };
 
   // 🟢 ORIGINAL MICROSOFT OFFICE ONLINE VIEWER LOGIC RESTORED (AUTHENTICATED BLOB TO OBJECT URL PASSED TO OFFICE VIEWER)
+  // 🟢 AUTHENTICATED STREAM NATIVE BROWSER VIEWER
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document') => {
     setActionLoading(`read-${docId}`);
     try {
@@ -203,14 +204,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       if (blob.size === 0) throw new Error("Retrieved document is empty (0 bytes).");
 
       const blobUrl = window.URL.createObjectURL(blob);
-      const lowerName = (docName || '').toLowerCase();
-
-      if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
-        window.open(blobUrl, '_blank');
-      } else {
-        const officeViewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(blobUrl)}`;
-        window.open(officeViewerUrl, '_blank');
-      }
+      window.open(blobUrl, '_blank');
 
       setTimeout(() => window.URL.revokeObjectURL(blobUrl), 120000);
     } catch (err) {
