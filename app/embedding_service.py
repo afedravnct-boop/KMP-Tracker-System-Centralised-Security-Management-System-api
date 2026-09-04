@@ -4,6 +4,7 @@ from typing import List, Optional
 from datetime import datetime
 import pytz
 from google import genai
+from google.genai.types import EmbedContentConfig
 from sqlalchemy.orm import Session
 
 # Import models & db helpers
@@ -14,15 +15,17 @@ api_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key) if api_key else None
 
 def get_embedding_vector(text: str) -> List[float]:
-    """Generates a 768-dim embedding vector via Gemini text-embedding-004."""
+    """Generates a 768-dim embedding vector via Gemini gemini-embedding-001."""
     clean_text = text.replace("\n", " ").strip()
     if not clean_text or not client:
         return [0.0] * 768
         
     try:
         response = client.models.embed_content(
-            model="text-embedding-004",
-            contents=clean_text
+            model="gemini-embedding-001", # 🟢 FIXED: Updated to the new active model
+            contents=clean_text,
+            # 🟢 FIXED: Compress the 3072-dim default back down to your 768-dim requirement
+            config=EmbedContentConfig(output_dimensionality=768) 
         )
         return response.embeddings[0].values
     except Exception as e:

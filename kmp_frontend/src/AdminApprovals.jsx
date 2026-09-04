@@ -782,12 +782,15 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5 relative z-20">
         
+        {/* Left Side: Clearly Labeled Scope Filters */}
         <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-100 w-full xl:w-auto">
           <span className="text-xs font-extrabold text-blue-900 uppercase flex items-center tracking-wider mr-1">
             <Filter size={14} className="mr-1.5 text-blue-600" /> Filter Scope:
           </span>
 
           <select 
+            id="filterRegion"
+            name="filterRegion"
             value={filterRegion} 
             onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} 
             disabled={!canViewGlobalActive} 
@@ -799,6 +802,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           </select>
 
           <select 
+            id="filterStation"
+            name="filterStation"
             value={filterStation} 
             onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} 
             disabled={!canViewGlobalActive && !['RPC', 'Deputy Commander'].includes(currentUser?.role)} 
@@ -1203,6 +1208,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
                         <td className="p-2.5 text-center sticky left-[240px] z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[120px]">
                           <select 
+                            id={`role-select-${u.fnum}`}     // 🟢 ADDED
+                            name={`role_select_${u.fnum}`}   // 🟢 ADDED
                             value={u.role || 'USER'}
                             onChange={(e) => handleRoleTierChange(u.fnum, stripHtmlTags(e.target.value))}
                             disabled={isRoleSelectDisabled}
@@ -1282,6 +1289,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                               <div className="relative inline-flex items-center justify-center">
                                 <input 
                                   type="checkbox" 
+                                  id={`clearance-${u.fnum}-${col.key}`}   // 🟢 ADDED
+                                  name={`clearance_${u.fnum}_${col.key}`} // 🟢 ADDED
                                   checked={isSuperAdmin || Boolean(p[col.key])} 
                                   disabled={isDisabled}
                                   title={lockTitle}
@@ -1473,6 +1482,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               <p className="text-sm font-bold text-slate-700 leading-relaxed">
                 You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${stripHtmlTags(revokePrompt.permissionKey)}"`} clearance</span> for this officer. By command directive, you must state an official operational reason to proceed.
               </p>
+              id="revocationReason"     // 🟢 ADDED
+              name="revocationReason"   // 🟢 ADDED
               <textarea 
                 value={revokePrompt.reason}
                 onChange={(e) => setRevokePrompt({...revokePrompt, reason: stripHtmlTags(e.target.value)})}
