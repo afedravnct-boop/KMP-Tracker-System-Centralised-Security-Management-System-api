@@ -166,10 +166,13 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-  // 🟢 STRICT ROUTING READ PATH
-  // 🟢 STRICT ROUTING READ PATH: Uses Microsoft Viewer for robust S3 URL handling
+// 🟢 STRICT ROUTING READ PATH: With Mobile-Safe Synchronous Tab Opening
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document', categoryKey = 'weekly_report') => {
     setActionLoading(`read-${docId}`);
+    
+    // 🟢 MOBILE FIX: Open the tab instantly BEFORE the network request to bypass popup blockers
+    const mobileSafeWindow = window.open('about:blank', '_blank');
+
     try {
       let endpoint = `/api/v1/reports/download/${docId}?stamp=true&return_url=true&category=${categoryKey}`;
       
@@ -193,15 +196,16 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
       const lowerName = (docName || '').toLowerCase();
       
-      // Open PDFs and Images natively
+      // 🟢 Redirect the standby tab to the generated document link
       if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
-        window.open(s3Url, '_blank');
+        mobileSafeWindow.location.href = s3Url;
       } else {
-        // 🟢 FIXED: Switch back to Microsoft Office Viewer to prevent the Google "limited connectivity" timeout
         const officeViewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(s3Url)}`;
-        window.open(officeViewerUrl, '_blank');
+        mobileSafeWindow.location.href = officeViewerUrl;
       }
     } catch (err) {
+      // 🟢 Close the blank tab if the request failed to prevent a dead screen
+      if (mobileSafeWindow) mobileSafeWindow.close();
       alert(`Reader Error: ${err.message}`);
     } finally {
       setActionLoading(null);

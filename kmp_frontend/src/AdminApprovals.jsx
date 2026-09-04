@@ -16,6 +16,9 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+// 🟢 TOP TIER ROLES (RESTRICTED TO SUPER ADMIN ONLY)
+const TOP_TIER_ROLES = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'SYSTEM_ADMIN'];
+
 // 🟢 EXPANDED SUPER CONTROL PANEL MODULES
 const CLEARANCE_MATRIX_COLS = [
   { key: 'global_observer', label: 'Global Observer (Read-Only)', color: 'fuchsia', bg: 'bg-fuchsia-50/50' },
@@ -364,6 +367,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser) return;
 
+    // 🟢 TOP TIER PROTECTION
+    if (TOP_TIER_ROLES.includes(targetUser.role) && currentUser?.role !== 'SUPER_ADMIN') {
+      alert("SECURITY OVERRIDE DENIED: You do not have authority to bulk-update a top-tier administrator.");
+      return;
+    }
+
     const newPermissions = { ...(targetUser.permissions || {}) };
     const colsToProcess = CLEARANCE_MATRIX_COLS.filter(col => !(col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN'));
 
@@ -395,6 +404,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser) return;
+
+    // 🟢 TOP TIER PROTECTION
+    if (TOP_TIER_ROLES.includes(targetUser.role) && currentUser?.role !== 'SUPER_ADMIN') {
+      alert("SECURITY OVERRIDE DENIED: You do not have authority to modify the clearance of a top-tier administrator.");
+      return;
+    }
 
     let locks = targetUser.permissions?.super_admin_locks || {};
 
@@ -483,6 +498,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser) return;
 
+    // 🟢 TOP TIER PROTECTION
+    if (TOP_TIER_ROLES.includes(targetUser.role) && currentUser?.role !== 'SUPER_ADMIN') {
+      alert(`SECURITY OVERRIDE DENIED: You do not have authority to modify the clearance of a ${targetUser.role.replace(/_/g, ' ')}.`);
+      return;
+    }
+
     if (value === true && !isSuperAdminOrTopCommand && targetUser.permissions?.super_admin_locks?.[permissionKey]) {
       alert("SECURITY OVERRIDE DENIED: This clearance was locked by High Command.");
       return;
@@ -544,6 +565,17 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser) return;
 
+    // 🟢 TOP TIER STRICT HIERARCHY PROTECTION
+    if (TOP_TIER_ROLES.includes(targetUser.role) && currentUser?.role !== 'SUPER_ADMIN') {
+      alert(`SECURITY OVERRIDE DENIED: You do not have authority to modify the clearance of a ${targetUser.role.replace(/_/g, ' ')}.`);
+      return;
+    }
+
+    if (TOP_TIER_ROLES.includes(newRole) && currentUser?.role !== 'SUPER_ADMIN') {
+      alert(`SECURITY OVERRIDE DENIED: Only a SUPER ADMIN can grant ${newRole.replace(/_/g, ' ')} clearance.`);
+      return;
+    }
+
     if (newRole !== 'REVOKED' && targetUser.role === 'REVOKED' && !isSuperAdminOrTopCommand && targetUser.permissions?.revoked_by === 'SUPER_ADMIN') {
       alert("SECURITY OVERRIDE DENIED: This access was revoked by a Super Admin.");
       return;
@@ -586,7 +618,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
   };
 
-  // 🟢 APPROVE ACCESS HANDLER
+  // 🟢 APPROVE ACCESS HANDLER WITH TOP-TIER DOWNGRADE PROTECTION
   const handleApproveUser = async (userToApprove) => {
     const fnum = typeof userToApprove === 'object' ? userToApprove.fnum : userToApprove;
     setIsProcessingAction(true);
@@ -594,11 +626,23 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const cleanFnum = stripHtmlTags(fnum);
       const safeFnum = encodeURIComponent(cleanFnum.trim());
 
+      let finalRole = typeof userToApprove === 'object' ? userToApprove.role || 'USER' : 'USER';
+
+      // 🟢 Intercept non-super admins trying to approve top-tier requests
+      if (TOP_TIER_ROLES.includes(finalRole) && currentUser?.role !== 'SUPER_ADMIN') {
+          const proceed = window.confirm(`SECURITY HALT: This officer requested [${finalRole.replace(/_/g, ' ')}] clearance, which can only be authorized by a SUPER ADMIN.\n\nWould you like to approve them with standard [USER] clearance instead?`);
+          if (!proceed) {
+              setIsProcessingAction(false);
+              return;
+          }
+          finalRole = 'USER';
+      }
+
       const response = await authFetch(`/api/v1/users/${safeFnum}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          role: typeof userToApprove === 'object' ? userToApprove.role || 'USER' : 'USER',
+          role: finalRole,
           is_approved: true 
         })
       });
@@ -706,94 +750,145 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   return (
-    <div className="p-4 max-w-[1800px] mx-auto space-y-4 relative z-10 animate-in fade-in duration-300">
-      <div className="text-center mb-4 flex flex-col items-center">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-14 h-14 mb-2 object-contain contrast-200 brightness-75 drop-shadow-xs" onError={(e) => e.target.style.display = 'none'} />
-        <h1 className="text-2xl font-black text-slate-900 tracking-tight">Access & Command Approvals</h1>
-        <h3 className="text-[11px] text-slate-500 mt-0.5 font-medium">Review pending officer signups, granular clearance tiers, HR transfers, and Audit Logs.</h3>
+    <div className="p-4 max-w-[1800px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
+      
+      {/* 🟢 CLEANED UP HEADER */}
+      <div className="bg-slate-900 text-white px-6 py-5 rounded-2xl shadow-lg flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center space-x-4">
+          <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 object-contain contrast-200 brightness-110 drop-shadow-md" onError={(e) => e.target.style.display = 'none'} />
+          <div>
+            <h1 className="text-xl font-black tracking-wide uppercase flex items-center">
+              <Shield className="w-5 h-5 mr-2 text-blue-400" /> Access & Command Approvals
+            </h1>
+            <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider font-semibold">
+              Review officer signups, granular clearance tiers, transfers, and audit logs.
+            </p>
+          </div>
+        </div>
       </div>
 
-      {/* Global Filters & Control Ribbon */}
-      <div className="flex flex-col sm:flex-row justify-center gap-2 mb-3">
-        <select 
-          value={filterRegion} 
-          onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} 
-          disabled={!canViewGlobalActive} 
-          className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
-        >
-          {canViewGlobalActive ? (
-            <><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY || {}).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-          ) : <option value={currentUser?.region}>{stripHtmlTags(currentUser?.region)}</option>}
-        </select>
+      {/* 🟢 NEW: CLEARLY LABELED FILTER & ACTION RIBBON */}
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5 relative z-20">
+        
+        {/* Left Side: Clearly Labeled Scope Filters */}
+        <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-100 w-full xl:w-auto">
+          <span className="text-xs font-extrabold text-blue-900 uppercase flex items-center tracking-wider mr-1">
+            <Filter size={14} className="mr-1.5 text-blue-600" /> Filter Scope:
+          </span>
 
-        <select 
-          value={filterStation} 
-          onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} 
-          disabled={!canViewGlobalActive && !['RPC', 'Deputy Commander'].includes(currentUser?.role)} 
-          className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs shadow-xs bg-white disabled:bg-slate-100 font-bold text-blue-800 outline-none focus:border-blue-500 cursor-pointer"
-        >
-          {canViewGlobalActive || ['RPC', 'Deputy Commander'].includes(currentUser?.role) ? (
-            <><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
-          ) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
-        </select>
+          <select 
+            value={filterRegion} 
+            onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} 
+            disabled={!canViewGlobalActive} 
+            className="border border-slate-300 rounded-md p-2 text-xs shadow-sm bg-white disabled:bg-slate-100 font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer min-w-[180px]"
+          >
+            {canViewGlobalActive ? (
+              <><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY || {}).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+            ) : <option value={currentUser?.region}>{stripHtmlTags(currentUser?.region)}</option>}
+          </select>
 
-        <button
-          onClick={() => {
-            if (activeTab === 'approvals') fetchPendingUsers();
-            else if (activeTab === 'matrix') fetchAllSystemUsers();
-            else if (activeTab === 'requests') fetchModRequests();
-            else if (activeTab === 'logs') fetchAuditLogs();
-            else if (activeTab === 'resets') fetchResets();
-          }}
-          className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center justify-center transition cursor-pointer shadow-xs"
-          title="Refresh Current Queue"
+          <select 
+            value={filterStation} 
+            onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} 
+            disabled={!canViewGlobalActive && !['RPC', 'Deputy Commander'].includes(currentUser?.role)} 
+            className="border border-slate-300 rounded-md p-2 text-xs shadow-sm bg-white disabled:bg-slate-100 font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer min-w-[200px]"
+          >
+            {canViewGlobalActive || ['RPC', 'Deputy Commander'].includes(currentUser?.role) ? (
+              <><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
+            ) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
+          </select>
+        </div>
+
+        {/* Right Side: High Command Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
+          <button
+            onClick={() => {
+              if (activeTab === 'approvals') fetchPendingUsers();
+              else if (activeTab === 'matrix') fetchAllSystemUsers();
+              else if (activeTab === 'requests') fetchModRequests();
+              else if (activeTab === 'logs') fetchAuditLogs();
+              else if (activeTab === 'resets') fetchResets();
+            }}
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm"
+            title="Refresh Current Queue"
+          >
+            <RefreshCw size={14} className="mr-2 text-blue-600" /> Sync Queue
+          </button>
+
+          {['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role?.toUpperCase()) && (
+            <button
+              type="button"
+              onClick={handleSystemMaintenanceToggle}
+              className="bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100 font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm"
+              title="Configure System, Regional, Station, or Module Lockdowns"
+            >
+              <ShieldAlert size={14} className="mr-2 text-amber-600" />
+              Lockdowns
+            </button>
+          )}
+
+          {currentUser?.role === 'SUPER_ADMIN' && (
+            <button
+              onClick={handleKillSwitchToggle}
+              disabled={loadingKillSwitch}
+              className={`font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm border ${
+                isDbKillActive 
+                  ? 'bg-emerald-50 border-emerald-400 text-emerald-800 hover:bg-emerald-100' 
+                  : 'bg-red-50 border-red-400 text-red-800 hover:bg-red-100'
+              }`}
+              title="Toggle AI Direct Database Querying Access"
+            >
+              {loadingKillSwitch ? (
+                <Loader2 size={14} className="mr-2 animate-spin text-slate-500" />
+              ) : (
+                <ShieldAlert size={14} className={`mr-2 ${isDbKillActive ? 'text-emerald-600' : 'text-red-600'}`} />
+              )}
+              {isDbKillActive ? 'AI DB Query: ON' : 'AI DB Query: KILLED'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* 🟢 NEW: REDESIGNED NAVIGATION TABS */}
+      <div className="flex border-b border-slate-200 bg-white rounded-t-xl shadow-sm overflow-x-auto custom-scrollbar">
+        <button 
+          onClick={() => setActiveTab('approvals')} 
+          className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'approvals' ? 'bg-slate-50 border-b-[3px] border-blue-600 text-blue-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}
         >
-          <RefreshCw size={13} className="mr-1.5" /> Refresh Queue
+          <UserPlus className="w-4 h-4 mr-2"/> Authorizations ({loadingPending ? '...' : filteredPending.length})
         </button>
-
-        {['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role?.toUpperCase()) && (
-          <button
-            type="button"
-            onClick={handleSystemMaintenanceToggle}
-            className="bg-amber-950 border border-amber-600 text-amber-200 hover:bg-amber-900 font-bold px-3 py-1.5 rounded-lg text-xs flex items-center justify-center transition cursor-pointer shadow-xs"
-            title="Configure System, Regional, Station, or Module Lockdowns"
-          >
-            <ShieldAlert size={13} className="mr-1.5" />
-            System Maintenance Lockdown
-          </button>
-        )}
-
-        {currentUser?.role === 'SUPER_ADMIN' && (
-          <button
-            onClick={handleKillSwitchToggle}
-            disabled={loadingKillSwitch}
-            className={`font-bold px-3 py-1.5 rounded-lg text-xs flex items-center justify-center transition cursor-pointer shadow-xs border ${
-              isDbKillActive 
-                ? 'bg-emerald-950 border-emerald-600 text-emerald-200 hover:bg-emerald-900' 
-                : 'bg-red-950 border-red-600 text-red-200 hover:bg-red-900'
-            }`}
-            title="Toggle AI Direct Database Querying Access"
-          >
-            {loadingKillSwitch ? (
-              <Loader2 size={13} className="mr-1.5 animate-spin" />
-            ) : (
-              <ShieldAlert size={13} className="mr-1.5" />
-            )}
-            {isDbKillActive ? 'Enable AI DB Query' : 'Kill AI DB Query'}
-          </button>
-        )}
+        
+        <button 
+          onClick={() => setActiveTab('matrix')} 
+          className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'matrix' ? 'bg-slate-50 border-b-[3px] border-indigo-600 text-indigo-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}
+        >
+          <Shield className="w-4 h-4 mr-2"/> Clearance Matrix ({filteredSystemUsers.length})
+        </button>
+        
+        <button 
+          onClick={() => setActiveTab('requests')} 
+          className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'requests' ? 'bg-slate-50 border-b-[3px] border-amber-500 text-amber-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}
+        >
+          <RefreshCw className="w-4 h-4 mr-2"/> HR Transfers ({filteredRequests.length})
+        </button>
+        
+        <button 
+          onClick={() => setActiveTab('logs')} 
+          className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'logs' ? 'bg-slate-50 border-b-[3px] border-emerald-600 text-emerald-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}
+        >
+          <FileText className="w-4 h-4 mr-2"/> Audit Logs ({filteredLogs.length})
+        </button>
+        
+        <button 
+          onClick={() => setActiveTab('resets')} 
+          className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'resets' ? 'bg-slate-50 border-b-[3px] border-red-600 text-red-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}
+        >
+          <KeyRound className="w-4 h-4 mr-2"/> Password Resets ({filteredResets.length})
+        </button>
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex space-x-1 border-b border-slate-200 mb-4 bg-white/50 backdrop-blur rounded-t-xl px-3 pt-3 overflow-x-auto custom-scrollbar">
-        <button onClick={() => setActiveTab('approvals')} className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'approvals' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>New Account Authorizations ({loadingPending ? '...' : filteredPending.length})</button>
-        <button onClick={() => setActiveTab('matrix')} className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'matrix' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Active Roster & Clearance Matrix ({filteredSystemUsers.length})</button>
-        <button onClick={() => setActiveTab('requests')} className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'requests' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>HR Modification Requests ({filteredRequests.length})</button>
-        <button onClick={() => setActiveTab('logs')} className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Audit Logs ({filteredLogs.length})</button>
-        <button onClick={() => setActiveTab('resets')} className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'resets' ? 'border-red-600 text-red-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Password Resets ({filteredResets.length})</button>
-      </div>
-
-      {/* TAB 1: NEW ACCOUNT AUTHORIZATIONS (INTERACTIVE INSPECTION & ACTIONS) */}
+      
+      {/* TAB 1: NEW ACCOUNT AUTHORIZATIONS */}
       {activeTab === 'approvals' && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
           {loadingPending ? (
@@ -1046,11 +1141,16 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                   {filteredSystemUsers.map(u => {
                     const p = u.permissions || {};
+                    const isCurrentUserSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+                    const isTargetTopTier = TOP_TIER_ROLES.includes(u.role);
+                    
                     const isSuperAdmin = u.role === 'SUPER_ADMIN';
                     const isRevoked = u.role === 'REVOKED';
                     const isSelf = u.fnum === currentUser?.fnum;
-                    const isRoleSelectDisabled = isSelf || (isSuperAdmin && currentUser?.role !== 'SUPER_ADMIN');
-                    const isBulkActionDisabled = isSelf || !isExplicitHighCommand;
+
+                    // 🟢 STRICT HIERARCHY LOCKS
+                    const isRoleSelectDisabled = isSelf || (!isCurrentUserSuperAdmin && isTargetTopTier);
+                    const isBulkActionDisabled = isSelf || !isExplicitHighCommand || (isTargetTopTier && !isCurrentUserSuperAdmin);
 
                     return (
                       <tr key={u.fnum} className={`transition-colors ${isRevoked ? 'bg-red-50/40' : 'hover:bg-slate-50'} ${isSelf ? 'bg-blue-50/30 ring-1 ring-inset ring-blue-100' : ''}`}>
@@ -1097,9 +1197,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             <option value="USER">USER</option>
                             <option value="ADMIN_USER">ADMIN-USER</option>
                             <option value="STATION_ADMIN">STN ADMIN</option>
-                            <option value="SYSTEM_ADMIN">SYS ADMIN</option>
-                            <option value="ASSISTANT_SUPER_ADMIN">ASST SUPER</option>
-                            <option value="SUPER_ADMIN">SUPER ADMIN</option>
+                            
+                            {/* 🟢 ONLY RENDER TOP TIERS IF CURRENT USER IS SUPER ADMIN (OR TO PRESERVE DISPLAY VALUE) */}
+                            {(isCurrentUserSuperAdmin || u.role === 'SYSTEM_ADMIN') && <option value="SYSTEM_ADMIN">SYS ADMIN</option>}
+                            {(isCurrentUserSuperAdmin || u.role === 'ASSISTANT_SUPER_ADMIN') && <option value="ASSISTANT_SUPER_ADMIN">ASST SUPER</option>}
+                            {(isCurrentUserSuperAdmin || u.role === 'SUPER_ADMIN') && <option value="SUPER_ADMIN">SUPER ADMIN</option>}
+
                             <option value="REVOKED" className="text-red-600 font-extrabold bg-red-50">REVOKED</option>
                           </select>
                         </td>
@@ -1109,7 +1212,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             <button 
                               onClick={() => handleBulkMatrixAction(u.fnum, true)}
                               disabled={isBulkActionDisabled}
-                              title={isSelf ? "You cannot self-modify" : !isExplicitHighCommand ? "Only High Command can Bulk Update" : "Check All Modules"}
+                              title={isSelf ? "You cannot self-modify" : isTargetTopTier && !isCurrentUserSuperAdmin ? "Cannot bulk-update a Super Admin" : !isExplicitHighCommand ? "Only High Command can Bulk Update" : "Check All Modules"}
                               className={`p-1 rounded border transition shadow-xs ${
                                 isBulkActionDisabled ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300 cursor-pointer'
                               }`}
@@ -1119,7 +1222,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             <button 
                               onClick={() => handleBulkMatrixAction(u.fnum, false)}
                               disabled={isBulkActionDisabled}
-                              title={isSelf ? "You cannot self-modify" : !isExplicitHighCommand ? "Only High Command can Bulk Update" : "Uncheck All Modules (Deny Access)"}
+                              title={isSelf ? "You cannot self-modify" : isTargetTopTier && !isCurrentUserSuperAdmin ? "Cannot bulk-update a Super Admin" : !isExplicitHighCommand ? "Only High Command can Bulk Update" : "Uncheck All Modules (Deny Access)"}
                               className={`p-1 rounded border transition shadow-xs ${
                                 isBulkActionDisabled ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-red-50 text-red-700 hover:bg-red-100 border-red-300 cursor-pointer'
                               }`}
@@ -1136,13 +1239,15 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           const isLockedVisually = hasSuperAdminLock && !isSuperAdminOrTopCommand;
                           const isStrictSuperAdminOnly = col.key === 'global_observer';
 
+                          // 🟢 STRICT HIERARCHY CHECKBOX LOCKS
                           const isDisabled = 
                             isSelf ||
+                            (isTargetTopTier && !isCurrentUserSuperAdmin) ||
                             isSuperAdmin || 
                             isRevoked || 
                             currentUser?.role === 'SYSTEM_ADMIN' || 
                             (!isSuperAdminOrTopCommand && hasSuperAdminLock) ||
-                            (isStrictSuperAdminOnly && currentUser?.role !== 'SUPER_ADMIN');
+                            (isStrictSuperAdminOnly && !isCurrentUserSuperAdmin);
 
                           return (
                             <td key={idx} className={`p-2 text-center border-l border-white/50 ${col.bg || ''}`}>
@@ -1324,7 +1429,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               
             <div className="p-6 space-y-4">
               <p className="text-sm font-bold text-slate-700 leading-relaxed">
-                You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${stripHtmlTags(revokePrompt.permissionKey)}" clearance`}</span> for this officer. By command directive, you must state an official operational reason to proceed.
+                You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${stripHtmlTags(revokePrompt.permissionKey)}"`} clearance</span> for this officer. By command directive, you must state an official operational reason to proceed.
               </p>
               <textarea 
                 value={revokePrompt.reason}

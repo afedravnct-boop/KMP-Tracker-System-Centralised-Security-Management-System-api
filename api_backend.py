@@ -1248,8 +1248,8 @@ def toggle_granular_maintenance(
             new_status = "TRUE"
             new_config = models.SystemConfig(
                 config_key=config_key,
-                config_value=new_status,
-                description=f"Lockdown reason: {payload.reason}"
+                config_value=new_status
+                # 🟢 FIXED: Removed the 'description' argument that was crashing the database
             )
             db.add(new_config)
 
