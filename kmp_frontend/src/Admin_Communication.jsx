@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAlert, Inbox, Filter, Clock, ArrowLeft, Eye, X, Edit3, UserPlus, Reply } from 'lucide-react';
+import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAlert, Inbox, Filter, Clock, ArrowLeft, Eye, X, Edit3, UserPlus, Reply, CornerDownRight } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -20,7 +20,7 @@ const adjustTimeOffset = (dateStr) => {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return dateStr;
     
-    d.setHours(d.getHours() - 3); // 🟢 Re-calibrate time back 3 hours
+    d.setHours(d.getHours() - 3); // Re-calibrate time back 3 hours
     
     const pad = (n) => n.toString().padStart(2, '0');
     let adjusted = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -35,6 +35,48 @@ const adjustTimeOffset = (dateStr) => {
   }
 };
 
+// 🟢 THREADING ENGINE: Parses raw messages into a threaded vertical hierarchy
+const parseDateString = (dateStr) => {
+  if (!dateStr || dateStr === "Unknown Time") return 0;
+  return new Date(dateStr.replace(' ', 'T')).getTime() || 0;
+};
+
+const buildThreads = (flatMsgs) => {
+  // Sort oldest to newest to establish the timeline
+  const sorted = [...flatMsgs].sort((a, b) => parseDateString(a.created_at) - parseDateString(b.created_at));
+  const threads = [];
+  const processed = new Set();
+
+  sorted.forEach(msg => {
+    if (processed.has(msg.id)) return;
+
+    // Extract base subject by stripping leading "RE:"s
+    const baseSubj = msg.subject.replace(/^(RE:\s*)+/i, '').trim().toLowerCase();
+
+    // Find all chronologically subsequent replies to this root message
+    const replies = sorted.filter(m => {
+      if (m.id === msg.id || processed.has(m.id)) return false;
+      const mBase = m.subject.replace(/^(RE:\s*)+/i, '').trim().toLowerCase();
+      const isRe = /^RE:/i.test(m.subject);
+      return mBase === baseSubj && isRe;
+    });
+
+    msg.replies = replies;
+    threads.push(msg);
+
+    // Mark root and all its replies as processed
+    processed.add(msg.id);
+    replies.forEach(r => processed.add(r.id));
+  });
+
+  // Sort completed threads by the most recent activity (latest replies bubble to the top of inbox)
+  return threads.sort((a, b) => {
+    const latestA = a.replies.length > 0 ? parseDateString(a.replies[a.replies.length - 1].created_at) : parseDateString(a.created_at);
+    const latestB = b.replies.length > 0 ? parseDateString(b.replies[b.replies.length - 1].created_at) : parseDateString(b.created_at);
+    return latestB - latestA;
+  });
+};
+
 const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm, initialTab }) => {
   const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
   
@@ -43,6 +85,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   ); 
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isReplyingTo, setIsReplyingTo] = useState(false); // 🟢 Locks the subject line during replies
 
   // --- RECIPIENTS LIST FROM BACKEND ENDPOINT ---
   const [filteredRecipientsList, setFilteredRecipientsList] = useState([]);
@@ -81,18 +124,22 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   }, []);
 
   useEffect(() => {
-    if (initialTab) {
-      setActiveTab(initialTab.toLowerCase());
-    }
+    if (initialTab) setActiveTab(initialTab.toLowerCase());
   }, [initialTab]);
+
+  const handleTabSwitch = (tab) => {
+    setActiveTab(tab);
+    if (tab !== 'dispatch') {
+        setIsReplyingTo(false);
+        setFormData({ ...formData, subject: '', message: '' });
+    }
+  };
 
   const fetchRecipientsList = async () => {
     try {
       const token = sessionStorage.getItem('kmp_authToken');
       const res = await fetch(`${API_URL}/api/v1/users/recipients-list`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
@@ -122,16 +169,23 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     }
   };
 
-  // 🟢 HANDLE REPLY BUTTON CLICK
+  // 🟢 HANDLE REPLY BUTTON CLICK: Initiates thread safety lock
   const handleReplyToMessage = (msg) => {
     setActiveTab('dispatch');
+    setIsReplyingTo(true);
+    
+    let newSubject = msg.subject;
+    if (!/^RE:/i.test(newSubject)) {
+        newSubject = `RE: ${newSubject}`;
+    }
+
     setFormData({
       ...formData,
       targetAudience: 'SPECIFIC_USER',
       targetFnum: [msg.sender_fnum],
       messageType: msg.message_type === 'COMPLAINT_GRIEVANCE' ? 'COMPLAINT_GRIEVANCE' : 'DIRECT_MESSAGE',
-      subject: msg.subject.startsWith('RE:') ? msg.subject : `RE: ${msg.subject}`,
-      message: `<p><br></p><blockquote><em>--- Original Message from ${msg.sender_name} (${msg.sender_fnum}) ---</em><br>${msg.message}</blockquote><p><br></p>`
+      subject: newSubject,
+      message: `<p><br></p><p><br></p><blockquote><em>--- Original Message from ${msg.sender_name} (${msg.sender_fnum}) ---</em><br>${msg.message}</blockquote>`
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -143,7 +197,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     if (selectedCategoryFilter === 'POLICE_HQ' && !region.includes("POLICE HEADQUARTERS")) return false;
     if (selectedCategoryFilter === 'KMP_HQ' && !region.includes("KMP HEADQUARTERS")) return false;
     if (selectedCategoryFilter === 'FIELD_COMMAND' && region.includes("HEADQUARTERS")) return false;
-
     if (selectedRegionFilter !== 'ALL' && region !== selectedRegionFilter) return false;
 
     return true;
@@ -184,7 +237,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
           target_fnum: formData.targetFnum, 
           message_type: formData.messageType, 
           subject: formData.subject, 
-          // 🟢 Applies capitalization cleanly here instead of the active input box
+          // 🟢 Applies capitalization cleanly here to avoid input lag/freezing
           message: autoCapitalize(formData.message), 
           send_email: formData.sendEmail,
           requires_command_approval: containsCrossRegion
@@ -193,13 +246,12 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
       if (!response.ok) {
           const errData = await response.json().catch(() => ({}));
-          const errorMsg = Array.isArray(errData.detail)
-            ? errData.detail.map(err => `${err.loc.join(' -> ')}: ${err.msg}`).join(', ')
-            : (errData.detail || "Database rejected the transmission.");
+          const errorMsg = Array.isArray(errData.detail) ? errData.detail.map(err => `${err.loc.join(' -> ')}: ${err.msg}`).join(', ') : (errData.detail || "Database rejected the transmission.");
           throw new Error(errorMsg);
       }
 
       setNotification({ type: 'success', text: '✅ Message successfully dispatched securely.' });
+      setIsReplyingTo(false); // Lift the thread lock on success
       setFormData({ 
         ...formData, subject: '', message: '', sendEmail: false, 
         targetAudience: canBroadcast ? 'ALL_USERS' : 'SPECIFIC_USER', 
@@ -210,9 +262,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     } catch (err) {
       let errorMessage = err.message || "An unexpected error occurred during transmission.";
       if (typeof err === 'object' && err.detail) {
-        errorMessage = Array.isArray(err.detail) 
-          ? err.detail.map(d => `${d.loc.join(' -> ')}: ${d.msg}`).join(', ') 
-          : err.detail;
+        errorMessage = Array.isArray(err.detail) ? err.detail.map(d => `${d.loc.join(' -> ')}: ${d.msg}`).join(', ') : err.detail;
       }
       setNotification({ type: 'error', text: `❌ ${errorMessage}` });
     } finally {
@@ -226,7 +276,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     try {
       const today = new Date();
       let start = ''; let end = '';
-      
       const todayStr = today.toISOString().split('T')[0];
 
       const getPastDate = (daysCount) => {
@@ -235,14 +284,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         return pastDate.toISOString().split('T')[0];
       };
 
-      if (dateFilter === 'today') { 
-        start = todayStr; 
-        end = todayStr; 
-      } 
-      else if (dateFilter === 'recent' || dateFilter === 'last_7') { 
-        start = getPastDate(7); 
-        end = todayStr; 
-      } 
+      if (dateFilter === 'today') { start = todayStr; end = todayStr; } 
+      else if (dateFilter === 'recent' || dateFilter === 'last_7') { start = getPastDate(7); end = todayStr; } 
       else if (dateFilter === 'last_14') { start = getPastDate(14); end = todayStr; }
       else if (dateFilter === 'last_21') { start = getPastDate(21); end = todayStr; }
       else if (dateFilter === 'last_30') { start = getPastDate(30); end = todayStr; }
@@ -250,16 +293,10 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       else if (dateFilter === 'last_90') { start = getPastDate(90); end = todayStr; }
       else if (dateFilter === 'last_120') { start = getPastDate(120); end = todayStr; }
       else if (dateFilter === 'last_180') { start = getPastDate(180); end = todayStr; }
-      else if (dateFilter === 'old') { 
-        end = getPastDate(7);
-      } 
-      else if (dateFilter === 'custom') { 
-        start = customStartDate; 
-        end = customEndDate; 
-      }
+      else if (dateFilter === 'old') { end = getPastDate(7); } 
+      else if (dateFilter === 'custom') { start = customStartDate; end = customEndDate; }
 
       let url = `${API_URL}/api/v1/communications`;
-      
       const params = new URLSearchParams();
       if (start) params.append('start_date', start);
       if (end) params.append('end_date', end);
@@ -268,10 +305,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       const token = sessionStorage.getItem('kmp_authToken');
       const response = await fetch(url, { 
         method: 'GET',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
       });
 
       if (response.ok) {
@@ -284,10 +318,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         }));
 
         const userFnum = currentUser?.fnum || "";
-        setInboxMessages(data.filter(msg => msg.sender_fnum !== userFnum || (msg.target_fnum && msg.target_fnum.includes(userFnum))));
-        setOutboxMessages(data.filter(msg => msg.sender_fnum === userFnum));
-      } else {
-        console.error("Server error fetching communications:", await response.text());
+        
+        // Pass data through our new Threading Engine
+        const threadedData = buildThreads(data);
+
+        // Map threaded results to Inbox/Outbox
+        setInboxMessages(threadedData.filter(t => t.sender_fnum !== userFnum || t.replies.some(r => r.sender_fnum !== userFnum)));
+        setOutboxMessages(threadedData.filter(t => t.sender_fnum === userFnum || t.replies.some(r => r.sender_fnum === userFnum)));
       }
     } catch (err) { 
       console.error("Network error fetching messages:", err); 
@@ -302,40 +339,25 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     try {
       const token = sessionStorage.getItem('kmp_authToken');
       const res = await fetch(`${API_URL}/api/v1/communications/${msg.id}/readers`, { 
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
       });
       
       if (res.ok) {
         const rawData = await res.json();
-        const readers = rawData.map(r => ({
-            ...r,
-            read_at: adjustTimeOffset(r.read_at)
-        }));
+        const readers = rawData.map(r => ({ ...r, read_at: adjustTimeOffset(r.read_at) }));
 
         const allSystemUsers = filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || []);
         let targetPool = [];
-
         const audience = msg.target_audience;
         const region = msg.target_region;
 
-        if (audience === 'ALL_USERS' || audience === 'ALL') {
-            targetPool = allSystemUsers;
-        } else if (audience === 'ADMINS_ONLY') {
-            targetPool = allSystemUsers.filter(u => ['ADMIN', 'SUPER_ADMIN'].includes(u.role));
-        } else if (audience === 'RPC_ONLY') {
-            targetPool = allSystemUsers.filter(u => ['RPC', 'ADMIN', 'SUPER_ADMIN'].includes(u.role) || (u.position || '').toUpperCase().includes('RPC'));
-        } else if (audience === 'DEPUTY RPC_ONLY') {
-            targetPool = allSystemUsers.filter(u => (u.position || '').toUpperCase().includes('DEPUTY'));
-        } else if (audience === 'SPECIFIC_REGION') {
-            targetPool = allSystemUsers.filter(u => (u.region || '').toUpperCase() === (region || '').toUpperCase());
-        } else if (audience === 'SPECIFIC_USER' && msg.target_fnum) {
-            const targetFnumsArray = Array.isArray(msg.target_fnum) 
-              ? msg.target_fnum 
-              : String(msg.target_fnum).split(',').map(f => f.trim());
-            
+        if (audience === 'ALL_USERS' || audience === 'ALL') targetPool = allSystemUsers;
+        else if (audience === 'ADMINS_ONLY') targetPool = allSystemUsers.filter(u => ['ADMIN', 'SUPER_ADMIN'].includes(u.role));
+        else if (audience === 'RPC_ONLY') targetPool = allSystemUsers.filter(u => ['RPC', 'ADMIN', 'SUPER_ADMIN'].includes(u.role) || (u.position || '').toUpperCase().includes('RPC'));
+        else if (audience === 'DEPUTY RPC_ONLY') targetPool = allSystemUsers.filter(u => (u.position || '').toUpperCase().includes('DEPUTY'));
+        else if (audience === 'SPECIFIC_REGION') targetPool = allSystemUsers.filter(u => (u.region || '').toUpperCase() === (region || '').toUpperCase());
+        else if (audience === 'SPECIFIC_USER' && msg.target_fnum) {
+            const targetFnumsArray = Array.isArray(msg.target_fnum) ? msg.target_fnum : String(msg.target_fnum).split(',').map(f => f.trim());
             targetPool = allSystemUsers.filter(u => targetFnumsArray.includes(u.fnum));
         }
 
@@ -344,11 +366,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
         setReceiptsData({ readers, pending });
       }
-    } catch(e) { 
-      console.error(e); 
-    } finally { 
-      setLoadingReceipts(false); 
-    }
+    } catch(e) { console.error(e); } 
+    finally { setLoadingReceipts(false); }
   };
 
   useEffect(() => {
@@ -367,19 +386,14 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       
       const res = await fetch(`${API_URL}/api/v1/communications/${encodedMsgId}/acknowledge`, { 
         method: 'POST', 
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
       });
       
       if (res.ok) {
         setInboxMessages(prev => prev.map(m => m.id === msg.id ? { ...m, acknowledged: true } : m));
         setOutboxMessages(prev => prev.map(m => m.id === msg.id ? { ...m, acknowledged: true } : m));
         
-        if (typeof onAcknowledgeComm === 'function') {
-          onAcknowledgeComm(msg.id);
-        }
+        if (typeof onAcknowledgeComm === 'function') onAcknowledgeComm(msg.id);
         
         setNotification({ type: 'success', text: '✅ Message acknowledged successfully.' });
         setTimeout(() => setNotification(null), 3000);
@@ -388,7 +402,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         throw new Error(errorData.detail || "Server rejected acknowledgment.");
       }
     } catch (err) {
-      console.error("Failed to acknowledge receipt:", err);
       setNotification({ type: 'error', text: `❌ ${err.message || 'Failed to acknowledge receipt.'}` });
       setTimeout(() => setNotification(null), 3000);
     }
@@ -407,6 +420,20 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   return (
     <div className="p-6 w-full max-w-[1920px] mx-auto space-y-6 relative z-10 font-sans">
       
+      {/* 🟢 Add Custom CSS for Clean Threading Blockquotes */}
+      <style>{`
+        .reply-content-body blockquote {
+          border-left: 4px solid #cbd5e1;
+          padding-left: 12px;
+          margin-top: 12px;
+          color: #64748b;
+          font-style: italic;
+          background: #f8fafc;
+          padding: 8px 12px;
+          border-radius: 0 8px 8px 0;
+        }
+      `}</style>
+
       {viewingReceiptsFor && (
         <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4">
             <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-300">
@@ -483,21 +510,21 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
         <div className="flex border-b border-gray-200 bg-slate-50 overflow-x-auto">
           <button 
-            onClick={() => setActiveTab('dispatch')} 
+            onClick={() => handleTabSwitch('dispatch')} 
             className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'dispatch' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
           >
             <Edit3 className="w-5 h-5 mr-2" /> {canBroadcast ? 'Dispatch Console' : 'Compose Message / Complaint / Inquiry / Appointment'}
           </button>
           
           <button 
-            onClick={() => setActiveTab('inbox')} 
+            onClick={() => handleTabSwitch('inbox')} 
             className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'inbox' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
           >
             <Inbox className="w-5 h-5 mr-2" /> Command Inbox
           </button>
 
           <button 
-            onClick={() => setActiveTab('outbox')} 
+            onClick={() => handleTabSwitch('outbox')} 
             className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'outbox' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
           >
             <Send className="w-5 h-5 mr-2" /> Outbox (Sent)
@@ -643,19 +670,28 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                   </div>
                 )}
 
+                {/* 🟢 SUBJECT LINE: Now dynamically locks if the user is replying to enforce threading accuracy */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Subject / Title *</label>
-                  <input type="text" name="subject" required value={formData.subject} onChange={handleInputChange} className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm font-bold text-slate-800 outline-none" placeholder="e.g., Request for leave / Investigation Update / Equipment missing..." />
+                  <input 
+                    type="text" 
+                    name="subject" 
+                    required 
+                    value={formData.subject} 
+                    onChange={handleInputChange} 
+                    disabled={isReplyingTo}
+                    className={`w-full p-3 border rounded-lg text-sm font-bold outline-none ${isReplyingTo ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed' : 'bg-white border-slate-300 text-slate-800 focus:ring-2 focus:ring-blue-500'}`} 
+                    placeholder="e.g., Request for leave / Investigation Update / Equipment missing..." 
+                  />
+                  {isReplyingTo && <p className="text-[10px] text-amber-600 mt-1 font-bold">Subject is locked to maintain accurate communication threads.</p>}
                 </div>
 
-                {/* 🟢 FIXED QUILL EDITOR HEIGHT AND STATE UPDATER */}
                 <div className="pb-12">
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Communication Body *</label>
                   <ReactQuill 
                     theme="snow" 
                     value={formData.message} 
                     onChange={(content) => {
-                      // We removed autoCapitalize here to prevent the component from reloading and losing cursor focus
                       setFormData({ ...formData, message: content });
                     }}
                     className="bg-white rounded-md"
@@ -841,35 +877,47 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                             
                             {!isExpanded && (
                               <p className="text-xs text-blue-600 font-bold mt-2 flex items-center">
-                                <Eye size={14} className="mr-1"/> Click to open and read full message...
+                                <Eye size={14} className="mr-1"/> Click to open and read full message thread...
                               </p>
                             )}
 
-                            {/* 🟢 EXPANDED VIEW WITH DISTINCT REPLY THREAD STYLING */}
+                            {/* 🟢 EXPANDED VIEW WITH VERTICAL THREAD TIMELINE */}
                             {isExpanded && (
                               <div className="prose prose-sm max-w-none text-slate-700 mt-4 pt-4 border-t border-slate-100 animate-in fade-in space-y-4">
                                 <div className="p-3 bg-slate-50/70 rounded-lg border border-slate-200/60 leading-relaxed" dangerouslySetInnerHTML={{ __html: msg.message }} onClick={(e) => e.stopPropagation()} />
                                 
-                                {/* 🟢 Distinct Conversation Replies Box */}
+                                {/* 🟢 Visually Threaded Responses Flow */}
                                 {msg.replies && msg.replies.length > 0 && (
-                                  <div className="mt-6 pt-4 border-t-2 border-indigo-200 space-y-3">
-                                    <h4 className="text-xs font-extrabold text-indigo-900 uppercase tracking-wider flex items-center bg-indigo-50/80 p-2 rounded border border-indigo-100">
-                                      <span className="w-2.5 h-2.5 bg-indigo-600 rounded-full mr-2 shadow-sm"></span>
-                                      Thread Responses & Replies ({msg.replies.length})
+                                  <div className="mt-8 pt-4 border-t-2 border-indigo-100 relative">
+                                    {/* The vertical timeline spine */}
+                                    <div className="absolute left-6 top-10 bottom-4 w-1 bg-indigo-100 rounded-full"></div>
+                                    
+                                    <h4 className="text-xs font-extrabold text-indigo-900 uppercase tracking-wider flex items-center bg-indigo-50 p-2.5 rounded-lg border border-indigo-200 relative z-10 w-max shadow-sm mb-6 ml-2">
+                                      <span className="w-2.5 h-2.5 bg-indigo-600 rounded-full mr-2 shadow-sm animate-pulse"></span>
+                                      Threaded Responses ({msg.replies.length})
                                     </h4>
-                                    {msg.replies.map((reply, rIdx) => (
-                                      <div key={rIdx} className="bg-indigo-50/60 p-4 rounded-xl border border-indigo-200/90 shadow-sm text-xs space-y-2 ml-2 sm:ml-4">
-                                        <div className="flex justify-between items-center border-b border-indigo-200/60 pb-2">
-                                          <span className="font-extrabold text-indigo-950 uppercase tracking-tight flex items-center">
-                                            💬 Response From: {reply.sender_name} <span className="font-mono text-indigo-700 font-semibold ml-1">({reply.sender_fnum})</span>
-                                          </span>
-                                          <span className="text-[10px] text-indigo-700 font-mono font-bold bg-white px-2 py-0.5 rounded border border-indigo-300">
-                                            {reply.created_at}
-                                          </span>
+                                    
+                                    <div className="space-y-6">
+                                      {msg.replies.map((reply, rIdx) => (
+                                        <div key={rIdx} className="relative z-10 ml-10">
+                                          {/* Timeline dot */}
+                                          <div className="absolute -left-[22px] top-4 w-3.5 h-3.5 bg-white border-2 border-indigo-500 rounded-full shadow-sm"></div>
+                                          
+                                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-sm text-xs hover:border-indigo-300 transition-colors">
+                                            <div className="flex justify-between items-center border-b border-slate-200 pb-3 mb-3">
+                                              <span className="font-extrabold text-slate-800 uppercase tracking-tight flex items-center">
+                                                <CornerDownRight size={14} className="mr-1.5 text-indigo-600" />
+                                                From: {reply.sender_name} <span className="font-mono text-slate-500 font-semibold ml-1.5">({reply.sender_fnum})</span>
+                                              </span>
+                                              <span className="text-[10px] text-slate-600 font-mono font-bold bg-white px-2.5 py-1 rounded border border-slate-200 shadow-sm">
+                                                {reply.created_at}
+                                              </span>
+                                            </div>
+                                            <div className="text-slate-700 leading-relaxed bg-white p-4 rounded-lg border border-slate-100 shadow-inner reply-content-body" dangerouslySetInnerHTML={{ __html: reply.message }} onClick={(e) => e.stopPropagation()} />
+                                          </div>
                                         </div>
-                                        <div className="text-slate-800 pt-1 leading-relaxed bg-white/60 p-3 rounded-lg border border-indigo-100/50" dangerouslySetInnerHTML={{ __html: reply.message }} />
-                                      </div>
-                                    ))}
+                                      ))}
+                                    </div>
                                   </div>
                                 )}
                               </div>
