@@ -14,7 +14,7 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt, RGBColor
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -245,10 +245,13 @@ async def upload_word_report(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to process document intake: {str(e)}")
 
+from fastapi.responses import JSONResponse # 🟢 Ensure this is imported at the top
+
 @router.get("/reports/download/{doc_id}")
 @router.get("/templates/download/{doc_id}")
 def download_archive_file(
     doc_id: int, 
+    return_url: bool = False, # 🟢 NEW: Catches the live preview request from frontend
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -358,8 +361,30 @@ def download_archive_file(
             output_stream.write(raw_bytes)
 
         output_stream.seek(0)
+        final_bytes = output_stream.getvalue()
 
-        # 🟢 Directly stream binary bytes with inline content disposition so browsers open/preview properly
+        # 🟢 NEW: If frontend requested a URL for live viewing, cache it to S3 and return a pre-signed URL
+        if return_url:
+            temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
+            
+            # Upload the dynamically stamped document back to S3 into a cache folder
+            s3_client.put_object(
+                Bucket=BUCKET_NAME,
+                Key=temp_s3_key,
+                Body=final_bytes,
+                ContentType=content_type,
+                ServerSideEncryption="AES256"
+            )
+            
+            # Generate a 1-hour pre-signed URL for the external viewer
+            presigned_url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': BUCKET_NAME, 'Key': temp_s3_key},
+                ExpiresIn=3600
+            )
+            return JSONResponse(content={"url": presigned_url})
+
+        # 🟢 ORIGINAL BEHAVIOR: Return streaming response for direct downloads
         return StreamingResponse(
             output_stream,
             media_type=content_type,

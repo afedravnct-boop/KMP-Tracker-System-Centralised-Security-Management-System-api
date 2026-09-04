@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {  
   UploadCloud, FileText, Download, CheckCircle, AlertTriangle,  
-  Loader2, FolderOpen, Clock, FileArchive, Eye, Lock, Server, Trash2, Filter, X, Table, ExternalLink
+  Loader2, FolderOpen, Clock, FileArchive, Lock, Server, Trash2, Filter, ExternalLink
 } from 'lucide-react';
 import { authFetch } from './api';
 
@@ -17,16 +17,11 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   const cleanStation = (stationName || '').trim().toUpperCase();
   const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
 
-  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
-    return cleanDbRegion;
-  }
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) return cleanDbRegion;
 
   for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
-    if (stationsList.includes(cleanStation)) {
-      return regionName;
-    }
+    if (stationsList.includes(cleanStation)) return regionName;
   }
-
   return cleanDbRegion || 'KMP GENERAL';
 };
 
@@ -34,13 +29,10 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState(null);
-
   const [activeCategory, setActiveCategory] = useState('weekly_report'); 
-
   const [documents, setDocuments] = useState([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
-
   const [templateCustomName, setTemplateCustomName] = useState('');
 
   const canViewGlobalActive = canViewGlobal || 
@@ -117,9 +109,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     if (!files || files.length === 0) return alert("Please select at least one file first.");
 
     const formData = new FormData();
-    files.forEach((f) => {
-      formData.append("files", f);
-    });
+    files.forEach((f) => formData.append("files", f));
 
     let endpoint = "";
     const targetRegionToSubmit = overrideRegion || (canViewGlobalActive && filterRegion !== 'ALL REGIONS' ? filterRegion : currentUser?.region);
@@ -142,11 +132,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
     setUploading(true);
     try {
-      const response = await authFetch(endpoint, {
-        method: "POST",
-        body: formData
-      });
-
+      const response = await authFetch(endpoint, { method: "POST", body: formData });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Upload failed.");
 
@@ -168,15 +154,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
     setActionLoading(`delete-${docId}`);
     try {
-      const response = await authFetch(`/api/v1/reports/archive/${docId}`, {
-        method: "DELETE"
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || "Failed to delete document.");
-      }
-
+      const response = await authFetch(`/api/v1/reports/archive/${docId}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Failed to delete document.");
       setFeedback({ type: 'success', message: "Document successfully deleted." });
       fetchArchiveList(); 
     } catch (err) {
@@ -187,56 +166,42 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-  // 🟢 LIVE BROWSER VIEWER PATH: Resolves AWS S3 URL and forces Google Docs Viewer to render in a new tab without downloading
+  // 🟢 CORRECT ONLINE FORMAT VIEWER: Requests S3 URL from Backend, passes it to MS Office Viewer
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document') => {
     setActionLoading(`read-${docId}`);
     try {
-      // Append view=true and stamp=true to trigger forensic stamping on the backend S3 cache
+      // We pass return_url=true to tell the backend to give us JSON containing the pre-signed S3 URL
       const endpoint = isTemplate 
-        ? `/api/v1/templates/download/${docId}?view=true&stamp=true` 
-        : `/api/v1/reports/download/${docId}?view=true&stamp=true`;
+        ? `/api/v1/templates/download/${docId}?stamp=true&return_url=true` 
+        : `/api/v1/reports/download/${docId}?stamp=true&return_url=true`;
         
       const response = await authFetch(endpoint, { method: "GET" });
       
       if (!response.ok) {
         const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.detail || "Could not retrieve document stream for viewing.");
+        throw new Error(errJson.detail || "Could not retrieve document viewer link.");
       }
 
-      let fileUrl = "";
       const contentType = response.headers.get("content-type");
-      
-      // Extract the authenticated AWS S3 URL
-      if (contentType && contentType.includes("application/json")) {
-        const data = await response.json();
-        fileUrl = data.url || data.view_url || data.file_url || data.s3_url;
-      } else {
-        // If the backend responds with a 302 Redirect, fetch follows it and the S3 URL is caught here
-        fileUrl = response.url;
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Backend did not return a valid URL payload. Please ensure backend is updated.");
       }
 
-      if (!fileUrl) throw new Error("Valid viewer URL not returned from server.");
+      const data = await response.json();
+      const s3Url = data.url || data.s3_url || data.file_url || data.view_url;
+      
+      if (!s3Url) throw new Error("Pre-signed S3 URL missing from backend response.");
 
       const lowerName = (docName || '').toLowerCase();
       
-      // 🟢 1. Native PDF/Images can be read cleanly and securely by the browser's built-in engine
+      // PDFs & Images open cleanly natively
       if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
-        window.open(fileUrl, '_blank');
-      } 
-      // 🟢 2. Office Documents (Word, Excel, PowerPoint) route to Google Docs Web Viewer
-      else if (
-        lowerName.endsWith('.docx') || lowerName.endsWith('.doc') || 
-        lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls') || lowerName.endsWith('.csv') ||
-        lowerName.endsWith('.pptx') || lowerName.endsWith('.ppt')
-      ) {
-        const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=false`;
-        window.open(googleViewerUrl, '_blank');
-      } 
-      // 🟢 3. Fallback for unrecognized formats
-      else {
-        alert("This file format cannot be previewed live. Please use the download button.");
+        window.open(s3Url, '_blank');
+      } else {
+        // .docx, .xlsx, .pptx passed to official Microsoft Office Web Viewer
+        const officeViewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(s3Url)}`;
+        window.open(officeViewerUrl, '_blank');
       }
-
     } catch (err) {
       alert(`Reader Error: ${err.message}`);
     } finally {
@@ -244,30 +209,21 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-  // 🟢 DOWNLOAD PATH WITH FORENSIC RECEIPT STAMPING
+  // 🟢 DOWNLOAD PATH: Streams directly as a local attachment
   const handleDownloadDoc = async (docId, isTemplate = false, fileName = 'document') => {
-    if (!hasDownloadClearance) {
-      return alert("Security Restriction: You do not have command clearance to download documents.");
-    }
+    if (!hasDownloadClearance) return alert("Security Restriction: You do not have clearance to download.");
 
     setActionLoading(`download-${docId}`);
     try {
-      // Appends stamp=true to ensure the red forensic receipt is embedded for the specific user
       const endpoint = isTemplate 
-        ? `/api/v1/templates/download/${docId}?stamp=true&download=true` 
-        : `/api/v1/reports/download/${docId}?stamp=true&download=true`;
+        ? `/api/v1/templates/download/${docId}?stamp=true` 
+        : `/api/v1/reports/download/${docId}?stamp=true`;
         
       const response = await authFetch(endpoint, { method: "GET" });
+      if (!response.ok) throw new Error("Requested document not found on server.");
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || "Requested document not found on server.");
-      }
-
-      // Explicitly process as blob to trigger a local file attachment download
       const blob = await response.blob();
       const blobUrl = window.URL.createObjectURL(blob);
-
       const link = document.createElement('a');
       link.style.display = 'none';
       link.href = blobUrl;
@@ -276,10 +232,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       document.body.appendChild(link);
       link.click();
       
-      setTimeout(() => {
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(blobUrl);
-      }, 15000);
+      setTimeout(() => { document.body.removeChild(link); window.URL.revokeObjectURL(blobUrl); }, 15000);
     } catch (err) {
       alert(`Download Error: ${err.message}`);
     } finally {
@@ -289,26 +242,18 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
   const filteredDocuments = useMemo(() => {
     return documents.filter(doc => {
-      if (doc.categoryKey !== activeCategory) {
-        return false;
-      }
-
+      if (doc.categoryKey !== activeCategory) return false;
       const stn = (doc.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, doc.region);
-
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
-        return true;
-      }
+      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
       if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return false;
       if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return false;
-
       return true;
     });
   }, [documents, activeCategory, filterRegion, filterStation, canViewGlobalActive]);
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-6 font-sans mb-8">
-      
       <div className="bg-slate-900 text-white px-6 py-4 rounded-xl shadow-md flex items-center">
         <div>
           <h2 className="text-lg font-extrabold uppercase tracking-wider flex items-center">
@@ -332,15 +277,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
             className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
           >
             {canViewGlobalActive ? (
-              <>
-                <option value="ALL REGIONS">ALL REGIONS</option>
-                {Object.keys(REGIONAL_HIERARCHY).map(reg => (
-                  <option key={reg} value={reg}>{reg}</option>
-                ))}
-              </>
-            ) : (
-              <option value={currentUser?.region || ''}>{currentUser?.region || 'UNKNOWN'}</option>
-            )}
+              <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => (<option key={reg} value={reg}>{reg}</option>))}</>
+            ) : (<option value={currentUser?.region || ''}>{currentUser?.region || 'UNKNOWN'}</option>)}
           </select>
 
           <select 
@@ -350,25 +288,16 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
             className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
           >
             {canViewGlobalActive ? (
-              <>
-                <option value="ALL STATIONS">ALL STATIONS</option>
-                {filterRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[filterRegion] || []).map(stn => (
-                  <option key={stn} value={stn}>{stn}</option>
-                ))}
-              </>
-            ) : (
-              <option value={currentUser?.station || ''}>{currentUser?.station || 'UNKNOWN'}</option>
-            )}
+              <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[filterRegion] || []).map(stn => (<option key={stn} value={stn}>{stn}</option>))}</>
+            ) : (<option value={currentUser?.station || ''}>{currentUser?.station || 'UNKNOWN'}</option>)}
           </select>
         </div>
-
         <span className="text-xs font-extrabold text-blue-800 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
           Showing: {filterRegion} {filterStation !== 'ALL STATIONS' ? `➔ ${filterStation}` : ''}
         </span>
       </div>
 
       <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-        
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="border-b border-slate-100 pb-4 mb-6">
             <h3 className="font-extrabold text-sm text-slate-900 uppercase">Universal File Intake Hub</h3>
@@ -383,54 +312,22 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
             </div>
           ) : (
             <form onSubmit={handleUpload} className="max-w-3xl space-y-4">
-
               <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-200 flex flex-col sm:flex-row gap-1">
-                <button
-                  type="button"
-                  onClick={() => setActiveCategory('weekly_report')}
-                  className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors cursor-pointer ${activeCategory === 'weekly_report' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
-                >
-                  Weekly Reports
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveCategory('general_doc')}
-                  className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors cursor-pointer ${activeCategory === 'general_doc' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
-                >
-                  General Docs / Statements
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveCategory('templates')}
-                  className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors cursor-pointer ${activeCategory === 'templates' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
-                >
-                  Command Templates
-                </button>
+                <button type="button" onClick={() => setActiveCategory('weekly_report')} className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors cursor-pointer ${activeCategory === 'weekly_report' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}>Weekly Reports</button>
+                <button type="button" onClick={() => setActiveCategory('general_doc')} className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors cursor-pointer ${activeCategory === 'general_doc' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-200'}`}>General Docs / Statements</button>
+                <button type="button" onClick={() => setActiveCategory('templates')} className={`flex-1 py-2 px-2 text-xs font-bold rounded shadow-sm transition-colors cursor-pointer ${activeCategory === 'templates' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-200'}`}>Command Templates</button>
               </div>
 
               <div className="space-y-4 mt-4 animate-in fade-in">
-
                 {activeCategory === 'templates' && (
                   <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 space-y-2">
                     <label className="block text-xs font-bold text-amber-900">Custom Template Title / Designation *</label>
-                    <input 
-                      type="text" 
-                      value={templateCustomName} 
-                      onChange={(e) => setTemplateCustomName(e.target.value)} 
-                      placeholder="e.g. NOMINAL ROLL SUBMISSION TEMPLATE" 
-                      required 
-                      className="w-full border border-amber-300 rounded-lg p-2.5 text-sm font-bold text-slate-800 outline-none focus:border-amber-500 bg-white uppercase"
-                    />
+                    <input type="text" value={templateCustomName} onChange={(e) => setTemplateCustomName(e.target.value)} placeholder="e.g. NOMINAL ROLL SUBMISSION TEMPLATE" required className="w-full border border-amber-300 rounded-lg p-2.5 text-sm font-bold text-slate-800 outline-none focus:border-amber-500 bg-white uppercase"/>
                   </div>
                 )}
 
                 <div className={`border-2 border-dashed rounded-xl p-4 text-center transition cursor-pointer relative ${activeCategory === 'templates' ? 'border-amber-300 bg-amber-50/50 hover:bg-amber-100' : 'border-slate-300 bg-slate-50 hover:bg-blue-50'}`}>
-                  <input 
-                    type="file" 
-                    multiple 
-                    onChange={handleFileChange} 
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                  />
+                  <input type="file" multiple onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"/>
                   <UploadCloud className={`w-8 h-5 mx-auto mb-2 ${activeCategory === 'templates' ? 'text-amber-500' : 'text-slate-400'}`} />
                   <p className="text-sm font-bold text-slate-600">Click or drop multiple files here</p>
                 </div>
@@ -453,11 +350,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                   </div>
                 )}
 
-                <button 
-                  type="submit" 
-                  disabled={files.length === 0 || uploading}
-                  className={`w-full py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition disabled:bg-slate-300 cursor-pointer ${activeCategory === 'templates' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-black'}`}
-                >
+                <button type="submit" disabled={files.length === 0 || uploading} className={`w-full py-3 flex justify-center items-center text-white font-bold rounded-xl shadow-md text-xs uppercase tracking-wider transition disabled:bg-slate-300 cursor-pointer ${activeCategory === 'templates' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-black'}`}>
                   {uploading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Uploading Files...</> : activeCategory === 'templates' ? `Upload ${files.length || ''} Template(s)` : `Upload ${files.length || ''} Document(s)`}
                 </button>
               </div>
@@ -473,29 +366,10 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                 System Records Ledger ({activeCategory.replace('_', ' ').toUpperCase()})
               </h3>
             </div>
-
             <div className="flex flex-wrap bg-slate-200 p-1 rounded-lg border border-slate-300 w-full lg:w-auto">
-              <button
-                type="button"
-                onClick={() => setActiveCategory('weekly_report')}
-                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors cursor-pointer ${activeCategory === 'weekly_report' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
-              >
-                Weekly Reports
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveCategory('general_doc')}
-                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors cursor-pointer ${activeCategory === 'general_doc' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
-              >
-                General Docs
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveCategory('templates')}
-                className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors cursor-pointer ${activeCategory === 'templates' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}
-              >
-                Templates
-              </button>
+              <button type="button" onClick={() => setActiveCategory('weekly_report')} className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors cursor-pointer ${activeCategory === 'weekly_report' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}>Weekly Reports</button>
+              <button type="button" onClick={() => setActiveCategory('general_doc')} className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors cursor-pointer ${activeCategory === 'general_doc' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}>General Docs</button>
+              <button type="button" onClick={() => setActiveCategory('templates')} className={`flex-1 px-4 py-1.5 text-[11px] sm:text-xs font-bold rounded-md transition-colors cursor-pointer ${activeCategory === 'templates' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-700 hover:text-black'}`}>Templates</button>
             </div>
           </div>
             
@@ -512,74 +386,37 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
               </thead>
               <tbody className="bg-white divide-y divide-slate-100">
                 {loadingDocs ? (
-                  <tr>
-                    <td colSpan="5" className="px-6 py-10 text-center text-slate-500 text-sm font-medium">
-                      <Loader2 className="w-5 h-5 mx-auto animate-spin mb-2 text-blue-500" /> Fetching documents...
-                    </td>
-                  </tr>
+                  <tr><td colSpan="5" className="px-6 py-10 text-center text-slate-500 text-sm font-medium"><Loader2 className="w-5 h-5 mx-auto animate-spin mb-2 text-blue-500" /> Fetching documents...</td></tr>
                 ) : filteredDocuments.length === 0 ? (
-                  <tr>
-                    <td colSpan="5" className="px-4 py-10 text-center text-slate-500 text-sm font-medium">
-                      No documents found under this category for the selected jurisdiction.
-                    </td>
-                  </tr>
+                  <tr><td colSpan="5" className="px-4 py-10 text-center text-slate-500 text-sm font-medium">No documents found under this category for the selected jurisdiction.</td></tr>
                 ) : filteredDocuments.map((doc) => (
                   <tr key={doc.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-slate-800 flex items-center">
-                      <FolderOpen className="w-4 h-4 mr-2 text-amber-500 shrink-0" />
-                      {doc.name}
+                      <FolderOpen className="w-4 h-4 mr-2 text-amber-500 shrink-0" />{doc.name}
                     </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-xs">
-                      <span className="px-2 py-1 rounded font-bold uppercase tracking-wide bg-slate-100 text-slate-700 border border-slate-200">
-                        {doc.type}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-500 flex items-center">
-                      <Clock className="w-3 h-3 mr-1" /> {doc.date}
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-500 font-mono">
-                      {doc.size}
-                    </td>
-                      
+                    <td className="px-4 py-4 whitespace-nowrap text-xs"><span className="px-2 py-1 rounded font-bold uppercase tracking-wide bg-slate-100 text-slate-700 border border-slate-200">{doc.type}</span></td>
+                    <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-500 flex items-center"><Clock className="w-3 h-3 mr-1" /> {doc.date}</td>
+                    <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-500 font-mono">{doc.size}</td>
                     <td className="px-4 py-4 whitespace-nowrap text-right">
                       <div className="flex justify-end space-x-2">
-                        {/* 🟢 READ BUTTON EXCLUSIVELY FOR VIEWING VIA GOOGLE DOCS WEB VIEWER */}
-                        <button 
-                          onClick={() => handleReadDoc(doc.id, doc.isTemplate, doc.name)}
-                          disabled={actionLoading === `read-${doc.id}`}
-                          className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
-                        >
-                          {actionLoading === `read-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <ExternalLink className="w-3 h-3 mr-1 text-blue-600" />}
-                          Read
+                        {/* 🟢 READ URL BUTTON */}
+                        <button onClick={() => handleReadDoc(doc.id, doc.isTemplate, doc.name)} disabled={actionLoading === `read-${doc.id}`} className="text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50">
+                          {actionLoading === `read-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <ExternalLink className="w-3 h-3 mr-1 text-blue-600" />} Read
                         </button>
 
                         {hasDownloadClearance ? (
                           <>
-                            {/* 🟢 DOWNLOAD BUTTON WITH FORENSIC RECEIPT STAMPING BEARING PARTICULAR USER'S DETAILS */}
-                            <button 
-                              onClick={() => handleDownloadDoc(doc.id, doc.isTemplate, doc.name)}
-                              disabled={actionLoading === `download-${doc.id}`}
-                              className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
-                            >
-                              {actionLoading === `download-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
-                              Download
+                            <button onClick={() => handleDownloadDoc(doc.id, doc.isTemplate, doc.name)} disabled={actionLoading === `download-${doc.id}`} className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50">
+                              {actionLoading === `download-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />} Download
                             </button>
-                              
                             {hasUploadClearance && (
-                              <button 
-                                onClick={() => handleDeleteDoc(doc.id)}
-                                disabled={actionLoading === `delete-${doc.id}`}
-                                className="text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50"
-                              >
-                                {actionLoading === `delete-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Trash2 className="w-3 h-3 mr-1" />}
-                                Delete
+                              <button onClick={() => handleDeleteDoc(doc.id)} disabled={actionLoading === `delete-${doc.id}`} className="text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50">
+                                {actionLoading === `delete-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Trash2 className="w-3 h-3 mr-1" />} Delete
                               </button>
                             )}
                           </>
                         ) : (
-                          <button disabled className="text-slate-400 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded flex items-center text-xs font-bold cursor-not-allowed opacity-60" title="Command Clearance Required to Download">
-                            <Lock className="w-3 h-3 mr-1" /> Restricted
-                          </button>
+                          <button disabled className="text-slate-400 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded flex items-center text-xs font-bold cursor-not-allowed opacity-60" title="Command Clearance Required to Download"><Lock className="w-3 h-3 mr-1" /> Restricted</button>
                         )}
                       </div>
                     </td>
