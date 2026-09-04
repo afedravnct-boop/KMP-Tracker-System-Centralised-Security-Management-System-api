@@ -187,11 +187,11 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-  // 🟢 READ PATH EXCLUSIVELY FOR VIEWING: Captures the S3 forensic_cache URL and passes it to MS Viewer
+  // 🟢 LIVE BROWSER VIEWER PATH: Resolves AWS S3 URL and forces Google Docs Viewer to render in a new tab without downloading
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document') => {
     setActionLoading(`read-${docId}`);
     try {
-      // Append view=true and stamp=true. The backend creates the stamped file in S3 and returns the URL.
+      // Append view=true and stamp=true to trigger forensic stamping on the backend S3 cache
       const endpoint = isTemplate 
         ? `/api/v1/templates/download/${docId}?view=true&stamp=true` 
         : `/api/v1/reports/download/${docId}?view=true&stamp=true`;
@@ -206,13 +206,12 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       let fileUrl = "";
       const contentType = response.headers.get("content-type");
       
-      // If the backend returns a JSON payload with the S3 URL
+      // Extract the authenticated AWS S3 URL
       if (contentType && contentType.includes("application/json")) {
         const data = await response.json();
         fileUrl = data.url || data.view_url || data.file_url || data.s3_url;
       } else {
-        // If the backend responds with a 302 Redirect to the S3 bucket, authFetch automatically follows it.
-        // We capture the final AWS S3 URL from response.url
+        // If the backend responds with a 302 Redirect, fetch follows it and the S3 URL is caught here
         fileUrl = response.url;
       }
 
@@ -220,13 +219,22 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
       const lowerName = (docName || '').toLowerCase();
       
-      // If PDF or Image, the browser can open the S3 link natively in a new tab
+      // 🟢 1. Native PDF/Images can be read cleanly and securely by the browser's built-in engine
       if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
         window.open(fileUrl, '_blank');
-      } else {
-        // Route Word and Excel documents through the Microsoft Office Online Viewer using the public S3 URL
-        const officeViewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(fileUrl)}`;
-        window.open(officeViewerUrl, '_blank');
+      } 
+      // 🟢 2. Office Documents (Word, Excel, PowerPoint) route to Google Docs Web Viewer
+      else if (
+        lowerName.endsWith('.docx') || lowerName.endsWith('.doc') || 
+        lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls') || lowerName.endsWith('.csv') ||
+        lowerName.endsWith('.pptx') || lowerName.endsWith('.ppt')
+      ) {
+        const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=false`;
+        window.open(googleViewerUrl, '_blank');
+      } 
+      // 🟢 3. Fallback for unrecognized formats
+      else {
+        alert("This file format cannot be previewed live. Please use the download button.");
       }
 
     } catch (err) {
@@ -244,7 +252,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
     setActionLoading(`download-${docId}`);
     try {
-      // Appending stamp=true to ensure forensic receipt is embedded
+      // Appends stamp=true to ensure the red forensic receipt is embedded for the specific user
       const endpoint = isTemplate 
         ? `/api/v1/templates/download/${docId}?stamp=true&download=true` 
         : `/api/v1/reports/download/${docId}?stamp=true&download=true`;
@@ -256,7 +264,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
         throw new Error(errorData.detail || "Requested document not found on server.");
       }
 
-      // We explicitly parse as blob here to force a local machine download prompt
+      // Explicitly process as blob to trigger a local file attachment download
       const blob = await response.blob();
       const blobUrl = window.URL.createObjectURL(blob);
 
@@ -535,7 +543,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                       
                     <td className="px-4 py-4 whitespace-nowrap text-right">
                       <div className="flex justify-end space-x-2">
-                        {/* 🟢 READ BUTTON EXCLUSIVELY FOR VIEWING VIA PUBLIC S3 CACHE REDIRECT PASSED TO OFFICE VIEWER */}
+                        {/* 🟢 READ BUTTON EXCLUSIVELY FOR VIEWING VIA GOOGLE DOCS WEB VIEWER */}
                         <button 
                           onClick={() => handleReadDoc(doc.id, doc.isTemplate, doc.name)}
                           disabled={actionLoading === `read-${doc.id}`}
@@ -547,7 +555,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
                         {hasDownloadClearance ? (
                           <>
-                            {/* 🟢 DOWNLOAD BUTTON WITH FORENSIC RECEIPT STAMPING */}
+                            {/* 🟢 DOWNLOAD BUTTON WITH FORENSIC RECEIPT STAMPING BEARING PARTICULAR USER'S DETAILS */}
                             <button 
                               onClick={() => handleDownloadDoc(doc.id, doc.isTemplate, doc.name)}
                               disabled={actionLoading === `download-${doc.id}`}
