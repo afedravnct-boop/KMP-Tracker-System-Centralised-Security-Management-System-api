@@ -93,7 +93,6 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
       credentials: 'include'
     });
   } catch (networkError) {
-    // 🟢 NEW FIX: Silently ignore React component unmount aborts
     if (networkError.name === 'AbortError') {
       return new Response(JSON.stringify({ detail: "Request aborted by user navigation" }), { status: 499 });
     }
@@ -130,7 +129,6 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
           credentials: 'include'
         });
 
-        // 🛑 THE SECURITY FIX: If heartbeat returns 401 or 403, the user is genuinely revoked/expired! Do NOT retry.
         if (hbCheck.status === 401 || hbCheck.status === 403) {
           isRefreshing = false;
           processQueue(new Error("Revoked"));
@@ -158,7 +156,35 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
     return response;
   }
 
+  // 🟢 NEW FIX: GLOBAL LOCKDOWN INTERCEPTOR
+  // If the backend drops a 403 Forbidden, we intercept the error message.
   if (response.status === 403) {
+    try {
+      const errData = await response.clone().json();
+      const detailStr = (errData.detail || "").toUpperCase();
+      
+      // If the error specifically mentions a "LOCKDOWN", trigger the active boot engine
+      if (detailStr.includes("LOCKDOWN")) {
+        console.error("🔒 LOCKDOWN TRIGGERED. Severing active session...");
+        
+        // 1. Instantly wipe all local browser tokens and memory
+        clearAuthSession();
+        
+        // 2. Warn the user with the exact reason
+        alert(`⛔ COMMAND OVERRIDE:\n\n${errData.detail}\n\nYou are being securely logged out.`);
+        
+        // 3. Force navigate them to the root login screen
+        window.location.replace('/');
+        
+        // 4. Return an infinitely pending promise to instantly freeze the React frontend
+        // This prevents the page from crashing while the browser reloads
+        return new Promise(() => {}); 
+      }
+    } catch (e) {
+      // Fallback if parsing fails
+    }
+    
+    // If it's a standard 403 (just denying a button click), let it pass normally
     throw new Error("Clearance Denied");
   }
 
