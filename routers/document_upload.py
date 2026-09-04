@@ -225,13 +225,14 @@ async def upload_word_report(
         raise HTTPException(status_code=500, detail=f"Failed to process document intake: {str(e)}")
 
 # 🟢 MASTER DOWNLOAD & FORENSIC STAMPING ROUTER
+# 🟢 MASTER DOWNLOAD & FORENSIC STAMPING ROUTER
 @router.get("/reports/download/{doc_id}")
 @router.get("/templates/download/{doc_id}")
-@router.get("/general-docs/download/{doc_id}") # Included to explicitly handle General Docs
+@router.get("/general-docs/download/{doc_id}") 
 def download_archive_file(
     doc_id: int, 
     return_url: bool = False,
-    category: Optional[str] = None, # Resolves ID Collisions
+    category: Optional[str] = None, 
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -241,7 +242,7 @@ def download_archive_file(
     
     doc_record = None
     
-    # 🟢 1. STRICT TABLE ROUTING: Prevents reading Word docs when clicking Excel/PPT docs
+    # STRICT TABLE ROUTING
     if category == 'templates' and TemplateModel:
         doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
     elif category == 'general_doc' and GeneralDocModel:
@@ -249,7 +250,6 @@ def download_archive_file(
     elif category == 'weekly_report' and ArchiveModel:
         doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
         
-    # 🟢 2. Failsafe query if category was somehow omitted
     if not doc_record:
         if ArchiveModel: doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
         if not doc_record and TemplateModel: doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
@@ -292,7 +292,7 @@ def download_archive_file(
         receipt_text = (
             "========================================================\n"
             "         KAMPALA METROPOLITAN POLICE HEADQUARTERS        \n"
-            "         SECURE DOCUMENT & TEMPLATES ACCESS        \n"
+            "         SECURE DOCUMENT ACCESS        \n"
             "--------------------------------------------------------\n"
             f"ACCESSED BY    : {officer_signature}\n"
             f"CLEARANCE      : {current_user.role} | STATION: {current_user.station}\n"
@@ -304,7 +304,6 @@ def download_archive_file(
         output_stream = io.BytesIO()
         content_type = "application/octet-stream"
 
-        # 🟢 Word Document Stamping
         if file_extension == 'docx':
             word_doc = Document(io.BytesIO(raw_bytes))
             core_props = word_doc.core_properties
@@ -331,7 +330,6 @@ def download_archive_file(
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
-        # 🟢 Excel Spreadsheet Stamping
         elif file_extension in ['xlsx', 'xls']:
             wb = openpyxl.load_workbook(io.BytesIO(raw_bytes))
             wb.properties.creator = officer_signature
@@ -346,7 +344,6 @@ def download_archive_file(
             wb.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-        # 🟢 Explicit PowerPoint Forensic Stamping (ALL SLIDES)
         elif file_extension in ['pptx', 'ppt']:
             try:
                 prs = Presentation(io.BytesIO(raw_bytes))
@@ -356,8 +353,8 @@ def download_archive_file(
                 prs.core_properties.comments = comments_str
                 prs.core_properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
                 
-                # 🟢 CHANGED: Loop through EVERY slide instead of just prs.slides[0]
-                for slide in prs.slides:
+                if prs.slides:
+                    slide = prs.slides[0]
                     txBox = slide.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(8), Inches(1))
                     tf = txBox.text_frame
                     p = tf.add_paragraph()
@@ -369,24 +366,13 @@ def download_archive_file(
 
                 prs.save(output_stream)
                 content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-            except Exception as ppt_err:
-                print(f"PPTX Stamp Error: {ppt_err}")
+            except Exception:
                 output_stream.write(raw_bytes)
                 content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
-        # 🟢 Explicit PDF Forensic Stamping
         elif file_extension == 'pdf':
             try:
                 pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
-                
-                # 🟢 NEW: Inject hidden metadata into the PDF properties
-                pdf_doc.set_metadata({
-                    "author": officer_signature,
-                    "subject": comments_str,
-                    "keywords": keywords_str,
-                    "creator": "KMP Centralised Security Data Management System"
-                })
-
                 for page in pdf_doc:
                     rect = page.rect
                     stamp_point = pymupdf.Point(50, rect.height - 60)
@@ -397,14 +383,21 @@ def download_archive_file(
                         fontname="courier-bold",
                         color=(0.545, 0, 0)
                     )
-                output_stream = io.BytesIO(pdf_doc.write())
+                stamped_pdf_bytes = pdf_doc.tobytes()
+                output_stream = io.BytesIO(stamped_pdf_bytes)
                 content_type = "application/pdf"
-            except Exception as pdf_err:
-                print(f"PDF Stamp Error: {pdf_err}")
+            except Exception:
                 output_stream.write(raw_bytes)
                 content_type = "application/pdf"
 
-        # 🟢 CACHE S3 URL FOR GOOGLE/MICROSOFT WEB VIEWERS
+        else:
+            output_stream.write(raw_bytes)
+
+        # 🟢 GUARANTEED GENERATION OF FINAL BYTES
+        output_stream.seek(0)
+        final_bytes = output_stream.getvalue()
+
+        # 🟢 CACHE S3 URL FOR WEB VIEWERS
         if return_url:
             temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
             
@@ -424,7 +417,7 @@ def download_archive_file(
             return JSONResponse(content={"url": presigned_url})
 
         return StreamingResponse(
-            output_stream,
+            io.BytesIO(final_bytes),
             media_type=content_type,
             headers={
                 "Content-Disposition": f'attachment; filename="{file_name}"'

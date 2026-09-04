@@ -167,6 +167,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   };
 
   // 🟢 STRICT ROUTING READ PATH
+  // 🟢 STRICT ROUTING READ PATH: Uses Microsoft Viewer for robust S3 URL handling
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document', categoryKey = 'weekly_report') => {
     setActionLoading(`read-${docId}`);
     try {
@@ -192,10 +193,11 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
       const lowerName = (docName || '').toLowerCase();
       
+      // Open PDFs and Images natively
       if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
         window.open(s3Url, '_blank');
       } else {
-        // 🟢 FIXED: Switch back to Microsoft Office Viewer. It handles AWS S3 pre-signed URLs much better than Google.
+        // 🟢 FIXED: Switch back to Microsoft Office Viewer to prevent the Google "limited connectivity" timeout
         const officeViewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(s3Url)}`;
         window.open(officeViewerUrl, '_blank');
       }
