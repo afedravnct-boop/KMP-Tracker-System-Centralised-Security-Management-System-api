@@ -273,15 +273,35 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
     except Exception:
         db.rollback()
 
+    # 🟢 NEW: HARD ENFORCEMENT OF SYSTEM LOCKDOWNS
     if user.role != "SUPER_ADMIN":
-        config_check = db.query(models.SystemConfig).filter(
-            models.SystemConfig.config_key == "peer_delegation_active"
+        # 1. Global System Lockdown
+        sys_lock = db.query(models.SystemConfig).filter(
+            models.SystemConfig.config_key == "lockdown_system_global",
+            models.SystemConfig.config_value == "TRUE"
         ).first()
-        if config_check and str(config_check.config_value).strip().upper() == "FALSE":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Application Lockdown: System access restricted."
-            )
+        if sys_lock:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="SYSTEM LOCKDOWN: The centralized database is currently under maintenance. All access is suspended.")
+
+        # 2. Regional Lockdown
+        if user.region:
+            reg_key = f"lockdown_region_{user.region.lower().replace(' ', '_')}"
+            reg_lock = db.query(models.SystemConfig).filter(
+                models.SystemConfig.config_key == reg_key,
+                models.SystemConfig.config_value == "TRUE"
+            ).first()
+            if reg_lock:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"REGIONAL LOCKDOWN: Command operations for {user.region} are currently suspended.")
+
+        # 3. Station Lockdown
+        if user.station:
+            stn_key = f"lockdown_station_{user.station.lower().replace(' ', '_')}"
+            stn_lock = db.query(models.SystemConfig).filter(
+                models.SystemConfig.config_key == stn_key,
+                models.SystemConfig.config_value == "TRUE"
+            ).first()
+            if stn_lock:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"STATION LOCKDOWN: Command operations for {user.station} are currently suspended.")
 
     return user
 
@@ -594,11 +614,10 @@ class HeartbeatPayload(BaseModel):
 @app.post("/api/v1/users/heartbeat")
 @app.post("/api/v1/users/heartbeat/")
 def heartbeat(
-    request: Request, # 🟢 NEW: Inject the request to access headers and cookies
+    request: Request,
     payload: Optional[HeartbeatPayload] = None,
     db: Session = Depends(get_db)
 ):
-    # 🟢 1. Check Header first, fallback to Cookies
     token = None
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
@@ -607,8 +626,6 @@ def heartbeat(
         token = request.cookies.get("access_token") or request.cookies.get("kmp_authToken")
 
     user = None
-    
-    # 🟢 2. Decode token if found
     if token:
         try:
             jwt_data = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
@@ -620,7 +637,6 @@ def heartbeat(
         except JWTError:
             pass
 
-    # 🟢 3. Fallback to payload FNUM if token failed
     if not user and payload and payload.fnum:
         user = db.query(models.Users).filter(
             func.trim(func.upper(models.Users.fnum)) == str(payload.fnum).strip().upper()
@@ -628,6 +644,20 @@ def heartbeat(
 
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session credentials")
+
+    # 🟢 ACTIVE CONNECTION CUTOFF: Boots users instantly if a lockdown is triggered while they are online
+    if user.role != "SUPER_ADMIN":
+        sys_lock = db.query(models.SystemConfig).filter(models.SystemConfig.config_key == "lockdown_system_global", models.SystemConfig.config_value == "TRUE").first()
+        if sys_lock:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="SYSTEM LOCKDOWN")
+            
+        if user.region:
+            reg_lock = db.query(models.SystemConfig).filter(models.SystemConfig.config_key == f"lockdown_region_{user.region.lower().replace(' ', '_')}", models.SystemConfig.config_value == "TRUE").first()
+            if reg_lock: raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="REGION LOCKDOWN")
+            
+        if user.station:
+            stn_lock = db.query(models.SystemConfig).filter(models.SystemConfig.config_key == f"lockdown_station_{user.station.lower().replace(' ', '_')}", models.SystemConfig.config_value == "TRUE").first()
+            if stn_lock: raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="STATION LOCKDOWN")
 
     try:
         eat_tz = pytz.timezone('Africa/Nairobi')
@@ -637,10 +667,8 @@ def heartbeat(
         expire = datetime.utcnow() + timedelta(minutes=60)
         new_token = jwt.encode(
             {"sub": str(user.fnum).strip().upper(), "exp": expire},
-            security.SECRET_KEY,
-            algorithm=security.ALGORITHM
+            security.SECRET_KEY, algorithm=security.ALGORITHM
         )
-        
         return {"status": "alive", "user": user.fnum, "new_token": new_token}
     except Exception as e:
         db.rollback()
