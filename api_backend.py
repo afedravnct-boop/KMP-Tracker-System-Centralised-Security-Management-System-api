@@ -594,11 +594,21 @@ class HeartbeatPayload(BaseModel):
 @app.post("/api/v1/users/heartbeat")
 @app.post("/api/v1/users/heartbeat/")
 def heartbeat(
+    request: Request, # 🟢 NEW: Inject the request to access headers and cookies
     payload: Optional[HeartbeatPayload] = None,
-    token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)),
     db: Session = Depends(get_db)
 ):
+    # 🟢 1. Check Header first, fallback to Cookies
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    if not token:
+        token = request.cookies.get("access_token") or request.cookies.get("kmp_authToken")
+
     user = None
+    
+    # 🟢 2. Decode token if found
     if token:
         try:
             jwt_data = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
@@ -610,6 +620,7 @@ def heartbeat(
         except JWTError:
             pass
 
+    # 🟢 3. Fallback to payload FNUM if token failed
     if not user and payload and payload.fnum:
         user = db.query(models.Users).filter(
             func.trim(func.upper(models.Users.fnum)) == str(payload.fnum).strip().upper()
