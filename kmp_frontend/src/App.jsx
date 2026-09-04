@@ -1011,8 +1011,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   const [password, setPassword] = useState('');
   const [authMessage, setAuthMessage] = useState(null);
   
-  // 🟢 Mandatory Policy Agreement States
-  const [acceptedPolicy, setAcceptedPolicy] = useState(false);
+  // 🟢 Mandatory Policy Agreement State (Strictly for Signup)
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   
   const [signupData, setSignupData] = useState({
@@ -1182,11 +1181,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   const handleLoginSubmit = async (e) => { 
     e.preventDefault();
     if (lockoutEnd) return;
-
-    if (!acceptedPolicy && mode === 'login') {
-      setAuthMessage("⚠️ You must read and accept the Terms, Information Security Policy & User Guide.");
-      return;
-    }
 
     if (mode === 'login') {
       try {
@@ -1523,7 +1517,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     />
                   </div>
 
-                  {/* 🟢 MANDATORY POLICY AGREEMENT CHECKBOX FOR SIGNUP */}
+                  {/* 🟢 MANDATORY POLICY AGREEMENT CHECKBOX FOR SIGNUP ONLY */}
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                     <div className="flex items-start space-x-2">
                       <input 
@@ -1598,31 +1592,11 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     </div>
                   )}
 
-                  {/* 🟢 MANDATORY POLICY AGREEMENT CHECKBOX FOR LOGIN */}
-                  {mode === 'login' && (
-                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                      <div className="flex items-start space-x-2">
-                        <input 
-                            type="checkbox" 
-                            id="policyAcceptLogin"
-                            required
-                            checked={acceptedPolicy}
-                            onChange={(e) => setAcceptedPolicy(e.target.checked)}
-                            className="mt-0.5 w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer shrink-0"
-                        />
-                        <label htmlFor="policyAcceptLogin" className="text-xs text-slate-700 font-medium leading-snug cursor-pointer">
-                          I agree to the <span className="text-blue-700 font-bold underline cursor-pointer" onClick={(e) => { e.preventDefault(); setShowPolicyModal(true); }}>Terms, Information Security Policy & User Guide</span>. *
-                        </label>
-                      </div>
-                    </div>
-                  )}
+                  {/* 🟢 POLICY CHECKBOX COMPLETELY REMOVED FROM SIGN-IN */}
 
                   <button 
                     type="submit" 
-                    disabled={mode === 'login' && !acceptedPolicy}
-                    className={`w-full font-bold py-3 rounded-lg transition-colors cursor-pointer text-xs uppercase tracking-wider ${
-                      mode === 'login' && !acceptedPolicy ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-700 hover:bg-blue-800 text-white'
-                  }`}
+                    className="w-full font-bold py-3 rounded-lg transition-colors cursor-pointer text-xs uppercase tracking-wider bg-blue-700 hover:bg-blue-800 text-white"
                   >
                     {mode === 'login' ? 'Authorize Access' : 'Request Password Reset'}
                   </button>
@@ -1631,36 +1605,36 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       type="button" 
                       onClick={() => { setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0); }} 
                     className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium cursor-pointer"
-                  >
-                    {mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}
-                  </button>
-                  {mode === 'login' && (
-                    <button 
-                      type="button" 
-                      onClick={() => setMode('signup')} 
-                      className="text-sm text-blue-600 font-bold hover:underline cursor-pointer"
                     >
-                      Sign Up (Request Access)
+                      {mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}
                     </button>
-                  )}
-                </div>
+                    {mode === 'login' && (
+                      <button 
+                        type="button" 
+                        onClick={() => setMode('signup')} 
+                        className="text-sm text-blue-600 font-bold hover:underline cursor-pointer"
+                      >
+                        Sign Up (Request Access)
+                      </button>
+                    )}
+                  </div>
 
-                <div className="text-center mt-6 space-y-1 relative z-10">
-                  <p className="text-xs text-gray-400 flex items-center justify-center">
-                    <Lock className="w-3 h-3 mr-1"/> Protected by Central Command Security Protocols
-                  </p>
-                  <p className="text-[10px] text-slate-500 font-mono tracking-wider uppercase">
-                    © 2026 Uganda Police Force — Kampala Metropolitan Police (KMP-CSDMS)
-                  </p>
-                </div>
-              </form>
-            )}
-          </>
+                  <div className="text-center mt-6 space-y-1 relative z-10">
+                    <p className="text-xs text-gray-400 flex items-center justify-center">
+                      <Lock className="w-3 h-3 mr-1"/> Protected by Central Command Security Protocols
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-mono tracking-wider uppercase">
+                      © 2026 Uganda Police Force — Kampala Metropolitan Police (KMP-CSDMS)
+                    </p>
+                  </div>
+                </form>
+              )}
+            </>
           )}
         </div>
       </div>
 
-      {/* 🟢 POLICY & TERMS MODAL FOR LOGIN/SIGNUP */}
+      {/* 🟢 POLICY & TERMS MODAL FOR SIGNUP WHEN LINK IS CLICKED */}
       {showPolicyModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[85vh]">
@@ -1702,11 +1676,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
               <button 
                 type="button"
                 onClick={() => { 
-                  if (mode === 'signup') {
-                    setSignupData(prev => ({ ...prev, policy_accepted: true }));
-                  } else {
-                    setAcceptedPolicy(true);
-                  }
+                  setSignupData(prev => ({ ...prev, policy_accepted: true }));
                   setShowPolicyModal(false); 
                 }} 
                 className="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow cursor-pointer transition"
