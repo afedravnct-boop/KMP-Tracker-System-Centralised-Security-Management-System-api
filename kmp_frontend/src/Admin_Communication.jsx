@@ -184,7 +184,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
           target_fnum: formData.targetFnum, 
           message_type: formData.messageType, 
           subject: formData.subject, 
-          message: formData.message, 
+          // 🟢 Applies capitalization cleanly here instead of the active input box
+          message: autoCapitalize(formData.message), 
           send_email: formData.sendEmail,
           requires_command_approval: containsCrossRegion
         })
@@ -647,15 +648,18 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                   <input type="text" name="subject" required value={formData.subject} onChange={handleInputChange} className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm font-bold text-slate-800 outline-none" placeholder="e.g., Request for leave / Investigation Update / Equipment missing..." />
                 </div>
 
-                <div className="pb-10">
+                {/* 🟢 FIXED QUILL EDITOR HEIGHT AND STATE UPDATER */}
+                <div className="pb-12">
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Communication Body *</label>
                   <ReactQuill 
                     theme="snow" 
                     value={formData.message} 
                     onChange={(content) => {
-                      setFormData({ ...formData, message: autoCapitalize(content) });
+                      // We removed autoCapitalize here to prevent the component from reloading and losing cursor focus
+                      setFormData({ ...formData, message: content });
                     }}
-                    className="bg-white rounded-md h-64 mb-4"
+                    className="bg-white rounded-md"
+                    style={{ height: '300px', marginBottom: '40px' }}
                     modules={{ toolbar: [['bold', 'italic', 'underline'], [{'list': 'ordered'}, {'list': 'bullet'}], ['clean']] }}
                   />
                 </div>

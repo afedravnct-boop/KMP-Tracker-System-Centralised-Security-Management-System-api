@@ -346,7 +346,7 @@ def download_archive_file(
             wb.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-        # 🟢 PowerPoint Presentation Stamping
+        # 🟢 Explicit PowerPoint Forensic Stamping (ALL SLIDES)
         elif file_extension in ['pptx', 'ppt']:
             try:
                 prs = Presentation(io.BytesIO(raw_bytes))
@@ -356,8 +356,8 @@ def download_archive_file(
                 prs.core_properties.comments = comments_str
                 prs.core_properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
                 
-                if prs.slides:
-                    slide = prs.slides[0]
+                # 🟢 CHANGED: Loop through EVERY slide instead of just prs.slides[0]
+                for slide in prs.slides:
                     txBox = slide.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(8), Inches(1))
                     tf = txBox.text_frame
                     p = tf.add_paragraph()
@@ -374,10 +374,19 @@ def download_archive_file(
                 output_stream.write(raw_bytes)
                 content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
-        # 🟢 PDF Stamping
+        # 🟢 Explicit PDF Forensic Stamping
         elif file_extension == 'pdf':
             try:
                 pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
+                
+                # 🟢 NEW: Inject hidden metadata into the PDF properties
+                pdf_doc.set_metadata({
+                    "author": officer_signature,
+                    "subject": comments_str,
+                    "keywords": keywords_str,
+                    "creator": "KMP Centralised Security Data Management System"
+                })
+
                 for page in pdf_doc:
                     rect = page.rect
                     stamp_point = pymupdf.Point(50, rect.height - 60)
@@ -394,12 +403,6 @@ def download_archive_file(
                 print(f"PDF Stamp Error: {pdf_err}")
                 output_stream.write(raw_bytes)
                 content_type = "application/pdf"
-
-        else:
-            output_stream.write(raw_bytes)
-
-        output_stream.seek(0)
-        final_bytes = output_stream.getvalue()
 
         # 🟢 CACHE S3 URL FOR GOOGLE/MICROSOFT WEB VIEWERS
         if return_url:
