@@ -995,7 +995,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-red-600 dark:text-red-400 mb-0.5 flex items-center"><Lock size={10} className="mr-1"/> Suspects in Custody</label>
+                    <div className="block text-[11px] font-bold text-red-600 dark:text-red-400 mb-0.5 flex items-center">
+  <Lock size={10} className="mr-1"/> Suspects in Custody
+</div>
                     <div className="flex space-x-1.5">
                       <div className="w-10 bg-red-100 dark:bg-red-950 border border-red-200 dark:border-red-900 text-red-800 dark:text-red-200 font-extrabold rounded flex items-center justify-center text-xs shadow-inner">
                         {operation === 'update' ? formData.suspects : formData.suspectDetails.length}
