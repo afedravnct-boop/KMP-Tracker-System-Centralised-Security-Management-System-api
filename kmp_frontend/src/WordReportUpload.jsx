@@ -187,8 +187,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-  // 🟢 ORIGINAL MICROSOFT OFFICE ONLINE VIEWER LOGIC RESTORED (AUTHENTICATED BLOB TO OBJECT URL PASSED TO OFFICE VIEWER)
-  // 🟢 AUTHENTICATED STREAM NATIVE BROWSER VIEWER
+  // 🟢 READ PATH EXCLUSIVELY FOR VIEWING: Uses authenticated authFetch to bypass token blocks and opens cleanly in a new tab via a local blob URL
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document') => {
     setActionLoading(`read-${docId}`);
     try {
@@ -197,23 +196,34 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       
       if (!response.ok) {
         const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.detail || "Could not retrieve document stream.");
+        throw new Error(errJson.detail || "Could not retrieve document stream for viewing.");
       }
 
       const blob = await response.blob();
       if (blob.size === 0) throw new Error("Retrieved document is empty (0 bytes).");
 
-      const blobUrl = window.URL.createObjectURL(blob);
-      window.open(blobUrl, '_blank');
+      const lowerName = (docName || '').toLowerCase();
+      let mimeType = blob.type || 'application/octet-stream';
+      if (lowerName.endsWith('.pdf')) mimeType = 'application/pdf';
+      else if (lowerName.endsWith('.txt')) mimeType = 'text/plain';
+      else if (lowerName.endsWith('.png')) mimeType = 'image/png';
+      else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) mimeType = 'image/jpeg';
+      else if (lowerName.endsWith('.docx')) mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      else if (lowerName.endsWith('.xlsx')) mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+      const typedBlob = new Blob([blob], { type: mimeType });
+      const blobUrl = window.URL.createObjectURL(typedBlob);
+      
+      window.open(blobUrl, '_blank');
       setTimeout(() => window.URL.revokeObjectURL(blobUrl), 120000);
     } catch (err) {
-      alert(`Viewer Error: ${err.message}`);
+      alert(`Reader Error: ${err.message}`);
     } finally {
       setActionLoading(null);
     }
   };
 
+  // 🟢 DOWNLOAD PATH WITH FORENSIC RECEIPT STAMPING: Appends ?stamp=true to embed the officer's metadata watermark in red ink
   const handleDownloadDoc = async (docId, isTemplate = false, fileName = 'document') => {
     if (!hasDownloadClearance) {
       return alert("Security Restriction: You do not have command clearance to download documents.");
@@ -221,7 +231,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
     setActionLoading(`download-${docId}`);
     try {
-      const endpoint = isTemplate ? `/api/v1/templates/download/${docId}` : `/api/v1/reports/download/${docId}`;
+      const endpoint = isTemplate ? `/api/v1/templates/download/${docId}?stamp=true` : `/api/v1/reports/download/${docId}?stamp=true`;
       const response = await authFetch(endpoint, { method: "GET" });
 
       if (!response.ok) {
@@ -507,7 +517,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                       
                     <td className="px-4 py-4 whitespace-nowrap text-right">
                       <div className="flex justify-end space-x-2">
-                        {/* 🟢 READ BUTTON USING OFFICE ONLINE VIEWER WITH AUTHENTICATED OBJECT URL */}
+                        {/* 🟢 READ BUTTON EXCLUSIVELY FOR VIEWING (AUTHENTICATED BLOB STREAM PREVIEW) */}
                         <button 
                           onClick={() => handleReadDoc(doc.id, doc.isTemplate, doc.name)}
                           disabled={actionLoading === `read-${doc.id}`}
@@ -519,6 +529,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
                         {hasDownloadClearance ? (
                           <>
+                            {/* 🟢 DOWNLOAD BUTTON WITH FORENSIC RECEIPT STAMPING BEARING PARTICULAR USER'S DETAILS */}
                             <button 
                               onClick={() => handleDownloadDoc(doc.id, doc.isTemplate, doc.name)}
                               disabled={actionLoading === `download-${doc.id}`}
