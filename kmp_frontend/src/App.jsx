@@ -1562,10 +1562,12 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     </div>
                   )}
                   <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Force Number</label>
+                    <label htmlFor="login-fnum" className="block text-sm font-bold text-gray-700 mb-1">Force Number</label>
                     <div className="relative">
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"/>
                       <input 
+                        id="login-fnum"
+                        name="username"
                         type="text" 
                         required 
                         value={fnum} 
@@ -1577,10 +1579,12 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                   </div>
                   {mode === 'login' && (
                     <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1">Security Key (Password)</label>
+                      <label htmlFor="login-password" className="block text-sm font-bold text-gray-700 mb-1">Security Key (Password)</label>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"/>
                         <input 
+                          id="login-password"
+                          name="password"
                           type="password" 
                           required 
                           value={password} 

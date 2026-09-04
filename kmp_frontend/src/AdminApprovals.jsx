@@ -114,8 +114,18 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   }, [canViewGlobalActive, isSuperAdminOrTopCommand]);
 
   const handleSystemMaintenanceToggle = async () => {
+    // 🟢 1. Explicitly ask the Super Admin what they want to do
+    const actionChoice = window.prompt(
+      "SYSTEM LOCKDOWN MANAGEMENT\n\nDo you want to:\n1 - ACTIVATE a new Lockdown\n2 - LIFT an existing Lockdown\n\nEnter 1 or 2:",
+      "1"
+    );
+    if (!actionChoice) return;
+
+    const isLifting = actionChoice.trim() === "2";
+
+    // 🟢 2. Dynamically adjust the prompts based on their choice
     const scopeChoice = window.prompt(
-      "Select Lockdown Scope:\n1 - Force-Wide System\n2 - Specific Region\n3 - Specific Station\n4 - Specific Module/Page\n\nEnter number (1-4):",
+      `Select Scope to ${isLifting ? 'LIFT' : 'LOCKDOWN'}:\n1 - Force-Wide System\n2 - Specific Region\n3 - Specific Station\n\nEnter number (1-3):`,
       "1"
     );
     if (!scopeChoice) return;
@@ -128,24 +138,33 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       lockdownType = "SYSTEM";
       targetName = "GLOBAL";
     } else if (scopeChoice === "2") {
+      targetName = window.prompt(`Enter exact Region Name to ${isLifting ? 'UNLOCK' : 'LOCK'} (e.g. KMP NORTH):`, "KMP NORTH")?.trim().toUpperCase();
+      if (!targetName) return;
       lockdownType = "REGION";
-      targetName = window.prompt("Enter exact Region Name (e.g. KMP NORTH):", "KMP NORTH")?.trim().toUpperCase();
-      if (!targetName) return;
     } else if (scopeChoice === "3") {
+      targetName = window.prompt(`Enter exact Station Name to ${isLifting ? 'UNLOCK' : 'LOCK'} (e.g. KAWEMPE):`, "KAWEMPE")?.trim().toUpperCase();
+      if (!targetName) return;
       lockdownType = "STATION";
-      targetName = window.prompt("Enter exact Station Name (e.g. KAWEMPE):", "KAWEMPE")?.trim().toUpperCase();
-      if (!targetName) return;
-    } else if (scopeChoice === "4") {
-      lockdownType = "MODULE";
-      targetName = window.prompt("Enter module key (e.g. acc_crime, ai_console):", "acc_crime")?.trim().toLowerCase();
-      if (!targetName) return;
     } else {
       return alert("Invalid selection.");
     }
 
-    const rawReason = window.prompt(`State operational reason for locking down [${lockdownType}: ${targetName}]:`);
-    if (rawReason === null) return;
-    reason = stripHtmlTags(rawReason || "Command Maintenance");
+    // 🟢 3. The Tailored Reason Prompt (Keeps the Audit Trail Intact!)
+    const rawReason = window.prompt(
+      isLifting 
+        ? `State official reason for LIFTING the lockdown on [${lockdownType}: ${targetName}]:` 
+        : `State operational reason for LOCKING DOWN [${lockdownType}: ${targetName}]:`
+    );
+    
+    if (rawReason === null) return; // Cancels if they hit 'Cancel'
+    
+    // Assigns a default fallback if they leave it blank
+    reason = stripHtmlTags(rawReason || (isLifting ? "Command Lockdown Lifted" : "Command Maintenance"));
+
+    if (isLifting) {
+      const confirmLift = window.confirm(`⚠️ Are you sure you want to LIFT the lockdown for [${lockdownType}: ${targetName}]?`);
+      if (!confirmLift) return;
+    }
 
     try {
       const res = await authFetch('/api/v1/admin/toggle-maintenance', {
@@ -160,10 +179,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
       if (res.ok) {
         const data = await res.json();
-        alert(`✅ Lockdown Executed Successfully:\n${data.message || 'Restrictions updated.'}`);
+        alert(`✅ Command Executed:\n${data.message}`);
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(`❌ Failed to apply lockdown: ${err.detail || 'Server error'}`);
+        alert(`❌ Failed to execute command: ${err.detail || 'Server error'}`);
       }
     } catch (err) {
       alert("❌ Error communicating with the command server.");
