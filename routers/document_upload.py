@@ -4,15 +4,19 @@ import json
 import base64
 import urllib.parse
 from datetime import datetime
-from typing import Optional, List, Union
+from typing import Optional, List
 
 import boto3
-import docx
 import openpyxl
+import pymupdf
 import pytz
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt, RGBColor
+from pptx import Presentation
+from pptx.util import Inches, Pt as PPTXPt
+from pptx.dml.color import RGBColor as PPTXRGBColor
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
@@ -50,7 +54,6 @@ def get_eat_now():
     return datetime.now(eat_tz).replace(tzinfo=None)
 
 def get_doc_archive_model():
-    """Dynamically resolves the Document Archive model across table name naming conventions."""
     for model_name in ['DocumentArchive', 'Document_Archive', 'document_archive', 'document_archives']:
         if hasattr(models, model_name):
             return getattr(models, model_name)
@@ -68,34 +71,10 @@ def get_general_doc_model():
             return getattr(models, name)
     return None
 
-def log_semantic_audit(db: Session, fnum: str, action: str, target_identifier: str, changes: dict, remarks: str = ""):
-    try:
-        eat_time = get_eat_now()
-        formatted_details = f"Target: {target_identifier} | Changes: " + ", ".join(
-            [f"{k}: {v[0]} -> {v[1]}" for k, v in changes.items()]
-        ) + f" | Remarks: {remarks}"
-        
-        audit_model = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
-        if audit_model:
-            new_audit = audit_model(
-                event_type=action,
-                target_user=target_identifier,
-                status="SUCCESS",
-                details=formatted_details,
-                user_fnum=fnum,
-                created_at=eat_time.strftime('%Y-%m-%d %H:%M:%S')
-            )
-            db.add(new_audit)
-            db.commit()
-    except Exception as e:
-        print(f"Audit Log Notice: {e}")
-        db.rollback()
-
 @router.get("/reports/archive")
 def get_document_archive(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
         ArchiveModel = get_doc_archive_model()
-        
         docs = db.query(ArchiveModel).all()
         if not docs:
             raw_result = db.execute(text("SELECT id, file_name, doc_type, file_size, file_path, region, station, uploaded_by, upload_date FROM document_archive ORDER BY id DESC")).fetchall()
@@ -245,13 +224,14 @@ async def upload_word_report(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to process document intake: {str(e)}")
 
-from fastapi.responses import JSONResponse # 🟢 Ensure this is imported at the top
-
+# 🟢 MASTER DOWNLOAD & FORENSIC STAMPING ROUTER
 @router.get("/reports/download/{doc_id}")
 @router.get("/templates/download/{doc_id}")
+@router.get("/general-docs/download/{doc_id}") # Included to explicitly handle General Docs
 def download_archive_file(
     doc_id: int, 
-    return_url: bool = False, # 🟢 NEW: Catches the live preview request from frontend
+    return_url: bool = False,
+    category: Optional[str] = None, # Resolves ID Collisions
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -259,11 +239,21 @@ def download_archive_file(
     TemplateModel = get_template_model()
     GeneralDocModel = get_general_doc_model()
     
-    doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
-    if not doc_record and TemplateModel:
+    doc_record = None
+    
+    # 🟢 1. STRICT TABLE ROUTING: Prevents reading Word docs when clicking Excel/PPT docs
+    if category == 'templates' and TemplateModel:
         doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
-    if not doc_record and GeneralDocModel:
+    elif category == 'general_doc' and GeneralDocModel:
         doc_record = db.query(GeneralDocModel).filter(GeneralDocModel.id == doc_id).first()
+    elif category == 'weekly_report' and ArchiveModel:
+        doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
+        
+    # 🟢 2. Failsafe query if category was somehow omitted
+    if not doc_record:
+        if ArchiveModel: doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
+        if not doc_record and TemplateModel: doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
+        if not doc_record and GeneralDocModel: doc_record = db.query(GeneralDocModel).filter(GeneralDocModel.id == doc_id).first()
 
     if not doc_record:
         raise HTTPException(status_code=404, detail="Document record not found in system database.")
@@ -314,9 +304,9 @@ def download_archive_file(
         output_stream = io.BytesIO()
         content_type = "application/octet-stream"
 
+        # 🟢 Word Document Stamping
         if file_extension == 'docx':
             word_doc = Document(io.BytesIO(raw_bytes))
-            
             core_props = word_doc.core_properties
             core_props.author = officer_signature
             core_props.last_modified_by = officer_signature
@@ -326,10 +316,8 @@ def download_archive_file(
 
             section = word_doc.sections[0]
             footer = section.footer
-            
             stamp_p = footer.add_paragraph()
             stamp_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            
             stamp_p.paragraph_format.space_before = Pt(0)
             stamp_p.paragraph_format.space_after = Pt(0)
             stamp_p.paragraph_format.line_spacing = 0.7
@@ -343,9 +331,9 @@ def download_archive_file(
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
+        # 🟢 Excel Spreadsheet Stamping
         elif file_extension in ['xlsx', 'xls']:
             wb = openpyxl.load_workbook(io.BytesIO(raw_bytes))
-            
             wb.properties.creator = officer_signature
             wb.properties.lastModifiedBy = officer_signature
             wb.properties.keywords = keywords_str
@@ -357,17 +345,66 @@ def download_archive_file(
                 elif hasattr(ws, 'odd_footer'): ws.odd_footer.center.text = receipt_text
             wb.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+        # 🟢 PowerPoint Presentation Stamping
+        elif file_extension in ['pptx', 'ppt']:
+            try:
+                prs = Presentation(io.BytesIO(raw_bytes))
+                prs.core_properties.author = officer_signature
+                prs.core_properties.last_modified_by = officer_signature
+                prs.core_properties.keywords = keywords_str
+                prs.core_properties.comments = comments_str
+                prs.core_properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
+                
+                if prs.slides:
+                    slide = prs.slides[0]
+                    txBox = slide.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(8), Inches(1))
+                    tf = txBox.text_frame
+                    p = tf.add_paragraph()
+                    p.text = receipt_text
+                    p.font.size = PPTXPt(6.5)
+                    p.font.color.rgb = PPTXRGBColor(139, 0, 0)
+                    p.font.bold = True
+                    p.font.name = 'Courier New'
+
+                prs.save(output_stream)
+                content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            except Exception as ppt_err:
+                print(f"PPTX Stamp Error: {ppt_err}")
+                output_stream.write(raw_bytes)
+                content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+        # 🟢 PDF Stamping
+        elif file_extension == 'pdf':
+            try:
+                pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
+                for page in pdf_doc:
+                    rect = page.rect
+                    stamp_point = pymupdf.Point(50, rect.height - 60)
+                    page.insert_text(
+                        stamp_point,
+                        receipt_text,
+                        fontsize=6,
+                        fontname="courier-bold",
+                        color=(0.545, 0, 0)
+                    )
+                output_stream = io.BytesIO(pdf_doc.write())
+                content_type = "application/pdf"
+            except Exception as pdf_err:
+                print(f"PDF Stamp Error: {pdf_err}")
+                output_stream.write(raw_bytes)
+                content_type = "application/pdf"
+
         else:
             output_stream.write(raw_bytes)
 
         output_stream.seek(0)
         final_bytes = output_stream.getvalue()
 
-        # 🟢 NEW: If frontend requested a URL for live viewing, cache it to S3 and return a pre-signed URL
+        # 🟢 CACHE S3 URL FOR GOOGLE/MICROSOFT WEB VIEWERS
         if return_url:
             temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
             
-            # Upload the dynamically stamped document back to S3 into a cache folder
             s3_client.put_object(
                 Bucket=BUCKET_NAME,
                 Key=temp_s3_key,
@@ -376,7 +413,6 @@ def download_archive_file(
                 ServerSideEncryption="AES256"
             )
             
-            # Generate a 1-hour pre-signed URL for the external viewer
             presigned_url = s3_client.generate_presigned_url(
                 'get_object',
                 Params={'Bucket': BUCKET_NAME, 'Key': temp_s3_key},
@@ -384,12 +420,11 @@ def download_archive_file(
             )
             return JSONResponse(content={"url": presigned_url})
 
-        # 🟢 ORIGINAL BEHAVIOR: Return streaming response for direct downloads
         return StreamingResponse(
             output_stream,
             media_type=content_type,
             headers={
-                "Content-Disposition": f'inline; filename="{file_name}"'
+                "Content-Disposition": f'attachment; filename="{file_name}"'
             }
         )
 
