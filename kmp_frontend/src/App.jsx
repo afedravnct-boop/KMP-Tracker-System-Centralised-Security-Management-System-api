@@ -2788,7 +2788,22 @@ const App = () => {
   const handleAcknowledgeComm = async (commId) => {
     try {
       const response = await authFetch(`/api/v1/communications/${commId}/acknowledge`, { method: 'POST' });
-      if (response.ok) setAdminCommsData(prevData => prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c));
+      if (response.ok) {
+        setAdminCommsData(prevData => {
+          if (Array.isArray(prevData)) {
+            return prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c);
+          } else if (prevData && typeof prevData === 'object') {
+            const listKey = Array.isArray(prevData.data) ? 'data' : Array.isArray(prevData.items) ? 'items' : null;
+            if (listKey) {
+              return {
+                ...prevData,
+                [listKey]: prevData[listKey].map(c => c.id === commId ? { ...c, acknowledged: true } : c)
+              };
+            }
+          }
+          return prevData;
+        });
+      }
     } catch (err) { console.error("Failed to acknowledge receipt", err); }
   };
 
