@@ -457,3 +457,106 @@ def get_communication_readers(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch reader logs: {str(e)}")
+
+from pydantic import BaseModel
+from typing import List
+
+class BulkAcknowledgePayload(BaseModel):
+    comm_ids: List[int]
+
+# 🟢 ENDPOINT 1: Acknowledges a specific thread (Root message + all nested replies) at once
+@router.post("/communications/acknowledge-bulk")
+@router.post("/Admin_Communication/acknowledge-bulk")
+def acknowledge_bulk_communications(
+    payload: BulkAcknowledgePayload,
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    ReadsModel = get_reads_model()
+    read_fnum_col = get_fnum_col(ReadsModel)
+    clean_user_fnum = (current_user.fnum or "").strip().upper()
+    eat_tz = pytz.timezone("Africa/Nairobi")
+    uganda_time = datetime.now(eat_tz).replace(tzinfo=None)
+
+    existing = db.query(ReadsModel.comm_id).filter(
+        ReadsModel.comm_id.in_(payload.comm_ids),
+        func.trim(func.upper(read_fnum_col)) == clean_user_fnum
+    ).all()
+    existing_ids = {r[0] for r in existing}
+
+    to_insert = set(payload.comm_ids) - existing_ids
+    if not to_insert:
+        return {"status": "success"}
+
+    new_reads = []
+    for cid in to_insert:
+        new_read = ReadsModel(comm_id=cid, read_at=uganda_time)
+        if hasattr(ReadsModel, 'fnum'): new_read.fnum = clean_user_fnum
+        elif hasattr(ReadsModel, 'f_num'): new_read.f_num = clean_user_fnum
+        elif hasattr(ReadsModel, 'user_fnum'): new_read.user_fnum = clean_user_fnum
+        new_reads.append(new_read)
+
+    try:
+        db.bulk_save_objects(new_reads)
+        db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 🟢 ENDPOINT 2: "Mark All as Read" sweeping function
+@router.post("/communications/acknowledge-all")
+@router.post("/Admin_Communication/acknowledge-all")
+def acknowledge_all_communications(
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    ReadsModel = get_reads_model()
+    CommModel = get_comm_model()
+    read_fnum_col = get_fnum_col(ReadsModel)
+    clean_user_fnum = (current_user.fnum or "").strip().upper()
+    eat_tz = pytz.timezone("Africa/Nairobi")
+    uganda_time = datetime.now(eat_tz).replace(tzinfo=None)
+
+    query = db.query(CommModel.id)
+    user_region = (current_user.region or "").strip().upper()
+    user_role = (current_user.role or "").strip().upper()
+
+    if not check_global_view(current_user):
+        visibility_conditions = [
+            or_(
+                CommModel.target_audience == "ALL",
+                CommModel.target_audience == "ALL_USERS",
+                CommModel.target_audience == "ALL_REGIONS"
+            ),
+            CommModel.sender_fnum == current_user.fnum,
+            and_(CommModel.target_audience == "SPECIFIC_USER", CommModel.target_fnum.like(f"%{current_user.fnum}%")),
+            and_(CommModel.target_audience == "SPECIFIC_REGION", func.upper(CommModel.target_region) == user_region),
+            and_(CommModel.target_audience == "REGIONAL_BROADCAST", func.upper(CommModel.target_region) == user_region)
+        ]
+        if user_role in ["ADMIN", "SYSTEM_ADMIN"]: visibility_conditions.append(CommModel.target_audience == "ADMINS_ONLY")
+        if user_role in ["RPC", "DEPUTY COMMANDER"]: visibility_conditions.append(CommModel.target_audience.in_(["RPC_ONLY", "ADMINS_ONLY"]))
+        query = query.filter(or_(*visibility_conditions))
+
+    all_comm_ids = {c[0] for c in query.all()}
+    read_comm_ids = {r[0] for r in db.query(ReadsModel.comm_id).filter(func.trim(func.upper(read_fnum_col)) == clean_user_fnum).all()}
+    
+    unread_ids = all_comm_ids - read_comm_ids
+    if not unread_ids:
+        return {"status": "success", "message": "All caught up."}
+
+    new_reads = []
+    for cid in unread_ids:
+        new_read = ReadsModel(comm_id=cid, read_at=uganda_time)
+        if hasattr(ReadsModel, 'fnum'): new_read.fnum = clean_user_fnum
+        elif hasattr(ReadsModel, 'f_num'): new_read.f_num = clean_user_fnum
+        elif hasattr(ReadsModel, 'user_fnum'): new_read.user_fnum = clean_user_fnum
+        new_reads.append(new_read)
+
+    try:
+        db.bulk_save_objects(new_reads)
+        db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

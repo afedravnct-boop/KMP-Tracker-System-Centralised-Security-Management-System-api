@@ -20,7 +20,7 @@ const adjustTimeOffset = (dateStr) => {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return dateStr;
     
-    d.setHours(d.getHours() - 3); // Re-calibrate time back 3 hours
+    d.setHours(d.getHours() - 3); 
     
     const pad = (n) => n.toString().padStart(2, '0');
     let adjusted = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -35,7 +35,7 @@ const adjustTimeOffset = (dateStr) => {
   }
 };
 
-// 🟢 THREADING ENGINE: Parses raw messages into a threaded vertical hierarchy
+// 🟢 THREADING ENGINE
 const parseDateString = (dateStr) => {
   if (!dateStr || dateStr === "Unknown Time") return 0;
   return new Date(dateStr.replace(' ', 'T')).getTime() || 0;
@@ -72,7 +72,7 @@ const buildThreads = (flatMsgs) => {
   });
 };
 
-const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm, initialTab, onMarkAllRead}) => {
+const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm, initialTab, onMarkAllRead }) => {
   const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
   
   const [activeTab, setActiveTab] = useState(
@@ -365,7 +365,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     if (activeTab === 'inbox' || activeTab === 'outbox') fetchMessages();
   }, [activeTab, dateFilter, customStartDate, customEndDate]);
 
-  // 🟢 AUTOMATIC THREAD-WIDE READ STATUS CLEARING
+  // 🟢 AUTOMATIC THREAD-WIDE CLEARING (SINGLE BULK NETWORK CALL)
   const handleOpenMessage = async (msg) => {
     const willExpand = !expandedMsgs[msg.id];
     setExpandedMsgs(prev => ({ ...prev, [msg.id]: willExpand }));
@@ -375,7 +375,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       try {
         const token = sessionStorage.getItem('kmp_authToken');
         
-        // Collect root message ID and all unacknowledged reply IDs including nested replies
+        // Collect root message ID and all unacknowledged reply IDs
         const idsToAcknowledge = [msg.id];
         const collectReplyIds = (repliesList) => {
           if (!repliesList || repliesList.length === 0) return;
@@ -390,22 +390,22 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         };
         collectReplyIds(msg.replies);
 
-        await Promise.all(
-          idsToAcknowledge.map(async (targetId) => {
-            const encodedId = encodeURIComponent(encodeURIComponent(targetId));
-            await fetch(`${API_URL}/api/v1/communications/${encodedId}/acknowledge`, { 
-              method: 'POST', 
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
-            });
-          })
-        );
+        // Fire ONE single request instead of spamming maps/loops
+        if (idsToAcknowledge.length > 0) {
+           await fetch(`${API_URL}/api/v1/communications/acknowledge-bulk`, { 
+             method: 'POST', 
+             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+             body: JSON.stringify({ comm_ids: idsToAcknowledge })
+           });
+        }
         
-        // Recursively update local UI state for all nested replies
-        const markAllReadRecursive = (item) => ({
-          ...item,
-          acknowledged: true,
-          replies: (item.replies || []).map(markAllReadRecursive)
-        });
+        // Recursively update local UI state 
+        const markAllReadRecursive = (item) => {
+           if (idsToAcknowledge.includes(item.id)) {
+              return { ...item, acknowledged: true, replies: (item.replies || []).map(markAllReadRecursive) };
+           }
+           return { ...item, replies: (item.replies || []).map(markAllReadRecursive) };
+        };
 
         setInboxMessages(prev => prev.map(m => m.id === msg.id ? markAllReadRecursive(m) : m));
         setOutboxMessages(prev => prev.map(m => m.id === msg.id ? markAllReadRecursive(m) : m));
@@ -415,12 +415,12 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         }
 
       } catch (err) {
-        console.error("Automatic response read-detection error:", err);
+        console.error("Automatic thread read-detection error:", err);
       }
     }
   };
 
-// 🟢 BULK MARK ALL INBOX MESSAGES AS READ
+  // 🟢 BULK MARK ALL INBOX MESSAGES AS READ (SINGLE NETWORK CALL)
   const handleMarkAllAsRead = async () => {
     try {
       const token = sessionStorage.getItem('kmp_authToken');
@@ -432,16 +432,17 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         return;
       }
 
-      await Promise.all(
-        unreadList.map(async (msg) => {
-          const encodedId = encodeURIComponent(encodeURIComponent(msg.id));
-          await fetch(`${API_URL}/api/v1/communications/${encodedId}/acknowledge`, { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
-          });
-        })
-      );
+      setNotification({ type: 'info', text: 'Syncing read receipts...' });
 
+      // Trigger the backend to cleanly sweep and acknowledge ALL pending messages
+      const response = await fetch(`${API_URL}/api/v1/communications/acknowledge-all`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!response.ok) throw new Error("Bulk sync rejected by server.");
+
+      // Mark local UI state entirely read
       const markAllReadRecursive = (item) => ({
         ...item,
         acknowledged: true,
@@ -449,6 +450,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       });
 
       setInboxMessages(prev => prev.map(markAllReadRecursive));
+      setOutboxMessages(prev => prev.map(markAllReadRecursive));
+      
       setNotification({ type: 'success', text: '✅ All inbox messages marked as read.' });
 
       // 🟢 INSTANTLY SYNC WITH APP.JSX TO CLEAR DASHBOARD PINGS
@@ -459,7 +462,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       setTimeout(() => setNotification(null), 3000);
     } catch (err) {
       console.error("Bulk acknowledge error:", err);
-      setNotification({ type: 'error', text: '❌ Failed to mark all messages as read.' });
+      setNotification({ type: 'error', text: '❌ Failed to sync read receipts.' });
       setTimeout(() => setNotification(null), 3000);
     }
   };
