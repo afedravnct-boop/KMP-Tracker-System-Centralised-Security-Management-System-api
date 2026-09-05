@@ -309,31 +309,33 @@ def acknowledge_communication(
     if not comm:
         raise HTTPException(status_code=404, detail="Communication not found.")
 
-    audience = (comm.target_audience or "").strip().upper()
-    target_region = (comm.target_region or "").strip().upper()
-    
-    raw_fnums = comm.target_fnum
-    if isinstance(raw_fnums, list):
-        target_fnums = [str(f).strip().upper() for f in raw_fnums if str(f).strip()]
-    else:
-        target_fnums = [f.strip().upper() for f in str(raw_fnums or "").replace('[','').replace(']','').replace('"','').replace("'","").split(",") if f.strip()]
-
     clean_user_fnum = (current_user.fnum or "").strip().upper()
-    user_role = (current_user.role or "").strip().upper()
-    user_region = (current_user.region or "").strip().upper()
 
-    is_general = audience in ["ALL", "ALL_USERS", "ALL_REGIONS"]
-    is_intended = (
-        is_general or
-        (audience == "SPECIFIC_USER" and clean_user_fnum in target_fnums) or
-        (audience in ["SPECIFIC_REGION", "REGIONAL_BROADCAST"] and target_region and user_region == target_region) or
-        (audience == "ADMINS_ONLY" and user_role in ["ADMIN", "SUPER_ADMIN", "SYSTEM_ADMIN"]) or
-        (audience == "RPC_ONLY" and user_role in ["RPC", "SUPER_ADMIN", "DEPUTY COMMANDER"]) or
-        (comm.sender_fnum == current_user.fnum)
-    )
+    # 🟢 Allow the sender, anyone with global view clearance, or valid recipients to acknowledge cleanly
+    if comm.sender_fnum != current_user.fnum and not check_global_view(current_user):
+        audience = (comm.target_audience or "").strip().upper()
+        target_region = (comm.target_region or "").strip().upper()
+        
+        raw_fnums = comm.target_fnum
+        if isinstance(raw_fnums, list):
+            target_fnums = [str(f).strip().upper() for f in raw_fnums if str(f).strip()]
+        else:
+            target_fnums = [f.strip().upper() for f in str(raw_fnums or "").replace('[','').replace(']','').replace('"','').replace("'","").split(",") if f.strip()]
 
-    if not is_intended and not check_global_view(current_user):
-        raise HTTPException(status_code=403, detail="Clearance Denied: Message not addressed to your jurisdiction.")
+        user_role = (current_user.role or "").strip().upper()
+        user_region = (current_user.region or "").strip().upper()
+
+        is_general = audience in ["ALL", "ALL_USERS", "ALL_REGIONS"]
+        is_intended = (
+            is_general or
+            (audience == "SPECIFIC_USER" and clean_user_fnum in target_fnums) or
+            (audience in ["SPECIFIC_REGION", "REGIONAL_BROADCAST"] and target_region and user_region == target_region) or
+            (audience == "ADMINS_ONLY" and user_role in ["ADMIN", "SUPER_ADMIN", "SYSTEM_ADMIN"]) or
+            (audience == "RPC_ONLY" and user_role in ["RPC", "SUPER_ADMIN", "DEPUTY COMMANDER"])
+        )
+
+        if not is_intended:
+            raise HTTPException(status_code=403, detail="Clearance Denied: Message not addressed to your jurisdiction.")
 
     try:
         existing_read = db.query(ReadsModel).filter(
