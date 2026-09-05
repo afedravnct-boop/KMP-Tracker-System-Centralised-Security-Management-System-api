@@ -72,7 +72,7 @@ const buildThreads = (flatMsgs) => {
   });
 };
 
-const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm, initialTab }) => {
+const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm, initialTab, onMarkAllRead}) => {
   const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
   
   const [activeTab, setActiveTab] = useState(
@@ -420,7 +420,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     }
   };
 
-  // 🟢 BULK MARK ALL INBOX MESSAGES AS READ
+// 🟢 BULK MARK ALL INBOX MESSAGES AS READ
   const handleMarkAllAsRead = async () => {
     try {
       const token = sessionStorage.getItem('kmp_authToken');
@@ -450,6 +450,12 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
       setInboxMessages(prev => prev.map(markAllReadRecursive));
       setNotification({ type: 'success', text: '✅ All inbox messages marked as read.' });
+
+      // 🟢 INSTANTLY SYNC WITH APP.JSX TO CLEAR DASHBOARD PINGS
+      if (typeof onMarkAllRead === 'function') {
+        onMarkAllRead();
+      }
+
       setTimeout(() => setNotification(null), 3000);
     } catch (err) {
       console.error("Bulk acknowledge error:", err);

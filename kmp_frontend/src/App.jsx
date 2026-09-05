@@ -2807,6 +2807,24 @@ const App = () => {
     } catch (err) { console.error("Failed to acknowledge receipt", err); }
   };
 
+// 🟢 Add this right below handleAcknowledgeComm
+  const handleClearAllPings = () => {
+    setAdminCommsData(prevData => {
+      if (Array.isArray(prevData)) {
+        return prevData.map(c => ({ ...c, acknowledged: true }));
+      } else if (prevData && typeof prevData === 'object') {
+        const listKey = Array.isArray(prevData.data) ? 'data' : Array.isArray(prevData.items) ? 'items' : null;
+        if (listKey) {
+          return {
+            ...prevData,
+            [listKey]: prevData[listKey].map(c => ({ ...c, acknowledged: true }))
+          };
+        }
+      }
+      return prevData;
+    });
+  };
+
   const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
 
   const renderPage = () => {
@@ -3022,7 +3040,8 @@ const App = () => {
             currentUser={currentUser} 
             users={users} 
             setCurrentPage={handlePageChange} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
+            onAcknowledgeComm={handleAcknowledgeComm}
+            onMarkAllRead={handleClearAllPings} 
             initialTab={commDefaultTab} 
           />
         ) : (
