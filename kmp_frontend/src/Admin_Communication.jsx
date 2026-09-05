@@ -42,7 +42,6 @@ const parseDateString = (dateStr) => {
 };
 
 const buildThreads = (flatMsgs) => {
-  // Sort oldest to newest to establish the timeline
   const sorted = [...flatMsgs].sort((a, b) => parseDateString(a.created_at) - parseDateString(b.created_at));
   const threads = [];
   const processed = new Set();
@@ -50,10 +49,8 @@ const buildThreads = (flatMsgs) => {
   sorted.forEach(msg => {
     if (processed.has(msg.id)) return;
 
-    // Extract base subject by stripping leading "RE:"s
     const baseSubj = msg.subject.replace(/^(RE:\s*)+/i, '').trim().toLowerCase();
 
-    // Find all chronologically subsequent replies to this root message
     const replies = sorted.filter(m => {
       if (m.id === msg.id || processed.has(m.id)) return false;
       const mBase = m.subject.replace(/^(RE:\s*)+/i, '').trim().toLowerCase();
@@ -64,12 +61,10 @@ const buildThreads = (flatMsgs) => {
     msg.replies = replies;
     threads.push(msg);
 
-    // Mark root and all its replies as processed
     processed.add(msg.id);
     replies.forEach(r => processed.add(r.id));
   });
 
-  // Sort completed threads by the most recent activity (latest replies bubble to the top of inbox)
   return threads.sort((a, b) => {
     const latestA = a.replies.length > 0 ? parseDateString(a.replies[a.replies.length - 1].created_at) : parseDateString(a.created_at);
     const latestB = b.replies.length > 0 ? parseDateString(b.replies[b.replies.length - 1].created_at) : parseDateString(b.created_at);
@@ -85,14 +80,12 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   ); 
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isReplyingTo, setIsReplyingTo] = useState(false); // 🟢 Locks the subject line during replies
+  const [isReplyingTo, setIsReplyingTo] = useState(false);
 
-  // --- RECIPIENTS LIST FROM BACKEND ENDPOINT ---
   const [filteredRecipientsList, setFilteredRecipientsList] = useState([]);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL');
   const [selectedRegionFilter, setSelectedRegionFilter] = useState('ALL');
 
-  // --- COMPOSITION STATE ---
   const [formData, setFormData] = useState({
     targetAudience: canBroadcast ? 'ALL_USERS' : 'SPECIFIC_USER', 
     targetRegion: 'ALL', 
@@ -103,7 +96,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     sendEmail: false
   });
 
-  // --- INBOX & OUTBOX STATE ---
   const [inboxMessages, setInboxMessages] = useState([]);
   const [outboxMessages, setOutboxMessages] = useState([]);
   const [isLoadingInbox, setIsLoadingInbox] = useState(false);
@@ -169,7 +161,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     }
   };
 
-  // 🟢 HANDLE REPLY BUTTON CLICK: Initiates thread safety lock
   const handleReplyToMessage = (msg) => {
     setActiveTab('dispatch');
     setIsReplyingTo(true);
@@ -185,7 +176,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       targetFnum: [msg.sender_fnum],
       messageType: msg.message_type === 'COMPLAINT_GRIEVANCE' ? 'COMPLAINT_GRIEVANCE' : 'DIRECT_MESSAGE',
       subject: newSubject,
-      message: `<p><br></p><p><br></p><blockquote><em>--- Original Message from ${msg.sender_name} (${msg.sender_fnum}) ---</em><br>${msg.message}</blockquote>`
+      // 🟢 Simplified clean reply body without bulky original nested blocks
+      message: `<p><br></p>`
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -237,7 +229,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
           target_fnum: formData.targetFnum, 
           message_type: formData.messageType, 
           subject: formData.subject, 
-          // 🟢 Applies capitalization cleanly here to avoid input lag/freezing
           message: autoCapitalize(formData.message), 
           send_email: formData.sendEmail,
           requires_command_approval: containsCrossRegion
@@ -251,7 +242,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       }
 
       setNotification({ type: 'success', text: '✅ Message successfully dispatched securely.' });
-      setIsReplyingTo(false); // Lift the thread lock on success
+      setIsReplyingTo(false);
       setFormData({ 
         ...formData, subject: '', message: '', sendEmail: false, 
         targetAudience: canBroadcast ? 'ALL_USERS' : 'SPECIFIC_USER', 
@@ -318,11 +309,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         }));
 
         const userFnum = currentUser?.fnum || "";
-        
-        // Pass data through our new Threading Engine
         const threadedData = buildThreads(data);
 
-        // Map threaded results to Inbox/Outbox
         setInboxMessages(threadedData.filter(t => t.sender_fnum !== userFnum || t.replies.some(r => r.sender_fnum !== userFnum)));
         setOutboxMessages(threadedData.filter(t => t.sender_fnum === userFnum || t.replies.some(r => r.sender_fnum === userFnum)));
       }
@@ -374,8 +362,32 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     if (activeTab === 'inbox' || activeTab === 'outbox') fetchMessages();
   }, [activeTab, dateFilter, customStartDate, customEndDate]);
 
-  const handleOpenMessage = (msg) => {
-    setExpandedMsgs(prev => ({ ...prev, [msg.id]: !prev[msg.id] }));
+  // 🟢 AUTOMATIC READ STATUS CLEARING ON EXPANSION
+  const handleOpenMessage = async (msg) => {
+    const willExpand = !expandedMsgs[msg.id];
+    setExpandedMsgs(prev => ({ ...prev, [msg.id]: willExpand }));
+
+    // If opening an unread message targeted at us, trigger automatic backend acknowledgment
+    const isSender = msg.sender_fnum === currentUser.fnum;
+    if (willExpand && !msg.acknowledged && !isSender) {
+      try {
+        const token = sessionStorage.getItem('kmp_authToken');
+        const encodedMsgId = encodeURIComponent(encodeURIComponent(msg.id));
+        
+        const res = await fetch(`${API_URL}/api/v1/communications/${encodedMsgId}/acknowledge`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (res.ok) {
+          setInboxMessages(prev => prev.map(m => m.id === msg.id ? { ...m, acknowledged: true } : m));
+          setOutboxMessages(prev => prev.map(m => m.id === msg.id ? { ...m, acknowledged: true } : m));
+          if (typeof onAcknowledgeComm === 'function') onAcknowledgeComm(msg.id);
+        }
+      } catch (err) {
+        console.error("Auto-acknowledgment error:", err);
+      }
+    }
   };
 
   const handleManualAcknowledge = async (e, msg) => {
@@ -420,20 +432,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   return (
     <div className="p-6 w-full max-w-[1920px] mx-auto space-y-6 relative z-10 font-sans">
       
-      {/* 🟢 Add Custom CSS for Clean Threading Blockquotes */}
-      <style>{`
-        .reply-content-body blockquote {
-          border-left: 4px solid #cbd5e1;
-          padding-left: 12px;
-          margin-top: 12px;
-          color: #64748b;
-          font-style: italic;
-          background: #f8fafc;
-          padding: 8px 12px;
-          border-radius: 0 8px 8px 0;
-        }
-      `}</style>
-
       {viewingReceiptsFor && (
         <div className="fixed inset-0 z-[200] bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4">
             <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-300">
@@ -670,7 +668,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                   </div>
                 )}
 
-                {/* 🟢 SUBJECT LINE: Now dynamically locks if the user is replying to enforce threading accuracy */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Subject / Title *</label>
                   <input 
@@ -881,40 +878,35 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                               </p>
                             )}
 
-                            {/* 🟢 EXPANDED VIEW WITH VERTICAL THREAD TIMELINE */}
+                            {/* 🟢 EXPANDED VIEW WITH DISTINGUISHED REPLY CARDS */}
                             {isExpanded && (
                               <div className="prose prose-sm max-w-none text-slate-700 mt-4 pt-4 border-t border-slate-100 animate-in fade-in space-y-4">
-                                <div className="p-3 bg-slate-50/70 rounded-lg border border-slate-200/60 leading-relaxed" dangerouslySetInnerHTML={{ __html: msg.message }} onClick={(e) => e.stopPropagation()} />
+                                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 leading-relaxed" dangerouslySetInnerHTML={{ __html: msg.message }} onClick={(e) => e.stopPropagation()} />
                                 
-                                {/* 🟢 Visually Threaded Responses Flow */}
                                 {msg.replies && msg.replies.length > 0 && (
-                                  <div className="mt-8 pt-4 border-t-2 border-indigo-100 relative">
-                                    {/* The vertical timeline spine */}
-                                    <div className="absolute left-6 top-10 bottom-4 w-1 bg-indigo-100 rounded-full"></div>
-                                    
-                                    <h4 className="text-xs font-extrabold text-indigo-900 uppercase tracking-wider flex items-center bg-indigo-50 p-2.5 rounded-lg border border-indigo-200 relative z-10 w-max shadow-sm mb-6 ml-2">
+                                  <div className="mt-8 pt-6 border-t-2 border-indigo-100 space-y-4">
+                                    <h4 className="text-xs font-extrabold text-indigo-900 uppercase tracking-wider flex items-center bg-indigo-50 p-2.5 rounded-lg border border-indigo-200 w-max shadow-sm">
                                       <span className="w-2.5 h-2.5 bg-indigo-600 rounded-full mr-2 shadow-sm animate-pulse"></span>
                                       Threaded Responses ({msg.replies.length})
                                     </h4>
                                     
-                                    <div className="space-y-6">
+                                    <div className="space-y-4">
                                       {msg.replies.map((reply, rIdx) => (
-                                        <div key={rIdx} className="relative z-10 ml-10">
-                                          {/* Timeline dot */}
-                                          <div className="absolute -left-[22px] top-4 w-3.5 h-3.5 bg-white border-2 border-indigo-500 rounded-full shadow-sm"></div>
-                                          
-                                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-sm text-xs hover:border-indigo-300 transition-colors">
-                                            <div className="flex justify-between items-center border-b border-slate-200 pb-3 mb-3">
-                                              <span className="font-extrabold text-slate-800 uppercase tracking-tight flex items-center">
-                                                <CornerDownRight size={14} className="mr-1.5 text-indigo-600" />
-                                                From: {reply.sender_name} <span className="font-mono text-slate-500 font-semibold ml-1.5">({reply.sender_fnum})</span>
-                                              </span>
-                                              <span className="text-[10px] text-slate-600 font-mono font-bold bg-white px-2.5 py-1 rounded border border-slate-200 shadow-sm">
-                                                {reply.created_at}
-                                              </span>
-                                            </div>
-                                            <div className="text-slate-700 leading-relaxed bg-white p-4 rounded-lg border border-slate-100 shadow-inner reply-content-body" dangerouslySetInnerHTML={{ __html: reply.message }} onClick={(e) => e.stopPropagation()} />
+                                        <div key={rIdx} className="bg-indigo-50/40 p-5 rounded-xl border-2 border-indigo-200/80 shadow-sm relative overflow-hidden">
+                                          {/* Accent side stripe */}
+                                          <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-indigo-600"></div>
+
+                                          <div className="flex justify-between items-center border-b border-indigo-100 pb-2 mb-3 pl-2">
+                                            <span className="font-extrabold text-indigo-950 uppercase text-xs tracking-tight flex items-center">
+                                              <CornerDownRight size={14} className="mr-1.5 text-indigo-600" />
+                                              Response From: {reply.sender_name} <span className="font-mono text-indigo-700 font-semibold ml-1.5">({reply.sender_fnum})</span>
+                                            </span>
+                                            <span className="text-[10px] text-slate-600 font-mono font-bold bg-white px-2.5 py-1 rounded border border-indigo-100 shadow-sm">
+                                              {reply.created_at}
+                                            </span>
                                           </div>
+                                          
+                                          <div className="text-slate-800 text-xs leading-relaxed bg-white p-4 rounded-lg border border-indigo-100 shadow-inner" dangerouslySetInnerHTML={{ __html: reply.message }} onClick={(e) => e.stopPropagation()} />
                                         </div>
                                       ))}
                                     </div>
@@ -939,7 +931,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                               </div>
                               
                               <div className="flex items-center space-x-2">
-                                {/* 🟢 REPLY / RESPOND BUTTON */}
                                 {!isSender && (
                                   <button 
                                     onClick={(e) => { e.stopPropagation(); handleReplyToMessage(msg); }} 

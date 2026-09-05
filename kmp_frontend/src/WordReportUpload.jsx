@@ -196,13 +196,17 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
       const lowerName = (docName || '').toLowerCase();
       
-      // 🟢 Redirect the standby tab to the generated document link
-      if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
-        mobileSafeWindow.location.href = s3Url;
-      } else {
-        const officeViewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(s3Url)}`;
-        mobileSafeWindow.location.href = officeViewerUrl;
-      }
+     // 🟢 UNIVERSAL MOBILE READER ROUTING
+     if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
+       mobileSafeWindow.location.href = s3Url;
+     } else if (lowerName.endsWith('.xls') || lowerName.endsWith('.xlsx')) {
+       // Excel native live view handler
+       mobileSafeWindow.location.href = s3Url;
+     } else {
+       // Word and general documents: Route via Google Docs Viewer to prevent blank white screens on mobile
+       const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
+       mobileSafeWindow.location.href = googleViewerUrl;
+     }
     } catch (err) {
       // 🟢 Close the blank tab if the request failed to prevent a dead screen
       if (mobileSafeWindow) mobileSafeWindow.close();
