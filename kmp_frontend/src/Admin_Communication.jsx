@@ -365,30 +365,96 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     if (activeTab === 'inbox' || activeTab === 'outbox') fetchMessages();
   }, [activeTab, dateFilter, customStartDate, customEndDate]);
 
-  // 🟢 AUTOMATIC READ STATUS CLEARING ON EXPANSION (Ensures state & backend sync cleanly)
+  // 🟢 AUTOMATIC THREAD-WIDE READ STATUS CLEARING
   const handleOpenMessage = async (msg) => {
     const willExpand = !expandedMsgs[msg.id];
     setExpandedMsgs(prev => ({ ...prev, [msg.id]: willExpand }));
 
     const isSender = msg.sender_fnum === currentUser?.fnum;
-    if (willExpand && !msg.acknowledged && !isSender) {
+    if (willExpand && !isSender) {
       try {
         const token = sessionStorage.getItem('kmp_authToken');
-        const encodedMsgId = encodeURIComponent(encodeURIComponent(msg.id));
         
-        const res = await fetch(`${API_URL}/api/v1/communications/${encodedMsgId}/acknowledge`, { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+        // Collect root message ID and all unacknowledged reply IDs including nested replies
+        const idsToAcknowledge = [msg.id];
+        const collectReplyIds = (repliesList) => {
+          if (!repliesList || repliesList.length === 0) return;
+          repliesList.forEach(reply => {
+            if (!reply.acknowledged && reply.sender_fnum !== currentUser?.fnum) {
+              idsToAcknowledge.push(reply.id);
+            }
+            if (reply.replies && reply.replies.length > 0) {
+              collectReplyIds(reply.replies);
+            }
+          });
+        };
+        collectReplyIds(msg.replies);
+
+        await Promise.all(
+          idsToAcknowledge.map(async (targetId) => {
+            const encodedId = encodeURIComponent(encodeURIComponent(targetId));
+            await fetch(`${API_URL}/api/v1/communications/${encodedId}/acknowledge`, { 
+              method: 'POST', 
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+            });
+          })
+        );
+        
+        // Recursively update local UI state for all nested replies
+        const markAllReadRecursive = (item) => ({
+          ...item,
+          acknowledged: true,
+          replies: (item.replies || []).map(markAllReadRecursive)
         });
-        
-        if (res.ok) {
-          setInboxMessages(prev => prev.map(m => m.id === msg.id ? { ...m, acknowledged: true } : m));
-          setOutboxMessages(prev => prev.map(m => m.id === msg.id ? { ...m, acknowledged: true } : m));
-          if (typeof onAcknowledgeComm === 'function') onAcknowledgeComm(msg.id);
+
+        setInboxMessages(prev => prev.map(m => m.id === msg.id ? markAllReadRecursive(m) : m));
+        setOutboxMessages(prev => prev.map(m => m.id === msg.id ? markAllReadRecursive(m) : m));
+
+        if (typeof onAcknowledgeComm === 'function') {
+          idsToAcknowledge.forEach(id => onAcknowledgeComm(id));
         }
+
       } catch (err) {
-        console.error("Auto-acknowledgment error:", err);
+        console.error("Automatic response read-detection error:", err);
       }
+    }
+  };
+
+  // 🟢 BULK MARK ALL INBOX MESSAGES AS READ
+  const handleMarkAllAsRead = async () => {
+    try {
+      const token = sessionStorage.getItem('kmp_authToken');
+      const unreadList = inboxMessages.filter(m => !m.acknowledged);
+      
+      if (unreadList.length === 0) {
+        setNotification({ type: 'info', text: 'ℹ️ Your inbox has no unread messages.' });
+        setTimeout(() => setNotification(null), 3000);
+        return;
+      }
+
+      await Promise.all(
+        unreadList.map(async (msg) => {
+          const encodedId = encodeURIComponent(encodeURIComponent(msg.id));
+          await fetch(`${API_URL}/api/v1/communications/${encodedId}/acknowledge`, { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+          });
+        })
+      );
+
+      const markAllReadRecursive = (item) => ({
+        ...item,
+        acknowledged: true,
+        replies: (item.replies || []).map(markAllReadRecursive)
+      });
+
+      setInboxMessages(prev => prev.map(markAllReadRecursive));
+      setNotification({ type: 'success', text: '✅ All inbox messages marked as read.' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (err) {
+      console.error("Bulk acknowledge error:", err);
+      setNotification({ type: 'error', text: '❌ Failed to mark all messages as read.' });
+      setTimeout(() => setNotification(null), 3000);
     }
   };
 
@@ -607,7 +673,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
                 {formData.targetAudience === 'SPECIFIC_USER' && (
                   <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 space-y-4">
-                    {/* 🟢 If replying, lock recipient exclusively to avoid displaying unrelated parties */}
+                    {/* 🟢 Locked recipient view when replying to a direct message */}
                     {isReplyingTo && replyingToDoc ? (
                       <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-blue-300 text-xs font-bold text-blue-900">
                         <span>🔒 Direct Reply Recipient: {replyingToDoc.sender_name} ({replyingToDoc.sender_fnum})</span>
@@ -765,7 +831,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
               )}
 
               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-4">
-                <div className="flex flex-col md:flex-row gap-4 items-end">
+                <div className="flex flex-col md:flex-row gap-4 items-end justify-between">
                   <div className="flex-1 w-full">
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><Filter size={14} className="mr-1"/> Time Filter</label>
                     <select 
@@ -787,6 +853,17 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                       <option value="custom">Custom Date Range (Backdate Search)</option>
                     </select>
                   </div>
+
+                  {activeTab === 'inbox' && (
+                    <div className="shrink-0">
+                      <button 
+                        onClick={handleMarkAllAsRead}
+                        className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-lg text-xs shadow-sm transition-colors cursor-pointer flex items-center"
+                      >
+                        <CheckCircle size={14} className="mr-1.5" /> Mark All as Read
+                      </button>
+                    </div>
+                  )}
 
                   {dateFilter === 'custom' && (
                     <>
@@ -883,7 +960,11 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                       const isUnread = !msg.acknowledged && !isSender;
 
                       return (
-                        <div key={msg.id} className={`bg-white border ${isUnread ? 'border-blue-400 shadow-md ring-1 ring-blue-400' : 'border-slate-200'} rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden`}>
+                        <div key={msg.id} className={`border rounded-xl transition-all overflow-hidden ${
+                          isUnread 
+                            ? 'bg-white border-blue-400 shadow-md ring-1 ring-blue-400' 
+                            : 'bg-slate-50/60 border-slate-300 opacity-85 shadow-none'
+                        }`}>
                           
                           <div 
                             className="bg-slate-50 px-5 py-3 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2 cursor-pointer"
