@@ -9,13 +9,13 @@ const FormattedMessage = ({ content }) => {
       {lines.map((line, idx) => {
         if (line.startsWith('### ') || line.startsWith('**') && line.endsWith('**')) {
           const text = line.replace(/^###\s*/, '').replace(/\*\*/g, '');
-          return <div key={idx} className="font-bold text-slate-900 mt-2 text-[11.5px] tracking-wide border-b border-slate-200 pb-0.5">{text}</div>;
+          return <div key={idx} className="font-bold text-slate-900 dark:text-slate-100 mt-2 text-[11.5px] tracking-wide border-b border-slate-200 dark:border-slate-800 pb-0.5">{text}</div>;
         }
         if (line.trim().startsWith('•') || line.trim().startsWith('-') || line.trim().startsWith('*')) {
           const text = line.replace(/^[\s•\-\*]+/, '');
           return (
             <div key={idx} className="flex items-start space-x-1.5 pl-1.5">
-              <span className="text-amber-600 font-black shrink-0">•</span>
+              <span className="text-amber-600 dark:text-amber-400 font-black shrink-0">•</span>
               <span>{renderInlineStyles(text)}</span>
             </div>
           );
@@ -31,10 +31,10 @@ const renderInlineStyles = (text) => {
   const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
   return parts.map((part, index) => {
     if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={index} className="font-bold text-slate-900">{part.slice(2, -2)}</strong>;
+      return <strong key={index} className="font-bold text-slate-900 dark:text-slate-100">{part.slice(2, -2)}</strong>;
     }
     if (part.startsWith('`') && part.endsWith('`')) {
-      return <code key={index} className="bg-slate-200/80 text-amber-800 px-1 py-0.5 rounded text-[10px] font-mono">{part.slice(1, -1)}</code>;
+      return <code key={index} className="bg-slate-200/80 dark:bg-slate-800 text-amber-800 dark:text-amber-300 px-1 py-0.5 rounded text-[10px] font-mono">{part.slice(1, -1)}</code>;
     }
     return part;
   });
@@ -125,10 +125,10 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
   };
 
   return (
-    <div className="fixed bottom-3 left-16 z-[99990] flex flex-col items-start font-sans select-none">
+    <div className="fixed bottom-3 left-3 sm:left-16 z-[99990] flex flex-col items-start font-sans select-none">
       {isOpen && (
-        <div className={`mb-2 bg-white rounded-2xl shadow-2xl border border-slate-300 overflow-hidden flex flex-col transition-all duration-300 ease-in-out animate-in slide-in-from-bottom-3 ${
-          isExpanded ? 'w-[560px] h-[640px] max-w-[95vw]' : 'w-96 h-[470px] max-w-[90vw]'
+        <div className={`mb-2 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-300 dark:border-slate-800 overflow-hidden flex flex-col transition-all duration-300 ease-in-out animate-in slide-in-from-bottom-3 ${
+          isExpanded ? 'w-[560px] h-[640px] max-w-[95vw] max-h-[85vh]' : 'w-96 h-[470px] max-w-[90vw] max-h-[80vh]'
         }`}>
           <div className="bg-slate-950 text-white px-3.5 py-2.5 flex justify-between items-center shrink-0 border-b border-slate-800">
             <div className="flex items-center space-x-2">
@@ -156,16 +156,16 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
             </div>
           </div>
 
-          <div className="bg-slate-100/90 px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto shrink-0 border-b border-slate-200">
-            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider shrink-0">Quick:</span>
+          <div className="bg-slate-100/90 dark:bg-slate-800 px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto shrink-0 border-b border-slate-200 dark:border-slate-700">
+            <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider shrink-0">Quick:</span>
             {quickPrompts.map((q, i) => (
-              <button key={i} type="button" onClick={() => executeQuery(q)} disabled={loading} className="text-[10px] font-medium bg-white hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full border border-slate-300 transition shrink-0 cursor-pointer disabled:opacity-50">
+              <button key={i} type="button" onClick={() => executeQuery(q)} disabled={loading} className="text-[10px] font-medium bg-white dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-2 py-0.5 rounded-full border border-slate-300 dark:border-slate-700 transition shrink-0 cursor-pointer disabled:opacity-50">
                 {q}
               </button>
             ))}
           </div>
 
-          <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-3.5 space-y-3 bg-slate-50 text-[11px]">
+          <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-3.5 space-y-3 bg-slate-50 dark:bg-slate-950 text-[11px]">
             {messages.map((m, idx) => (
               <div key={idx} className={`flex flex-col ${m.sender === 'user' ? 'items-end' : 'items-start'}`}>
                 <div className={`flex items-start space-x-2 max-w-[90%] ${m.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
@@ -176,11 +176,11 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
                   </div>
 
                   <div className={`p-3 rounded-2xl relative group ${
-                    m.sender === 'user' ? 'bg-[#596E47] text-white rounded-tr-none shadow-xs' : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none shadow-xs'
+                    m.sender === 'user' ? 'bg-[#596E47] text-white rounded-tr-none shadow-xs' : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-tl-none shadow-xs'
                   }`}>
                     <FormattedMessage content={m.text} />
                     {m.sender === 'ai' && (
-                      <button type="button" onClick={() => handleCopy(m.text, idx)} className="absolute top-2 right-2 text-slate-400 hover:text-slate-700 opacity-0 group-hover:opacity-100 transition cursor-pointer p-0.5" title="Copy intelligence brief">
+                      <button type="button" onClick={() => handleCopy(m.text, idx)} className="absolute top-2 right-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 opacity-0 group-hover:opacity-100 transition cursor-pointer p-0.5" title="Copy intelligence brief">
                         {copiedIndex === idx ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
                       </button>
                     )}
@@ -188,8 +188,8 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
                 </div>
 
                 {m.metadata && (
-                  <div className="flex flex-wrap items-center gap-1.5 mt-1 ml-7 text-[9px] text-slate-500 font-mono">
-                    <span className="flex items-center gap-1 bg-slate-200/80 px-1.5 py-0.5 rounded border border-slate-300">
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1 ml-7 text-[9px] text-slate-500 dark:text-slate-400 font-mono">
+                    <span className="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-700">
                       <Database size={9} className="text-sky-600" /> {m.metadata.database_query_status}
                     </span>
                   </div>
@@ -198,20 +198,21 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
             ))}
 
             {loading && (
-              <div className="flex items-center space-x-2 text-slate-600 italic text-[11px] bg-slate-100/90 p-2.5 rounded-xl border border-slate-200 w-fit">
+              <div className="flex items-center space-x-2 text-slate-600 dark:text-slate-300 italic text-[11px] bg-slate-100/90 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 w-fit">
                 <Loader2 size={13} className="animate-spin text-amber-600" />
                 <span>Querying tier-restricted databases and compliance manuals...</span>
               </div>
             )}
           </div>
 
-          <form onSubmit={handleSendMessage} className="p-2.5 bg-white border-t border-slate-200 flex items-center space-x-2 shrink-0">
+          {/* 🟢 FIXED: Input Field with explicit Dark Mode & Light Mode text/background contrast classes */}
+          <form onSubmit={handleSendMessage} className="p-2.5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center space-x-2 shrink-0">
             <input 
               type="text" 
               value={inputPrompt} 
               onChange={(e) => setInputPrompt(e.target.value)} 
               placeholder="Ask about deployment stats, policies, or troubleshooting..." 
-              className="flex-1 text-[11px] border border-slate-300 rounded-xl px-3 py-2 outline-none focus:border-[#596E47] bg-slate-50 focus:bg-white transition placeholder:text-slate-400"
+              className="flex-1 text-[11px] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none focus:border-[#596E47] bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 focus:bg-white dark:focus:bg-slate-900 transition placeholder:text-slate-400"
             />
             <button type="submit" disabled={loading || !inputPrompt.trim()} className="bg-[#3a3225] hover:bg-black text-white p-2.5 rounded-xl transition cursor-pointer disabled:opacity-40 shadow-xs" title="Execute Query">
               <Send size={12} />
@@ -228,7 +229,7 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
         className={`flex items-center justify-center transition-all duration-300 ease-in-out cursor-pointer shadow-xl rounded-full border ${
           isOpen ? 'h-8 px-3 bg-amber-500 text-slate-950 border-amber-300' : isHovered ? 'h-8 px-3 bg-slate-900 text-white border-slate-700' : 'w-8 h-8 p-0 bg-slate-900/90 text-amber-400 border-slate-700 hover:bg-slate-800'
         }`}
-        title="KMP Intelligence Assistant"
+        title="KMP System Assistant"
       >
         <Sparkles size={14} className={isOpen ? 'text-slate-950' : 'text-amber-400 animate-pulse shrink-0'} />
         {(isOpen || isHovered) && (

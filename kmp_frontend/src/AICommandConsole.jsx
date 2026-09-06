@@ -24,19 +24,35 @@ const AICommandConsole = ({ currentUser, onBack }) => {
   const isSuperAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role);
 
   const [messages, setMessages] = useState([
-    {
-      id: 'init-1',
-      sender: 'ai',
-      text: `**KMP Centralised Security Intelligence Assistant Active.**\n\nStanding by for commander queries across the **Nominal Roll**, **Live Crime Registry**, **Disruptive Ops Statistics**, **Agricultural Crime Summaries**, as well as system guidelines, policies, user manuals, and technical troubleshooting protocols.\n\n*Clearance Scope:* \`${officerFnum}\` | \`${officerRank}\` | \`${officerName}\`\nRegion: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station || 'ALL'}\``,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      metadata: null
-    }
-  ]);
-  const [inputQuery, setInputQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isFullScreen, setIsFullScreen] = useState(false);
-  const [isDbKillActive, setIsDbKillActive] = useState(false);
-  const chatEndRef = useRef(null);
+  {
+    id: 'init-1',
+    sender: 'ai',
+    text: `**KMP Centralised Security Data Management System (CSDMS) - Intelligence Assistant**
+
+Standing by for commander queries across all system modules. Here is an architectural overview of the system's operational interface:
+
+• **Home Dashboard:** Central command hub providing high-level operational summaries, quick-access metrics, and system status indicators.
+• **Command Communications:** Secure internal messaging network used to dispatch and track official directives, circulars, and announcements across regions, divisions, and specific stations.
+• **Crime / Incident Registry:** Core investigative ledger managing Station Diary (SD) references, offense categories, narratives, suspect demographics, and integrated lock-up population matrices.
+• **Disruptive OPS Statistics:** Statistical tracking interface for operational metrics including arrests, police bonds given, cautioned cases, court committals, remands, convictions, and specialized agricultural crime summaries.
+• **Success Stories:** Dedicated archive logging high-impact operational breakthroughs, recoveries, and successful public safety missions.
+• **Establishments:** Structural command registry monitoring authorized personnel allocations versus actual deployment numbers across main stations, sub-stations, police posts, and security booths.
+• **Nominal Roll & HR Transfers:** Comprehensive personnel database tracking force/file numbers, ranks, IPPS/NIN records, biographical details, archival logs, and strict jurisdictional transfer modification request queues.
+• **Tripartite Reports & Documents:** Secure repository for uploading, storing, and reviewing general documents, secure operational files, and standardized command templates.
+• **Access & Approvals (Super Control Panel):** High-command administrative gateway featuring unapproved user authorizations, a granular 20+ module clearance matrix, secure audit logs, password reset requests, and emergency system/regional/station lockdown toggles.
+• **AI Command Console:** Natural language intelligence engine allowing authorized commanders to query live database records securely.
+
+*Clearance Scope:* \`${officerFnum}\` | \`${officerRank}\` | \`${officerName}\`
+Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station || 'ALL'}\``,
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    metadata: null
+  }
+]);
+const [inputQuery, setInputQuery] = useState('');
+const [isLoading, setIsLoading] = useState(false);
+const [isFullScreen, setIsFullScreen] = useState(false);
+const [isDbKillActive, setIsDbKillActive] = useState(false);
+const chatEndRef = useRef(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
