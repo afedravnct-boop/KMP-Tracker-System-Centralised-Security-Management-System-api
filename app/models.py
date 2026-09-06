@@ -266,6 +266,7 @@ class Modification_Requests(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True) 
+    requested_fnum = Column(String, nullable=True) # 🟢 NEW: Added missing column
     requested_rank = Column(String, nullable=True)
     requested_name = Column(String, nullable=True)
     requested_region = Column(String, nullable=True)
