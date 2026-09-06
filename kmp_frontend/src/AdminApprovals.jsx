@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
-  Eye, XCircle, UserPlus, Camera, Filter
+  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -69,6 +69,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [loadingUsers, setLoadingUsers] = useState(false);
 
   const [selectedPendingUser, setSelectedPendingUser] = useState(null);
+  // 🟢 NEW: State for the HR Transfer Preview Modal
+  const [selectedModRequest, setSelectedModRequest] = useState(null);
+  
   const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
 
@@ -88,7 +91,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
- 
+
   const isSuperAdminOrTopCommand = (
     canViewGlobalActive ||
     userRoleClean === 'SUPER_ADMIN' ||
@@ -114,7 +117,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   }, [canViewGlobalActive, isSuperAdminOrTopCommand]);
 
   const handleSystemMaintenanceToggle = async () => {
-    // 🟢 1. Explicitly ask the Super Admin what they want to do
     const actionChoice = window.prompt(
       "SYSTEM LOCKDOWN MANAGEMENT\n\nDo you want to:\n1 - ACTIVATE a new Lockdown\n2 - LIFT an existing Lockdown\n\nEnter 1 or 2:",
       "1"
@@ -123,7 +125,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
     const isLifting = actionChoice.trim() === "2";
 
-    // 🟢 2. Dynamically adjust the prompts based on their choice
     const scopeChoice = window.prompt(
       `Select Scope to ${isLifting ? 'LIFT' : 'LOCKDOWN'}:\n1 - Force-Wide System\n2 - Specific Region\n3 - Specific Station\n\nEnter number (1-3):`,
       "1"
@@ -149,16 +150,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       return alert("Invalid selection.");
     }
 
-    // 🟢 3. The Tailored Reason Prompt (Keeps the Audit Trail Intact!)
     const rawReason = window.prompt(
       isLifting 
         ? `State official reason for LIFTING the lockdown on [${lockdownType}: ${targetName}]:` 
         : `State operational reason for LOCKING DOWN [${lockdownType}: ${targetName}]:`
     );
     
-    if (rawReason === null) return; // Cancels if they hit 'Cancel'
+    if (rawReason === null) return; 
     
-    // Assigns a default fallback if they leave it blank
     reason = stripHtmlTags(rawReason || (isLifting ? "Command Lockdown Lifted" : "Command Maintenance"));
 
     if (isLifting) {
@@ -743,6 +742,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       }
       
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId));
+      setSelectedModRequest(null); // 🟢 Clear modal upon success
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
       alert(`Error processing request: ${stripHtmlTags(err.message)}`);
@@ -1134,6 +1134,136 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
+      {/* 🟢 NEW: HR TRANSFER PREVIEW MODAL */}
+      {selectedModRequest && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150">
+            
+            <div className="bg-slate-900 text-white p-4 px-6 flex justify-between items-center shrink-0">
+              <h3 className="font-extrabold text-xs uppercase tracking-wider flex items-center text-amber-400">
+                <Shield size={16} className="mr-2"/> HR Modification Dossier
+              </h3>
+              <button onClick={() => setSelectedModRequest(null)} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-4 custom-scrollbar flex-1 bg-slate-50">
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+                 <div>
+                    <h4 className="text-sm font-black text-slate-900">Force Number</h4>
+                    <p className="text-lg font-mono font-bold text-blue-700">{selectedModRequest.fnum}</p>
+                 </div>
+                 <div className="text-right">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Requested On</p>
+                    <p className="text-xs font-bold text-slate-600">{stripHtmlTags(selectedModRequest.created_at)}</p>
+                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* LEFT SIDE: CURRENT DATA */}
+                <div className="bg-white rounded-xl border border-rose-200 shadow-2xs overflow-hidden">
+                   <div className="bg-rose-50 px-4 py-2 border-b border-rose-200 text-[10px] font-black text-rose-800 uppercase tracking-wider">
+                     Current Active Profile
+                   </div>
+                   <div className="p-4 space-y-3 text-xs">
+                     <div>
+                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Legal Name</span>
+                       <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_name}</span>
+                     </div>
+                     <div>
+                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Professional Rank</span>
+                       <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_rank}</span>
+                     </div>
+                     <div>
+                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span>
+                       <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_region}</span>
+                     </div>
+                     <div>
+                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span>
+                       <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_station}</span>
+                     </div>
+                   </div>
+                </div>
+
+                {/* RIGHT SIDE: REQUESTED CHANGES */}
+                <div className="bg-white rounded-xl border border-emerald-200 shadow-2xs overflow-hidden relative">
+                   <div className="absolute left-[-16px] top-1/2 transform -translate-y-1/2 bg-white rounded-full p-1 shadow-md z-10 hidden md:block border border-slate-200">
+                     <ArrowRight size={16} className="text-slate-400" />
+                   </div>
+                   
+                   <div className="bg-emerald-50 px-4 py-2 border-b border-emerald-200 text-[10px] font-black text-emerald-800 uppercase tracking-wider flex justify-between items-center">
+                     <span>Requested Changes</span>
+                     <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[8px]">PENDING APPROVAL</span>
+                   </div>
+                   <div className="p-4 space-y-3 text-xs">
+                     <div>
+                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Legal Name</span>
+                       <span className={`font-extrabold ${selectedModRequest.requested_name !== selectedModRequest.current_name ? 'text-emerald-700' : 'text-slate-700'}`}>
+                         {selectedModRequest.requested_name || selectedModRequest.current_name}
+                       </span>
+                     </div>
+                     <div>
+                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Professional Rank</span>
+                       <span className={`font-extrabold ${selectedModRequest.requested_rank !== selectedModRequest.current_rank ? 'text-emerald-700' : 'text-slate-700'}`}>
+                         {selectedModRequest.requested_rank || selectedModRequest.current_rank}
+                       </span>
+                     </div>
+                     <div>
+                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span>
+                       <span className={`font-extrabold ${selectedModRequest.requested_region !== selectedModRequest.current_region ? 'text-emerald-700' : 'text-slate-700'}`}>
+                         {selectedModRequest.requested_region || selectedModRequest.current_region}
+                       </span>
+                     </div>
+                     <div>
+                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span>
+                       <span className={`font-extrabold ${selectedModRequest.requested_station !== selectedModRequest.current_station ? 'text-emerald-700' : 'text-slate-700'}`}>
+                         {selectedModRequest.requested_station || selectedModRequest.current_station}
+                       </span>
+                     </div>
+                   </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 border-t border-slate-200 flex justify-between items-center shrink-0">
+              <button 
+                type="button"
+                onClick={() => setSelectedModRequest(null)} 
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Close Preview
+              </button>
+              <div className="space-x-2">
+                {(() => {
+                  const isModalCrossRegion = currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== selectedModRequest.current_region;
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        disabled={isProcessingAction || isModalCrossRegion}
+                        onClick={() => handleReviewRequest(selectedModRequest.id || selectedModRequest.sn, "REJECTED")}
+                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Reject Changes"}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 cursor-pointer'}`}
+                      >
+                        <XCircle size={14} className="inline mr-1"/> Reject Changes
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isProcessingAction || isModalCrossRegion}
+                        onClick={() => handleReviewRequest(selectedModRequest.id || selectedModRequest.sn, "APPROVED")}
+                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Approve & Execute"}
+                        className={`px-5 py-2 rounded-xl text-xs font-extrabold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}
+                      >
+                        <CheckCircle size={14} className="inline mr-1"/> Approve & Execute
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {viewingPhotoModal && (
         <div className="fixed inset-0 bg-black/90 z-[400] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingPhotoModal(null)}>
           <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg cursor-pointer"><X size={24}/></button>
@@ -1372,7 +1502,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           {req.requested_station && req.requested_station !== req.current_station && <div className="text-[11px]"><span className="font-bold text-slate-400">Station:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_station)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_station)}</span></div>}
                         </td>
                         <td className="px-4 py-2.5 whitespace-nowrap">
+                          {/* 🟢 NEW PREVIEW DETAILS BUTTON */}
                           <div className="flex space-x-2">
+                            <button 
+                              onClick={() => setSelectedModRequest(req)} 
+                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs cursor-pointer border border-slate-300"
+                            >
+                              <Eye size={13} className="mr-1" /> Preview Details
+                            </button>
                             <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : ""} onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}><CheckCircle size={13} className="mr-1" /> Approve</button>
                             <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : ""} onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer'}`}><X size={13} className="mr-1" /> Reject</button>
                           </div>
@@ -1501,9 +1638,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               <p className="text-sm font-bold text-slate-700 leading-relaxed">
                 You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${stripHtmlTags(revokePrompt.permissionKey)}"`} clearance</span> for this officer. By command directive, you must state an official operational reason to proceed.
               </p>
-              id="revocationReason"     // 🟢 ADDED
-              name="revocationReason"   // 🟢 ADDED
               <textarea 
+                id="revocationReason"     // 🟢 ADDED
+                name="revocationReason"   // 🟢 ADDED
                 value={revokePrompt.reason}
                 onChange={(e) => setRevokePrompt({...revokePrompt, reason: stripHtmlTags(e.target.value)})}
                 placeholder="Type official reason for revocation here..."
