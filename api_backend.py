@@ -538,46 +538,46 @@ def create_system_request(data: dict, db: Session = Depends(get_db), current_use
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
 # 🟢 3. APPROVE REQUEST
+# 🟢 3. REVIEW REQUEST (Unified Endpoint for Approve & Reject)
+@app.patch("/api/v1/requests/{req_id}")
 @app.put("/api/v1/requests/{req_id}")
-@app.post("/api/v1/requests/{req_id}/approve")
-def approve_system_request(req_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def review_system_request(req_id: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin required.")
         
-    ReqModel = getattr(models, 'Modification_Requests', None)
+    ReqModel = getattr(models, 'Modification_Requests', getattr(models, 'modification_requests', None))
     req = db.query(ReqModel).filter(ReqModel.id == req_id).first()
     
     if not req: 
         raise HTTPException(status_code=404, detail="Request not found.")
+        
+    action_status = data.get("status", "").upper()
     
-    # Execute the actual profile update in the Users table
-    target_user = db.query(models.Users).filter(func.upper(models.Users.fnum) == str(req.fnum).upper()).first()
-    if target_user:
-        if req.requested_fnum: target_user.fnum = req.requested_fnum
-        if req.requested_name: target_user.name = req.requested_name
-        if req.requested_rank: target_user.rank = req.requested_rank
-        if req.requested_region: target_user.region = req.requested_region
-        if req.requested_station: target_user.station = req.requested_station
+    if action_status == "APPROVED":
+        # Execute the actual profile update in the Users table
+        target_user = db.query(models.Users).filter(func.upper(models.Users.fnum) == str(req.fnum).upper()).first()
+        if target_user:
+            if req.requested_fnum: target_user.fnum = req.requested_fnum
+            if req.requested_name: target_user.name = req.requested_name
+            if req.requested_rank: target_user.rank = req.requested_rank
+            if req.requested_region: target_user.region = req.requested_region
+            if req.requested_station: target_user.station = req.requested_station
+            
+        req.status = "APPROVED"
+        req.reviewed_by = current_user.fnum
+        req.reviewed_at = get_eat_time()
+        db.commit()
+        return {"status": "success", "message": "Modification approved and executed."}
         
-    req.status = "APPROVED"
-    db.commit()
-    return {"status": "success"}
-
-# 🟢 4. REJECT REQUEST
-@app.delete("/api/v1/requests/{req_id}")
-@app.post("/api/v1/requests/{req_id}/reject")
-def reject_system_request(req_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    if "ADMIN" not in user_role and "RPC" not in user_role:
-        raise HTTPException(status_code=403, detail="Clearance Denied: Admin required.")
-        
-    ReqModel = getattr(models, 'Modification_Requests', None)
-    req = db.query(ReqModel).filter(ReqModel.id == req_id).first()
-    if req:
+    elif action_status == "REJECTED":
+        # Clear the rejected ticket from the queue
         db.delete(req)
         db.commit()
-    return {"status": "success"}
+        return {"status": "success", "message": "Modification request rejected."}
+        
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action status provided.")
 
 @app.get("/api/v1/audit-logs")
 def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
