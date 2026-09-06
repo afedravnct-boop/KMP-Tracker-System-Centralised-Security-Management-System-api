@@ -5,6 +5,7 @@
     "tailwindcss": "^4.3.1"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "cors": "^2.8.6",
     "react-quill": "^2.0.0"
   }
