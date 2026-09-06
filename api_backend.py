@@ -465,7 +465,7 @@ def get_system_requests(db: Session = Depends(get_db), current_user: models.User
     if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Unauthorized access.")
     try:
-        ReqModel = getattr(models, 'modification_requests', None)
+        ReqModel = getattr(models, 'Modification_Requests', None)
         if not ReqModel:
             return []
             
@@ -479,7 +479,7 @@ def get_system_requests(db: Session = Depends(get_db), current_user: models.User
 @app.post("/api/v1/requests")
 def create_system_request(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        ReqModel = getattr(models, 'modification_requests', None)
+        ReqModel = getattr(models, 'Modification_Requests', None)
         if not ReqModel:
             raise HTTPException(status_code=500, detail="Modification Requests model not found in database.")
             
@@ -508,7 +508,7 @@ def approve_system_request(req_id: int, db: Session = Depends(get_db), current_u
     if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin required.")
         
-    ReqModel = getattr(models, 'modification_requests', None)
+    ReqModel = getattr(models, 'Modification_Requests', None)
     req = db.query(ReqModel).filter(ReqModel.id == req_id).first()
     
     if not req: 
@@ -535,7 +535,7 @@ def reject_system_request(req_id: int, db: Session = Depends(get_db), current_us
     if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin required.")
         
-    ReqModel = getattr(models, 'modification_requests', None)
+    ReqModel = getattr(models, 'Modification_Requests', None)
     req = db.query(ReqModel).filter(ReqModel.id == req_id).first()
     if req:
         db.delete(req)
