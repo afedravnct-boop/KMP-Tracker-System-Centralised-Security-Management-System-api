@@ -458,22 +458,89 @@ def get_pending_users(db: Session = Depends(get_db), current_user: models.Users 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# 🟢 1. FETCH PENDING REQUESTS (For the Admin Dashboard)
 @app.get("/api/v1/requests")
 def get_system_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Unauthorized access.")
     try:
-        requests = db.query(models.Users).filter(models.Users.is_approved == False).all()
-        return [
-            {
-                "id": getattr(r, 'id', 0),
-                "fnum": r.fnum, "name": r.name, "rank": r.rank,
-                "station": r.station, "region": r.region, "role": r.role
-            } for r in requests
-        ]
+        ReqModel = getattr(models, 'Modification_Requests', getattr(models, 'ModificationRequests', None))
+        if not ReqModel:
+            return []
+            
+        requests = db.query(ReqModel).filter(or_(ReqModel.status == 'PENDING', ReqModel.status == None)).all()
+        return [serialize_model_row(r) for r in requests]
     except Exception as e:
+        print(f"Error fetching modification requests: {e}")
         return []
+
+# 🟢 2. CREATE NEW REQUEST (When an officer submits a profile change)
+@app.post("/api/v1/requests")
+def create_system_request(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        ReqModel = getattr(models, 'Modification_Requests', getattr(models, 'ModificationRequests', None))
+        if not ReqModel:
+            raise HTTPException(status_code=500, detail="Modification Requests model not found in database.")
+            
+        new_request = ReqModel(
+            fnum=current_user.fnum,
+            requested_fnum=data.get("requested_fnum"),
+            requested_name=data.get("requested_name"),
+            requested_rank=data.get("requested_rank"),
+            requested_region=data.get("requested_region"),
+            requested_station=data.get("requested_station"),
+            status="PENDING",
+            created_at=get_eat_time()
+        )
+        db.add(new_request)
+        db.commit()
+        return {"status": "success", "message": "HR Modification request submitted successfully."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 🟢 3. APPROVE REQUEST (Executes the transfer and updates the user)
+@app.put("/api/v1/requests/{req_id}")
+@app.post("/api/v1/requests/{req_id}/approve")
+def approve_system_request(req_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    if "ADMIN" not in user_role and "RPC" not in user_role:
+        raise HTTPException(status_code=403, detail="Clearance Denied: Admin required.")
+        
+    ReqModel = getattr(models, 'Modification_Requests', getattr(models, 'ModificationRequests', None))
+    req = db.query(ReqModel).filter(ReqModel.id == req_id).first()
+    
+    if not req: 
+        raise HTTPException(status_code=404, detail="Request not found.")
+    
+    # Execute the actual profile update in the Users table
+    target_user = db.query(models.Users).filter(func.upper(models.Users.fnum) == str(req.fnum).upper()).first()
+    if target_user:
+        if req.requested_fnum: target_user.fnum = req.requested_fnum
+        if req.requested_name: target_user.name = req.requested_name
+        if req.requested_rank: target_user.rank = req.requested_rank
+        if req.requested_region: target_user.region = req.requested_region
+        if req.requested_station: target_user.station = req.requested_station
+        
+    req.status = "APPROVED"
+    db.commit()
+    return {"status": "success"}
+
+# 🟢 4. REJECT REQUEST (Clears the ticket from the queue)
+@app.delete("/api/v1/requests/{req_id}")
+@app.post("/api/v1/requests/{req_id}/reject")
+def reject_system_request(req_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    if "ADMIN" not in user_role and "RPC" not in user_role:
+        raise HTTPException(status_code=403, detail="Clearance Denied: Admin required.")
+        
+    ReqModel = getattr(models, 'Modification_Requests', getattr(models, 'ModificationRequests', None))
+    req = db.query(ReqModel).filter(ReqModel.id == req_id).first()
+    if req:
+        db.delete(req)
+        db.commit()
+    return {"status": "success"}
 
 @app.get("/api/v1/audit-logs")
 def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
