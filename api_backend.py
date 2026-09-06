@@ -458,28 +458,63 @@ def get_pending_users(db: Session = Depends(get_db), current_user: models.Users 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# 🟢 1. FETCH PENDING REQUESTS
+# 🟢 1. FETCH PENDING REQUESTS (Now includes Current User Data for Preview)
 @app.get("/api/v1/requests")
 def get_system_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Unauthorized access.")
     try:
-        ReqModel = getattr(models, 'Modification_Requests', None)
+        ReqModel = getattr(models, 'modification_requests', getattr(models, 'Modification_Requests', None))
         if not ReqModel:
             return []
             
         requests = db.query(ReqModel).filter(or_(ReqModel.status == 'PENDING', ReqModel.status == None)).all()
-        return [serialize_model_row(r) for r in requests]
+        
+        result_payload = []
+        for r in requests:
+            req_data = serialize_model_row(r)
+            
+            # Fetch the officer's CURRENT live details
+            target_user = db.query(models.Users).filter(func.upper(models.Users.fnum) == str(r.fnum).upper()).first()
+            if target_user:
+                req_data["current_name"] = target_user.name
+                req_data["current_rank"] = target_user.rank
+                req_data["current_region"] = target_user.region
+                req_data["current_station"] = target_user.station
+            else:
+                req_data["current_name"] = "UNKNOWN OFFICER"
+                req_data["current_rank"] = "N/A"
+                req_data["current_region"] = "N/A"
+                req_data["current_station"] = "N/A"
+                
+            result_payload.append(req_data)
+            
+        return result_payload
     except Exception as e:
         print(f"Error fetching modification requests: {e}")
         return []
 
-# 🟢 2. CREATE NEW REQUEST
+# 🟢 2. CREATE NEW REQUEST (With Strict Rank/FNUM Validation)
 @app.post("/api/v1/requests")
 def create_system_request(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        ReqModel = getattr(models, 'Modification_Requests', None)
+        # 1. Determine what the final Rank and FNUM will be if this request is approved
+        target_rank = (data.get("requested_rank") or current_user.rank or "").strip().upper()
+        target_fnum = (data.get("requested_fnum") or current_user.fnum or "").strip().upper()
+        
+        # 2. Strict Policing Standard Validation
+        nco_ranks = ['PC', 'SPC', 'CPL', 'SGT']
+        is_fnum_numeric = target_fnum.isdigit()
+        
+        if target_rank in nco_ranks and not is_fnum_numeric:
+            raise HTTPException(status_code=400, detail=f"PROTOCOL ERROR: Rank {target_rank} requires a purely numeric Force Number (e.g., 26000). Target FNUM is {target_fnum}.")
+            
+        if target_rank not in nco_ranks and is_fnum_numeric and target_rank != "":
+            raise HTTPException(status_code=400, detail=f"PROTOCOL ERROR: Rank {target_rank} requires an alphanumeric Force/File Number (e.g., A/2400). Target FNUM is {target_fnum}.")
+
+        # 3. Save the request if validation passes
+        ReqModel = getattr(models, 'Modification_Requests', getattr(models, 'modification_requests', None))
         if not ReqModel:
             raise HTTPException(status_code=500, detail="Modification Requests model not found in database.")
             
@@ -496,6 +531,8 @@ def create_system_request(data: dict, db: Session = Depends(get_db), current_use
         db.add(new_request)
         db.commit()
         return {"status": "success", "message": "HR Modification request submitted successfully."}
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")

@@ -1135,134 +1135,166 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       )}
 
       {/* 🟢 NEW: HR TRANSFER PREVIEW MODAL */}
-      {selectedModRequest && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150">
-            
-            <div className="bg-slate-900 text-white p-4 px-6 flex justify-between items-center shrink-0">
-              <h3 className="font-extrabold text-xs uppercase tracking-wider flex items-center text-amber-400">
-                <Shield size={16} className="mr-2"/> HR Modification Dossier
-              </h3>
-              <button onClick={() => setSelectedModRequest(null)} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto space-y-4 custom-scrollbar flex-1 bg-slate-50">
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
-                 <div>
-                    <h4 className="text-sm font-black text-slate-900">Force Number</h4>
-                    <p className="text-lg font-mono font-bold text-blue-700">{selectedModRequest.fnum}</p>
-                 </div>
-                 <div className="text-right">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Requested On</p>
-                    <p className="text-xs font-bold text-slate-600">{stripHtmlTags(selectedModRequest.created_at)}</p>
-                 </div>
-              </div>
+      {selectedModRequest && (() => {
+        // Calculate Mismatch for the UI
+        const targetRank = (selectedModRequest.requested_rank || selectedModRequest.current_rank || '').toUpperCase();
+        const targetFnum = (selectedModRequest.requested_fnum || selectedModRequest.fnum || '').toUpperCase();
+        const ncoRanks = ['PC', 'SPC', 'CPL', 'SGT'];
+        const isTargetNCO = ncoRanks.includes(targetRank);
+        const isFnumNumeric = /^\d+$/.test(targetFnum);
+        
+        const rankMismatchError = isTargetNCO && !isFnumNumeric 
+          ? `SECURITY CONFLICT: Rank [${targetRank}] requires a strictly numeric Force Number, but the target Force Number is [${targetFnum}].` 
+          : (!isTargetNCO && isFnumNumeric && targetRank) 
+          ? `SECURITY CONFLICT: Rank [${targetRank}] requires an alphanumeric File Number (e.g., A/123), but [${targetFnum}] is strictly numeric.` 
+          : null;
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* LEFT SIDE: CURRENT DATA */}
-                <div className="bg-white rounded-xl border border-rose-200 shadow-2xs overflow-hidden">
-                   <div className="bg-rose-50 px-4 py-2 border-b border-rose-200 text-[10px] font-black text-rose-800 uppercase tracking-wider">
-                     Current Active Profile
+        return (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150">
+              
+              <div className="bg-slate-900 text-white p-4 px-6 flex justify-between items-center shrink-0">
+                <h3 className="font-extrabold text-xs uppercase tracking-wider flex items-center text-amber-400">
+                  <Shield size={16} className="mr-2"/> HR Modification Dossier
+                </h3>
+                <button onClick={() => setSelectedModRequest(null)} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto space-y-4 custom-scrollbar flex-1 bg-slate-50">
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+                   <div>
+                      <h4 className="text-sm font-black text-slate-900">Force/File Number</h4>
+                      <p className="text-lg font-mono font-bold text-blue-700">
+                        {selectedModRequest.requested_fnum ? (
+                          <><span className="line-through text-slate-400 mr-2">{selectedModRequest.fnum}</span> <span className="text-emerald-600">{selectedModRequest.requested_fnum}</span></>
+                        ) : selectedModRequest.fnum}
+                      </p>
                    </div>
-                   <div className="p-4 space-y-3 text-xs">
-                     <div>
-                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Legal Name</span>
-                       <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_name}</span>
-                     </div>
-                     <div>
-                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Professional Rank</span>
-                       <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_rank}</span>
-                     </div>
-                     <div>
-                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span>
-                       <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_region}</span>
-                     </div>
-                     <div>
-                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span>
-                       <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_station}</span>
-                     </div>
+                   <div className="text-right">
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Requested On</p>
+                      <p className="text-xs font-bold text-slate-600">{stripHtmlTags(selectedModRequest.created_at)}</p>
                    </div>
                 </div>
 
-                {/* RIGHT SIDE: REQUESTED CHANGES */}
-                <div className="bg-white rounded-xl border border-emerald-200 shadow-2xs overflow-hidden relative">
-                   <div className="absolute left-[-16px] top-1/2 transform -translate-y-1/2 bg-white rounded-full p-1 shadow-md z-10 hidden md:block border border-slate-200">
-                     <ArrowRight size={16} className="text-slate-400" />
-                   </div>
-                   
-                   <div className="bg-emerald-50 px-4 py-2 border-b border-emerald-200 text-[10px] font-black text-emerald-800 uppercase tracking-wider flex justify-between items-center">
-                     <span>Requested Changes</span>
-                     <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[8px]">PENDING APPROVAL</span>
-                   </div>
-                   <div className="p-4 space-y-3 text-xs">
-                     <div>
-                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Legal Name</span>
-                       <span className={`font-extrabold ${selectedModRequest.requested_name !== selectedModRequest.current_name ? 'text-emerald-700' : 'text-slate-700'}`}>
-                         {selectedModRequest.requested_name || selectedModRequest.current_name}
-                       </span>
+                {/* 🟢 RED BANNER INJECTED HERE IF THERE IS A MISMATCH */}
+                {rankMismatchError && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start shadow-sm">
+                    <AlertTriangle size={18} className="text-red-600 mr-3 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-xs font-black text-red-800 uppercase tracking-wider mb-1">HR Protocol Violation</h4>
+                      <p className="text-[11px] font-semibold text-red-700 leading-tight">{rankMismatchError}</p>
+                      <p className="text-[10px] text-red-500 mt-1">This request must be rejected. The officer must resubmit both the Rank and the appropriately formatted Force Number simultaneously.</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* LEFT SIDE: CURRENT DATA */}
+                  <div className="bg-white rounded-xl border border-rose-200 shadow-2xs overflow-hidden">
+                     <div className="bg-rose-50 px-4 py-2 border-b border-rose-200 text-[10px] font-black text-rose-800 uppercase tracking-wider">
+                       Current Active Profile
                      </div>
-                     <div>
-                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Professional Rank</span>
-                       <span className={`font-extrabold ${selectedModRequest.requested_rank !== selectedModRequest.current_rank ? 'text-emerald-700' : 'text-slate-700'}`}>
-                         {selectedModRequest.requested_rank || selectedModRequest.current_rank}
-                       </span>
+                     <div className="p-4 space-y-3 text-xs">
+                       <div>
+                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Legal Name</span>
+                         <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_name}</span>
+                       </div>
+                       <div>
+                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Professional Rank</span>
+                         <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_rank}</span>
+                       </div>
+                       <div>
+                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span>
+                         <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_region}</span>
+                       </div>
+                       <div>
+                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span>
+                         <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_station}</span>
+                       </div>
                      </div>
-                     <div>
-                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span>
-                       <span className={`font-extrabold ${selectedModRequest.requested_region !== selectedModRequest.current_region ? 'text-emerald-700' : 'text-slate-700'}`}>
-                         {selectedModRequest.requested_region || selectedModRequest.current_region}
-                       </span>
+                  </div>
+
+                  {/* RIGHT SIDE: REQUESTED CHANGES */}
+                  <div className="bg-white rounded-xl border border-emerald-200 shadow-2xs overflow-hidden relative">
+                     <div className="absolute left-[-16px] top-1/2 transform -translate-y-1/2 bg-white rounded-full p-1 shadow-md z-10 hidden md:block border border-slate-200">
+                       <ArrowRight size={16} className="text-slate-400" />
                      </div>
-                     <div>
-                       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span>
-                       <span className={`font-extrabold ${selectedModRequest.requested_station !== selectedModRequest.current_station ? 'text-emerald-700' : 'text-slate-700'}`}>
-                         {selectedModRequest.requested_station || selectedModRequest.current_station}
-                       </span>
+                     
+                     <div className="bg-emerald-50 px-4 py-2 border-b border-emerald-200 text-[10px] font-black text-emerald-800 uppercase tracking-wider flex justify-between items-center">
+                       <span>Requested Changes</span>
+                       <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[8px]">PENDING APPROVAL</span>
                      </div>
-                   </div>
+                     <div className="p-4 space-y-3 text-xs">
+                       <div>
+                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Legal Name</span>
+                         <span className={`font-extrabold ${selectedModRequest.requested_name !== selectedModRequest.current_name ? 'text-emerald-700' : 'text-slate-700'}`}>
+                           {selectedModRequest.requested_name || selectedModRequest.current_name}
+                         </span>
+                       </div>
+                       <div>
+                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Professional Rank</span>
+                         <span className={`font-extrabold ${selectedModRequest.requested_rank !== selectedModRequest.current_rank ? 'text-emerald-700' : 'text-slate-700'}`}>
+                           {selectedModRequest.requested_rank || selectedModRequest.current_rank}
+                         </span>
+                       </div>
+                       <div>
+                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span>
+                         <span className={`font-extrabold ${selectedModRequest.requested_region !== selectedModRequest.current_region ? 'text-emerald-700' : 'text-slate-700'}`}>
+                           {selectedModRequest.requested_region || selectedModRequest.current_region}
+                         </span>
+                       </div>
+                       <div>
+                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span>
+                         <span className={`font-extrabold ${selectedModRequest.requested_station !== selectedModRequest.current_station ? 'text-emerald-700' : 'text-slate-700'}`}>
+                           {selectedModRequest.requested_station || selectedModRequest.current_station}
+                         </span>
+                       </div>
+                     </div>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="bg-white p-4 border-t border-slate-200 flex justify-between items-center shrink-0">
-              <button 
-                type="button"
-                onClick={() => setSelectedModRequest(null)} 
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
-              >
-                Close Preview
-              </button>
-              <div className="space-x-2">
-                {(() => {
-                  const isModalCrossRegion = currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== selectedModRequest.current_region;
-                  return (
-                    <>
-                      <button
-                        type="button"
-                        disabled={isProcessingAction || isModalCrossRegion}
-                        onClick={() => handleReviewRequest(selectedModRequest.id || selectedModRequest.sn, "REJECTED")}
-                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Reject Changes"}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 cursor-pointer'}`}
-                      >
-                        <XCircle size={14} className="inline mr-1"/> Reject Changes
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isProcessingAction || isModalCrossRegion}
-                        onClick={() => handleReviewRequest(selectedModRequest.id || selectedModRequest.sn, "APPROVED")}
-                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Approve & Execute"}
-                        className={`px-5 py-2 rounded-xl text-xs font-extrabold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}
-                      >
-                        <CheckCircle size={14} className="inline mr-1"/> Approve & Execute
-                      </button>
-                    </>
-                  );
-                })()}
+              <div className="bg-white p-4 border-t border-slate-200 flex justify-between items-center shrink-0">
+                <button 
+                  type="button"
+                  onClick={() => setSelectedModRequest(null)} 
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  Close Preview
+                </button>
+                <div className="space-x-2">
+                  {(() => {
+                    const isModalCrossRegion = currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== selectedModRequest.current_region;
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          disabled={isProcessingAction || isModalCrossRegion}
+                          onClick={() => handleReviewRequest(selectedModRequest.id || selectedModRequest.sn, "REJECTED")}
+                          title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Reject Changes"}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 cursor-pointer'}`}
+                        >
+                          <XCircle size={14} className="inline mr-1"/> Reject Changes
+                        </button>
+                        <button
+                          type="button"
+                          // 🟢 DISABLE BUTTON IF THERE IS A MISMATCH
+                          disabled={isProcessingAction || isModalCrossRegion || rankMismatchError !== null}
+                          onClick={() => handleReviewRequest(selectedModRequest.id || selectedModRequest.sn, "APPROVED")}
+                          title={rankMismatchError ? "Cannot Approve: Protocol Violation" : isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Approve & Execute"}
+                          className={`px-5 py-2 rounded-xl text-xs font-extrabold transition shadow-xs ${isModalCrossRegion || rankMismatchError ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-60' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}
+                        >
+                          <CheckCircle size={14} className="inline mr-1"/> Approve & Execute
+                        </button>
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {viewingPhotoModal && (
         <div className="fixed inset-0 bg-black/90 z-[400] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingPhotoModal(null)}>
