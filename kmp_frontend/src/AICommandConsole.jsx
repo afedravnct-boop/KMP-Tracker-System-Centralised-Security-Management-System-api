@@ -38,6 +38,8 @@ Standing by for commander queries across all system modules. Here is an architec
 • **Success Stories:** Dedicated archive logging high-impact operational breakthroughs, recoveries, and successful public safety missions.
 • **Establishments:** Structural command registry monitoring authorized personnel allocations versus actual deployment numbers across main stations, sub-stations, police posts, and security booths.
 • **Nominal Roll & HR Transfers:** Comprehensive personnel database tracking force/file numbers, ranks, IPPS/NIN records, biographical details, archival logs, and strict jurisdictional transfer modification request queues.
+  - *Data Ingestion Protocol:* Full-spectrum Excel uploads successfully process and store all **29 columns** of the NeonDB nominal roll schema (including biographical, financial, and identification metrics). No upload fields are restricted or truncated.
+  - *AI Search Security:* When answering searches, high-command clearance allows authorized officers to view operational details while sensitive personal identifiers (such as bank accounts, TINs, and NINs) remain protected under data security protocols.
 • **Tripartite Reports & Documents:** Secure repository for uploading, storing, and reviewing general documents, secure operational files, and standardized command templates.
 • **Access & Approvals (Super Control Panel):** High-command administrative gateway featuring unapproved user authorizations, a granular 20+ module clearance matrix, secure audit logs, password reset requests, and emergency system/regional/station lockdown toggles.
 • **AI Command Console:** Natural language intelligence engine allowing authorized commanders to query live database records securely.
