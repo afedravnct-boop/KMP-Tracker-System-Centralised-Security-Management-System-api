@@ -640,7 +640,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                   {/* Wide tooltip box that centers above the upload block */}
                   <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-50 bg-slate-900 text-white p-4 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 duration-150 pointer-events-none w-[460px] sm:w-[520px]">
                     <p className="text-xs font-extrabold text-blue-400 uppercase tracking-wider mb-2 border-b border-slate-800 pb-1.5 flex items-center justify-between">
-                      <span>📋 Required NeonDB Column Headers</span>
+                      <span>📋 Ensure your column headers are exactly like these from first column to the last</span>
                       <span className="text-[10px] text-slate-400 font-normal">Exact match required</span>
                     </p>
                     <div className="flex flex-wrap gap-1.5 text-xs font-mono">

@@ -2785,26 +2785,22 @@ const App = () => {
     downloadWithAuth(url, `KMP_Master_Ledger_${value || "General"}_${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]}.zip`);
   };
 
-  const handleAcknowledgeComm = async (commId) => {
-    try {
-      const response = await authFetch(`/api/v1/communications/${commId}/acknowledge`, { method: 'POST' });
-      if (response.ok) {
-        setAdminCommsData(prevData => {
-          if (Array.isArray(prevData)) {
-            return prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c);
-          } else if (prevData && typeof prevData === 'object') {
-            const listKey = Array.isArray(prevData.data) ? 'data' : Array.isArray(prevData.items) ? 'items' : null;
-            if (listKey) {
-              return {
-                ...prevData,
-                [listKey]: prevData[listKey].map(c => c.id === commId ? { ...c, acknowledged: true } : c)
-              };
-            }
-          }
-          return prevData;
-        });
+  // 🟢 PURE STATE-SYNC FUNCTION (Removed redundant authFetch to prevent rate-limiting)
+  const handleAcknowledgeComm = (commId) => {
+    setAdminCommsData(prevData => {
+      if (Array.isArray(prevData)) {
+        return prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c);
+      } else if (prevData && typeof prevData === 'object') {
+        const listKey = Array.isArray(prevData.data) ? 'data' : Array.isArray(prevData.items) ? 'items' : null;
+        if (listKey) {
+          return {
+            ...prevData,
+            [listKey]: prevData[listKey].map(c => c.id === commId ? { ...c, acknowledged: true } : c)
+          };
+        }
       }
-    } catch (err) { console.error("Failed to acknowledge receipt", err); }
+      return prevData;
+    });
   };
 
 // 🟢 Add this right below handleAcknowledgeComm

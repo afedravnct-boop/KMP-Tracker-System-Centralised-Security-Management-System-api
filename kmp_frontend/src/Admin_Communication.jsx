@@ -421,20 +421,14 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   };
 
   // 🟢 BULK MARK ALL INBOX MESSAGES AS READ (SINGLE NETWORK CALL)
+  // 🟢 BULK MARK ALL INBOX MESSAGES AS READ (Forced DB Sweep)
   const handleMarkAllAsRead = async () => {
     try {
       const token = sessionStorage.getItem('kmp_authToken');
-      const unreadList = inboxMessages.filter(m => !m.acknowledged);
       
-      if (unreadList.length === 0) {
-        setNotification({ type: 'info', text: 'ℹ️ Your inbox has no unread messages.' });
-        setTimeout(() => setNotification(null), 3000);
-        return;
-      }
+      setNotification({ type: 'info', text: 'Syncing read receipts with centralized database...' });
 
-      setNotification({ type: 'info', text: 'Syncing read receipts...' });
-
-      // Trigger the backend to cleanly sweep and acknowledge ALL pending messages
+      // 1. FORCE THE BACKEND SWEEP (Ignore local state, let the DB do the math)
       const response = await fetch(`${API_URL}/api/v1/communications/acknowledge-all`, { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
@@ -442,7 +436,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
       if (!response.ok) throw new Error("Bulk sync rejected by server.");
 
-      // Mark local UI state entirely read
+      // 2. Mark local UI state entirely read (Recursive to catch all hidden nested replies)
       const markAllReadRecursive = (item) => ({
         ...item,
         acknowledged: true,
@@ -452,9 +446,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       setInboxMessages(prev => prev.map(markAllReadRecursive));
       setOutboxMessages(prev => prev.map(markAllReadRecursive));
       
-      setNotification({ type: 'success', text: '✅ All inbox messages marked as read.' });
+      setNotification({ type: 'success', text: '✅ All command communications securely marked as read.' });
 
-      // 🟢 INSTANTLY SYNC WITH APP.JSX TO CLEAR DASHBOARD PINGS
+      // 3. 🟢 FORCE APP.JSX TO CLEAR DASHBOARD PINGS
       if (typeof onMarkAllRead === 'function') {
         onMarkAllRead();
       }

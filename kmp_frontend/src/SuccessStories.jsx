@@ -184,30 +184,56 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     else setFormData({ ...formData, [name]: value });
   };
 
+  // 🟢 MULTI-FILE UPLOAD HANDLER
   const handleExhibitUpload = async (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setNotification("Uploading exhibit to secure storage...");
-      const uploadData = new FormData();
-      uploadData.append("file", file);
-      uploadData.append("category", "scene");
-      uploadData.append("case_id", formData.sn || "NEW_STORY");
-      uploadData.append("narrative", formData.narrative || "Exhibit Upload");
+    const files = Array.from(e.target.files);
+    if (files.length > 0) {
+      setNotification(`Uploading ${files.length} exhibit(s) to secure storage...`);
+      
+      let uploadedUrls = [];
+      let hasError = false;
 
-      try {
-        const response = await authFetch("/api/v1/investigation/upload/", { method: "POST", body: uploadData });
-        const data = await response.json();
-        if (data.full_s3_url || data.cloud_storage_path) {
-          setFormData({ ...formData, photo_url: data.full_s3_url || data.cloud_storage_path });
-          setNotification("Exhibit uploaded successfully!");
-        } else {
-           throw new Error("Invalid API Response");
+      // Upload sequentially to avoid choking the connection
+      for (const file of files) {
+        const uploadData = new FormData();
+        uploadData.append("file", file);
+        uploadData.append("category", "scene");
+        uploadData.append("case_id", formData.sn || "NEW_STORY");
+        uploadData.append("narrative", formData.narrative || "Exhibit Upload");
+
+        try {
+          const response = await authFetch("/api/v1/investigation/upload/", { method: "POST", body: uploadData });
+          const data = await response.json();
+          if (data.full_s3_url || data.cloud_storage_path) {
+            uploadedUrls.push(data.full_s3_url || data.cloud_storage_path);
+          } else {
+            hasError = true;
+          }
+        } catch (error) {
+          hasError = true;
+          uploadedUrls.push(URL.createObjectURL(file)); // Fallback preview
         }
-      } catch (error) {
-        setFormData({ ...formData, photo_url: URL.createObjectURL(file) });
-        setNotification("Note: Using local preview URL.");
+      }
+
+      if (uploadedUrls.length > 0) {
+        const existingUrls = formData.photo_url ? formData.photo_url.split(',') : [];
+        const combinedUrls = [...existingUrls, ...uploadedUrls].join(',');
+        setFormData({ ...formData, photo_url: combinedUrls });
+        
+        if (hasError) {
+          setNotification(`Upload complete, but some items are using local previews.`);
+        } else {
+          setNotification(`${files.length} exhibit(s) uploaded successfully!`);
+        }
       }
     }
+  };
+
+  // 🟢 REMOVE PHOTO HANDLER
+  const removePhoto = (indexToRemove) => {
+    const urls = formData.photo_url.split(',');
+    const newUrls = urls.filter((_, idx) => idx !== indexToRemove);
+    setFormData({ ...formData, photo_url: newUrls.join(',') });
   };
 
   const handleOperationToggle = (op) => {
@@ -364,13 +390,27 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
                 {operation === 'new' && (
                   <div className="bg-gray-50 dark:bg-slate-800 p-3 rounded-lg border border-gray-200 dark:border-slate-700">
-                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-2 flex items-center"><Image size={14} className="mr-1"/> Attach Exhibit / Scene Photo (Optional)</label>
+                    <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-2 flex items-center"><Image size={14} className="mr-1"/> Attach Exhibits / Scene Photos (Optional)</label>
                     <div className="flex items-center space-x-4">
-                      <input type="file" accept="image/*" onChange={handleExhibitUpload} className="text-xs w-full text-slate-500 dark:text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-yellow-50 dark:file:bg-slate-700 file:text-yellow-700 dark:file:text-yellow-300 hover:file:bg-yellow-100 dark:hover:file:bg-slate-600 cursor-pointer" />
+                      {/* 🟢 MULTI-FILE SELECTOR */}
+                      <input type="file" multiple accept="image/*" onChange={handleExhibitUpload} className="text-xs w-full text-slate-500 dark:text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-yellow-50 dark:file:bg-slate-700 file:text-yellow-700 dark:file:text-yellow-300 hover:file:bg-yellow-100 dark:hover:file:bg-slate-600 cursor-pointer" />
                     </div>
+                    {/* 🟢 MULTI-PHOTO PREVIEW GRID */}
                     {formData.photo_url && (
-                      <div className="mt-3">
-                        <img src={formData.photo_url} alt="Exhibit preview" className="h-24 w-auto object-cover rounded-md border border-gray-300 dark:border-slate-700 shadow-sm" />
+                      <div className="mt-3 flex flex-wrap gap-3">
+                        {formData.photo_url.split(',').filter(Boolean).map((url, idx) => (
+                          <div key={idx} className="relative group border border-gray-300 dark:border-slate-600 rounded-md overflow-hidden bg-white shadow-sm">
+                            <img src={url} alt={`Exhibit ${idx + 1}`} className="h-20 w-auto object-cover" />
+                            <button 
+                              type="button" 
+                              onClick={() => removePhoto(idx)} 
+                              className="absolute top-1 right-1 bg-red-600/90 text-white rounded p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-700 cursor-pointer"
+                              title="Remove Photo"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -490,14 +530,19 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                             </div>
                           )}
 
+                          {/* 🟢 MULTI-PHOTO TABLE ROW RENDER */}
                           {story.photo_url && (
-                            <div className="mt-4 border dark:border-slate-700 rounded-xl overflow-hidden max-w-md bg-slate-50 dark:bg-slate-800 flex justify-center items-center p-1 shadow-sm">
-                              <img 
-                                src={story.photo_url} 
-                                alt={`Exploit SN ${rowId}`} 
-                                className="w-full h-auto object-contain max-h-96 rounded-lg" 
-                                onError={(e) => { e.target.style.display = 'none'; }} 
-                              />
+                            <div className="mt-4 flex flex-wrap gap-2">
+                              {story.photo_url.split(',').filter(Boolean).map((url, idx) => (
+                                <div key={idx} className="border dark:border-slate-700 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800 flex justify-center items-center p-1 shadow-sm">
+                                  <img 
+                                    src={url} 
+                                    alt={`Exhibit ${idx + 1}`} 
+                                    className="h-24 w-auto object-contain rounded" 
+                                    onError={(e) => { e.target.style.display = 'none'; }} 
+                                  />
+                                </div>
+                              ))}
                             </div>
                           )}
                         </td>
@@ -566,11 +611,21 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                 </div>
               </div>
 
+              {/* 🟢 MULTI-PHOTO DOSSIER RENDER */}
               {selectedDossier.photo_url && (
                 <div>
-                  <h4 className="font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-1">Attached Exhibit / Evidence</h4>
-                  <div className="border dark:border-slate-700 rounded-xl overflow-hidden bg-slate-50 dark:bg-slate-800 p-1 flex justify-center">
-                    <img src={selectedDossier.photo_url} alt="Dossier Exhibit" className="max-h-80 object-contain rounded-lg" />
+                  <h4 className="font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-2">Attached Exhibits / Evidence</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border dark:border-slate-700">
+                    {selectedDossier.photo_url.split(',').filter(Boolean).map((url, idx) => (
+                      <div key={idx} className="border dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-900 flex justify-center items-center shadow-sm p-1">
+                        <img 
+                          src={url} 
+                          alt={`Dossier Exhibit ${idx + 1}`} 
+                          className="w-full h-40 object-cover rounded cursor-pointer hover:scale-105 transition-transform" 
+                          onClick={() => window.open(url, '_blank')}
+                        />
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
