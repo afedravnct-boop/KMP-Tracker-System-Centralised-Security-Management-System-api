@@ -1668,7 +1668,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                 <div className="space-y-2">
                   <p><strong>1. Purpose & Scope:</strong> Establishes mandatory security standards, operational guardrails, and behavioral protocols for personnel accessing sensitive police records, nominal rolls, crime registers, and intelligence databases to maintain operational security (OPSEC) and public trust.</p>
                   <p><strong>2. Account Security & Credential Integrity:</strong> System access credentials (Force/File Number and Secret Key/Password) are strictly personal and non-transferable. Officers are fully accountable for all activities executed under their assigned credentials. Personnel must never leave active terminals unattended without utilizing the idle curtain or logging out. Credential sharing or secondary operation is a severe disciplinary breach.</p>
-                  <p><strong>3. Acceptable Use of System Modules:</strong> All modules (Crime Registry, Disruptive OPS Statistics, Success Stories, Establishments, Analytics Dashboard, Nominal Roll, Tripartite Reports, and AI Command Console) must be accessed strictly for official UPF operations and investigations. Unauthorized personal lookups or exposing unverified live tactical positions via AI prompts is prohibited.</p>
+                  <p><strong>3. Acceptable Use of System Modules:</strong> All modules (Crime Registry, Disruptive OPS Statistics, Success Stories, Establishments, Analytics Dashboard, Nominal Roll, Documents & Reports, and AI Command Console) must be accessed strictly for official UPF operations and investigations. Unauthorized personal lookups or exposing unverified live tactical positions via AI prompts is prohibited.</p>
                   <p><strong>4. Data Classification & Forensic Watermarking:</strong> All documents and exports (.xlsx, .docx) downloaded or generated via the Universal File Intake Hub or Master Database Export are classified as RESTRICTED / LAW ENFORCEMENT RECORDS. Files are dynamically stamped with cryptographic audit tokens identifying the downloading officer and encrypted via AES-256 password protection keyed to the officer's Force Number. Tampering with or disseminating restricted data to unauthorized external parties results in immediate revocation of access and disciplinary proceedings.</p>
                   <p><strong>5. Audit Logging & Command Oversight:</strong> Every action performed within KMP-CSDMS (page access, record modifications, queries, and AES-encrypted exports) is automatically tracked by audit and activity logging engines. System Administrators, Regional Police Commanders (RPCs), and Super Admins retain the right to review audit logs and investigate suspicious or anomalous activity at any time.</p>
                   <p><strong>6. Compliance & Enforcement:</strong> Failure to comply results in immediate suspension of system privileges, formal investigation by command authorities, and appropriate disciplinary or legal action under the laws of Uganda and UPF standing orders.</p>
@@ -2123,7 +2123,7 @@ const DashboardLayout = ({
     checkClearance(currentUser, 'acc_est', true) ? { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> } : null,
     checkClearance(currentUser, 'acc_analytics', true) ? { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> } : null,
     checkClearance(currentUser, 'acc_hr', true) ? { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> } : null,
-    checkClearance(currentUser, 'acc_tripartite', true) ? { name: 'Tripartite Reports', id: 'reports_hub', icon: <FileText size={20} /> } : null,
+    checkClearance(currentUser, 'acc_documents', true) ? { name: 'Documents & Reports', id: 'reports_hub', icon: <FileText size={20} /> } : null,
     checkClearance(currentUser, 'acc_ai', true) ? { 
       name: 'AI Command Console', 
       id: 'ai_console', 
@@ -2963,7 +2963,7 @@ const App = () => {
         );
 
       case 'reports_hub':  
-        return checkClearance(currentUser, 'acc_tripartite', true) ? (
+        return checkClearance(currentUser, 'acc_documents', true) ? (
           <WordReportUpload 
             currentUser={currentUser} 
             generalDocs={generalDocs}

@@ -1303,7 +1303,7 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         write_dual_sheets(df_users, "Establishments (Print)", "Nominal Roll", ['f_num', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status'])
         write_dual_sheets(df_arc, "Archived Personnel (Print)", "Archived Personnel", ['fnum', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status', 'archive_reason', 'archive_date'])
         write_dual_sheets(df_est, "Establishments Print Copy", "Establishments", ['region', 'division', 'station', 'personnel_in_station', 'sub_station', 'personnel_in_sub_station', 'post', 'personnel_in_post', 'booths', 'personnel_in_booth'])
-        write_dual_sheets(df_docs, "Tripartite Reports (Print)", "Tripartite Reports", ['file_name', 'doc_type', 'file_size', 'region', 'station', 'uploaded_by', 'upload_date'])
+        write_dual_sheets(df_docs, "Documents & Reports (Print)", "Documents & Reports", ['file_name', 'doc_type', 'file_size', 'region', 'station', 'uploaded_by', 'upload_date'])
         write_dual_sheets(df_ai, "AI Command (Print)", "AI Command", ['Interaction Type', 'Details', 'Officer FNUM', 'Timestamp'])
 
         eat_tz = pytz.timezone("Africa/Nairobi")

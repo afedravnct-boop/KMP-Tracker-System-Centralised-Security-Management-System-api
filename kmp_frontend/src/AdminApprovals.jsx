@@ -31,7 +31,7 @@ const CLEARANCE_MATRIX_COLS = [
   { key: 'acc_stories', label: 'Success Stories', color: 'blue', bg: 'bg-blue-50/50' },
   { key: 'acc_est', label: 'Establishments', color: 'indigo', bg: 'bg-indigo-50/50' },
   { key: 'acc_hr', label: 'Nominal Roll', color: 'indigo', bg: 'bg-indigo-50/50' },
-  { key: 'acc_tripartite', label: 'Tripartite', color: 'indigo', bg: 'bg-indigo-50/50' },
+  { key: 'acc_documents', label: 'Documents', color: 'indigo', bg: 'bg-indigo-50/50' },
   { key: 'acc_ledgers', label: 'Reports & Ledgers', color: 'emerald', bg: 'bg-emerald-50/50' },
   { key: 'acc_consolidated', label: 'Consolidated', color: 'emerald', bg: 'bg-emerald-50/50' },
   { key: 'acc_analytics', label: 'Analytics & Reports', color: 'emerald', bg: 'bg-emerald-50/50' },
@@ -40,7 +40,7 @@ const CLEARANCE_MATRIX_COLS = [
   { key: 'acc_online', label: 'Active Online', color: 'red', bg: 'bg-red-50/50' },
   { key: 'export_data', label: 'Master Export', color: 'red', bg: 'bg-red-50/50' },
   { key: 'export_logs', label: 'Export Logs', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'acc_tripartite_download', label: 'Tripartite Download', color: 'indigo', bg: 'bg-indigo-50/50' }
+  { key: 'acc_documents_download', label: 'Documents Download', color: 'indigo', bg: 'bg-indigo-50/50' }
 ];
 
 const formatOfficerHeader = (user) => {

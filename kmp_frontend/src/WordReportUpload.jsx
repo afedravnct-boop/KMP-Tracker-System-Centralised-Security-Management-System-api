@@ -60,8 +60,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const canUploadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN'].includes(currentUser?.role?.toUpperCase());
   const canDownloadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN', 'USER'].includes(currentUser?.role?.toUpperCase());
 
-  const hasUploadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_tripartite_upload !== false && (canUploadByRole || currentUser?.permissions?.acc_tripartite_upload === true));
-  const hasDownloadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_tripartite_download !== false && (canDownloadByRole || currentUser?.permissions?.acc_tripartite_download === true));
+  const hasUploadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_documents&reports_upload !== false && (canUploadByRole || currentUser?.permissions?.acc_documents&reports_upload === true));
+  const hasDownloadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_documents&reports_download !== false && (canDownloadByRole || currentUser?.permissions?.acc_documents&reports_download === true));
 
   const fetchArchiveList = async () => {
     setLoadingDocs(true);
