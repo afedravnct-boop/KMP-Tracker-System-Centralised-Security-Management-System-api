@@ -28,7 +28,6 @@ s3_client = boto3.client(
 )
 BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 
-
 # ====================================================================
 # HELPERS & VALIDATORS
 # ====================================================================
@@ -38,7 +37,6 @@ def normalize_fnum(fnum_str: str) -> str:
         return ""
     return str(fnum_str).strip().upper()
 
-
 def validate_and_normalize_nin(nin_str: Optional[str]) -> Optional[str]:
     """Validates that NIN starts with CM or CF and consists of exactly 14 characters."""
     if not nin_str or str(nin_str).strip().lower() in ['nan', 'none', 'null', '', 'n/a']:
@@ -46,7 +44,6 @@ def validate_and_normalize_nin(nin_str: Optional[str]) -> Optional[str]:
     
     clean_nin = str(nin_str).strip().upper()
     
-    # 🟢 STRICT LENGTH CHECK: Must be exactly 14 characters
     if len(clean_nin) != 14:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -60,23 +57,19 @@ def validate_and_normalize_nin(nin_str: Optional[str]) -> Optional[str]:
         )
     return clean_nin
 
-
 def validate_and_normalize_phone(phone_str: Optional[str]) -> Optional[str]:
     """Validates that the phone number contains exactly 10 digits."""
     if not phone_str or str(phone_str).strip().lower() in ['nan', 'none', 'null', '', 'n/a']:
         return None
         
-    # Strip spaces, dashes, or plus signs
     clean_phone = re.sub(r'\D', '', str(phone_str))
     
-    # 🟢 STRICT LENGTH CHECK: Must be exactly 10 digits
     if len(clean_phone) != 10:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid Phone Number: Must be exactly 10 digits. You entered {len(clean_phone)} digits."
         )
     return clean_phone
-
 
 # ====================================================================
 # AUTHENTICATION DEPENDENCY
@@ -103,17 +96,17 @@ def get_current_user(
     clean_fnum = normalize_fnum(fnum)
     alt_fnum = clean_fnum.replace("/", "")
     
+    # 🟢 FIXED: Using .fnum (lowercase) to match the Python attribute
     user = db.query(models.Users).filter(
         or_(
-            func.trim(func.upper(models.Users.fNum)) == clean_fnum,
-            func.trim(func.upper(models.Users.fNum)) == alt_fnum
+            func.trim(func.upper(models.Users.fnum)) == clean_fnum,
+            func.trim(func.upper(models.Users.fnum)) == alt_fnum
         )
     ).first()
 
     if user is None:
         raise credentials_exception
     return user
-
 
 # ====================================================================
 # ROLE & CLEARANCE PERMISSION DEPENDENCIES
@@ -126,7 +119,6 @@ def require_admin(current_user: models.Users = Depends(get_current_user)):
             detail="Clearance Denied: Administrator clearance required."
         )
     return current_user
-
 
 def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
@@ -142,9 +134,8 @@ def require_export_privilege(current_user: models.Users = Depends(get_current_us
         )
     return current_user
 
-
 # ====================================================================
-# 1. LOGIN ENDPOINT (Supports JSON, Form, and OAuth2 formats)
+# 1. LOGIN ENDPOINT
 # ====================================================================
 @router.post("/login")
 @router.post("/api/auth/login")
@@ -175,10 +166,11 @@ async def login(
     clean_username = normalize_fnum(username)
     alt_username = clean_username.replace("/", "")
     
+    # 🟢 FIXED: Using .fnum (lowercase)
     user = db.query(models.Users).filter(
         or_(
-            func.trim(func.upper(models.Users.fNum)) == clean_username,
-            func.trim(func.upper(models.Users.fNum)) == alt_username
+            func.trim(func.upper(models.Users.fnum)) == clean_username,
+            func.trim(func.upper(models.Users.fnum)) == alt_username
         )
     ).first()
 
@@ -194,15 +186,16 @@ async def login(
             detail="Account pending Command approval. Please contact the administrator."
         )
 
+    # 🟢 FIXED: Using .fnum (lowercase)
     access_token = security.create_access_token(
-        data={"sub": user.fNum},
+        data={"sub": user.fnum},
         expires_delta=timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
 
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "fnum": user.fNum,
+        "fnum": user.fnum,  # 🟢 FIXED: Using .fnum (lowercase)
         "rank": user.rank or "PC",
         "role": user.role or "USER",
         "name": user.name or "OFFICER",
@@ -219,7 +212,6 @@ async def login(
         "profile_photo_path": getattr(user, 'profile_photo_path', '') or '',
         "policy_accepted": getattr(user, 'policy_accepted', True)
     }
-
 
 # ====================================================================
 # 2. SIGNUP ENDPOINT
@@ -264,9 +256,9 @@ async def signup(
     clean_phone = validate_and_normalize_phone(phone)
     clean_ipps = str(ipps).strip() if ipps else None
 
-    # Check for duplicate Force Number, IPPS, or NIN
+    # 🟢 FIXED: Using .fnum (lowercase) here for the duplicate check
     duplicate_filters = [
-        func.trim(func.upper(models.Users.fNum)) == clean_fnum
+        func.trim(func.upper(models.Users.fnum)) == clean_fnum
     ]
     if clean_ipps:
         duplicate_filters.append(func.trim(models.Users.ipps) == clean_ipps)
@@ -337,7 +329,6 @@ async def signup(
             detail=f"Registration database error: {str(e)}"
         )
 
-
 # ====================================================================
 # 3. PROFILE PHOTO UPLOAD ENDPOINT
 # ====================================================================
@@ -384,7 +375,6 @@ async def upload_user_profile_photo(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
 
-
 # ====================================================================
 # 4. PASSWORD RESET REQUEST ENDPOINT
 # ====================================================================
@@ -395,8 +385,9 @@ async def request_password_reset(
     db: Session = Depends(database.get_db)
 ):
     clean_fnum = normalize_fnum(fnum)
+    # 🟢 FIXED: Using .fnum (lowercase)
     user = db.query(models.Users).filter(
-        func.trim(func.upper(models.Users.fNum)) == clean_fnum
+        func.trim(func.upper(models.Users.fnum)) == clean_fnum
     ).first()
 
     if not user:
@@ -426,7 +417,6 @@ async def request_password_reset(
 
     return {"status": "success", "message": "Password reset request submitted to Command."}
 
-
 # ====================================================================
 # 5. USER PASSWORD & PROFILE UPDATE
 # ====================================================================
@@ -446,7 +436,6 @@ def change_password(
     current_user.hashed_password = security.get_password_hash(data.new_password)
     db.commit()
     return {"status": "success", "message": "Password successfully updated."}
-
 
 @router.put("/profile/update")
 @router.put("/api/v1/users/profile/update")
