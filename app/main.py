@@ -26,7 +26,11 @@ app = FastAPI(title="KMP Tracker Central API")
 # ==========================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"], 
+    allow_origins=[
+        "https://kmp-tracker-system-centralised-secu.vercel.app",
+        "http://localhost:5173",
+        "http://localhost:3000"
+    ],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -195,7 +199,7 @@ def create_statistic(payload: OperationalStatisticPayload, db: Session = Depends
 def get_establishments(db: Session = Depends(get_db)):
     ests = db.query(models.Establishment).order_by(models.Establishment.sn.desc()).all()
     return [{
-        "id": e.id, "region": e.region, "division": e.division, "station": e.station, "personnel_In_Station"
+        "id": e.id, "region": e.region, "division": e.division, "station": e.station,
         "sub_Station": e.sub_station, "personnel_In_Sub_Station": e.personnel_in_sub_station,
         "post": e.post, "personnelInPost": e.personnel_in_post, "booths": e.booths,
         "personnelInBooth": e.personnel_in_booth, "installedBy": e.installed_by,
@@ -367,12 +371,11 @@ def upload_investigation_file(file: UploadFile = File(...)):
         file.file.close()
 
 # ==========================================
-# COMMAND COMMUNICATION ROUTE (Added from api_backend)
+# COMMAND COMMUNICATION ROUTE
 # ==========================================
 @app.post("/api/v1/Admin_Communications")
 def create_admin_communication(payload: CommunicationPayload, db: Session = Depends(get_db)):
     try:
-        # Assuming you have an Admin_Communication model
         new_comm = models.Admin_Communication(
             sender_fnum=payload.sender_fnum,
             sender_name=payload.sender_name,
@@ -415,7 +418,6 @@ def record_activity(db: Session, fnum: str, action: str, details: str, module: s
             action=action,
             module=module,
             details=details
-            # created_at is handled automatically by the database server_default
         )
         db.add(new_activity)
         db.commit()
@@ -447,7 +449,6 @@ def register_user(
 ):
     clean_fnum = fnum.strip().upper()
     
-    # 🟢 Fixed: Query using the correct Neon model attribute 'fNum'
     existing_user = db.query(models.User).filter(models.User.fNum == clean_fnum).first()
     if existing_user:
          raise HTTPException(status_code=400, detail="User with this Force Number already exists.")
@@ -478,12 +479,11 @@ def register_user(
             file.file.close()
 
     try:
-        # Import or use your project's password hashing utility
         from app.core.security import get_password_hash
         hashed_pwd = get_password_hash(password)
 
         new_user = models.User(
-            fNum=clean_fnum,  # 🟢 Fixed: Matches NeonDB column fNum exactly
+            fNum=clean_fnum,  
             rank=rank.strip().upper(),
             name=name.strip().upper(),
             sex=sex.strip().upper() if sex else "MALE",
