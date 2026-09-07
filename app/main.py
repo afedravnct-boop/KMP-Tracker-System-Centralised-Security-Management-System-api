@@ -431,7 +431,7 @@ def register_user(
     fnum: str = Form(...),
     rank: str = Form(...),
     name: str = Form(...),
-    sex: str = Form(None), # Made optional like in React
+    sex: str = Form(None),
     ipps: str = Form(...),
     region: str = Form(...),
     station: str = Form(...),
@@ -439,16 +439,18 @@ def register_user(
     email: str = Form(...),
     phone: str = Form(...),
     password: str = Form(...), 
-    
     division: Optional[str] = Form(None),
     role: str = Form("USER"), 
-    
+    policy_accepted: bool = Form(True),
     file: UploadFile = File(None),  
     db: Session = Depends(get_db)
 ):
-    existing_user = db.query(models.User).filter(models.User.fnum == fnum).first()
+    clean_fnum = fnum.strip().upper()
+    
+    # 🟢 Fixed: Query using the correct Neon model attribute 'fNum'
+    existing_user = db.query(models.User).filter(models.User.fNum == clean_fnum).first()
     if existing_user:
-         raise HTTPException(status_code=400, detail="User with this fnum already exists.")
+         raise HTTPException(status_code=400, detail="User with this Force Number already exists.")
          
     if role != "SUPER_ADMIN" and (not file or not file.filename):
         raise HTTPException(
@@ -460,8 +462,8 @@ def register_user(
     if file and file.filename:
         file_extension = file.filename.split('.')[-1]
         unique_id = uuid.uuid4().hex[:8]
-        clean_fnum = fnum.replace("/", "_") 
-        s3_key = f"profile_photos/{clean_fnum}_{unique_id}.{file_extension}"
+        clean_file_fnum = clean_fnum.replace("/", "_") 
+        s3_key = f"profile_photos/{clean_file_fnum}_{unique_id}.{file_extension}"
 
         try:
             s3_client.upload_fileobj(
@@ -476,21 +478,27 @@ def register_user(
             file.file.close()
 
     try:
+        # Import or use your project's password hashing utility
+        from app.core.security import get_password_hash
+        hashed_pwd = get_password_hash(password)
+
         new_user = models.User(
-            fnum=fnum,
-            rank=rank,
-            name=name,
-            sex=sex,
-            ipps=ipps,
-            region=region,
-            division=division,
-            station=station,
-            position=position,
-            email=email,
-            phone=phone,
-            hashed_password=password, 
-            role=role,
-            photoUrl=photo_url
+            fNum=clean_fnum,  # 🟢 Fixed: Matches NeonDB column fNum exactly
+            rank=rank.strip().upper(),
+            name=name.strip().upper(),
+            sex=sex.strip().upper() if sex else "MALE",
+            ipps=ipps.strip(),
+            region=region.strip().upper(),
+            division=division.strip().upper() if division else None,
+            station=station.strip().upper(),
+            position=position.strip().upper(),
+            email=email.strip(),
+            phone=phone.strip(),
+            hashed_password=hashed_pwd, 
+            role=role.strip().upper(),
+            photoUrl=photo_url,
+            policy_accepted=policy_accepted,
+            policy_accepted_at=datetime.now(pytz.utc)
         )
         db.add(new_user)
         db.commit()
@@ -498,4 +506,6 @@ def register_user(
         
     except Exception as e:
         db.rollback()
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Database write failed: {str(e)}")
