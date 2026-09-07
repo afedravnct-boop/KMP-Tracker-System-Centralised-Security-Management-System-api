@@ -1,6 +1,7 @@
 import os
 import io
 import re
+import traceback
 import boto3
 from typing import Optional
 from datetime import datetime, timedelta
@@ -74,8 +75,13 @@ def get_current_user(
         raise credentials_exception
 
     clean_fnum = normalize_fnum(fnum)
+    alt_fnum = clean_fnum.replace("/", "")
+    
     user = db.query(models.Users).filter(
-        func.trim(func.upper(models.Users.fnum)) == clean_fnum
+        or_(
+            func.trim(func.upper(models.Users.fNum)) == clean_fnum,
+            func.trim(func.upper(models.Users.fNum)) == alt_fnum
+        )
     ).first()
 
     if user is None:
@@ -145,8 +151,8 @@ async def login(
     
     user = db.query(models.Users).filter(
         or_(
-            func.trim(func.upper(models.Users.fnum)) == clean_username,
-            func.trim(func.upper(models.Users.fnum)) == alt_username
+            func.trim(func.upper(models.Users.fNum)) == clean_username,
+            func.trim(func.upper(models.Users.fNum)) == alt_username
         )
     ).first()
 
@@ -163,14 +169,14 @@ async def login(
         )
 
     access_token = security.create_access_token(
-        data={"sub": user.fnum},
+        data={"sub": user.fNum},
         expires_delta=timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
 
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "fnum": user.fnum,
+        "fnum": user.fNum,
         "rank": user.rank or "PC",
         "role": user.role or "USER",
         "name": user.name or "OFFICER",
@@ -233,7 +239,7 @@ async def signup(
 
     # Check for duplicate Force Number, IPPS, or NIN
     duplicate_filters = [
-        func.trim(func.upper(models.Users.fnum)) == clean_fnum
+        func.trim(func.upper(models.Users.fNum)) == clean_fnum
     ]
     if clean_ipps:
         duplicate_filters.append(func.trim(models.Users.ipps) == clean_ipps)
@@ -266,7 +272,7 @@ async def signup(
     hashed_password = security.get_password_hash(password)
 
     new_user = models.Users(
-        fnum=clean_fnum,
+        fNum=clean_fnum,  # 🟢 Fixed matching exact database schema column casing
         ipps=clean_ipps,
         nin=clean_nin,
         name=str(name).strip().upper(),
@@ -298,6 +304,7 @@ async def signup(
         }
     except Exception as e:
         db.rollback()
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Registration database error: {str(e)}"
@@ -362,7 +369,7 @@ async def request_password_reset(
 ):
     clean_fnum = normalize_fnum(fnum)
     user = db.query(models.Users).filter(
-        func.trim(func.upper(models.Users.fnum)) == clean_fnum
+        func.trim(func.upper(models.Users.fNum)) == clean_fnum
     ).first()
 
     if not user:

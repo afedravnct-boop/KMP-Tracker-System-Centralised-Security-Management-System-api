@@ -7,7 +7,7 @@ const FormattedMessage = ({ content }) => {
   return (
     <div className="space-y-1.5 leading-relaxed break-words font-sans">
       {lines.map((line, idx) => {
-        if (line.startsWith('### ') || line.startsWith('**') && line.endsWith('**')) {
+        if (line.startsWith('### ') || (line.startsWith('**') && line.endsWith('**'))) {
           const text = line.replace(/^###\s*/, '').replace(/\*\*/g, '');
           return <div key={idx} className="font-bold text-slate-900 dark:text-slate-100 mt-2 text-[11.5px] tracking-wide border-b border-slate-200 dark:border-slate-800 pb-0.5">{text}</div>;
         }
@@ -45,11 +45,34 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
+
+  const officerFnum = currentUser?.fnum || 'AUTH';
+  const officerRank = currentUser?.rank || '';
+  const officerName = currentUser?.name || '';
   
   const [messages, setMessages] = useState([
     { 
       sender: 'ai', 
-      text: `Greetings ${currentUser?.rank || 'Officer'} ${currentUser?.name || ''}. I am your KMP CSDMS Tactical Intelligence Assistant. I have tier-restricted clearance to query nominal rolls, crime registers, summary matrices, terms, security policies, system user guides, and troubleshooting protocols.`,
+      text: `**KMP Centralised Security Data Management System (CSDMS) - Intelligence Assistant**
+
+Welcome to the KMP Tracker System AI assistant. The AI Assistant Responds to your queries across all system modules. Get guidance on how to proceed.
+Here is an architectural overview of the system's operational interface:
+
+• **Home Dashboard:** Central command hub providing high-level operational summaries, quick-access metrics, and system status indicators.
+• **Command Communications:** Secure internal messaging network used to dispatch and track official directives, circulars, and announcements across regions, divisions, and specific stations.
+• **Crime / Incident Registry:** Core investigative ledger managing Station Diary (SD) references, offense categories, narratives, suspect demographics, and integrated lock-up population matrices.
+• **Disruptive OPS Statistics:** Statistical tracking interface for operational metrics including arrests, police bonds given, cautioned cases, court committals, remands, convictions, and specialized agricultural crime summaries.
+• **Success Stories:** Dedicated archive logging high-impact operational breakthroughs, recoveries, and successful public safety missions.
+• **Establishments:** Structural command registry monitoring authorized personnel allocations versus actual deployment numbers across main stations, sub-stations, police posts, and security booths.
+• **Nominal Roll & HR Transfers:** Comprehensive personnel database tracking force/file numbers, ranks, IPPS/NIN records, biographical details, archival logs, and strict jurisdictional transfer modification request queues.
+  - *Data Ingestion Protocol:* Full-spectrum Excel uploads successfully process and store all **29 columns** of the NeonDB nominal roll schema (including biographical, financial, and identification metrics). No upload fields are restricted or truncated.
+  - *AI Search Security:* When answering searches, high-command clearance allows authorized officers to view operational details while sensitive personal identifiers (such as bank accounts, TINs, and NINs) remain protected under data security protocols.
+• **Tripartite Reports & Documents:** Secure repository for uploading, storing, and reviewing general documents, secure operational files, and standardized command templates.
+• **Access & Approvals (Super Control Panel):** High-command administrative gateway featuring unapproved user authorizations, a granular 20+ module clearance matrix, secure audit logs, password reset requests, and emergency system/regional/station lockdown toggles.
+• **AI Command Console:** Natural language intelligence engine allowing authorized commanders to query live database records securely.
+
+*Clearance Scope:* \`${officerFnum}\` | \`${officerRank}\` | \`${officerName}\`
+Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station || 'ALL'}\``,
       metadata: null 
     }
   ]);
@@ -104,7 +127,7 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
         ...prev, 
         { 
           sender: 'ai', 
-          text: `⚠️ **Command Intelligence Notice:** ${err.message}`,
+          text: `⚠️ **System Intelligence Notice:** ${err.message}`,
           metadata: null 
         }
       ]);
@@ -125,7 +148,8 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
   };
 
   return (
-    <div className="fixed bottom-3 left-3 sm:left-16 z-[99990] flex flex-col items-start font-sans select-none">
+    
+    <div className="fixed bottom-2 right-4 sm:right-18 z-[99990] flex flex-col items-end font-sans select-none">
       {isOpen && (
         <div className={`mb-2 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-300 dark:border-slate-800 overflow-hidden flex flex-col transition-all duration-300 ease-in-out animate-in slide-in-from-bottom-3 ${
           isExpanded ? 'w-[560px] h-[640px] max-w-[95vw] max-h-[85vh]' : 'w-96 h-[470px] max-w-[90vw] max-h-[80vh]'
@@ -138,7 +162,7 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
               </span>
               <div>
                 <h3 className="font-extrabold text-[11px] uppercase tracking-wider text-amber-400">
-                  KMP Intelligence Assistant
+                  KMP Tracker System Intelligence Assistant
                 </h3>
                 <p className="text-[9px] text-slate-400 font-mono">
                   {currentUser?.fnum || 'AUTH'} • {currentUser?.station || 'HQ'}
@@ -205,7 +229,6 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
             )}
           </div>
 
-          {/* 🟢 FIXED: Input Field with explicit Dark Mode & Light Mode text/background contrast classes */}
           <form onSubmit={handleSendMessage} className="p-2.5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center space-x-2 shrink-0">
             <input 
               type="text" 
@@ -229,7 +252,7 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
         className={`flex items-center justify-center transition-all duration-300 ease-in-out cursor-pointer shadow-xl rounded-full border ${
           isOpen ? 'h-8 px-3 bg-amber-500 text-slate-950 border-amber-300' : isHovered ? 'h-8 px-3 bg-slate-900 text-white border-slate-700' : 'w-8 h-8 p-0 bg-slate-900/90 text-amber-400 border-slate-700 hover:bg-slate-800'
         }`}
-        title="KMP System Assistant"
+        title="KMP Tracker System Assistant"
       >
         <Sparkles size={14} className={isOpen ? 'text-slate-950' : 'text-amber-400 animate-pulse shrink-0'} />
         {(isOpen || isHovered) && (
