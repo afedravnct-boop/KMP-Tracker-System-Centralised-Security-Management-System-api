@@ -272,7 +272,7 @@ async def signup(
     hashed_password = security.get_password_hash(password)
 
     new_user = models.Users(
-        fNum=clean_fnum,  # 🟢 Fixed matching exact database schema column casing
+        fNum=clean_fnum,
         ipps=clean_ipps,
         nin=clean_nin,
         name=str(name).strip().upper(),
