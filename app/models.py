@@ -33,6 +33,7 @@ class Crime_Reports(Base):
     status = Column(String, default="ACTIVE INVESTIGATION")
     suspects = Column(Integer, default=0)
     
+    # Daily lock-up population column
     daily_lock_up = Column(Integer, default=0) 
     
     last_updated_by = Column(String)
@@ -253,8 +254,7 @@ class Users(Base):
     created_at = Column(DateTime, default=get_eat_time)
     permissions = Column(JSON, default={})
     last_active_at = Column(DateTime, nullable=True)
-    comments = Column(Text, nullable=True)
-    
+    comments = Column(Text, nullable=True) 
     policy_accepted = Column(Boolean, default=False, nullable=False)
     policy_accepted_at = Column(DateTime, nullable=True)
 
@@ -434,6 +434,7 @@ class GeneralDocuments(Base):
     uploaded_by = Column(String, nullable=True)
     upload_date = Column(DateTime, default=get_eat_time)
 
+# Add compatibility alias at the bottom
 General_Documents = GeneralDocuments
 
 class OperationalDocumentEmbedding(Base):

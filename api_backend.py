@@ -86,10 +86,12 @@ from routers import (
     success_stories,
     admin_communication,
     ai_router,
-    analytics_export,  # Import analytics_export correctly
+    analytics_export,
 )
 
-# Include routers once
+# ==========================================
+# ROUTER INCLUSIONS (CLEANED UP DUPLICATES)
+# ==========================================
 app.include_router(document_upload.router)
 app.include_router(general_documents.router)
 app.include_router(command_templates.router)
@@ -101,19 +103,28 @@ app.include_router(establishments.router)
 app.include_router(success_stories.router)
 app.include_router(analytics_export.router)
 app.include_router(admin_communication.router)
-app.include_router(auth_router, prefix="/api/auth")
 app.include_router(ai_router.router)
 app.include_router(auth_router)
-app.include_router(auth_router, prefix="/api/auth")
-app.include_router(auth_router, prefix="/api/v1/auth")
-app.include_router(auth_router, prefix="/api/v1/users")
 
+# ==========================================
+# GLOBAL EXCEPTION HANDLER (FIXED CORS)
+# ==========================================
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    print(f"Internal Command Error Traceback: {str(exc)}")
+    import traceback
+    traceback.print_exc()
+    
+    origin = request.headers.get("origin", "*")
+    
     return JSONResponse(
         status_code=500,
-        content={"detail": "An internal command processing error occurred. Please try again later."},
+        content={"detail": f"Backend System Crash: {str(exc)}"},
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
     )
 
 limiter = Limiter(key_func=get_remote_address)
@@ -142,10 +153,8 @@ BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 # UNIVERSAL EXPORT HELPERS
 # ==========================================
 def clean_html_for_export(raw_text):
-    """Strips HTML tags and converts entities into readable plain text for Excel exports."""
     if not raw_text or not isinstance(raw_text, str):
         return raw_text
-    
     text = html.unescape(raw_text)
     text = re.sub(r'<[^>]+>', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()

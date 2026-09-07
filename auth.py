@@ -44,6 +44,7 @@ def validate_and_normalize_nin(nin_str: Optional[str]) -> Optional[str]:
     
     clean_nin = str(nin_str).strip().upper()
     
+    # 🟢 STRICT LENGTH CHECK: Must be exactly 14 characters
     if len(clean_nin) != 14:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -62,8 +63,10 @@ def validate_and_normalize_phone(phone_str: Optional[str]) -> Optional[str]:
     if not phone_str or str(phone_str).strip().lower() in ['nan', 'none', 'null', '', 'n/a']:
         return None
         
+    # Strip spaces, dashes, or plus signs
     clean_phone = re.sub(r'\D', '', str(phone_str))
     
+    # 🟢 STRICT LENGTH CHECK: Must be exactly 10 digits
     if len(clean_phone) != 10:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -96,7 +99,6 @@ def get_current_user(
     clean_fnum = normalize_fnum(fnum)
     alt_fnum = clean_fnum.replace("/", "")
     
-    # 🟢 FIXED: Using .fnum (lowercase) to match the Python attribute
     user = db.query(models.Users).filter(
         or_(
             func.trim(func.upper(models.Users.fnum)) == clean_fnum,
@@ -135,7 +137,7 @@ def require_export_privilege(current_user: models.Users = Depends(get_current_us
     return current_user
 
 # ====================================================================
-# 1. LOGIN ENDPOINT
+# 1. LOGIN ENDPOINT (Supports JSON, Form, and OAuth2 formats)
 # ====================================================================
 @router.post("/login")
 @router.post("/api/auth/login")
@@ -166,7 +168,6 @@ async def login(
     clean_username = normalize_fnum(username)
     alt_username = clean_username.replace("/", "")
     
-    # 🟢 FIXED: Using .fnum (lowercase)
     user = db.query(models.Users).filter(
         or_(
             func.trim(func.upper(models.Users.fnum)) == clean_username,
@@ -186,7 +187,6 @@ async def login(
             detail="Account pending Command approval. Please contact the administrator."
         )
 
-    # 🟢 FIXED: Using .fnum (lowercase)
     access_token = security.create_access_token(
         data={"sub": user.fnum},
         expires_delta=timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -195,7 +195,7 @@ async def login(
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "fnum": user.fnum,  # 🟢 FIXED: Using .fnum (lowercase)
+        "fnum": user.fnum,
         "rank": user.rank or "PC",
         "role": user.role or "USER",
         "name": user.name or "OFFICER",
@@ -256,7 +256,7 @@ async def signup(
     clean_phone = validate_and_normalize_phone(phone)
     clean_ipps = str(ipps).strip() if ipps else None
 
-    # 🟢 FIXED: Using .fnum (lowercase) here for the duplicate check
+    # Check for duplicate Force Number, IPPS, or NIN
     duplicate_filters = [
         func.trim(func.upper(models.Users.fnum)) == clean_fnum
     ]
@@ -385,7 +385,6 @@ async def request_password_reset(
     db: Session = Depends(database.get_db)
 ):
     clean_fnum = normalize_fnum(fnum)
-    # 🟢 FIXED: Using .fnum (lowercase)
     user = db.query(models.Users).filter(
         func.trim(func.upper(models.Users.fnum)) == clean_fnum
     ).first()
