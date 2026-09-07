@@ -255,7 +255,9 @@ class Users(Base):
     created_at = Column(DateTime, default=get_eat_time)
     permissions = Column(JSON, default={})
     last_active_at = Column(DateTime, nullable=True)
-    comments = Column(Text, nullable=True)
+    comments = Column(Text, nullable=True) 
+    policy_accepted = Column(Boolean, default=False, nullable=False)
+    policy_accepted_at = Column(DateTime, nullable=True)
 
 # ==========================================
 # 8. SYSTEM AUDIT & ACTIVITY LOGS
