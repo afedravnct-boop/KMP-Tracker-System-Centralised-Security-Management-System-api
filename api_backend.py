@@ -1011,8 +1011,26 @@ def run_weekly_tactical_briefing_job():
     finally:
         db.close()
 
+# 🟢 1. ADD MANUAL TRIGGER: Send missed briefs right now from your frontend or API client
+@app.post("/api/v1/admin/trigger-briefs")
+def trigger_briefs_manually(
+    background_tasks: BackgroundTasks, 
+    current_user: models.Users = Depends(require_admin)
+):
+    background_tasks.add_task(run_weekly_tactical_briefing_job)
+    return {"status": "success", "message": "Weekly tactical briefings are dispatching in the background."}
+
+# 🟢 2. FIX SCHEDULER: Add explicit East Africa Time timezone
+eat_tz = pytz.timezone('Africa/Nairobi')
 scheduler = BackgroundScheduler()
-scheduler.add_job(run_weekly_tactical_briefing_job, 'cron', day_of_week='mon', hour=6, minute=0)
+scheduler.add_job(
+    run_weekly_tactical_briefing_job, 
+    'cron', 
+    day_of_week='mon', 
+    hour=6, 
+    minute=0, 
+    timezone=eat_tz
+)
 
 @app.on_event("startup")
 def start_scheduler():

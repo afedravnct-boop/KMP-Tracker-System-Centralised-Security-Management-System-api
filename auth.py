@@ -43,13 +43,39 @@ def validate_and_normalize_nin(nin_str: Optional[str]) -> Optional[str]:
     """Validates that NIN starts with CM or CF and consists of exactly 14 characters."""
     if not nin_str or str(nin_str).strip().lower() in ['nan', 'none', 'null', '', 'n/a']:
         return None
+    
     clean_nin = str(nin_str).strip().upper()
+    
+    # 🟢 STRICT LENGTH CHECK: Must be exactly 14 characters
+    if len(clean_nin) != 14:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid NIN: Must be exactly 14 characters long. You entered {len(clean_nin)} characters."
+        )
+        
     if not re.match(r"^C[MF][A-Z0-9]{12}$", clean_nin):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid NIN: National ID must start with CM or CF and contain exactly 14 characters."
+            detail="Invalid NIN format: Must start with CM or CF."
         )
     return clean_nin
+
+
+def validate_and_normalize_phone(phone_str: Optional[str]) -> Optional[str]:
+    """Validates that the phone number contains exactly 10 digits."""
+    if not phone_str or str(phone_str).strip().lower() in ['nan', 'none', 'null', '', 'n/a']:
+        return None
+        
+    # Strip spaces, dashes, or plus signs
+    clean_phone = re.sub(r'\D', '', str(phone_str))
+    
+    # 🟢 STRICT LENGTH CHECK: Must be exactly 10 digits
+    if len(clean_phone) != 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid Phone Number: Must be exactly 10 digits. You entered {len(clean_phone)} digits."
+        )
+    return clean_phone
 
 
 # ====================================================================
@@ -196,7 +222,7 @@ async def login(
 
 
 # ====================================================================
-# 2. SIGNUP ENDPOINT (Handles /signup, /api/auth/signup, /api/v1/auth/signup)
+# 2. SIGNUP ENDPOINT
 # ====================================================================
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
 @router.post("/api/auth/signup", status_code=status.HTTP_201_CREATED)
@@ -235,6 +261,7 @@ async def signup(
 
     clean_fnum = normalize_fnum(fnum)
     clean_nin = validate_and_normalize_nin(nin)
+    clean_phone = validate_and_normalize_phone(phone)
     clean_ipps = str(ipps).strip() if ipps else None
 
     # Check for duplicate Force Number, IPPS, or NIN
@@ -272,7 +299,7 @@ async def signup(
     hashed_password = security.get_password_hash(password)
 
     new_user = models.Users(
-        fnum=clean_fnum,
+        fnum=clean_fnum, 
         ipps=clean_ipps,
         nin=clean_nin,
         name=str(name).strip().upper(),
@@ -283,7 +310,7 @@ async def signup(
         station=str(station).strip().upper(),
         position=str(position).strip().upper() if position else "GENERAL DUTIES",
         email=str(email).strip() if email else None,
-        phone=str(phone).strip() if phone else None,
+        phone=clean_phone,
         role=str(role).strip().upper() if role else "USER",
         hashed_password=hashed_password,
         profile_photo_path=uploaded_photo_url or "",
@@ -433,8 +460,10 @@ def update_profile(
     if data.region: current_user.region = str(data.region).strip().upper()
     if data.station: current_user.station = str(data.station).strip().upper()
     if data.email: current_user.email = str(data.email).strip()
-    if data.phone: current_user.phone = str(data.phone).strip()
-    if getattr(data, 'nin', None): current_user.nin = validate_and_normalize_nin(data.nin)
+    if data.phone: 
+        current_user.phone = validate_and_normalize_phone(data.phone)
+    if getattr(data, 'nin', None): 
+        current_user.nin = validate_and_normalize_nin(data.nin)
     if data.profile_photo_path: current_user.profile_photo_path = data.profile_photo_path
 
     db.commit()
