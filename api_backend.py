@@ -456,7 +456,7 @@ def get_pending_users(db: Session = Depends(get_db), current_user: models.Users 
                 "id": getattr(u, 'id', 0),
                 "fnum": u.fnum, "name": u.name, "rank": u.rank,
                 "station": u.station, "region": u.region, "role": u.role,
-                "email": u.email, "phone": u.phone, "ipps": u.ipps, "sex": u.sex
+                "email": u.email, "phone": u.phone, "ipps": u.ipps, "sex": u.sex, "nin": u.nin
             } for u in pending
         ]
     except Exception as e:
