@@ -33,7 +33,6 @@ class Crime_Reports(Base):
     status = Column(String, default="ACTIVE INVESTIGATION")
     suspects = Column(Integer, default=0)
     
-    # Daily lock-up population column
     daily_lock_up = Column(Integer, default=0) 
     
     last_updated_by = Column(String)
@@ -183,7 +182,6 @@ class NominalRoll(Base):
     section = Column(String)
     dir = Column(String)
     
-    # 🟢 NEW: Added exactly where requested
     reintegration_reason = Column(String, nullable=True) 
     
     status = Column(String)
@@ -255,7 +253,8 @@ class Users(Base):
     created_at = Column(DateTime, default=get_eat_time)
     permissions = Column(JSON, default={})
     last_active_at = Column(DateTime, nullable=True)
-    comments = Column(Text, nullable=True) 
+    comments = Column(Text, nullable=True)
+    
     policy_accepted = Column(Boolean, default=False, nullable=False)
     policy_accepted_at = Column(DateTime, nullable=True)
 
@@ -268,7 +267,7 @@ class Modification_Requests(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True) 
-    requested_fnum = Column(String, nullable=True) # 🟢 NEW: Added missing column
+    requested_fnum = Column(String, nullable=True)
     requested_rank = Column(String, nullable=True)
     requested_name = Column(String, nullable=True)
     requested_region = Column(String, nullable=True)
@@ -435,7 +434,6 @@ class GeneralDocuments(Base):
     uploaded_by = Column(String, nullable=True)
     upload_date = Column(DateTime, default=get_eat_time)
 
-# Add compatibility alias at the bottom
 General_Documents = GeneralDocuments
 
 class OperationalDocumentEmbedding(Base):
@@ -481,7 +479,7 @@ ModificationRequests = Modification_Requests
 PasswordResetRequests = Password_Reset_Requests
 CommunicationReads = Communication_Reads
 AdminCommunication = Admin_Communication
-AICommandLogs = AI_Command_Logs # 🟢 Add the alias here
+AICommandLogs = AI_Command_Logs 
 
 # ==========================================
 # AGRICULTURAL CRIME SUMMARY LEDGER
@@ -496,37 +494,12 @@ class Agricultural_Crime_Summary(Base):
     station = Column(String, index=True)
     date = Column(String, index=True)
     
-    agric_crime_report = Column(String, nullable=False) # e.g. "Cattle Thefts"
-    number_count = Column(Integer, default=0)            # e.g. 20
-    recoveries = Column(Integer, default=0)              # e.g. 0
-    status = Column(String, default="UNDER INVESTIGATION") # e.g. "Under Investigation"
+    agric_crime_report = Column(String, nullable=False) 
+    number_count = Column(Integer, default=0)            
+    recoveries = Column(Integer, default=0)              
+    status = Column(String, default="UNDER INVESTIGATION") 
     
     last_updated_by = Column(String)
     created_at = Column(DateTime, default=get_eat_time)
 
 AgriculturalCrimeSummary = Agricultural_Crime_Summary
-
-class UserModel(Base):
-    __tablename__ = "users"
-    __table_args__ = {'extend_existing': True}
-
-    fnum = Column(String, primary_key=True, index=True)
-    ipps = Column(String, nullable=True)
-    nin = Column(String, nullable=True)
-    name = Column(String, nullable=False)
-    rank = Column(String, nullable=False)
-    sex = Column(String, default="MALE")
-    region = Column(String, nullable=False)
-    station = Column(String, nullable=False)
-    position = Column(String, nullable=False)
-    email = Column(String, nullable=True)
-    phone = Column(String, nullable=True)
-    hashed_password = Column(String, nullable=False)
-    role = Column(String, default="USER")
-    permissions = Column(JSON, default={})
-    profile_photo_path = Column(String, nullable=True)
-    
-    # 🟢 New Compliance Columns
-    policy_accepted = Column(Boolean, default=False, nullable=False)
-    policy_accepted_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)

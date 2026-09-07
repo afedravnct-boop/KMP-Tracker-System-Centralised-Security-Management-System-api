@@ -169,7 +169,6 @@ def sanitize_df_for_excel(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = df[col].astype(str)
     for col in df.select_dtypes(include=['object']).columns:
         df[col] = df[col].apply(lambda x: x.replace(tzinfo=None) if isinstance(x, datetime) and x.tzinfo is not None else x)
-        # Apply HTML scrubber to text fields during export
         if col in ['narrative', 'comment', 'message', 'details', 'archive_reason']:
             df[col] = df[col].apply(clean_html_for_export)
     return df
@@ -273,9 +272,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
     except Exception:
         db.rollback()
 
-    # 🟢 NEW: HARD ENFORCEMENT OF SYSTEM LOCKDOWNS
     if user.role != "SUPER_ADMIN":
-        # 1. Global System Lockdown
         sys_lock = db.query(models.SystemConfig).filter(
             models.SystemConfig.config_key == "lockdown_system_global",
             models.SystemConfig.config_value == "TRUE"
@@ -283,7 +280,6 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
         if sys_lock:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="SYSTEM LOCKDOWN: The centralized database is currently under maintenance. All access is suspended.")
 
-        # 2. Regional Lockdown
         if user.region:
             reg_key = f"lockdown_region_{user.region.lower().replace(' ', '_')}"
             reg_lock = db.query(models.SystemConfig).filter(
@@ -293,7 +289,6 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
             if reg_lock:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"REGIONAL LOCKDOWN: Command operations for {user.region} are currently suspended.")
 
-        # 3. Station Lockdown
         if user.station:
             stn_key = f"lockdown_station_{user.station.lower().replace(' ', '_')}"
             stn_lock = db.query(models.SystemConfig).filter(
@@ -458,7 +453,6 @@ def get_pending_users(db: Session = Depends(get_db), current_user: models.Users 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# 🟢 1. FETCH PENDING REQUESTS (Now includes Current User Data for Preview)
 @app.get("/api/v1/requests")
 def get_system_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
@@ -475,7 +469,6 @@ def get_system_requests(db: Session = Depends(get_db), current_user: models.User
         for r in requests:
             req_data = serialize_model_row(r)
             
-            # Fetch the officer's CURRENT live details
             target_user = db.query(models.Users).filter(func.upper(models.Users.fnum) == str(r.fnum).upper()).first()
             if target_user:
                 req_data["current_name"] = target_user.name
@@ -495,15 +488,12 @@ def get_system_requests(db: Session = Depends(get_db), current_user: models.User
         print(f"Error fetching modification requests: {e}")
         return []
 
-# 🟢 2. CREATE NEW REQUEST (With Strict Rank/FNUM Validation)
 @app.post("/api/v1/requests")
 def create_system_request(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        # 1. Determine what the final Rank and FNUM will be if this request is approved
         target_rank = (data.get("requested_rank") or current_user.rank or "").strip().upper()
         target_fnum = (data.get("requested_fnum") or current_user.fnum or "").strip().upper()
         
-        # 2. Strict Policing Standard Validation
         nco_ranks = ['PC', 'SPC', 'CPL', 'SGT']
         is_fnum_numeric = target_fnum.isdigit()
         
@@ -513,7 +503,6 @@ def create_system_request(data: dict, db: Session = Depends(get_db), current_use
         if target_rank not in nco_ranks and is_fnum_numeric and target_rank != "":
             raise HTTPException(status_code=400, detail=f"PROTOCOL ERROR: Rank {target_rank} requires an alphanumeric Force/File Number (e.g., A/2400). Target FNUM is {target_fnum}.")
 
-        # 3. Save the request if validation passes
         ReqModel = getattr(models, 'Modification_Requests', getattr(models, 'modification_requests', None))
         if not ReqModel:
             raise HTTPException(status_code=500, detail="Modification Requests model not found in database.")
@@ -537,8 +526,6 @@ def create_system_request(data: dict, db: Session = Depends(get_db), current_use
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
-# 🟢 3. APPROVE REQUEST
-# 🟢 3. REVIEW REQUEST (Unified Endpoint for Approve & Reject)
 @app.patch("/api/v1/requests/{req_id}")
 @app.put("/api/v1/requests/{req_id}")
 def review_system_request(req_id: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -555,7 +542,6 @@ def review_system_request(req_id: int, data: dict, db: Session = Depends(get_db)
     action_status = data.get("status", "").upper()
     
     if action_status == "APPROVED":
-        # Execute the actual profile update in the Users table
         target_user = db.query(models.Users).filter(func.upper(models.Users.fnum) == str(req.fnum).upper()).first()
         if target_user:
             if req.requested_fnum: target_user.fnum = req.requested_fnum
@@ -571,7 +557,6 @@ def review_system_request(req_id: int, data: dict, db: Session = Depends(get_db)
         return {"status": "success", "message": "Modification approved and executed."}
         
     elif action_status == "REJECTED":
-        # Clear the rejected ticket from the queue
         db.delete(req)
         db.commit()
         return {"status": "success", "message": "Modification request rejected."}
@@ -635,7 +620,6 @@ def update_user_access(
     if "role" in data and data["role"]:
         user.role = str(data["role"]).strip().upper()
 
-    # 🟢 AUTOMATICALLY SET APPROVAL TO TRUE UPON ACCESS ASSIGNMENT
     user.is_approved = True
 
     if "is_approved" in data:
@@ -749,7 +733,6 @@ def heartbeat(
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session credentials")
 
-    # 🟢 ACTIVE CONNECTION CUTOFF: Boots users instantly if a lockdown is triggered while they are online
     if user.role != "SUPER_ADMIN":
         sys_lock = db.query(models.SystemConfig).filter(models.SystemConfig.config_key == "lockdown_system_global", models.SystemConfig.config_value == "TRUE").first()
         if sys_lock:
@@ -901,7 +884,7 @@ def get_consolidated_ledger(
         EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
         NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
 
-        is_global = check_is_global_user(current_user) # 🟢 Evaluates global observer permission
+        is_global = check_is_global_user(current_user)
 
         def apply_scope(query, ModelClass):
             if not is_global and hasattr(ModelClass, 'region'):
@@ -925,121 +908,6 @@ def get_consolidated_ledger(
     except Exception as e:
         print(f"Consolidated Ledger DB Query Error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch consolidated data: {str(e)}")
-
-# ====================================================================
-# 6. FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
-# ====================================================================
-def run_weekly_tactical_briefing_job():
-    eat_tz = pytz.timezone('Africa/Nairobi')
-    now_eat = datetime.now(eat_tz).replace(tzinfo=None)
-    one_week_ago = now_eat - timedelta(days=7)
-    
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    db = SessionLocal()
-    
-    try:
-        active_users = db.query(models.Users).filter(
-            models.Users.is_approved == True,
-            models.Users.email != None,
-            models.Users.email != ""
-        ).all()
-        
-        fm = FastMail(conf)
-        
-        async def process_and_send_emails():
-            for user in active_users:
-                station = user.station
-                region = user.region
-                is_global = user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
-                
-                crime_filter = "" if is_global else f" AND station = '{station}'"
-                stats_filter = "" if is_global else f" AND station = '{station}'"
-                
-                crimes = db.execute(text(f"SELECT offence, narrative, status FROM reports WHERE created_at >= :start {crime_filter}"), {"start": one_week_ago}).fetchall()
-                ops_stats = db.execute(text(f"SELECT arrests, given_bond, cautioned, remanded, convicted FROM stats WHERE date >= :start {stats_filter}"), {"start": one_week_ago.date()}).fetchall()
-                
-                total_arrests = sum(row.arrests or 0 for row in ops_stats)
-                all_text = " ".join([f"{r.offence} {r.narrative}" for r in crimes]).upper()
-                
-                has_robbery = "ROBBERY" in all_text or "GUN" in all_text
-                has_fire = "FIRE" in all_text or "ARSON" in all_text
-                has_accident = "ACCIDENT" in all_text or "FATAL" in all_text
-                has_murder = "MURDER" in all_text or "HOMICIDE" in all_text
-                
-                custom_actions = []
-                if has_murder or has_robbery:
-                    custom_actions.append("🔴 <b>High-Priority Security Spike:</b> Violent crime indicators (Robbery/Homicide) identified in weekly entries.")
-                if has_fire:
-                    custom_actions.append("🔥 <b>Public Safety Alert:</b> Fire or arson events logged.")
-                if has_accident:
-                    custom_actions.append("🚗 <b>Traffic Hazard Notice:</b> Traffic incidents/fatalities registered.")
-                if total_arrests > 0:
-                    custom_actions.append(f"⚖️ <b>Case Management:</b> {total_arrests} total arrests logged this week.")
-                if not custom_actions:
-                    custom_actions.append("✅ Operations stable for the period.")
-
-                html_body = f"""
-                <div style='font-family: Arial, sans-serif; color: #1e293b; max-w-[600px];'>
-                    <h2 style='color: #0f172a; border-bottom: 2px solid #cbd5e1; padding-bottom: 10px;'>KMP Tactical Intelligence Briefing</h2>
-                    <p><strong>Jurisdiction:</strong> {station} ({region})</p>
-                    <p><strong>Officer:</strong> {user.rank} {user.name} ({user.fnum})</p>
-                    <p>Below is your automated situational report for the past 7 days:</p>
-                    <ul>
-                        {''.join([f"<li style='margin-bottom: 8px;'>{act}</li>" for act in custom_actions])}
-                    </ul>
-                    <p style='font-size: 11px; color: #64748b; margin-top: 20px;'>
-                        Auto-generated by KMP Centralised Security Data Management System.
-                    </p>
-                </div>
-                """
-                message = MessageSchema(
-                    subject=f"Weekly Tactical Briefing: {station}",
-                    recipients=[user.email],
-                    body=html_body,
-                    subtype="html"
-                )
-                
-                try:
-                    await fm.send_message(message)
-                except Exception as mail_err:
-                    print(f"Failed to dispatch to {user.email}: {mail_err}")
-
-        asyncio.run(process_and_send_emails())
-
-    except Exception as e:
-        print(f"Dynamic scheduler error: {e}")
-    finally:
-        db.close()
-
-# 🟢 1. ADD MANUAL TRIGGER: Send missed briefs right now from your frontend or API client
-@app.post("/api/v1/admin/trigger-briefs")
-def trigger_briefs_manually(
-    background_tasks: BackgroundTasks, 
-    current_user: models.Users = Depends(require_admin)
-):
-    background_tasks.add_task(run_weekly_tactical_briefing_job)
-    return {"status": "success", "message": "Weekly tactical briefings are dispatching in the background."}
-
-# 🟢 2. FIX SCHEDULER: Add explicit East Africa Time timezone
-eat_tz = pytz.timezone('Africa/Nairobi')
-scheduler = BackgroundScheduler()
-scheduler.add_job(
-    run_weekly_tactical_briefing_job, 
-    'cron', 
-    day_of_week='mon', 
-    hour=6, 
-    minute=0, 
-    timezone=eat_tz
-)
-
-@app.on_event("startup")
-def start_scheduler():
-    if not scheduler.running:
-        scheduler.start()
-
-@app.on_event("shutdown")
-def shutdown_scheduler():
-    scheduler.shutdown()
 
 # ====================================================================
 # SECURE ENCRYPTED ZIP EXPORTS (AUDIT LOGS & HR LEDGER)
@@ -1175,7 +1043,6 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         user_role = (current_user.role or "").upper()
         perms = current_user.permissions or {}
         
-        # 🟢 Unified global scope check supporting Global Observer & Roster permissions
         is_global = (
             user_role in ['SUPER_ADMIN', 'ADMIN', 'RPC', 'DEPUTY COMMANDER'] or
             (current_user.region or "").strip().upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'] or
@@ -1220,32 +1087,7 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
             except Exception as ex:
                 print(f"DataFrame fetch error for {ModelClass}: {ex}")
                 return pd.DataFrame()
-            try:
-                query = db.query(ModelClass)
-                if not is_global and hasattr(ModelClass, 'region'): 
-                    query = query.filter(ModelClass.region == current_user.region)
-                
-                records = query.all()
-                if not records:
-                    return pd.DataFrame()
-                
-                data = []
-                for r in records:
-                    row_dict = {}
-                    for col in r.__table__.columns.keys():
-                        val = getattr(r, col, '')
-                        if isinstance(val, datetime):
-                            val = val.strftime("%Y-%m-%d %H:%M")
-                        elif isinstance(val, str) and col in ['narrative', 'comment', 'message', 'details', 'archive_reason']:
-                            val = clean_html_for_export(val)
-                        row_dict[col] = val if val is not None else ''
-                    data.append(row_dict)
-                return pd.DataFrame(data)
-            except Exception as ex:
-                print(f"DataFrame fetch error for {ModelClass}: {ex}")
-                return pd.DataFrame()
 
-        # Fetch full dataframes containing all NeonDB columns
         df_crime = get_full_dataframe(CrimeModel)
         df_stats = get_full_dataframe(StatsModel)
         df_stories = get_full_dataframe(StoryModel)
@@ -1254,7 +1096,6 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         df_docs = get_full_dataframe(DocsModel)
         df_arc = get_full_dataframe(ArcModel)
 
-        # Compile AI & Activity Command logs
         ai_rows = []
         if AIModel:
             try:
@@ -1275,7 +1116,7 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         df_ai = pd.DataFrame(ai_rows)
 
         wb = openpyxl.Workbook()
-        wb.remove(wb.active)  # Remove default sheet
+        wb.remove(wb.active) 
         
         header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
@@ -1285,7 +1126,6 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
             if df.empty:
                 return
             
-            # 1. Print / Summarized Copy Sheet
             ws_print = wb.create_sheet(title=print_title)
             available_print_cols = [c for c in print_cols if c in df.columns]
             df_print_subset = df[available_print_cols].copy()
@@ -1301,7 +1141,6 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
                 max_len = max([len(str(cell.value or '')) for cell in col], default=0)
                 ws_print.column_dimensions[col[0].column_letter].width = min(max_len + 3, 40)
 
-            # 2. Full NeonDB Columns Copy Sheet
             ws_full = wb.create_sheet(title=full_title)
             ws_full.append(["SN"] + list(df.columns))
             for cell in ws_full[1]:
@@ -1314,7 +1153,6 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
                 max_len = max([len(str(cell.value or '')) for cell in col], default=0)
                 ws_full.column_dimensions[col[0].column_letter].width = min(max_len + 3, 60)
 
-        # Generate dual sheets for all domains
         write_dual_sheets(df_crime, "Crime Registry (Print)", "Crime Registry", ['sd_ref', 'region', 'station', 'date', 'time', 'offence', 'status', 'suspects', 'last_updated_by'])
         write_dual_sheets(df_stats, "OPS Statistics (Print)", "OPS Statistics", ['date', 'region', 'station', 'arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted'])
         write_dual_sheets(df_stories, "Success Stories (Print)", "Success Stories", ['date', 'time', 'region', 'station', 'status', 'narrative'])
@@ -1377,8 +1215,8 @@ def export_establishments_summary(db: Session = Depends(get_db), current_user = 
         raise HTTPException(status_code=500, detail=f"HR export failed: {str(e)}")
 
 class LockdownPayload(BaseModel):
-    lockdown_type: str # "SYSTEM", "REGION", "STATION", "MODULE"
-    target_name: str   # "GLOBAL", "KMP NORTH", "KAWEMPE", "acc_crime"
+    lockdown_type: str 
+    target_name: str   
     reason: str
 
 @app.post("/api/v1/admin/toggle-maintenance")
@@ -1391,17 +1229,14 @@ def toggle_granular_maintenance(
         raise HTTPException(status_code=403, detail="Clearance Denied: Super Admin status required for system lockdowns.")
 
     try:
-        # Construct unique config key for this specific target
         config_key = f"lockdown_{payload.lockdown_type.lower()}_{payload.target_name.lower().replace(' ', '_')}"
         
-        # Check if already exists, then toggle or update state
         config_entry = db.query(models.SystemConfig).filter(
             models.SystemConfig.config_key == config_key
         ).first()
 
         current_status = False
         if config_entry:
-            # Toggle current state
             current_status = str(config_entry.config_value).strip().upper() == "TRUE"
             new_status = "FALSE" if current_status else "TRUE"
             config_entry.config_value = new_status
@@ -1410,7 +1245,6 @@ def toggle_granular_maintenance(
             new_config = models.SystemConfig(
                 config_key=config_key,
                 config_value=new_status
-                # 🟢 FIXED: Removed the 'description' argument that was crashing the database
             )
             db.add(new_config)
 
@@ -1424,6 +1258,121 @@ def toggle_granular_maintenance(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to execute lockdown toggle: {str(e)}")
+
+# ====================================================================
+# 6. FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
+# ====================================================================
+def run_weekly_tactical_briefing_job():
+    eat_tz = pytz.timezone('Africa/Nairobi')
+    now_eat = datetime.now(eat_tz).replace(tzinfo=None)
+    one_week_ago = now_eat - timedelta(days=7)
+    
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    db = SessionLocal()
+    
+    try:
+        active_users = db.query(models.Users).filter(
+            models.Users.is_approved == True,
+            models.Users.email != None,
+            models.Users.email != ""
+        ).all()
+        
+        fm = FastMail(conf)
+        
+        async def process_and_send_emails():
+            for user in active_users:
+                station = user.station
+                region = user.region
+                is_global = user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
+                
+                crime_filter = "" if is_global else f" AND station = '{station}'"
+                stats_filter = "" if is_global else f" AND station = '{station}'"
+                
+                crimes = db.execute(text(f"SELECT offence, narrative, status FROM reports WHERE created_at >= :start {crime_filter}"), {"start": one_week_ago}).fetchall()
+                ops_stats = db.execute(text(f"SELECT arrests, given_bond, cautioned, remanded, convicted FROM stats WHERE date >= :start {stats_filter}"), {"start": one_week_ago.date()}).fetchall()
+                
+                total_arrests = sum(row.arrests or 0 for row in ops_stats)
+                all_text = " ".join([f"{r.offence} {r.narrative}" for r in crimes]).upper()
+                
+                has_robbery = "ROBBERY" in all_text or "GUN" in all_text
+                has_fire = "FIRE" in all_text or "ARSON" in all_text
+                has_accident = "ACCIDENT" in all_text or "FATAL" in all_text
+                has_murder = "MURDER" in all_text or "HOMICIDE" in all_text
+                
+                custom_actions = []
+                if has_murder or has_robbery:
+                    custom_actions.append("🔴 <b>High-Priority Security Spike:</b> Violent crime indicators (Robbery/Homicide) identified in weekly entries.")
+                if has_fire:
+                    custom_actions.append("🔥 <b>Public Safety Alert:</b> Fire or arson events logged.")
+                if has_accident:
+                    custom_actions.append("🚗 <b>Traffic Hazard Notice:</b> Traffic incidents/fatalities registered.")
+                if total_arrests > 0:
+                    custom_actions.append(f"⚖️ <b>Case Management:</b> {total_arrests} total arrests logged this week.")
+                if not custom_actions:
+                    custom_actions.append("✅ Operations stable for the period.")
+
+                html_body = f"""
+                <div style='font-family: Arial, sans-serif; color: #1e293b; max-w-[600px];'>
+                    <h2 style='color: #0f172a; border-bottom: 2px solid #cbd5e1; padding-bottom: 10px;'>KMP Tactical Intelligence Briefing</h2>
+                    <p><strong>Jurisdiction:</strong> {station} ({region})</p>
+                    <p><strong>Officer:</strong> {user.rank} {user.name} ({user.fnum})</p>
+                    <p>Below is your automated situational report for the past 7 days:</p>
+                    <ul>
+                        {''.join([f"<li style='margin-bottom: 8px;'>{act}</li>" for act in custom_actions])}
+                    </ul>
+                    <p style='font-size: 11px; color: #64748b; margin-top: 20px;'>
+                        Auto-generated by KMP Centralised Security Data Management System.
+                    </p>
+                </div>
+                """
+                message = MessageSchema(
+                    subject=f"Weekly Tactical Briefing: {station}",
+                    recipients=[user.email],
+                    body=html_body,
+                    subtype="html"
+                )
+                
+                try:
+                    await fm.send_message(message)
+                except Exception as mail_err:
+                    print(f"Failed to dispatch to {user.email}: {mail_err}")
+
+        asyncio.run(process_and_send_emails())
+
+    except Exception as e:
+        print(f"Dynamic scheduler error: {e}")
+    finally:
+        db.close()
+
+# 🟢 MANUAL TRIGGER: Send missed briefs right now
+@app.post("/api/v1/admin/trigger-briefs")
+def trigger_briefs_manually(
+    background_tasks: BackgroundTasks, 
+    current_user: models.Users = Depends(require_admin)
+):
+    background_tasks.add_task(run_weekly_tactical_briefing_job)
+    return {"status": "success", "message": "Weekly tactical briefings are dispatching in the background."}
+
+# 🟢 SINGLE SCHEDULER CONFIGURATION WITH EAT TIMEZONE
+eat_tz = pytz.timezone('Africa/Nairobi')
+scheduler = BackgroundScheduler()
+scheduler.add_job(
+    run_weekly_tactical_briefing_job, 
+    'cron', 
+    day_of_week='mon', 
+    hour=6, 
+    minute=0, 
+    timezone=eat_tz
+)
+
+@app.on_event("startup")
+def start_scheduler():
+    if not scheduler.running:
+        scheduler.start()
+
+@app.on_event("shutdown")
+def shutdown_scheduler():
+    scheduler.shutdown()
 
 if __name__ == "__main__":
     uvicorn.run("api_backend:app", host="0.0.0.0", port=8000, reload=True)
