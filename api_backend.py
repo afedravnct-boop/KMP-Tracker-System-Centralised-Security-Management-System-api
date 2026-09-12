@@ -1239,6 +1239,41 @@ class LockdownPayload(BaseModel):
     target_name: str   
     reason: str
 
+@app.get("/api/v1/admin/lockdown/status")
+def get_lockdown_status(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    if current_user.role not in ["ADMIN", "SUPER_ADMIN"]:
+        raise HTTPException(status_code=403, detail="Clearance Denied: Admin required.")
+
+    try:
+        # Fetch all active lockdowns from the database
+        active_lockdowns = db.query(models.SystemConfig).filter(
+            models.SystemConfig.config_key.like("lockdown_%"),
+            models.SystemConfig.config_value == "TRUE"
+        ).all()
+
+        status_report = {
+            "system_lockdown": False,
+            "active_regions": [],
+            "active_stations": []
+        }
+
+        # Categorize the active lockdowns
+        for lockdown in active_lockdowns:
+            key = lockdown.config_key
+            if key == "lockdown_system_global":
+                status_report["system_lockdown"] = True
+            elif key.startswith("lockdown_region_"):
+                region_name = key.replace("lockdown_region_", "").replace("_", " ").upper()
+                status_report["active_regions"].append(region_name)
+            elif key.startswith("lockdown_station_"):
+                station_name = key.replace("lockdown_station_", "").replace("_", " ").upper()
+                status_report["active_stations"].append(station_name)
+
+        return status_report
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch lockdown status: {str(e)}")
+
 @app.post("/api/v1/admin/toggle-maintenance")
 def toggle_granular_maintenance(
     payload: LockdownPayload,
