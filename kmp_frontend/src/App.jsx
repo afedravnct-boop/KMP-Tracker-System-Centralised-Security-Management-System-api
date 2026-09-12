@@ -428,20 +428,34 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
         </h3>   
       </div>
 
-      <div onClick={onOpenInbox} className="min-h-[4.5rem] bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-green-400 dark:hover:border-green-500 group relative overflow-hidden mb-2">
+      <div onClick={onOpenInbox} className={`min-h-[4.5rem] rounded-xl p-4 flex items-center cursor-pointer transition-all group relative overflow-hidden mb-2 ${
+        hasUnread 
+          ? "bg-blue-50 dark:bg-blue-900/40 border border-blue-400 dark:border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)] animate-pulse ring-1 ring-blue-400" 
+          : "bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-700 hover:shadow-md hover:-translate-y-1 hover:border-green-400 dark:hover:border-green-500"
+      }`}>
         {hasUnread && (
           <>
-            <div className="absolute top-2 right-2 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping"></div>
-            <div className="absolute top-2 right-2 w-2.5 h-2.5 bg-green-500 rounded-full"></div>
+            <div className="absolute top-2 right-2 w-3 h-3 bg-blue-500 rounded-full shadow-[0_0_10px_#3b82f6] animate-ping"></div>
+            <div className="absolute top-2 right-2 w-3 h-3 bg-blue-500 rounded-full border border-white dark:border-slate-900"></div>
           </>
         )}
-        <div className="w-10 h-10 rounded-full bg-slate-900 dark:bg-slate-800 text-white flex items-center justify-center mr-3 group-hover:bg-slate-800 dark:group-hover:bg-slate-700 transition-colors shrink-0">
-          <RadioReceiver size={18} className={hasUnread ? "text-green-400 animate-pulse" : "text-slate-400"} />
+        <div className={`w-10 h-10 rounded-full flex items-center justify-center mr-3 transition-colors shrink-0 ${
+          hasUnread 
+            ? "bg-blue-100 dark:bg-blue-800 text-blue-600 dark:text-blue-300" 
+            : "bg-slate-900 dark:bg-slate-800 text-white group-hover:bg-slate-800 dark:group-hover:bg-slate-700 text-slate-400"
+        }`}>
+          <RadioReceiver size={18} className={hasUnread ? "animate-bounce" : ""} />
         </div>
         <div className="flex-1">
-          <h3 className="text-sm font-extrabold text-slate-900 dark:text-white leading-tight">Command Dispatches & Alerts</h3>
+          <h3 className={`text-sm leading-tight ${hasUnread ? "font-black text-blue-900 dark:text-blue-300" : "font-extrabold text-slate-900 dark:text-white"}`}>
+            Command Dispatches & Alerts
+          </h3>
           <p className="text-[11px] font-medium mt-0.5 line-clamp-2 transition-colors duration-300 flex items-center">
-            {hasUnread ? <span className="text-green-600 dark:text-green-400 font-bold">You have unread Correspondences. Click to view.</span> : <span className="text-slate-500 dark:text-slate-400">Secure directives, network alerts, and command communications.</span>}
+            {hasUnread ? (
+              <span className="text-blue-700 dark:text-blue-400 font-bold">Priority: Unread Correspondences pending your review.</span>
+            ) : (
+              <span className="text-slate-500 dark:text-slate-400">Secure directives, network alerts, and command communications.</span>
+            )}
           </p>
         </div>
       </div>
@@ -2108,15 +2122,19 @@ const DashboardLayout = ({
     checkClearance(currentUser, 'acc_home', true) ? { 
       name: 'Home Dashboard', 
       id: 'home', 
+      icon: <Home size={20} />
+    } : null,
+    checkClearance(currentUser, 'acc_comms', true) ? { 
+      name: 'Command Communications', 
+      id: 'Admin_Communication', 
       icon: (
         <div className="relative flex items-center justify-center">
-          <Home size={20} />
+          <Bell size={20} className={hasUnreadComms ? "text-green-400 animate-bounce" : ""} />
           {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping" />}
           {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full" />}
         </div>
       )
     } : null,
-    checkClearance(currentUser, 'acc_comms', true) ? { name: 'Command Communications', id: 'Admin_Communication', icon: <Bell size={20} /> } : null,
     checkClearance(currentUser, 'acc_crime', true) ? { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> } : null,
     checkClearance(currentUser, 'acc_ops', true) ? { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> } : null,
     checkClearance(currentUser, 'acc_stories', true) ? { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> } : null,
@@ -2194,13 +2212,25 @@ const handleExportLogs = async () => {
                 <button 
                   key={item.id} 
                   onClick={() => setCurrentPage(item.id)}
-                  className={`w-full flex items-center py-3 transition-colors text-left ${sidebarOpen ? 'px-6' : 'px-0 justify-center'} ${currentPage === item.id ? 'bg-blue-600 border-l-4 border-yellow-400 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white border-l-4 border-transparent'}`}
+                  className={`w-full flex items-center py-3 transition-all duration-300 text-left ${sidebarOpen ? 'px-6' : 'px-0 justify-center'} ${
+                    item.id === 'Admin_Communication' && hasUnreadComms && currentPage !== item.id
+                      ? 'bg-blue-900/60 border-l-4 border-green-500 text-green-400 animate-pulse shadow-[inset_0_0_15px_rgba(34,197,94,0.15)]'
+                      : currentPage === item.id 
+                        ? 'bg-blue-600 border-l-4 border-yellow-400 text-white' 
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-white border-l-4 border-transparent'
+                  }`}
                 >
                   <div className="min-w-[24px] flex justify-center shrink-0">{item.icon}</div>
                   {sidebarOpen && (
-                    <span className={`ml-3 font-medium text-sm flex items-center justify-between flex-1 min-w-max ${item.id === 'home' && hasUnreadComms ? 'text-green-200 font-extrabold animate-pulse' : ''}`}>
+                    <span className={`ml-3 font-medium text-sm flex items-center justify-between flex-1 min-w-max ${
+                      item.id === 'Admin_Communication' && hasUnreadComms ? 'text-green-300 font-extrabold tracking-wide' : ''
+                    }`}>
                       {item.name}
-                      {item.id === 'home' && hasUnreadComms && <span className="text-[9px] bg-green-200/20 text-green-200 border border-green-200 px-1.5 py-0.5 rounded uppercase tracking-wider ml-2">New Dispatch</span>}
+                      {item.id === 'Admin_Communication' && hasUnreadComms && (
+                        <span className="text-[9px] bg-green-500/20 text-green-300 border border-green-400/50 px-2 py-0.5 rounded uppercase tracking-wider ml-2 shadow-[0_0_8px_rgba(34,197,94,0.4)]">
+                          New Dispatch
+                        </span>
+                      )}
                     </span>
                   )}
                 </button>

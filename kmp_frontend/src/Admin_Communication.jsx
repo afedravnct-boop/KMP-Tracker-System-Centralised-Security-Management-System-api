@@ -335,13 +335,14 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       
       if (res.ok) {
         const rawData = await res.json();
-        const readers = rawData.map(r => ({ ...r, read_at: adjustTimeOffset(r.read_at) }));
+        let readers = rawData.map(r => ({ ...r, read_at: adjustTimeOffset(r.read_at) }));
 
         const allSystemUsers = filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || []);
         let targetPool = [];
         const audience = msg.target_audience;
         const region = msg.target_region;
 
+        // 1. Calculate the exact intended audience
         if (audience === 'ALL_USERS' || audience === 'ALL') targetPool = allSystemUsers;
         else if (audience === 'ADMINS_ONLY') targetPool = allSystemUsers.filter(u => ['ADMIN', 'SUPER_ADMIN'].includes(u.role));
         else if (audience === 'RPC_ONLY') targetPool = allSystemUsers.filter(u => ['RPC', 'ADMIN', 'SUPER_ADMIN'].includes(u.role) || (u.position || '').toUpperCase().includes('RPC'));
@@ -349,8 +350,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         else if (audience === 'SPECIFIC_REGION') targetPool = allSystemUsers.filter(u => (u.region || '').toUpperCase() === (region || '').toUpperCase());
         else if (audience === 'SPECIFIC_USER' && msg.target_fnum) {
             let targetFnumsArray = [];
-            
-            // 1. Safely extract the array whether it's raw JSON, a string, or comma-separated
             if (Array.isArray(msg.target_fnum)) {
                 targetFnumsArray = msg.target_fnum;
             } else if (typeof msg.target_fnum === 'string') {
@@ -361,13 +360,15 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                     targetFnumsArray = msg.target_fnum.split(',');
                 }
             }
-
-            // 2. Aggressively strip all brackets, quotes, and spaces to ensure a perfect match
             const cleanTargetFnums = targetFnumsArray.map(f => String(f).replace(/[\[\]"']/g, '').trim().toUpperCase());
-            
             targetPool = allSystemUsers.filter(u => cleanTargetFnums.includes(String(u.fnum).trim().toUpperCase()));
         }
 
+        // 🟢 2. NEW STRICT FILTER: Discard any read receipt that doesn't belong to the intended audience
+        const validTargetFnums = new Set(targetPool.map(u => u.fnum));
+        readers = readers.filter(r => validTargetFnums.has(r.fnum));
+
+        // 3. Calculate who hasn't read it yet
         const readerFnums = new Set(readers.map(r => r.fnum));
         const pending = targetPool.filter(u => !readerFnums.has(u.fnum) && u.fnum !== msg.sender_fnum);
 
