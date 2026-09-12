@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
-  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight
+  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -77,8 +77,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [isDbKillActive, setIsDbKillActive] = useState(false);
   const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
 
-  // 🟢 NEW: State for tracking active lockdowns visually
+  // 🟢 LOCKDOWN UI STATE
   const [activeLockdownCount, setActiveLockdownCount] = useState(0);
+  const [showLockdownModal, setShowLockdownModal] = useState(false);
+  const [lockdownRegionFilter, setLockdownRegionFilter] = useState("KMP NORTH");
+  const [lockdownData, setLockdownData] = useState({ system: false, regions: {}, stations: {} });
 
   const [revokePrompt, setRevokePrompt] = useState({
     isOpen: false,
@@ -118,7 +121,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
   }, [canViewGlobalActive, isSuperAdminOrTopCommand]);
 
-  // 🟢 NEW: Fetch active lockdown status on component mount
+  // 🟢 FETCH LOCKDOWN STATUS (Populates the GUI Matrices)
   const fetchLockdownStatus = useCallback(async () => {
     if (!hasValidSession()) return;
     try {
@@ -126,116 +129,64 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       if (res.ok) {
         const data = await res.json();
         let count = 0;
-        if (data.system_lockdown) count++;
-        if (data.active_regions?.length > 0) count += data.active_regions.length;
-        if (data.active_stations?.length > 0) count += data.active_stations.length;
+        let newLockdownData = { system: false, regions: {}, stations: {} };
+
+        if (data.system_lockdown) {
+          count++;
+          newLockdownData.system = true;
+        }
+        if (data.active_regions?.length > 0) {
+          count += data.active_regions.length;
+          data.active_regions.forEach(r => newLockdownData.regions[r] = true);
+        }
+        if (data.active_stations?.length > 0) {
+          count += data.active_stations.length;
+          data.active_stations.forEach(s => newLockdownData.stations[s] = true);
+        }
+        
         setActiveLockdownCount(count);
+        setLockdownData(newLockdownData);
       }
     } catch (err) {
       console.error("Failed to fetch lockdown status:", err);
     }
   }, []);
 
-  const handleLockdownManagement = async () => {
+  // 🟢 TOGGLE SPECIFIC LOCKDOWN VIA API
+  const handleToggleLockdown = async (type, name, currentStatus) => {
+    const isLifting = currentStatus; // If it's currently true, the action is lifting
+    const actionWord = isLifting ? "LIFT" : "ACTIVATE";
+
+    const rawReason = window.prompt(
+      `State official reason to ${actionWord} lockdown on [${type}: ${name}]:`
+    );
+    if (rawReason === null) return;
+    const reason = stripHtmlTags(rawReason || (isLifting ? "Command Lockdown Lifted" : "Command Maintenance"));
+
+    if (isLifting) {
+      const confirmLift = window.confirm(`⚠️ Are you sure you want to LIFT the lockdown for [${type}: ${name}]?`);
+      if (!confirmLift) return;
+    } else {
+      const confirmLock = window.confirm(`🛑 Are you sure you want to LOCK DOWN [${type}: ${name}]? This will instantly restrict access.`);
+      if (!confirmLock) return;
+    }
+
     try {
-      const res = await authFetch('/api/v1/admin/lockdown/status');
-      let activeList = [];
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.system_lockdown) activeList.push("🚨 SYSTEM-WIDE (FULL LOCKDOWN)");
-        if (data.active_regions?.length > 0) {
-          activeList.push(...data.active_regions.map(r => `⚠️ REGION: ${r}`));
-        }
-        if (data.active_stations?.length > 0) {
-          activeList.push(...data.active_stations.map(s => `🔒 STATION: ${s}`));
-        }
-        setActiveLockdownCount(activeList.length);
-      }
-
-      const statusHeader = activeList.length > 0
-        ? `🔴 CURRENT ACTIVE LOCKDOWNS (${activeList.length}):\n` + activeList.map(item => ` • ${item}`).join('\n')
-        : `🟢 CURRENT LOCKDOWN STATUS:\n • No active lockdowns (All systems operational)`;
-
-      const choice = window.prompt(
-        `${statusHeader}\n\n` +
-        `========================================\n` +
-        `SYSTEM LOCKDOWN MANAGEMENT\n\n` +
-        `Do you want to:\n` +
-        `1 - ACTIVATE a new Lockdown\n` +
-        `2 - LIFT an existing Lockdown\n\n` +
-        `Enter 1 or 2:`
-      );
-
-      if (!choice) return;
-
-      let isLifting = false;
-      if (choice.trim() === '1') {
-        isLifting = false;
-      } else if (choice.trim() === '2') {
-        isLifting = true;
-        if (activeList.length === 0) {
-          return alert("There are no active lockdowns to lift.");
-        }
-      } else {
-        return alert("Invalid selection. Please enter 1 or 2.");
-      }
-
-      const scopeChoice = window.prompt(
-        `Select Scope to ${isLifting ? 'LIFT' : 'LOCKDOWN'}:\n1 - Force-Wide System\n2 - Specific Region\n3 - Specific Station\n\nEnter number (1-3):`,
-        "1"
-      );
-      if (!scopeChoice) return;
-
-      let lockdownType = "SYSTEM";
-      let targetName = "GLOBAL";
-
-      if (scopeChoice === "1") {
-        lockdownType = "SYSTEM";
-        targetName = "GLOBAL";
-      } else if (scopeChoice === "2") {
-        targetName = window.prompt(`Enter exact Region Name to ${isLifting ? 'UNLOCK' : 'LOCK'} (e.g. KMP NORTH):`, "KMP NORTH")?.trim().toUpperCase();
-        if (!targetName) return;
-        lockdownType = "REGION";
-      } else if (scopeChoice === "3") {
-        targetName = window.prompt(`Enter exact Station Name to ${isLifting ? 'UNLOCK' : 'LOCK'} (e.g. KAWEMPE):`, "KAWEMPE")?.trim().toUpperCase();
-        if (!targetName) return;
-        lockdownType = "STATION";
-      } else {
-        return alert("Invalid selection.");
-      }
-
-      const rawReason = window.prompt(
-        isLifting 
-          ? `State official reason for LIFTING the lockdown on [${lockdownType}: ${targetName}]:` 
-          : `State operational reason for LOCKING DOWN [${lockdownType}: ${targetName}]:`
-      );
-      
-      if (rawReason === null) return; 
-      
-      const reason = stripHtmlTags(rawReason || (isLifting ? "Command Lockdown Lifted" : "Command Maintenance"));
-
-      if (isLifting) {
-        const confirmLift = window.confirm(`⚠️ Are you sure you want to LIFT the lockdown for [${lockdownType}: ${targetName}]?`);
-        if (!confirmLift) return;
-      }
-
-      const execRes = await authFetch('/api/v1/admin/toggle-maintenance', {
+      const res = await authFetch('/api/v1/admin/toggle-maintenance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          lockdown_type: lockdownType,
-          target_name: targetName,
+          lockdown_type: type,
+          target_name: name,
           reason: reason
         })
       });
 
-      if (execRes.ok) {
-        const data = await execRes.json();
-        alert(`✅ Command Executed:\n${data.message}`);
+      if (res.ok) {
+        // Refresh the matrix immediately
         fetchLockdownStatus();
       } else {
-        const err = await execRes.json().catch(() => ({}));
+        const err = await res.json().catch(() => ({}));
         alert(`❌ Failed to execute command: ${err.detail || 'Server error'}`);
       }
     } catch (err) {
@@ -839,6 +790,22 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
   };
 
+  // 🟢 HELPER: Inline UI Toggle Switch component
+  const ToggleSwitch = ({ checked, onChange }) => (
+    <div
+      onClick={onChange}
+      className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-300 shadow-inner ${
+        checked ? 'bg-red-600' : 'bg-slate-300'
+      }`}
+    >
+      <div 
+        className={`bg-white w-3.5 h-3.5 rounded-full shadow-md transform transition-transform duration-300 ${
+          checked ? 'translate-x-4.5' : 'translate-x-0'
+        }`} 
+      />
+    </div>
+  );
+
   return (
     <div className="p-4 max-w-[1800px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
       
@@ -910,7 +877,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           {['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role?.toUpperCase()) && (
             <button
               type="button"
-              onClick={handleLockdownManagement}
+              onClick={() => { fetchLockdownStatus(); setShowLockdownModal(true); }}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
                 activeLockdownCount > 0
                   ? 'bg-red-950 border-red-500 text-red-200 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]'
@@ -1196,7 +1163,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 NEW: HR TRANSFER PREVIEW MODAL */}
+      {/* 🟢 HR TRANSFER PREVIEW MODAL */}
       {selectedModRequest && (() => {
         // Calculate Mismatch for the UI
         const targetRank = (selectedModRequest.requested_rank || selectedModRequest.current_rank || '').toUpperCase();
@@ -1362,6 +1329,98 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         <div className="fixed inset-0 bg-black/90 z-[400] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingPhotoModal(null)}>
           <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg cursor-pointer"><X size={24}/></button>
           <img src={viewingPhotoModal} alt="Enlarged Profile" className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+
+      {/* 🟢 LOCKDOWN MATRIX MODAL UI */}
+      {showLockdownModal && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-50 w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-300 overflow-hidden flex flex-col max-h-[90vh]">
+            
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shrink-0">
+              <div className="flex items-center">
+                <ShieldAlert className="w-5 h-5 text-amber-500 mr-3 animate-pulse" />
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-widest">Central Command Lockdown Matrix</h3>
+                  <p className="text-[10px] text-slate-400">Instantly suspend module access for specific regions or the entire system.</p>
+                </div>
+              </div>
+              <button onClick={() => setShowLockdownModal(false)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white cursor-pointer transition">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-6">
+              
+              {/* SYSTEM GLOBAL LOCKDOWN */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-extrabold text-slate-900 flex items-center">
+                    <Power className="w-4 h-4 mr-2 text-red-600" /> Force-Wide System Lockdown
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-lg">
+                    Activating this will instantly freeze the entire application. All active users (except Super Admins) will be forcefully logged out and blocked from logging in.
+                  </p>
+                </div>
+                <ToggleSwitch 
+                  checked={lockdownData.system} 
+                  onChange={() => handleToggleLockdown('SYSTEM', 'GLOBAL', lockdownData.system)} 
+                />
+              </div>
+
+              {/* REGIONAL MATRIX */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-slate-100 px-5 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">Jurisdictional Lockdowns</h4>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">Select Region:</span>
+                    <select
+                      value={lockdownRegionFilter}
+                      onChange={(e) => setLockdownRegionFilter(e.target.value)}
+                      className="border border-slate-300 rounded p-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer bg-white"
+                    >
+                      {Object.keys(REGIONAL_HIERARCHY).map(reg => (
+                        <option key={reg} value={reg}>{reg}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="p-5 space-y-6">
+                  {/* Parent Region Toggle */}
+                  <div className="flex items-center justify-between bg-amber-50 border border-amber-200 p-4 rounded-lg shadow-inner">
+                    <div>
+                      <h5 className="text-xs font-black text-amber-900 uppercase">Lock Entire Region: {lockdownRegionFilter}</h5>
+                      <p className="text-[10px] text-amber-700 mt-0.5">Suspends access for ALL stations within this region immediately.</p>
+                    </div>
+                    <ToggleSwitch 
+                      checked={!!lockdownData.regions[lockdownRegionFilter]} 
+                      onChange={() => handleToggleLockdown('REGION', lockdownRegionFilter, !!lockdownData.regions[lockdownRegionFilter])} 
+                    />
+                  </div>
+
+                  {/* Stations Grid */}
+                  <div>
+                    <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 border-b pb-2">
+                      Individual Station Lockdowns ({lockdownRegionFilter})
+                    </h5>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {REGIONAL_HIERARCHY[lockdownRegionFilter]?.map(station => (
+                        <div key={station} className="flex items-center justify-between border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-colors">
+                          <span className="text-xs font-bold text-slate-700 uppercase truncate pr-2">{station}</span>
+                          <ToggleSwitch 
+                            checked={!!lockdownData.stations[station]} 
+                            onChange={() => handleToggleLockdown('STATION', station, !!lockdownData.stations[station])} 
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
         </div>
       )}
 
