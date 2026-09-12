@@ -328,7 +328,8 @@ class Communication_Reads(Base):
     __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
-    comm_id = Column(Integer, index=True)
+    # 🟢 FIXED: Now explicitly linked. If a message is deleted, its reads vanish instantly.
+    comm_id = Column(Integer, ForeignKey("Admin_Communication.id", ondelete="CASCADE"), index=True)
     fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
     read_at = Column(DateTime(timezone=True), server_default=func.now())
 

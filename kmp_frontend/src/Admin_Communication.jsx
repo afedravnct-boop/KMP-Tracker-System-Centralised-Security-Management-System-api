@@ -371,7 +371,16 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     setExpandedMsgs(prev => ({ ...prev, [msg.id]: willExpand }));
 
     const isSender = msg.sender_fnum === currentUser?.fnum;
-    if (willExpand && !isSender) {
+    
+    // 🟢 SAFEGUARD: Prevent accidental cross-talk read receipts for non-targeted officers viewing the dashboard
+    let isIntendedRecipient = false;
+    if (msg.target_audience === 'ALL_USERS' || msg.target_audience === 'ALL') isIntendedRecipient = true;
+    else if (msg.target_audience === 'SPECIFIC_USER' && msg.target_fnum && msg.target_fnum.includes(currentUser?.fnum)) isIntendedRecipient = true;
+    else if (msg.target_audience === 'SPECIFIC_REGION' && msg.target_region === currentUser?.region) isIntendedRecipient = true;
+    else if (msg.target_audience === 'ADMINS_ONLY' && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role)) isIntendedRecipient = true;
+    else if (msg.target_audience === 'RPC_ONLY' && (['RPC', 'ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || (currentUser?.position || '').toUpperCase().includes('RPC'))) isIntendedRecipient = true;
+
+    if (willExpand && !isSender && isIntendedRecipient) {
       try {
         const token = sessionStorage.getItem('kmp_authToken');
         
@@ -420,7 +429,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     }
   };
 
-  // 🟢 BULK MARK ALL INBOX MESSAGES AS READ (SINGLE NETWORK CALL)
   // 🟢 BULK MARK ALL INBOX MESSAGES AS READ (Forced DB Sweep)
   const handleMarkAllAsRead = async () => {
     try {
@@ -676,7 +684,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
                 {formData.targetAudience === 'SPECIFIC_USER' && (
                   <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 space-y-4">
-                    {/* 🟢 Locked recipient view when replying to a direct message */}
                     {isReplyingTo && replyingToDoc ? (
                       <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-blue-300 text-xs font-bold text-blue-900">
                         <span>🔒 Direct Reply Recipient: {replyingToDoc.sender_name} ({replyingToDoc.sender_fnum})</span>
@@ -775,7 +782,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                   {isReplyingTo && <p className="text-[10px] text-amber-600 mt-1 font-bold">Subject is locked to maintain accurate communication threads.</p>}
                 </div>
 
-                {/* 🟢 SEPARATED ORIGINAL MESSAGE REFERENCE BANNER */}
                 {isReplyingTo && replyingToDoc && (
                   <div className="bg-slate-100 border-l-4 border-indigo-600 p-4 rounded-r-lg space-y-2 mb-4 shadow-sm">
                     <div className="flex justify-between items-center text-xs text-slate-500 font-bold uppercase">
@@ -791,7 +797,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                     {isReplyingTo ? 'Your Response Body *' : 'Communication Body *'}
                   </label>
-                  {/* 🟢 Dark-mode protected Quill Editor container wrapper */}
                   <div className="quill-editor-container bg-white rounded-md shadow-sm">
                     <ReactQuill 
                       theme="snow" 
