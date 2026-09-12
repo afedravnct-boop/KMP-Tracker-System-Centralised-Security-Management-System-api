@@ -1306,6 +1306,18 @@ def toggle_granular_maintenance(
         db.commit()
         
         action_text = "ACTIVATED" if new_status == "TRUE" else "LIFTED"
+
+        # 🟢 THE FIX: Permanently save the justification to the Audit Logs
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(
+                db=db,
+                fnum=current_user.fnum,
+                action=f"LOCKDOWN_{action_text}",
+                target_identifier=f"{payload.lockdown_type}: {payload.target_name}",
+                changes={"status": [str(current_status).upper(), new_status]},
+                remarks=payload.reason
+            )
+
         return {
             "status": "success",
             "message": f"Lockdown {action_text} for [{payload.lockdown_type}: {payload.target_name}]. Reason: {payload.reason}"
