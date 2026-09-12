@@ -69,7 +69,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [loadingUsers, setLoadingUsers] = useState(false);
 
   const [selectedPendingUser, setSelectedPendingUser] = useState(null);
-  // 🟢 NEW: State for the HR Transfer Preview Modal
   const [selectedModRequest, setSelectedModRequest] = useState(null);
   
   const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
@@ -77,6 +76,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const [isDbKillActive, setIsDbKillActive] = useState(false);
   const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
+
+  // 🟢 NEW: State for tracking active lockdowns visually
+  const [activeLockdownCount, setActiveLockdownCount] = useState(0);
 
   const [revokePrompt, setRevokePrompt] = useState({
     isOpen: false,
@@ -116,57 +118,109 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
   }, [canViewGlobalActive, isSuperAdminOrTopCommand]);
 
-  const handleSystemMaintenanceToggle = async () => {
-    const actionChoice = window.prompt(
-      "SYSTEM LOCKDOWN MANAGEMENT\n\nDo you want to:\n1 - ACTIVATE a new Lockdown\n2 - LIFT an existing Lockdown\n\nEnter 1 or 2:",
-      "1"
-    );
-    if (!actionChoice) return;
-
-    const isLifting = actionChoice.trim() === "2";
-
-    const scopeChoice = window.prompt(
-      `Select Scope to ${isLifting ? 'LIFT' : 'LOCKDOWN'}:\n1 - Force-Wide System\n2 - Specific Region\n3 - Specific Station\n\nEnter number (1-3):`,
-      "1"
-    );
-    if (!scopeChoice) return;
-
-    let lockdownType = "SYSTEM";
-    let targetName = "GLOBAL";
-    let reason = "";
-
-    if (scopeChoice === "1") {
-      lockdownType = "SYSTEM";
-      targetName = "GLOBAL";
-    } else if (scopeChoice === "2") {
-      targetName = window.prompt(`Enter exact Region Name to ${isLifting ? 'UNLOCK' : 'LOCK'} (e.g. KMP NORTH):`, "KMP NORTH")?.trim().toUpperCase();
-      if (!targetName) return;
-      lockdownType = "REGION";
-    } else if (scopeChoice === "3") {
-      targetName = window.prompt(`Enter exact Station Name to ${isLifting ? 'UNLOCK' : 'LOCK'} (e.g. KAWEMPE):`, "KAWEMPE")?.trim().toUpperCase();
-      if (!targetName) return;
-      lockdownType = "STATION";
-    } else {
-      return alert("Invalid selection.");
-    }
-
-    const rawReason = window.prompt(
-      isLifting 
-        ? `State official reason for LIFTING the lockdown on [${lockdownType}: ${targetName}]:` 
-        : `State operational reason for LOCKING DOWN [${lockdownType}: ${targetName}]:`
-    );
-    
-    if (rawReason === null) return; 
-    
-    reason = stripHtmlTags(rawReason || (isLifting ? "Command Lockdown Lifted" : "Command Maintenance"));
-
-    if (isLifting) {
-      const confirmLift = window.confirm(`⚠️ Are you sure you want to LIFT the lockdown for [${lockdownType}: ${targetName}]?`);
-      if (!confirmLift) return;
-    }
-
+  // 🟢 NEW: Fetch active lockdown status on component mount
+  const fetchLockdownStatus = useCallback(async () => {
+    if (!hasValidSession()) return;
     try {
-      const res = await authFetch('/api/v1/admin/toggle-maintenance', {
+      const res = await authFetch('/api/v1/admin/lockdown/status');
+      if (res.ok) {
+        const data = await res.json();
+        let count = 0;
+        if (data.system_lockdown) count++;
+        if (data.active_regions?.length > 0) count += data.active_regions.length;
+        if (data.active_stations?.length > 0) count += data.active_stations.length;
+        setActiveLockdownCount(count);
+      }
+    } catch (err) {
+      console.error("Failed to fetch lockdown status:", err);
+    }
+  }, []);
+
+  const handleLockdownManagement = async () => {
+    try {
+      const res = await authFetch('/api/v1/admin/lockdown/status');
+      let activeList = [];
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.system_lockdown) activeList.push("🚨 SYSTEM-WIDE (FULL LOCKDOWN)");
+        if (data.active_regions?.length > 0) {
+          activeList.push(...data.active_regions.map(r => `⚠️ REGION: ${r}`));
+        }
+        if (data.active_stations?.length > 0) {
+          activeList.push(...data.active_stations.map(s => `🔒 STATION: ${s}`));
+        }
+        setActiveLockdownCount(activeList.length);
+      }
+
+      const statusHeader = activeList.length > 0
+        ? `🔴 CURRENT ACTIVE LOCKDOWNS (${activeList.length}):\n` + activeList.map(item => ` • ${item}`).join('\n')
+        : `🟢 CURRENT LOCKDOWN STATUS:\n • No active lockdowns (All systems operational)`;
+
+      const choice = window.prompt(
+        `${statusHeader}\n\n` +
+        `========================================\n` +
+        `SYSTEM LOCKDOWN MANAGEMENT\n\n` +
+        `Do you want to:\n` +
+        `1 - ACTIVATE a new Lockdown\n` +
+        `2 - LIFT an existing Lockdown\n\n` +
+        `Enter 1 or 2:`
+      );
+
+      if (!choice) return;
+
+      let isLifting = false;
+      if (choice.trim() === '1') {
+        isLifting = false;
+      } else if (choice.trim() === '2') {
+        isLifting = true;
+        if (activeList.length === 0) {
+          return alert("There are no active lockdowns to lift.");
+        }
+      } else {
+        return alert("Invalid selection. Please enter 1 or 2.");
+      }
+
+      const scopeChoice = window.prompt(
+        `Select Scope to ${isLifting ? 'LIFT' : 'LOCKDOWN'}:\n1 - Force-Wide System\n2 - Specific Region\n3 - Specific Station\n\nEnter number (1-3):`,
+        "1"
+      );
+      if (!scopeChoice) return;
+
+      let lockdownType = "SYSTEM";
+      let targetName = "GLOBAL";
+
+      if (scopeChoice === "1") {
+        lockdownType = "SYSTEM";
+        targetName = "GLOBAL";
+      } else if (scopeChoice === "2") {
+        targetName = window.prompt(`Enter exact Region Name to ${isLifting ? 'UNLOCK' : 'LOCK'} (e.g. KMP NORTH):`, "KMP NORTH")?.trim().toUpperCase();
+        if (!targetName) return;
+        lockdownType = "REGION";
+      } else if (scopeChoice === "3") {
+        targetName = window.prompt(`Enter exact Station Name to ${isLifting ? 'UNLOCK' : 'LOCK'} (e.g. KAWEMPE):`, "KAWEMPE")?.trim().toUpperCase();
+        if (!targetName) return;
+        lockdownType = "STATION";
+      } else {
+        return alert("Invalid selection.");
+      }
+
+      const rawReason = window.prompt(
+        isLifting 
+          ? `State official reason for LIFTING the lockdown on [${lockdownType}: ${targetName}]:` 
+          : `State operational reason for LOCKING DOWN [${lockdownType}: ${targetName}]:`
+      );
+      
+      if (rawReason === null) return; 
+      
+      const reason = stripHtmlTags(rawReason || (isLifting ? "Command Lockdown Lifted" : "Command Maintenance"));
+
+      if (isLifting) {
+        const confirmLift = window.confirm(`⚠️ Are you sure you want to LIFT the lockdown for [${lockdownType}: ${targetName}]?`);
+        if (!confirmLift) return;
+      }
+
+      const execRes = await authFetch('/api/v1/admin/toggle-maintenance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -176,14 +230,16 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         })
       });
 
-      if (res.ok) {
-        const data = await res.json();
+      if (execRes.ok) {
+        const data = await execRes.json();
         alert(`✅ Command Executed:\n${data.message}`);
+        fetchLockdownStatus();
       } else {
-        const err = await res.json().catch(() => ({}));
+        const err = await execRes.json().catch(() => ({}));
         alert(`❌ Failed to execute command: ${err.detail || 'Server error'}`);
       }
     } catch (err) {
+      console.error("Failed to manage lockdown:", err);
       alert("❌ Error communicating with the command server.");
     }
   };
@@ -277,7 +333,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     else if (activeTab === 'requests') fetchModRequests();
     else if (activeTab === 'logs') { fetchAuditLogs(); fetchAllSystemUsers(); }
     else if (activeTab === 'resets') fetchResets();
-  }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets]);
+    fetchLockdownStatus();
+  }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
 
   const filteredPending = useMemo(() => {
     return realPendingUsers.filter(u => {
@@ -742,7 +799,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       }
       
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId));
-      setSelectedModRequest(null); // 🟢 Clear modal upon success
+      setSelectedModRequest(null); 
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) {
       alert(`Error processing request: ${stripHtmlTags(err.message)}`);
@@ -842,6 +899,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               else if (activeTab === 'requests') fetchModRequests();
               else if (activeTab === 'logs') fetchAuditLogs();
               else if (activeTab === 'resets') fetchResets();
+              fetchLockdownStatus();
             }}
             className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm"
             title="Refresh Current Queue"
@@ -852,12 +910,16 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           {['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role?.toUpperCase()) && (
             <button
               type="button"
-              onClick={handleSystemMaintenanceToggle}
-              className="bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100 font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm"
-              title="Configure System, Regional, Station, or Module Lockdowns"
+              onClick={handleLockdownManagement}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                activeLockdownCount > 0
+                  ? 'bg-red-950 border-red-500 text-red-200 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]'
+                  : 'bg-amber-950/60 border-amber-600/50 text-amber-300 hover:bg-amber-900/60'
+              }`}
+              title="Manage Emergency Regional & Station Lockdowns"
             >
-              <ShieldAlert size={14} className="mr-2 text-amber-600" />
-              Lockdowns
+              <span>🔒</span>
+              <span>{activeLockdownCount > 0 ? `Lockdowns (${activeLockdownCount} Active)` : 'Lockdowns'}</span>
             </button>
           )}
 
@@ -1389,8 +1451,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
                         <td className="p-2.5 text-center sticky left-[240px] z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[120px]">
                           <select 
-                            id={`role-select-${u.fnum}`}     // 🟢 ADDED
-                            name={`role_select_${u.fnum}`}   // 🟢 ADDED
+                            id={`role-select-${u.fnum}`}     
+                            name={`role_select_${u.fnum}`}   
                             value={u.role || 'USER'}
                             onChange={(e) => handleRoleTierChange(u.fnum, stripHtmlTags(e.target.value))}
                             disabled={isRoleSelectDisabled}
@@ -1470,8 +1532,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                               <div className="relative inline-flex items-center justify-center">
                                 <input 
                                   type="checkbox" 
-                                  id={`clearance-${u.fnum}-${col.key}`}   // 🟢 ADDED
-                                  name={`clearance_${u.fnum}_${col.key}`} // 🟢 ADDED
+                                  id={`clearance-${u.fnum}-${col.key}`}   
+                                  name={`clearance_${u.fnum}_${col.key}`} 
                                   checked={isSuperAdmin || Boolean(p[col.key])} 
                                   disabled={isDisabled}
                                   title={lockTitle}
@@ -1671,8 +1733,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${stripHtmlTags(revokePrompt.permissionKey)}"`} clearance</span> for this officer. By command directive, you must state an official operational reason to proceed.
               </p>
               <textarea 
-                id="revocationReason"     // 🟢 ADDED
-                name="revocationReason"   // 🟢 ADDED
+                id="revocationReason"     
+                name="revocationReason"   
                 value={revokePrompt.reason}
                 onChange={(e) => setRevokePrompt({...revokePrompt, reason: stripHtmlTags(e.target.value)})}
                 placeholder="Type official reason for revocation here..."
