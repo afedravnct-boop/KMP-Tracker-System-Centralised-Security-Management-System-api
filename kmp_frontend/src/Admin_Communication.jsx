@@ -348,8 +348,24 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         else if (audience === 'DEPUTY RPC_ONLY') targetPool = allSystemUsers.filter(u => (u.position || '').toUpperCase().includes('DEPUTY'));
         else if (audience === 'SPECIFIC_REGION') targetPool = allSystemUsers.filter(u => (u.region || '').toUpperCase() === (region || '').toUpperCase());
         else if (audience === 'SPECIFIC_USER' && msg.target_fnum) {
-            const targetFnumsArray = Array.isArray(msg.target_fnum) ? msg.target_fnum : String(msg.target_fnum).split(',').map(f => f.trim());
-            targetPool = allSystemUsers.filter(u => targetFnumsArray.includes(u.fnum));
+            let targetFnumsArray = [];
+            
+            // 1. Safely extract the array whether it's raw JSON, a string, or comma-separated
+            if (Array.isArray(msg.target_fnum)) {
+                targetFnumsArray = msg.target_fnum;
+            } else if (typeof msg.target_fnum === 'string') {
+                try {
+                    targetFnumsArray = JSON.parse(msg.target_fnum);
+                    if (!Array.isArray(targetFnumsArray)) targetFnumsArray = [targetFnumsArray];
+                } catch(e) {
+                    targetFnumsArray = msg.target_fnum.split(',');
+                }
+            }
+
+            // 2. Aggressively strip all brackets, quotes, and spaces to ensure a perfect match
+            const cleanTargetFnums = targetFnumsArray.map(f => String(f).replace(/[\[\]"']/g, '').trim().toUpperCase());
+            
+            targetPool = allSystemUsers.filter(u => cleanTargetFnums.includes(String(u.fnum).trim().toUpperCase()));
         }
 
         const readerFnums = new Set(readers.map(r => r.fnum));
