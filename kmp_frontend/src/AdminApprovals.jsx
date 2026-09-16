@@ -212,11 +212,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   useEffect(() => {
     if (activeTab === 'approvals') fetchPendingUsers();
+    // 🟢 ADDED: Tell the system to fetch users when the Roster tab is clicked
     else if (activeTab === 'matrix' || activeTab === 'roster') fetchAllSystemUsers();
     else if (activeTab === 'requests') fetchModRequests();
     else if (activeTab === 'logs') { fetchAuditLogs(); fetchAllSystemUsers(); }
     else if (activeTab === 'resets') fetchResets();
-    fetchLockdownStatus();
+    
+    if (typeof fetchLockdownStatus === 'function') fetchLockdownStatus();
   }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
 
   // 🟢 Filtering Logic
