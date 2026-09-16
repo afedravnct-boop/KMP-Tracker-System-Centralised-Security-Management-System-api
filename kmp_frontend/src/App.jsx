@@ -70,9 +70,8 @@ export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = t
 
   const perms = currentUser.permissions || {};
 
-  // 🟢 GLOBAL OVERRIDE: If Global Observer is checked, unlock all pages/tabs globally 
-  // regardless of whether individual checkboxes are checked or unchecked.
-  if (perms.global_observer === true) {
+  // 🟢 If either global viewing mode is active, unlock the navigation tab visibility
+  if (perms.global_observer === true || perms.view_global_roster === true || perms.global_open === true) {
     return true;
   }
 

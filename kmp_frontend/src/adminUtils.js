@@ -82,6 +82,7 @@ export const grantExpressAccess = (role, currentPerms) => {
 
 export const CLEARANCE_MATRIX_COLS = [
   { key: 'global_observer', label: 'Global Observer (Read-Only)', color: 'fuchsia', bg: 'bg-fuchsia-50/50' },
+  { key: 'global_open', label: 'Global Full Access (Open/Editable)', color: 'blue', bg: 'bg-blue-50/50' },
   { key: 'ai_hr_access', label: 'AI Nominal Roll', color: 'amber', bg: 'bg-amber-100/60' },
   { key: 'acc_home', label: 'Home Dash', color: 'slate', bg: 'bg-slate-100/50' },
   { key: 'acc_profile', label: 'Profile', color: 'slate', bg: 'bg-slate-100/50' },

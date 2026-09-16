@@ -60,14 +60,21 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     return list;
   }, [lockdownData]);
 
+  // 🟢 DUAL GLOBAL SCOPE SUPPORT: Recognizes both read-only observer and full open access
   const canViewGlobalActive = canViewGlobal || 
     ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || 
     currentUser?.permissions?.view_global_roster === true || 
-    currentUser?.permissions?.global_observer === true;
+    currentUser?.permissions?.global_observer === true ||
+    currentUser?.permissions?.global_open === true;
 
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
+
+  // 🟢 STRICT READ-ONLY GUARD: Active if global_observer is set, but global_open is NOT active and user is not Super Admin
+  const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && 
+    !currentUser?.permissions?.global_open && 
+    !isSuperAdmin;
 
   const isSuperAdminOrTopCommand = (
     canViewGlobalActive ||
@@ -120,6 +127,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   }, []);
 
   const handleToggleLockdown = async (type, name, currentStatus) => {
+    if (isReadOnlyObserver) {
+      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit managing system lockdowns.");
+      return;
+    }
+
     const isLifting = currentStatus; 
     const actionWord = isLifting ? "LIFT" : "ACTIVATE";
 
@@ -151,6 +163,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleKillSwitchToggle = async () => {
+    if (isReadOnlyObserver) {
+      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit toggling the AI database kill switch.");
+      return;
+    }
+
     setLoadingKillSwitch(true);
     try {
       const res = await authFetch('/api/v1/ai/admin/toggle-db-query', { method: 'POST' });
@@ -238,7 +255,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     else if (activeTab === 'requests') fetchModRequests();
     else if (activeTab === 'logs') { fetchAuditLogs(); fetchAllSystemUsers(); }
     else if (activeTab === 'resets') fetchResets();
-    
+     
     if (typeof fetchLockdownStatus === 'function') fetchLockdownStatus();
   }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
 
@@ -277,6 +294,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
 
   const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
+    if (isReadOnlyObserver) {
+      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit bulk matrix updates.");
+      return;
+    }
+
     const cleanFnum = stripHtmlTags(fnum);
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser || !canModifyUser(currentUser, targetUser)) {
@@ -296,6 +318,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
+    if (isReadOnlyObserver) {
+      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit modifying permissions.");
+      return;
+    }
+
     const cleanFnum = stripHtmlTags(fnum);
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser || !canModifyUser(currentUser, targetUser)) {
@@ -314,6 +341,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleRoleTierChange = async (fnum, newRole) => {
+    if (isReadOnlyObserver) {
+      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit changing role tiers.");
+      return;
+    }
+
     const cleanFnum = stripHtmlTags(fnum);
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     if (!targetUser || !canModifyUser(currentUser, targetUser)) {
@@ -332,6 +364,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleApproveUser = async (userToApprove) => {
+    if (isReadOnlyObserver) {
+      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit approving access requests.");
+      return;
+    }
+
     const fnum = typeof userToApprove === 'object' ? userToApprove.fnum : userToApprove;
     setIsProcessingAction(true);
     try {
@@ -351,6 +388,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleRejectUser = async (userToReject) => {
+    if (isReadOnlyObserver) {
+      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit rejecting access requests.");
+      return;
+    }
+
     const fnum = typeof userToReject === 'object' ? userToReject.fnum : userToReject;
     const rawReason = window.prompt(`Enter official reason for REJECTING ${fnum}:`);
     if (rawReason === null) return;
@@ -366,6 +408,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleReviewRequest = async (reqId, actionStatus) => {
+    if (isReadOnlyObserver) {
+      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit reviewing HR modifications.");
+      return;
+    }
+
     try {
       await authFetch(`/api/v1/requests/${reqId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: actionStatus })
@@ -377,6 +424,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleResetAction = async (reqId, actionStr) => {
+    if (isReadOnlyObserver) {
+      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit executing password resets.");
+      return;
+    }
+
     try {
       const formData = new URLSearchParams();
       formData.append('action', actionStr);
@@ -391,6 +443,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleForcePassword = async (fnum, name) => {
+    if (isReadOnlyObserver) {
+      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit forcing password overrides.");
+      return;
+    }
+
     const newPass = window.prompt(`[SUPER ADMIN OVERRIDE]\nEnter new 6+ character password for ${name} (${fnum}):`);
     if (!newPass) return;
     if (newPass.length < 6) return alert("Password must be at least 6 characters long.");
