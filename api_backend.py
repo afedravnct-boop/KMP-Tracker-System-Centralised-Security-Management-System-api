@@ -309,15 +309,38 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
 
     return user
 
+# 🟢 ORIGINAL STRICT ADMIN CHECK (For PUT/POST/DELETE/PATCH Write Actions)
 def require_admin(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
     return current_user
 
+# 🟢 NEW: OBSERVER-ENABLED CHECK (For GET / Read-Only Data Routes)
+def require_admin_or_observer(current_user: models.Users = Depends(get_current_user)):
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    if "ADMIN" in user_role or "RPC" in user_role:
+        return current_user
+        
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try:
+            perms = json.loads(perms)
+        except Exception:
+            perms = {}
+            
+    if perms.get("global_observer") is True or perms.get("view_global_roster") is True:
+        return current_user
+        
+    raise HTTPException(status_code=403, detail="Clearance Denied: Admin or Global Observer privileges required.")
+
 def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+        
     if (
         user_role not in ["ADMIN", "SUPER_ADMIN", "RPC"] and 
         not perms.get("export_data", False) and 
@@ -444,11 +467,9 @@ def get_weekly_reports_list(db: Session = Depends(get_db), current_user = Depend
         print(f"Weekly Reports Fetch Error: {e}")
         return []
 
+# 🟢 FIXED: USES require_admin_or_observer SO GLOBAL OBSERVERS CAN SEE THE PENDING USERS QUEUE
 @app.get("/api/v1/admin/pending-users")
-def get_pending_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    if "ADMIN" not in user_role and "RPC" not in user_role:
-        raise HTTPException(status_code=403, detail="Unauthorized access.")
+def get_pending_users(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin_or_observer)):
     try:
         pending = db.query(models.Users).filter(models.Users.is_approved == False).all()
         return [
@@ -473,11 +494,9 @@ def get_pending_users(db: Session = Depends(get_db), current_user: models.Users 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# 🟢 FIXED: USES require_admin_or_observer SO OBSERVERS CAN SEE HR MODIFICATIONS
 @app.get("/api/v1/requests")
-def get_system_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    if "ADMIN" not in user_role and "RPC" not in user_role:
-        raise HTTPException(status_code=403, detail="Unauthorized access.")
+def get_system_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin_or_observer)):
     try:
         ReqModel = getattr(models, 'modification_requests', getattr(models, 'Modification_Requests', None))
         if not ReqModel:
@@ -548,11 +567,8 @@ def create_system_request(data: dict, db: Session = Depends(get_db), current_use
 
 @app.patch("/api/v1/requests/{req_id}")
 @app.put("/api/v1/requests/{req_id}")
-def review_system_request(req_id: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    if "ADMIN" not in user_role and "RPC" not in user_role:
-        raise HTTPException(status_code=403, detail="Clearance Denied: Admin required.")
-        
+def review_system_request(req_id: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
+    # 🟢 STILL SECURE: Requires strict ADMIN to approve/reject HR modification
     ReqModel = getattr(models, 'Modification_Requests', getattr(models, 'modification_requests', None))
     req = db.query(ReqModel).filter(ReqModel.id == req_id).first()
     
@@ -584,11 +600,9 @@ def review_system_request(req_id: int, data: dict, db: Session = Depends(get_db)
     else:
         raise HTTPException(status_code=400, detail="Invalid action status provided.")
 
+# 🟢 FIXED: USES require_admin_or_observer SO OBSERVERS CAN VIEW THE AUDIT LOGS
 @app.get("/api/v1/audit-logs")
-def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    if "ADMIN" not in user_role and "RPC" not in user_role:
-        raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
+def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin_or_observer)):
     try:
         AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
         if not AuditModel:
@@ -616,7 +630,7 @@ def update_user_access(
     data: dict, 
     fnum: Optional[str] = None, 
     db: Session = Depends(get_db), 
-    current_user: models.Users = Depends(require_admin)
+    current_user: models.Users = Depends(require_admin) # 🟢 STILL SECURE: Strict ADMIN for write
 ):
     target_fnum = fnum or data.get("fnum") or data.get("user_fnum")
     if not target_fnum:
@@ -673,7 +687,6 @@ def force_user_password(
     db: Session = Depends(get_db), 
     current_user: models.Users = Depends(get_current_user)
 ):
-    # Strict security check: Only Super Admins can force a password change
     if current_user.role != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="SECURITY OVERRIDE DENIED: Only Super Admins can force password resets.")
         
@@ -687,10 +700,8 @@ def force_user_password(
     if not new_pass or len(new_pass) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters long.")
         
-    # Hash the new password and apply it
     target_user.hashed_password = pwd_context.hash(new_pass)
     
-    # Log the action in the Audit Trail
     if hasattr(models, 'Audit_Logs'):
         log_semantic_audit(
             db=db, 
@@ -704,11 +715,10 @@ def force_user_password(
     db.commit()
     return {"status": "success", "message": f"Password forcibly updated for {target_fnum}"}
 
+# 🟢 FIXED: USES require_admin_or_observer SO OBSERVERS CAN SEE RESET QUEUE
 @app.get("/api/v1/admin/reset-requests")
-def get_reset_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def get_reset_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin_or_observer)):
     try:
-        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
-            raise HTTPException(status_code=403, detail="Unauthorized access.")
         target_model = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
         if target_model:
             resets = db.query(target_model).all()
@@ -722,11 +732,8 @@ def execute_password_reset(
     req_id: int,
     action: str = Form(...),
     db: Session = Depends(get_db),
-    current_user: models.Users = Depends(get_current_user)
+    current_user: models.Users = Depends(require_admin) # 🟢 STILL SECURE: Strict ADMIN for write
 ):
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
-        raise HTTPException(status_code=403, detail="Unauthorized access.")
-
     TargetModel = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
     if not TargetModel:
         raise HTTPException(status_code=404, detail="Password reset model not initialized.")
@@ -839,12 +846,10 @@ def get_online_users(db: Session = Depends(get_db), current_user: models.Users =
         } for u in active_users
     ]
 
+# 🟢 FIXED: USES require_admin_or_observer SO OBSERVERS CAN VIEW ACTIVITY LOGS
 @app.get("/api/v1/activity-logs")
-def get_system_activity_logs(db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
+def get_system_activity_logs(db: Session = Depends(get_logs_db), current_user: models.Users = Depends(require_admin_or_observer)):
     try:
-        if current_user.role not in ["ADMIN", "SUPER_ADMIN", "RPC"]:
-            raise HTTPException(status_code=403, detail="Unauthorized access.")
-        
         logs = db.query(models.Activity_Logs).order_by(models.Activity_Logs.id.desc()).limit(100).all()
         return [
             {
@@ -972,11 +977,7 @@ def get_consolidated_ledger(
 # ====================================================================
 
 @app.get("/api/v1/audit-logs/export")
-def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    if "ADMIN" not in user_role and "RPC" not in user_role:
-        raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
-        
+def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):
     try:
         AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
         logs = db.query(AuditModel).order_by(AuditModel.id.desc()).all()
@@ -1283,7 +1284,6 @@ def get_lockdown_status(db: Session = Depends(get_db), current_user: models.User
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin required.")
 
     try:
-        # Fetch all active lockdowns from the database
         active_lockdowns = db.query(models.SystemConfig).filter(
             models.SystemConfig.config_key.like("lockdown_%"),
             models.SystemConfig.config_value == "TRUE"
@@ -1295,7 +1295,6 @@ def get_lockdown_status(db: Session = Depends(get_db), current_user: models.User
             "active_stations": []
         }
 
-        # Categorize the active lockdowns
         for lockdown in active_lockdowns:
             key = lockdown.config_key
             if key == "lockdown_system_global":
@@ -1345,7 +1344,6 @@ def toggle_granular_maintenance(
         
         action_text = "ACTIVATED" if new_status == "TRUE" else "LIFTED"
 
-        # 🟢 THE FIX: Permanently save the justification to the Audit Logs
         if hasattr(models, 'Audit_Logs'):
             log_semantic_audit(
                 db=db,
@@ -1449,7 +1447,6 @@ def run_weekly_tactical_briefing_job():
     finally:
         db.close()
 
-# 🟢 MANUAL TRIGGER: Send missed briefs right now
 @app.post("/api/v1/admin/trigger-briefs")
 def trigger_briefs_manually(
     background_tasks: BackgroundTasks, 
@@ -1458,7 +1455,6 @@ def trigger_briefs_manually(
     background_tasks.add_task(run_weekly_tactical_briefing_job)
     return {"status": "success", "message": "Weekly tactical briefings are dispatching in the background."}
 
-# 🟢 SINGLE SCHEDULER CONFIGURATION WITH EAT TIMEZONE
 eat_tz = pytz.timezone('Africa/Nairobi')
 scheduler = BackgroundScheduler()
 scheduler.add_job(
