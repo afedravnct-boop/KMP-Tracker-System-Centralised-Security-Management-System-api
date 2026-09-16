@@ -1,117 +1,22 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
-  Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
-  Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
-  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power
+  Shield, Users, RefreshCw, KeyRound, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
+  UserPlus, Eye, XCircle, CheckCircle, Lock, X, AlertTriangle, Filter, ArrowRight, Power
 } from 'lucide-react';
+import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
 
-// ============================================================================
-// 1. UTILITIES & BUSINESS LOGIC
-// 🟢 DEFINED LOCALLY TO BREAK THE CIRCULAR DEPENDENCY LOOP WITH App.jsx
-// ============================================================================
+// 🟢 Import Business Logic & Constants
+import { 
+  REGIONAL_HIERARCHY, TOP_TIER_ROLES, getRoleWeight, canModifyUser, 
+  grantExpressAccess, CLEARANCE_MATRIX_COLS, formatOfficerHeader 
+} from './adminUtils';
 
-const stripHtmlTags = (str) => {
-  if (!str) return '';
-  return str.toString().replace(/<[^>]*>?/gm, '');
-};
+// 🟢 Import Extracted Modals
+import { 
+  SignupDossierModal, HRModificationModal, LockdownMatrixModal, RevocationModal, ToggleSwitch 
+} from './AdminModals';
 
-const REGIONAL_HIERARCHY = {
-  "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
-  "POLICE HEADQUARTERS": ["NAGURU"]
-};
-
-const TOP_TIER_ROLES = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'SYSTEM_ADMIN'];
-
-const getRoleWeight = (role) => {
-  if (role === 'SUPER_ADMIN') return 100;
-  if (role === 'ASSISTANT_SUPER_ADMIN') return 90;
-  if (role === 'SYSTEM_ADMIN') return 80;
-  if (role === 'ADMIN_USER' || role === 'ADMIN' || role === 'RPC') return 70;
-  if (role === 'DIVISION_ADMIN') return 60; 
-  if (role === 'STATION_ADMIN') return 50;  
-  if (role === 'USER') return 10;
-  return 0; 
-};
-
-const canModifyUser = (currentUser, targetUser) => {
-  if (!currentUser || !targetUser) return false;
-  if (currentUser.role === 'SUPER_ADMIN') return true; 
-  if (currentUser.fnum === targetUser.fnum) return false; 
-  
-  const currWeight = getRoleWeight(currentUser.role);
-  const targetWeight = getRoleWeight(targetUser.role);
-  
-  if (currWeight <= targetWeight) return false; 
-  if (currentUser.role === 'ASSISTANT_SUPER_ADMIN') return true; 
-  
-  return currentUser.region === targetUser.region; 
-};
-
-const grantExpressAccess = (role, currentPerms) => {
-  let newPerms = { ...(currentPerms || {}) };
-  const baseModules = ['acc_home', 'acc_profile', 'acc_comms', 'acc_crime', 'acc_ops', 'acc_stories', 'acc_documents'];
-  const adminModules = ['acc_est', 'acc_analytics', 'acc_hr', 'acc_ledgers'];
-  const topModules = ['acc_approvals', 'acc_consolidated', 'acc_roster'];
-
-  if (role !== 'REVOKED') {
-      baseModules.forEach(key => { if (!newPerms?.super_admin_locks?.[key]) newPerms[key] = true; });
-  }
-  if (['STATION_ADMIN', 'DIVISION_ADMIN', 'ADMIN_USER', 'ADMIN', 'RPC', 'SYSTEM_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(role)) {
-      adminModules.forEach(key => { if (!newPerms?.super_admin_locks?.[key]) newPerms[key] = true; });
-  }
-  if (['SYSTEM_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(role)) {
-      topModules.forEach(key => { if (!newPerms?.super_admin_locks?.[key]) newPerms[key] = true; });
-  }
-  if (role === 'ASSISTANT_SUPER_ADMIN') {
-      if (!newPerms?.super_admin_locks?.view_global_roster) newPerms.view_global_roster = true;
-      if (!newPerms?.super_admin_locks?.export_data) newPerms.export_data = true;
-  }
-  return newPerms;
-};
-
-const CLEARANCE_MATRIX_COLS = [
-  { key: 'global_observer', label: 'Global Observer (Read-Only)', color: 'fuchsia', bg: 'bg-fuchsia-50/50' },
-  { key: 'ai_hr_access', label: 'AI Nominal Roll', color: 'amber', bg: 'bg-amber-100/60' },
-  { key: 'acc_home', label: 'Home Dash', color: 'slate', bg: 'bg-slate-100/50' },
-  { key: 'acc_profile', label: 'Profile', color: 'slate', bg: 'bg-slate-100/50' },
-  { key: 'acc_comms', label: 'Command Comms', color: 'blue', bg: 'bg-blue-50/50' },
-  { key: 'acc_crime', label: 'Crime Registry', color: 'blue', bg: 'bg-blue-50/50' },
-  { key: 'acc_ops', label: 'Disruptive Ops', color: 'blue', bg: 'bg-blue-50/50' },
-  { key: 'acc_stories', label: 'Success Stories', color: 'blue', bg: 'bg-blue-50/50' },
-  { key: 'acc_est', label: 'Establishments', color: 'indigo', bg: 'bg-indigo-50/50' },
-  { key: 'acc_hr', label: 'Nominal Roll', color: 'indigo', bg: 'bg-indigo-50/50' },
-  { key: 'acc_documents', label: 'Documents', color: 'indigo', bg: 'bg-indigo-50/50' },
-  { key: 'acc_ledgers', label: 'Reports & Ledgers', color: 'emerald', bg: 'bg-emerald-50/50' },
-  { key: 'acc_consolidated', label: 'Consolidated', color: 'emerald', bg: 'bg-emerald-50/50' },
-  { key: 'acc_analytics', label: 'Analytics & Reports', color: 'emerald', bg: 'bg-emerald-50/50' },
-  { key: 'acc_approvals', label: 'Access Approvals', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'acc_roster', label: 'System Roster', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'acc_online', label: 'Active Online', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'export_data', label: 'Master Export', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'export_logs', label: 'Export Logs', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'acc_documents_download', label: 'Documents Download', color: 'indigo', bg: 'bg-indigo-50/50' }
-];
-
-const formatOfficerHeader = (user) => {
-  const fnum = stripHtmlTags(user.fnum || user.f_num || 'NO-FNUM');
-  const rank = stripHtmlTags(user.rank || 'OFFICER');
-  const name = stripHtmlTags(user.name || 'UNKNOWN');
-  return `${fnum} ${rank} ${name}`;
-};
-
-const ToggleSwitch = ({ checked, onChange }) => (
-  <div onClick={onChange} className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-300 shadow-inner ${checked ? 'bg-red-600' : 'bg-slate-300'}`}>
-    <div className={`bg-white w-3.5 h-3.5 rounded-full shadow-md transform transition-transform duration-300 ${checked ? 'translate-x-4.5' : 'translate-x-0'}`} />
-  </div>
-);
-
-// ============================================================================
-// 2. MAIN DASHBOARD COMPONENT
-// ============================================================================
 
 const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
@@ -131,15 +36,16 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [allSystemUsers, setAllSystemUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
+  // 🟢 Modal States
   const [selectedPendingUser, setSelectedPendingUser] = useState(null);
   const [selectedModRequest, setSelectedModRequest] = useState(null);
-  
   const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
 
   const [isDbKillActive, setIsDbKillActive] = useState(false);
   const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
 
+  // 🟢 Lockdown States
   const [activeLockdownCount, setActiveLockdownCount] = useState(0);
   const [showLockdownModal, setShowLockdownModal] = useState(false);
   const [lockdownRegionFilter, setLockdownRegionFilter] = useState("KMP NORTH");
@@ -158,38 +64,28 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   }, [lockdownData]);
 
   const canViewGlobalActive = canViewGlobal || 
-    currentUser?.role === 'SUPER_ADMIN' || 
+    ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || 
     currentUser?.permissions?.view_global_roster === true || 
     currentUser?.permissions?.global_observer === true;
 
+  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
-
-  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
-
-  const isSuperAdminOrTopCommand = (
-    canViewGlobalActive ||
-    userRoleClean === 'SUPER_ADMIN' ||
-    userPosClean.includes('KMP COMMANDER') ||
-    userPosClean.includes('DEPUTY KMP COMMANDER') ||
-    userPosClean.includes('STAFF OFFICER ADMIN') ||
-    userPosClean.includes('SO ADMIN')
-  );
 
   const isExplicitHighCommand = [
     'IGP', 'DEPUTY IGP', 'DIRECTOR OPERATIONS', 'DEPUTY DIRECTOR OPERATIONS', 
     'KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN'
-  ].some(pos => userPosClean.includes(pos)) || userRoleClean === 'SUPER_ADMIN';
+  ].some(pos => userPosClean.includes(pos)) || ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean);
 
-  const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
-  const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
+  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
 
   useEffect(() => {
-    if (canViewGlobalActive || isSuperAdminOrTopCommand) {
+    if (canViewGlobalActive) {
       setFilterRegion('ALL REGIONS');
       setFilterStation('ALL STATIONS');
     }
-  }, [canViewGlobalActive, isSuperAdminOrTopCommand]);
+  }, [canViewGlobalActive]);
 
   const fetchLockdownStatus = useCallback(async () => {
     if (!hasValidSession()) return;
@@ -256,9 +152,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         const data = await res.json();
         setIsDbKillActive(!data.ai_database_query_enabled);
         alert(data.message);
-      } else {
-        alert("Failed to toggle AI database kill switch.");
-      }
+      } else alert("Failed to toggle AI database kill switch.");
     } catch (err) {
       alert("Error contacting the server to toggle AI database access.");
     } finally {
@@ -271,10 +165,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setLoadingPending(true);
     try {
       const res = await authFetch("/api/v1/admin/pending-users");
-      if (res && res.ok) {
-        const data = await res.json();
-        setRealPendingUsers(Array.isArray(data) ? data : []);
-      }
+      if (res && res.ok) setRealPendingUsers(Array.isArray(await res.json()) ? await res.json() : []);
     } catch (err) { console.error("Failed to sync pending users:", err); } 
     finally { setLoadingPending(false); }
   }, []);
@@ -284,10 +175,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setLoadingResets(true);
     try {
       const res = await authFetch("/api/v1/admin/reset-requests");
-      if (res && res.ok) {
-        const data = await res.json();
-        setResetRequests(Array.isArray(data) ? data : []);
-      }
+      if (res && res.ok) setResetRequests(Array.isArray(await res.json()) ? await res.json() : []);
     } catch (err) { console.error("Failed to sync password resets:", err); } 
     finally { setLoadingResets(false); }
   }, []);
@@ -297,10 +185,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setLoadingUsers(true);
     try {
       const res = await authFetch("/api/v1/users");
-      if (res && res.ok) {
-        const data = await res.json();
-        setAllSystemUsers(Array.isArray(data) ? data : []);
-      }
+      if (res && res.ok) setAllSystemUsers(Array.isArray(await res.json()) ? await res.json() : []);
     } catch (err) { console.error("Failed to sync system user roster:", err); } 
     finally { setLoadingUsers(false); }
   }, []);
@@ -310,10 +195,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setLoadingRequests(true);
     try {
       const res = await authFetch("/api/v1/requests");
-      if (res && res.ok) {
-        const data = await res.json();
-        setModRequests(Array.isArray(data) ? data : []);
-      }
+      if (res && res.ok) setModRequests(Array.isArray(await res.json()) ? await res.json() : []);
     } catch (err) { console.error("Failed to sync requests:", err); } 
     finally { setLoadingRequests(false); }
   }, []);
@@ -323,10 +205,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setLoadingLogs(true);
     try {
       const res = await authFetch("/api/v1/audit-logs");
-      if (res && res.ok) {
-        const data = await res.json();
-        setAuditLogs(Array.isArray(data) ? data : []);
-      }
+      if (res && res.ok) setAuditLogs(Array.isArray(await res.json()) ? await res.json() : []);
     } catch (err) { console.error("Failed to sync audit logs:", err); } 
     finally { setLoadingLogs(false); }
   }, []);
@@ -340,6 +219,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     fetchLockdownStatus();
   }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
 
+  // 🟢 Filtering Logic
   const filterByRegionStation = (items, itemRegionKey = 'region', itemStationKey = 'station') => {
     return items.filter(item => {
       const itemRegion = stripHtmlTags(item[itemRegionKey] || '').trim().toUpperCase();
@@ -374,6 +254,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     });
   }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
 
+  // 🟢 Action Handlers
   const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
     const cleanFnum = stripHtmlTags(fnum);
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
@@ -676,6 +557,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     } catch (err) { alert(`Error: ${stripHtmlTags(err.message)}`); }
   };
 
+  // 🟢 Super Admin Force Password Reset
   const handleForcePassword = async (fnum, name) => {
     const newPass = window.prompt(`[SUPER ADMIN OVERRIDE]\nEnter new 6+ character password for ${name} (${fnum}):`);
     if (!newPass) return;
@@ -698,9 +580,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
   };
 
+  // 🟢 RENDER 
   return (
     <div className="p-4 max-w-[1800px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
       
+      {/* HEADER SECTION */}
       <div className="bg-slate-900 text-white px-6 py-5 rounded-2xl shadow-lg flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
           <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 object-contain contrast-200 brightness-110 drop-shadow-md" onError={(e) => e.target.style.display = 'none'} />
@@ -715,6 +599,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       </div>
 
+      {/* FILTER & ACTION BAR SECTION */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5 relative z-20">
         
         <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-100 w-full xl:w-auto">
@@ -750,7 +635,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             <RefreshCw size={14} className="mr-2 text-blue-600" /> Sync Queue
           </button>
 
-          {isSuperAdminOrTopCommand && (
+          {isSuperAdmin && (
             <button onClick={() => { fetchLockdownStatus(); setShowLockdownModal(true); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${activeLockdownCount > 0 ? 'bg-red-950 border-red-500 text-red-200 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-amber-950/60 border-amber-600/50 text-amber-300 hover:bg-amber-900/60'}`}>
               <span>🔒</span><span>{activeLockdownCount > 0 ? `Lockdowns (${activeLockdownCount} Active)` : 'Lockdowns'}</span>
             </button>
@@ -773,7 +658,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         <button onClick={() => setActiveTab('matrix')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'matrix' ? 'bg-slate-50 border-b-[3px] border-indigo-600 text-indigo-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}>
           <Shield className="w-4 h-4 mr-2"/> Clearance Matrix ({filteredSystemUsers.length})
         </button>
-        {/* 🟢 NEW ROSTER TAB */}
+        {/* 🟢 RESTORED SYSTEM ROSTER TAB */}
         <button onClick={() => setActiveTab('roster')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'roster' ? 'bg-slate-50 border-b-[3px] border-cyan-600 text-cyan-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}>
           <Users className="w-4 h-4 mr-2"/> Directory Roster ({filteredSystemUsers.length})
         </button>
@@ -958,7 +843,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* SYSTEM DIRECTORY ROSTER TAB */}
+      {/* 🟢 NEW: SYSTEM DIRECTORY ROSTER TAB */}
       {activeTab === 'roster' && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
           <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center justify-between text-white font-semibold text-xs uppercase tracking-wider">
@@ -1151,267 +1036,42 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* MODALS INLINED FROM OLD FILE */}
-      {selectedPendingUser && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150">
-            <div className="bg-slate-900 text-white p-4 px-6 flex justify-between items-center shrink-0">
-              <h3 className="font-extrabold text-xs uppercase tracking-wider flex items-center">
-                <Shield size={16} className="text-blue-400 mr-2"/> Signup Verification Dossier
-              </h3>
-              <button onClick={() => setSelectedPendingUser(null)} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
-            </div>
-            <div className="p-6 overflow-y-auto space-y-4 custom-scrollbar flex-1 bg-slate-50">
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex items-center space-x-4">
-                <div 
-                  onClick={() => selectedPendingUser.profile_photo_path && setViewingPhotoModal(selectedPendingUser.profile_photo_path)}
-                  className="w-16 h-16 rounded-full bg-slate-100 border-2 border-blue-500 overflow-hidden shrink-0 flex items-center justify-center cursor-pointer shadow-sm"
-                >
-                  {selectedPendingUser.profile_photo_path ? (
-                    <img src={selectedPendingUser.profile_photo_path} alt="Officer" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="font-black text-xl text-slate-600">{selectedPendingUser.name?.charAt(0) || 'U'}</span>
-                  )}
-                </div>
-                <div>
-                  <h4 className="text-sm font-black text-slate-900">{selectedPendingUser.rank} {selectedPendingUser.name}</h4>
-                  <p className="text-xs font-mono font-bold text-blue-700">{selectedPendingUser.fnum}</p>
-                  <p className="text-[11px] text-slate-500 uppercase font-semibold">{selectedPendingUser.position || 'General Duties'}</p>
-                </div>
-              </div>
+      {/* MODALS EXTERNALLY LOADED */}
+      <SignupDossierModal 
+        user={selectedPendingUser} 
+        onClose={() => setSelectedPendingUser(null)} 
+        setViewingPhotoModal={setViewingPhotoModal} 
+        currentUser={currentUser} 
+        isProcessingAction={isProcessingAction} 
+        handleRejectUser={handleRejectUser} 
+        handleApproveUser={handleApproveUser} 
+        canModifyUser={canModifyUser} 
+      />
 
-              <div className="grid grid-cols-2 gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-2xs text-xs">
-                <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">IPPS Number</span><span className="font-extrabold text-slate-800">{selectedPendingUser.ipps || 'N/A'}</span></div>
-                <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">National ID (NIN)</span><span className="font-extrabold text-slate-800 font-mono">{selectedPendingUser.nin || 'N/A'}</span></div>
-                <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Gender / Sex</span><span className="font-extrabold text-slate-800">{selectedPendingUser.sex || 'MALE'}</span></div>
-                <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Role Requested</span><span className="font-extrabold text-blue-700 uppercase">{selectedPendingUser.role || 'USER'}</span></div>
-                <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span><span className="font-extrabold text-slate-800">{selectedPendingUser.region}</span></div>
-                <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span><span className="font-extrabold text-slate-800">{selectedPendingUser.station}</span></div>
-                <div className="col-span-2 border-t border-slate-100 pt-2"><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Official Email</span><span className="font-bold text-slate-800 break-all">{selectedPendingUser.email || 'N/A'}</span></div>
-                <div className="col-span-2"><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Phone Number</span><span className="font-bold text-slate-800">{selectedPendingUser.phone || 'N/A'}</span></div>
-              </div>
-            </div>
+      <HRModificationModal 
+        req={selectedModRequest} 
+        onClose={() => setSelectedModRequest(null)} 
+        currentUser={currentUser} 
+        isProcessingAction={isProcessingAction} 
+        handleReviewRequest={handleReviewRequest} 
+      />
 
-            <div className="bg-white p-4 border-t border-slate-200 flex justify-between items-center shrink-0">
-              <button type="button" onClick={() => setSelectedPendingUser(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer">
-                Close
-              </button>
-              <div className="space-x-2">
-                {(() => {
-                  const isModalCrossRegion = currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== selectedPendingUser.region;
-                  return (
-                    <>
-                      <button
-                        type="button"
-                        disabled={isProcessingAction || isModalCrossRegion}
-                        onClick={() => handleRejectUser(selectedPendingUser)}
-                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Reject Request"}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white cursor-pointer'}`}
-                      >
-                        <XCircle size={14} className="inline mr-1"/> Reject Request
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isProcessingAction || isModalCrossRegion}
-                        onClick={() => handleApproveUser(selectedPendingUser)}
-                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Approve Access"}
-                        className={`px-5 py-2 rounded-xl text-xs font-extrabold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-blue-700 hover:bg-blue-800 text-white cursor-pointer'}`}
-                      >
-                        <CheckCircle size={14} className="inline mr-1"/> Approve Access
-                      </button>
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <LockdownMatrixModal 
+        isOpen={showLockdownModal} 
+        onClose={() => setShowLockdownModal(false)} 
+        activeLockdownSummary={activeLockdownSummary} 
+        lockdownData={lockdownData} 
+        handleToggleLockdown={handleToggleLockdown} 
+        lockdownRegionFilter={lockdownRegionFilter} 
+        setLockdownRegionFilter={setLockdownRegionFilter} 
+      />
 
-      {selectedModRequest && (() => {
-        const targetRank = (selectedModRequest.requested_rank || selectedModRequest.current_rank || '').toUpperCase();
-        const targetFnum = (selectedModRequest.requested_fnum || selectedModRequest.fnum || '').toUpperCase();
-        const ncoRanks = ['PC', 'SPC', 'CPL', 'SGT'];
-        const isTargetNCO = ncoRanks.includes(targetRank);
-        const isFnumNumeric = /^\d+$/.test(targetFnum);
-        
-        const rankMismatchError = isTargetNCO && !isFnumNumeric 
-          ? `SECURITY CONFLICT: Rank [${targetRank}] requires a strictly numeric Force Number.` 
-          : (!isTargetNCO && isFnumNumeric && targetRank) 
-          ? `SECURITY CONFLICT: Rank [${targetRank}] requires an alphanumeric File Number.` 
-          : null;
-
-        return (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150">
-              
-              <div className="bg-slate-900 text-white p-4 px-6 flex justify-between items-center shrink-0">
-                <h3 className="font-extrabold text-xs uppercase tracking-wider flex items-center text-amber-400">
-                  <Shield size={16} className="mr-2"/> HR Modification Dossier
-                </h3>
-                <button onClick={() => setSelectedModRequest(null)} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
-              </div>
-              
-              <div className="p-6 overflow-y-auto space-y-4 custom-scrollbar flex-1 bg-slate-50">
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
-                   <div>
-                      <h4 className="text-sm font-black text-slate-900">Force/File Number</h4>
-                      <p className="text-lg font-mono font-bold text-blue-700">
-                        {selectedModRequest.requested_fnum ? (
-                          <><span className="line-through text-slate-400 mr-2">{selectedModRequest.fnum}</span> <span className="text-emerald-600">{selectedModRequest.requested_fnum}</span></>
-                        ) : selectedModRequest.fnum}
-                      </p>
-                   </div>
-                   <div className="text-right">
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Requested On</p>
-                      <p className="text-xs font-bold text-slate-600">{stripHtmlTags(selectedModRequest.created_at)}</p>
-                   </div>
-                </div>
-
-                {rankMismatchError && (
-                  <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start shadow-sm">
-                    <AlertTriangle size={18} className="text-red-600 mr-3 shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="text-xs font-black text-red-800 uppercase tracking-wider mb-1">HR Protocol Violation</h4>
-                      <p className="text-[11px] font-semibold text-red-700 leading-tight">{rankMismatchError}</p>
-                      <p className="text-[10px] text-red-500 mt-1">This request must be rejected.</p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-white rounded-xl border border-rose-200 shadow-2xs overflow-hidden">
-                     <div className="bg-rose-50 px-4 py-2 border-b border-rose-200 text-[10px] font-black text-rose-800 uppercase tracking-wider">
-                       Current Active Profile
-                     </div>
-                     <div className="p-4 space-y-3 text-xs">
-                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Legal Name</span><span className="font-bold text-slate-600 line-through">{selectedModRequest.current_name}</span></div>
-                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Professional Rank</span><span className="font-bold text-slate-600 line-through">{selectedModRequest.current_rank}</span></div>
-                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span><span className="font-bold text-slate-600 line-through">{selectedModRequest.current_region}</span></div>
-                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span><span className="font-bold text-slate-600 line-through">{selectedModRequest.current_station}</span></div>
-                     </div>
-                  </div>
-
-                  <div className="bg-white rounded-xl border border-emerald-200 shadow-2xs overflow-hidden relative">
-                     <div className="absolute left-[-16px] top-1/2 transform -translate-y-1/2 bg-white rounded-full p-1 shadow-md z-10 hidden md:block border border-slate-200">
-                       <ArrowRight size={16} className="text-slate-400" />
-                     </div>
-                     <div className="bg-emerald-50 px-4 py-2 border-b border-emerald-200 text-[10px] font-black text-emerald-800 uppercase tracking-wider flex justify-between items-center">
-                       <span>Requested Changes</span>
-                       <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[8px]">PENDING APPROVAL</span>
-                     </div>
-                     <div className="p-4 space-y-3 text-xs">
-                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Legal Name</span><span className={`font-extrabold ${selectedModRequest.requested_name !== selectedModRequest.current_name ? 'text-emerald-700' : 'text-slate-700'}`}>{selectedModRequest.requested_name || selectedModRequest.current_name}</span></div>
-                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Professional Rank</span><span className={`font-extrabold ${selectedModRequest.requested_rank !== selectedModRequest.current_rank ? 'text-emerald-700' : 'text-slate-700'}`}>{selectedModRequest.requested_rank || selectedModRequest.current_rank}</span></div>
-                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span><span className={`font-extrabold ${selectedModRequest.requested_region !== selectedModRequest.current_region ? 'text-emerald-700' : 'text-slate-700'}`}>{selectedModRequest.requested_region || selectedModRequest.current_region}</span></div>
-                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span><span className={`font-extrabold ${selectedModRequest.requested_station !== selectedModRequest.current_station ? 'text-emerald-700' : 'text-slate-700'}`}>{selectedModRequest.requested_station || selectedModRequest.current_station}</span></div>
-                     </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white p-4 border-t border-slate-200 flex justify-between items-center shrink-0">
-                <button type="button" onClick={() => setSelectedModRequest(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer">
-                  Close Preview
-                </button>
-                <div className="space-x-2">
-                  {(() => {
-                    const isModalCrossRegion = currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== selectedModRequest.current_region;
-                    return (
-                      <>
-                        <button
-                          type="button"
-                          disabled={isProcessingAction || isModalCrossRegion}
-                          onClick={() => handleReviewRequest(selectedModRequest.id || selectedModRequest.sn, "REJECTED")}
-                          title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Reject Changes"}
-                          className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 cursor-pointer'}`}
-                        >
-                          <XCircle size={14} className="inline mr-1"/> Reject Changes
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isProcessingAction || isModalCrossRegion || rankMismatchError !== null}
-                          onClick={() => handleReviewRequest(selectedModRequest.id || selectedModRequest.sn, "APPROVED")}
-                          title={rankMismatchError ? "Cannot Approve: Protocol Violation" : isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Approve & Execute"}
-                          className={`px-5 py-2 rounded-xl text-xs font-extrabold transition shadow-xs ${isModalCrossRegion || rankMismatchError ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-60' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}
-                        >
-                          <CheckCircle size={14} className="inline mr-1"/> Approve & Execute
-                        </button>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {showLockdownModal && (
-        <div className="fixed inset-0 z-[9999] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-slate-50 w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-300 overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shrink-0">
-              <div className="flex items-center"><ShieldAlert className="w-5 h-5 text-amber-500 mr-3 animate-pulse" /><div><h3 className="text-sm font-black uppercase tracking-widest">Central Command Lockdown Matrix</h3><p className="text-[10px] text-slate-400">Instantly suspend module access for specific regions or the entire system.</p></div></div>
-              <button onClick={() => setShowLockdownModal(false)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white cursor-pointer transition"><X size={20} /></button>
-            </div>
-            <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-6">
-              {activeLockdownSummary.length > 0 ? (
-                <div className="bg-red-50 border border-red-200 rounded-xl p-4 shadow-sm animate-in fade-in">
-                  <h4 className="text-xs font-black text-red-800 uppercase tracking-wider mb-3 flex items-center"><AlertTriangle className="w-4 h-4 mr-1.5 animate-pulse" /> Currently Active Lockdowns ({activeLockdownSummary.length})</h4>
-                  <div className="flex flex-wrap gap-2">{activeLockdownSummary.map((item, idx) => <span key={idx} className="bg-white border border-red-300 text-red-700 text-[10px] font-bold px-2.5 py-1 rounded shadow-sm">{item}</span>)}</div>
-                </div>
-              ) : (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 shadow-sm flex items-center animate-in fade-in"><CheckCircle className="w-4 h-4 text-emerald-600 mr-2" /><span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">All Systems Operational - No Active Lockdowns</span></div>
-              )}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center justify-between">
-                <div><h4 className="text-sm font-extrabold text-slate-900 flex items-center"><Power className="w-4 h-4 mr-2 text-red-600" /> Force-Wide System Lockdown</h4><p className="text-xs text-slate-500 mt-1 max-w-lg">Activating this will instantly freeze the entire application. All active users (except Super Admins) will be forcefully logged out.</p></div>
-                <ToggleSwitch checked={lockdownData.system} onChange={() => handleToggleLockdown('SYSTEM', 'GLOBAL', lockdownData.system)} />
-              </div>
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="bg-slate-100 px-5 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">Jurisdictional Lockdowns</h4>
-                  <div className="flex items-center space-x-2"><span className="text-[10px] font-bold text-slate-500 uppercase">Select Region:</span><select value={lockdownRegionFilter} onChange={(e) => setLockdownRegionFilter(e.target.value)} className="border border-slate-300 rounded p-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer bg-white">{Object.keys(REGIONAL_HIERARCHY).map(reg => (<option key={reg} value={reg}>{reg}</option>))}</select></div>
-                </div>
-                <div className="p-5 space-y-6">
-                  <div className="flex items-center justify-between bg-amber-50 border border-amber-200 p-4 rounded-lg shadow-inner">
-                    <div><h5 className="text-xs font-black text-amber-900 uppercase">Lock Entire Region: {lockdownRegionFilter}</h5><p className="text-[10px] text-amber-700 mt-0.5">Suspends access for ALL stations within this region immediately.</p></div>
-                    <ToggleSwitch checked={!!lockdownData.regions[lockdownRegionFilter]} onChange={() => handleToggleLockdown('REGION', lockdownRegionFilter, !!lockdownData.regions[lockdownRegionFilter])} />
-                  </div>
-                  <div>
-                    <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 border-b pb-2">Individual Station Lockdowns ({lockdownRegionFilter})</h5>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {REGIONAL_HIERARCHY[lockdownRegionFilter]?.map(station => (
-                        <div key={station} className="flex items-center justify-between border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-colors">
-                          <span className="text-xs font-bold text-slate-700 uppercase truncate pr-2">{station}</span>
-                          <ToggleSwitch checked={!!lockdownData.stations[station]} onChange={() => handleToggleLockdown('STATION', station, !!lockdownData.stations[station])} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {revokePrompt.isOpen && (
-        <div className="fixed inset-0 z-[99999] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-300 overflow-hidden flex flex-col">
-            <div className="bg-red-600 px-6 py-4 flex items-center shrink-0"><AlertTriangle className="text-white mr-3 animate-pulse" size={22} /><h3 className="text-white font-extrabold text-sm uppercase tracking-wider">Mandatory Justification Required</h3></div>
-            <div className="p-6 space-y-4">
-              <p className="text-sm font-bold text-slate-700 leading-relaxed">You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${stripHtmlTags(revokePrompt.permissionKey)}"`} clearance</span> for this officer. By command directive, you must state an official operational reason to proceed.</p>
-              <textarea value={revokePrompt.reason} onChange={(e) => setRevokePrompt({...revokePrompt, reason: stripHtmlTags(e.target.value)})} placeholder="Type official reason for revocation here..." className="w-full border border-slate-300 rounded-xl p-3 text-sm font-medium outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 resize-none h-32 bg-white" />
-            </div>
-            <div className="bg-slate-50 px-6 py-4 flex justify-end space-x-3 border-t border-slate-200 shrink-0">
-              <button onClick={() => setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' })} className="px-4 py-2 font-bold text-slate-600 text-xs bg-white border border-slate-300 rounded-xl hover:bg-slate-100 transition cursor-pointer">Cancel Action</button>
-              {revokePrompt.reason.trim().length >= 5 && (
-                <button onClick={() => { if (revokePrompt.actionType === 'ROLE') { executeRoleChange(revokePrompt.fnum, revokePrompt.targetValue, revokePrompt.reason); } else { executePermissionChange(revokePrompt.fnum, revokePrompt.permissionKey, revokePrompt.targetValue, revokePrompt.reason); } setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' }); }} className="px-4 py-2 font-bold text-white text-xs bg-red-600 rounded-xl hover:bg-red-700 shadow-md transition flex items-center cursor-pointer animate-in fade-in slide-in-from-right-4"><CheckCircle size={15} className="mr-1.5" /> Confirm Revocation</button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <RevocationModal 
+        prompt={revokePrompt} 
+        setPrompt={setRevokePrompt} 
+        executeRoleChange={executeRoleChange} 
+        executePermissionChange={executePermissionChange} 
+      />
 
       {viewingPhotoModal && (
         <div className="fixed inset-0 bg-black/90 z-[400] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingPhotoModal(null)}>
