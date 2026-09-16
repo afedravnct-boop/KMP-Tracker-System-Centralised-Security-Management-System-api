@@ -16,6 +16,9 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+// 🟢 TOP TIER ROLES (RESTRICTED TO SUPER ADMIN ONLY)
+const TOP_TIER_ROLES = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'SYSTEM_ADMIN'];
+
 // 🟢 ROLE WEIGHT HIERARCHY (Determines who can modify whom)
 const getRoleWeight = (role) => {
   if (role === 'SUPER_ADMIN') return 100;
@@ -23,7 +26,7 @@ const getRoleWeight = (role) => {
   if (role === 'SYSTEM_ADMIN') return 80;
   if (role === 'ADMIN_USER' || role === 'ADMIN' || role === 'RPC') return 70;
   if (role === 'DIVISION_ADMIN') return 60; // 🟢 NEW TIER
-  if (role === 'STATION_ADMIN') return 50; // 🟢 ADJUSTED TIER
+  if (role === 'STATION_ADMIN') return 50;  // 🟢 ADJUSTED TIER
   if (role === 'USER') return 10;
   return 0; // REVOKED
 };
