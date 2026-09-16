@@ -60,8 +60,9 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const canUploadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN'].includes(currentUser?.role?.toUpperCase());
   const canDownloadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN', 'USER'].includes(currentUser?.role?.toUpperCase());
 
-  const hasUploadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_documents&reports_upload !== false && (canUploadByRole || currentUser?.permissions?.acc_documents&reports_upload === true));
-  const hasDownloadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_documents&reports_download !== false && (canDownloadByRole || currentUser?.permissions?.acc_documents&reports_download === true));
+  // 🟢 FIXED SYNTAX: Removed the fatal "&" operator error and mapped properly to Matrix Keys
+  const hasUploadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_documents !== false && (canUploadByRole || currentUser?.permissions?.acc_documents === true));
+  const hasDownloadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_documents_download !== false && (canDownloadByRole || currentUser?.permissions?.acc_documents_download === true));
 
   const fetchArchiveList = async () => {
     setLoadingDocs(true);
