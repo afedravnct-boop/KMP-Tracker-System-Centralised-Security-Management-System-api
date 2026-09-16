@@ -69,6 +69,13 @@ export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = t
   if (currentUser.role === 'SUPER_ADMIN') return true;
 
   const perms = currentUser.permissions || {};
+
+  // 🟢 GLOBAL OVERRIDE: If Global Observer is checked, unlock all pages/tabs globally 
+  // regardless of whether individual checkboxes are checked or unchecked.
+  if (perms.global_observer === true) {
+    return true;
+  }
+
   if (typeof perms[permissionKey] === 'boolean') {
     return perms[permissionKey];
   }

@@ -68,6 +68,14 @@ export const grantExpressAccess = (role, currentPerms) => {
       if (!newPerms?.super_admin_locks?.view_global_roster) newPerms.view_global_roster = true;
       if (!newPerms?.super_admin_locks?.export_data) newPerms.export_data = true;
   }
+
+  // 🟢 AUTOMATICALLY UNLOCK ALL VIEW MODULES IF GLOBAL OBSERVER OR GLOBAL ROSTER IS ACTIVE
+  if (newPerms.global_observer === true || newPerms.view_global_roster === true) {
+      const allModules = [...baseModules, ...adminModules, ...topModules];
+      allModules.forEach(key => {
+          newPerms[key] = true;
+      });
+  }
   
   return newPerms;
 };
