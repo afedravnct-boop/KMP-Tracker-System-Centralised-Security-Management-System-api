@@ -161,12 +161,20 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     reason: ''
   });
 
+  // 🟢 DEFINED SECURITY HIERARCHY VARIABLES 
   const canViewGlobalActive = canViewGlobal || 
     ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || 
     currentUser?.permissions?.view_global_roster === true || 
     currentUser?.permissions?.global_observer === true;
 
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+
+  const isExplicitHighCommand = [
+    'IGP', 'DEPUTY IGP', 'DIRECTOR OPERATIONS', 'DEPUTY DIRECTOR OPERATIONS', 
+    'KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN'
+  ].some(pos => userPosClean.includes(pos)) || ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean);
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
   const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
