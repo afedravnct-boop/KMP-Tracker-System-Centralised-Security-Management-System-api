@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
-  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight
+  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -50,6 +50,12 @@ const formatOfficerHeader = (user) => {
   return `${fnum} ${rank} ${name}`;
 };
 
+const ToggleSwitch = ({ checked, onChange }) => (
+  <div onClick={onChange} className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-300 shadow-inner ${checked ? 'bg-red-600' : 'bg-slate-300'}`}>
+    <div className={`bg-white w-3.5 h-3.5 rounded-full shadow-md transform transition-transform duration-300 ${checked ? 'translate-x-4.5' : 'translate-x-0'}`} />
+  </div>
+);
+
 const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
     
@@ -77,23 +83,37 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [isDbKillActive, setIsDbKillActive] = useState(false);
   const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
 
+  const [activeLockdownCount, setActiveLockdownCount] = useState(0);
+  const [showLockdownModal, setShowLockdownModal] = useState(false);
+  const [lockdownRegionFilter, setLockdownRegionFilter] = useState("KMP NORTH");
+  const [lockdownData, setLockdownData] = useState({ system: false, regions: {}, stations: {} });
+
   const [revokePrompt, setRevokePrompt] = useState({
-    isOpen: false,
-    fnum: null,
-    actionType: null,
-    targetValue: null,
-    permissionKey: null,
-    reason: ''
+    isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: ''
   });
 
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
+  const activeLockdownSummary = useMemo(() => {
+    let list = [];
+    if (lockdownData.system) list.push("🚨 SYSTEM-WIDE FULL LOCKDOWN");
+    Object.keys(lockdownData.regions).forEach(r => { if (lockdownData.regions[r]) list.push(`⚠️ REGION: ${r}`); });
+    Object.keys(lockdownData.stations).forEach(s => { if (lockdownData.stations[s]) list.push(`🔒 STATION: ${s}`); });
+    return list;
+  }, [lockdownData]);
+
+  const canViewGlobalActive = canViewGlobal || 
+    currentUser?.role === 'SUPER_ADMIN' || 
+    currentUser?.permissions?.view_global_roster === true || 
+    currentUser?.permissions?.global_observer === true;
 
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
 
+  // 🟢 DEFINED PROPERLY TO ELIMINATE REFERENCE ERROR
+  const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
+
   const isSuperAdminOrTopCommand = (
     canViewGlobalActive ||
-    userRoleClean === 'SUPER_ADMIN' ||
+    isSuperAdmin ||
     userPosClean.includes('KMP COMMANDER') ||
     userPosClean.includes('DEPUTY KMP COMMANDER') ||
     userPosClean.includes('STAFF OFFICER ADMIN') ||
@@ -103,7 +123,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const isExplicitHighCommand = [
     'IGP', 'DEPUTY IGP', 'DIRECTOR OPERATIONS', 'DEPUTY DIRECTOR OPERATIONS', 
     'KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN'
-  ].some(pos => userPosClean.includes(pos)) || userRoleClean === 'SUPER_ADMIN';
+  ].some(pos => userPosClean.includes(pos)) || isSuperAdmin;
 
   const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
   const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
@@ -115,70 +135,55 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
   }, [canViewGlobalActive, isSuperAdminOrTopCommand]);
 
-  const handleSystemMaintenanceToggle = async () => {
-    const actionChoice = window.prompt(
-      "SYSTEM LOCKDOWN MANAGEMENT\n\nDo you want to:\n1 - ACTIVATE a new Lockdown\n2 - LIFT an existing Lockdown\n\nEnter 1 or 2:",
-      "1"
-    );
-    if (!actionChoice) return;
+  const fetchLockdownStatus = useCallback(async () => {
+    if (!hasValidSession()) return;
+    try {
+      const res = await authFetch('/api/v1/admin/lockdown/status');
+      if (res.ok) {
+        const data = await res.json();
+        let count = 0;
+        let newLockdownData = { system: false, regions: {}, stations: {} };
 
-    const isLifting = actionChoice.trim() === "2";
-
-    const scopeChoice = window.prompt(
-      `Select Scope to ${isLifting ? 'LIFT' : 'LOCKDOWN'}:\n1 - Force-Wide System\n2 - Specific Region\n3 - Specific Station\n\nEnter number (1-3):`,
-      "1"
-    );
-    if (!scopeChoice) return;
-
-    let lockdownType = "SYSTEM";
-    let targetName = "GLOBAL";
-    let reason = "";
-
-    if (scopeChoice === "1") {
-      lockdownType = "SYSTEM";
-      targetName = "GLOBAL";
-    } else if (scopeChoice === "2") {
-      targetName = window.prompt(`Enter exact Region Name to ${isLifting ? 'UNLOCK' : 'LOCK'} (e.g. KMP NORTH):`, "KMP NORTH")?.trim().toUpperCase();
-      if (!targetName) return;
-      lockdownType = "REGION";
-    } else if (scopeChoice === "3") {
-      targetName = window.prompt(`Enter exact Station Name to ${isLifting ? 'UNLOCK' : 'LOCK'} (e.g. KAWEMPE):`, "KAWEMPE")?.trim().toUpperCase();
-      if (!targetName) return;
-      lockdownType = "STATION";
-    } else {
-      return alert("Invalid selection.");
+        if (data.system_lockdown) { count++; newLockdownData.system = true; }
+        if (data.active_regions?.length > 0) {
+          count += data.active_regions.length;
+          data.active_regions.forEach(r => newLockdownData.regions[r] = true);
+        }
+        if (data.active_stations?.length > 0) {
+          count += data.active_stations.length;
+          data.active_stations.forEach(s => newLockdownData.stations[s] = true);
+        }
+        setActiveLockdownCount(count);
+        setLockdownData(newLockdownData);
+      }
+    } catch (err) {
+      console.error("Failed to fetch lockdown status:", err);
     }
+  }, []);
 
-    const rawReason = window.prompt(
-      isLifting 
-        ? `State official reason for LIFTING the lockdown on [${lockdownType}: ${targetName}]:` 
-        : `State operational reason for LOCKING DOWN [${lockdownType}: ${targetName}]:`
-    );
-    
-    if (rawReason === null) return; 
-    
-    reason = stripHtmlTags(rawReason || (isLifting ? "Command Lockdown Lifted" : "Command Maintenance"));
+  const handleToggleLockdown = async (type, name, currentStatus) => {
+    const isLifting = currentStatus; 
+    const actionWord = isLifting ? "LIFT" : "ACTIVATE";
+
+    const rawReason = window.prompt(`State official reason to ${actionWord} lockdown on [${type}: ${name}]:`);
+    if (rawReason === null) return;
+    const reason = stripHtmlTags(rawReason || (isLifting ? "Command Lockdown Lifted" : "Command Maintenance"));
 
     if (isLifting) {
-      const confirmLift = window.confirm(`⚠️ Are you sure you want to LIFT the lockdown for [${lockdownType}: ${targetName}]?`);
-      if (!confirmLift) return;
+      if (!window.confirm(`⚠️ Are you sure you want to LIFT the lockdown for [${type}: ${name}]?`)) return;
+    } else {
+      if (!window.confirm(`🛑 Are you sure you want to LOCK DOWN [${type}: ${name}]? This will instantly restrict access.`)) return;
     }
 
     try {
       const res = await authFetch('/api/v1/admin/toggle-maintenance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lockdown_type: lockdownType,
-          target_name: targetName,
-          reason: reason
-        })
+        body: JSON.stringify({ lockdown_type: type, target_name: name, reason: reason })
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        alert(`✅ Command Executed:\n${data.message}`);
-      } else {
+      if (res.ok) fetchLockdownStatus();
+      else {
         const err = await res.json().catch(() => ({}));
         alert(`❌ Failed to execute command: ${err.detail || 'Server error'}`);
       }
@@ -270,14 +275,15 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     finally { setLoadingLogs(false); }
   }, []);
 
-  // 🟢 FIXED: Fetch users when either Matrix OR Directory Roster is clicked
+  // 🟢 FIXED: Ensures users load when clicking either Matrix or Roster tab
   useEffect(() => {
     if (activeTab === 'approvals') fetchPendingUsers();
     else if (activeTab === 'matrix' || activeTab === 'roster') fetchAllSystemUsers();
     else if (activeTab === 'requests') fetchModRequests();
     else if (activeTab === 'logs') { fetchAuditLogs(); fetchAllSystemUsers(); }
     else if (activeTab === 'resets') fetchResets();
-  }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets]);
+    fetchLockdownStatus();
+  }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
 
   const filteredPending = useMemo(() => {
     return realPendingUsers.filter(u => {
@@ -341,296 +347,118 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
     const cleanFnum = stripHtmlTags(fnum);
-    if (cleanFnum === currentUser?.fnum) {
-      alert("Security Restriction: You cannot bulk-modify your own clearance access.");
-      return;
-    }
-    if (!isExplicitHighCommand) {
-      alert("Security Restriction: Only High Command or Super Admins are authorized to perform bulk clearance modifications.");
-      return;
-    }
-
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    
     if (!targetUser) return;
-
-    if (currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetUser.region) {
-      alert("SECURITY OVERRIDE DENIED: Cross-regional clearance modifications require SUPER ADMIN authority.");
-      return;
-    }
-
-    if (TOP_TIER_ROLES.includes(targetUser.role) && currentUser?.role !== 'SUPER_ADMIN') {
-      alert("SECURITY OVERRIDE DENIED: You do not have authority to bulk-update a top-tier administrator.");
+    if (!canModifyUser(currentUser, targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance to bulk-update this user.");
       return;
     }
 
     const newPermissions = { ...(targetUser.permissions || {}) };
-    const colsToProcess = CLEARANCE_MATRIX_COLS.filter(col => !(col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN'));
+    if (!newPermissions.super_admin_locks) newPermissions.super_admin_locks = {};
+
+    const colsToProcess = CLEARANCE_MATRIX_COLS.filter(col => !(col.key === 'global_observer' && !isSuperAdmin));
 
     colsToProcess.forEach(col => {
+      const isLocked = newPermissions.super_admin_locks[col.key];
+      if (!isSuperAdmin && isLocked) return; 
       newPermissions[col.key] = setAllToTrue;
+      if (isSuperAdmin) newPermissions.super_admin_locks[col.key] = !setAllToTrue; 
     });
 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: newPermissions } : u));
 
     try {
       const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
       });
       if (!response.ok) throw new Error("Failed to update bulk permissions.");
-    } catch (err) {
-      alert(`Bulk Update Failed: ${err.message}`);
-      fetchAllSystemUsers();
-    }
-  };
-
-  const executePermissionChange = async (fnum, permissionKey, value, reason = '') => {
-    const cleanFnum = stripHtmlTags(fnum);
-    if (cleanFnum === currentUser?.fnum) {
-      alert("Security Restriction: You cannot modify your own access clearance.");
-      return;
-    }
-
-    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
-    if (!targetUser) return;
-
-    if (currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetUser.region) {
-      alert("SECURITY OVERRIDE DENIED: Cross-regional clearance modifications require SUPER ADMIN authority.");
-      return;
-    }
-
-    if (TOP_TIER_ROLES.includes(targetUser.role) && currentUser?.role !== 'SUPER_ADMIN') {
-      alert("SECURITY OVERRIDE DENIED: You do not have authority to modify the clearance of a top-tier administrator.");
-      return;
-    }
-
-    let locks = targetUser.permissions?.super_admin_locks || {};
-
-    if (value === false && isSuperAdminOrTopCommand) {
-      locks[permissionKey] = true;
-    } else if (value === true && isSuperAdminOrTopCommand) {
-      locks[permissionKey] = false;
-    }
-
-    const updatedPermissions = {
-      ...(targetUser.permissions || {}),
-      [permissionKey]: value,
-      super_admin_locks: locks,
-      [`${permissionKey}_revoke_reason`]: stripHtmlTags(reason || targetUser.permissions?.[`${permissionKey}_revoke_reason`])
-    };
-
-    setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
-
-    try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
-      }
-    } catch (err) {
-      alert(`Permission Update Failed:\n${stripHtmlTags(err.message)}`);
-      fetchAllSystemUsers();
-    }
-  };
-
-  const executeRoleChange = async (fnum, newRole, reason = '') => {
-    const cleanFnum = stripHtmlTags(fnum);
-    if (cleanFnum === currentUser?.fnum) {
-      alert("Security Restriction: You cannot modify your own access role or tier.");
-      return;
-    }
-
-    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
-    if (!targetUser) return;
-
-    if (currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetUser.region) {
-      alert("SECURITY OVERRIDE DENIED: Cross-regional tier modifications require SUPER ADMIN authority.");
-      return;
-    }
-
-    let updatedPermissions = { ...(targetUser.permissions || {}) };
-
-    if (newRole === 'REVOKED') {
-      updatedPermissions.revoke_reason = stripHtmlTags(reason);
-      updatedPermissions.revoked_by = isSuperAdminOrTopCommand ? 'SUPER_ADMIN' : stripHtmlTags(currentUser?.role);
-    } else if (isSuperAdminOrTopCommand) {
-      delete updatedPermissions.revoked_by;
-      delete updatedPermissions.revoke_reason;
-    }
-
-    setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
-
-    try {
-      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
-      }
-    } catch (err) {
-      alert(`Role Update Failed:\n${stripHtmlTags(err.message)}`);
-      fetchAllSystemUsers();
-    }
+    } catch (err) { alert(`Bulk Update Failed: ${err.message}`); fetchAllSystemUsers(); }
   };
 
   const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     const cleanFnum = stripHtmlTags(fnum);
-    if (cleanFnum === currentUser?.fnum) {
-      alert("Security Restriction: You cannot modify your own access clearance.");
-      return;
-    }
-    if (currentUser?.role === 'SYSTEM_ADMIN') {
-      alert("Security Restriction: SYSTEM ADMIN has viewing access only and cannot modify permissions.");
-      return;
-    }
-
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    
     if (!targetUser) return;
-
-    if (currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetUser.region) {
-      alert("SECURITY OVERRIDE DENIED: Cross-regional clearance modifications require SUPER ADMIN authority.");
+    if (!canModifyUser(currentUser, targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance to modify this user.");
       return;
     }
 
-    if (TOP_TIER_ROLES.includes(targetUser.role) && currentUser?.role !== 'SUPER_ADMIN') {
-      alert(`SECURITY OVERRIDE DENIED: You do not have authority to modify the clearance of a ${targetUser.role.replace(/_/g, ' ')}.`);
-      return;
-    }
-
-    if (value === true && !isSuperAdminOrTopCommand && targetUser.permissions?.super_admin_locks?.[permissionKey]) {
+    if (value === true && !isSuperAdmin && targetUser.permissions?.super_admin_locks?.[permissionKey]) {
       alert("SECURITY OVERRIDE DENIED: This clearance was locked by High Command.");
       return;
     }
 
-    if (value === false && !isSuperAdminOrTopCommand) {
-      setRevokePrompt({
-        isOpen: true,
-        fnum: cleanFnum,
-        actionType: 'PERMISSION',
-        targetValue: value,
-        permissionKey,
-        reason: ''
-      });
+    if (value === false && !isSuperAdmin) {
+      setRevokePrompt({ isOpen: true, fnum: cleanFnum, actionType: 'PERMISSION', targetValue: value, permissionKey, reason: '' });
       return;
     }
 
     let locks = { ...(targetUser.permissions?.super_admin_locks || {}) };
-    if (isSuperAdminOrTopCommand) {
-      locks[permissionKey] = !value;
-    }
+    if (isSuperAdmin) locks[permissionKey] = !value;
 
-    const updatedPermissions = {
-      ...(targetUser.permissions || {}),
-      [permissionKey]: value,
-      super_admin_locks: locks
-    };
+    const updatedPermissions = { ...(targetUser.permissions || {}), [permissionKey]: value, super_admin_locks: locks };
 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
 
     try {
       const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
       });
-      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
       }
-    } catch (err) {
-      alert(`Permission Update Failed:\n${stripHtmlTags(err.message)}`);
-      fetchAllSystemUsers();
-    }
+    } catch (err) { alert(`Permission Update Failed:\n${stripHtmlTags(err.message)}`); fetchAllSystemUsers(); }
   };
 
   const handleRoleTierChange = async (fnum, newRole) => {
     const cleanFnum = stripHtmlTags(fnum);
-    if (cleanFnum === currentUser?.fnum) {
-      alert("Security Restriction: You cannot modify your own access role.");
-      return;
-    }
-    if (currentUser?.role === 'SYSTEM_ADMIN') {
-      alert("Security Restriction: SYSTEM ADMIN cannot manage access clearance tiers.");
-      return;
-    }
-
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    
     if (!targetUser) return;
-
-    if (currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetUser.region) {
-      alert("SECURITY OVERRIDE DENIED: Cross-regional tier modifications require SUPER ADMIN authority.");
+    if (!canModifyUser(currentUser, targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance to modify this user.");
       return;
     }
 
-    if (TOP_TIER_ROLES.includes(targetUser.role) && currentUser?.role !== 'SUPER_ADMIN') {
-      alert(`SECURITY OVERRIDE DENIED: You do not have authority to modify the clearance of a ${targetUser.role.replace(/_/g, ' ')}.`);
-      return;
-    }
-
-    if (TOP_TIER_ROLES.includes(newRole) && currentUser?.role !== 'SUPER_ADMIN') {
-      alert(`SECURITY OVERRIDE DENIED: Only a SUPER ADMIN can grant ${newRole.replace(/_/g, ' ')} clearance.`);
-      return;
-    }
-
-    if (newRole !== 'REVOKED' && targetUser.role === 'REVOKED' && !isSuperAdminOrTopCommand && targetUser.permissions?.revoked_by === 'SUPER_ADMIN') {
+    if (newRole !== 'REVOKED' && targetUser.role === 'REVOKED' && !isSuperAdmin && targetUser.permissions?.revoked_by === 'SUPER_ADMIN') {
       alert("SECURITY OVERRIDE DENIED: This access was revoked by a Super Admin.");
       return;
     }
 
-    if (newRole === 'REVOKED' && !isSuperAdminOrTopCommand) {
-      setRevokePrompt({
-        isOpen: true,
-        fnum: cleanFnum,
-        actionType: 'ROLE',
-        targetValue: newRole,
-        permissionKey: null,
-        reason: ''
-      });
+    if (newRole === 'REVOKED' && !isSuperAdmin) {
+      setRevokePrompt({ isOpen: true, fnum: cleanFnum, actionType: 'ROLE', targetValue: newRole, permissionKey: null, reason: '' });
       return;
     }
 
     let updatedPermissions = { ...(targetUser.permissions || {}) };
-    if (newRole !== 'REVOKED' && isSuperAdminOrTopCommand) {
-      delete updatedPermissions.revoked_by;
-      delete updatedPermissions.revoke_reason;
+    if (newRole !== 'REVOKED') {
+      updatedPermissions = grantExpressAccess(newRole, updatedPermissions);
+      if (isSuperAdmin) { delete updatedPermissions.revoked_by; delete updatedPermissions.revoke_reason; }
     }
 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
     try {
       const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
-      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
       }
-    } catch (err) {
-      alert(`Role Update Failed:\n${stripHtmlTags(err.message)}`);
-      fetchAllSystemUsers();
-    }
+    } catch (err) { alert(`Role Update Failed:\n${stripHtmlTags(err.message)}`); fetchAllSystemUsers(); }
   };
 
   const handleApproveUser = async (userToApprove) => {
     const fnum = typeof userToApprove === 'object' ? userToApprove.fnum : userToApprove;
-    const targetRegion = typeof userToApprove === 'object' ? userToApprove.region : null;
-
-    if (targetRegion && currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetRegion) {
-        alert("SECURITY OVERRIDE DENIED: Cross-regional account approvals are strictly restricted to SUPER ADMINS.");
+    
+    if (!canModifyUser(currentUser, userToApprove)) {
+        alert("SECURITY OVERRIDE DENIED: Out of Jurisdiction.");
         return;
     }
 
@@ -638,28 +466,18 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     try {
       const cleanFnum = stripHtmlTags(fnum);
       const safeFnum = encodeURIComponent(cleanFnum.trim());
-
       let finalRole = typeof userToApprove === 'object' ? userToApprove.role || 'USER' : 'USER';
 
-      if (TOP_TIER_ROLES.includes(finalRole) && currentUser?.role !== 'SUPER_ADMIN') {
-          const proceed = window.confirm(`SECURITY HALT: This officer requested [${finalRole.replace(/_/g, ' ')}] clearance, which can only be authorized by a SUPER ADMIN.\n\nWould you like to approve them with standard [USER] clearance instead?`);
-          if (!proceed) {
-              setIsProcessingAction(false);
-              return;
-          }
+      if (getRoleWeight(finalRole) >= getRoleWeight(currentUser.role) && !isSuperAdmin) {
+          const proceed = window.confirm(`SECURITY HALT: This officer requested [${finalRole.replace(/_/g, ' ')}] clearance, which exceeds your authority to grant.\n\nWould you like to approve them with standard [USER] clearance instead?`);
+          if (!proceed) { setIsProcessingAction(false); return; }
           finalRole = 'USER';
       }
 
       const grantedPermissions = grantExpressAccess(finalRole, userToApprove.permissions || {});
 
       const response = await authFetch(`/api/v1/users/${safeFnum}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          role: finalRole,
-          is_approved: true,
-          permissions: grantedPermissions 
-        })
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: finalRole, is_approved: true, permissions: grantedPermissions })
       });
 
       const data = await response.json();
@@ -669,20 +487,16 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       setSelectedPendingUser(null);
       fetchPendingUsers();
       fetchAllSystemUsers();
-    } catch (err) {
-      alert(`Approval Error: ${stripHtmlTags(err.message)}`);
-    } finally {
-      setIsProcessingAction(false);
-    }
+    } catch (err) { alert(`Approval Error: ${stripHtmlTags(err.message)}`); } 
+    finally { setIsProcessingAction(false); }
   };
 
   const handleRejectUser = async (userToReject) => {
     const fnum = typeof userToReject === 'object' ? userToReject.fnum : userToReject;
     const name = typeof userToReject === 'object' ? userToReject.name : fnum;
-    const targetRegion = typeof userToReject === 'object' ? userToReject.region : null;
 
-    if (targetRegion && currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetRegion) {
-        alert("SECURITY OVERRIDE DENIED: Cross-regional rejections are strictly restricted to SUPER ADMINS.");
+    if (!canModifyUser(currentUser, userToReject)) {
+        alert("SECURITY OVERRIDE DENIED: Out of Jurisdiction.");
         return;
     }
 
@@ -696,9 +510,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const safeFnum = encodeURIComponent(cleanFnum.trim());
       const safeReason = encodeURIComponent(stripHtmlTags(rawReason));
 
-      const response = await authFetch(`/api/v1/users/${safeFnum}/revoke?reason=${safeReason}`, {
-        method: "DELETE"
-      });
+      const response = await authFetch(`/api/v1/users/${safeFnum}/revoke?reason=${safeReason}`, { method: "DELETE" });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -708,20 +520,16 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       alert(`⛔ Request Rejected: ${cleanFnum} has been removed from the queue.`);
       setSelectedPendingUser(null);
       fetchPendingUsers();
-    } catch (err) {
-      alert(`Rejection Error: ${stripHtmlTags(err.message)}`);
-    } finally {
-      setIsProcessingAction(false);
-    }
+    } catch (err) { alert(`Rejection Error: ${stripHtmlTags(err.message)}`); } 
+    finally { setIsProcessingAction(false); }
   };
 
   const handleReviewRequest = async (reqId, actionStatus) => {
     if (!reqId) return alert("Error: Request ID is undefined.");
-
     const reqObj = modRequests.find(r => (r.id || r.sn) === reqId);
     
-    if (reqObj && currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== reqObj.current_region) {
-        alert("SECURITY OVERRIDE DENIED: Cross-regional HR modifications are strictly restricted to SUPER ADMINS.");
+    if (reqObj && !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== reqObj.current_region) {
+        alert("SECURITY OVERRIDE DENIED: Cross-regional HR modifications are strictly restricted to Super/Assistant Admins.");
         return;
     }
 
@@ -734,9 +542,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
     try {
       const response = await authFetch(`/api/v1/requests/${reqId}`, {
-        method: "PATCH", 
-        headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify(payload)
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
       
       if (!response.ok) {
@@ -747,9 +553,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId));
       setSelectedModRequest(null); 
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
-    } catch (err) {
-      alert(`Error processing request: ${stripHtmlTags(err.message)}`);
-    }
+    } catch (err) { alert(`Error processing request: ${stripHtmlTags(err.message)}`); }
   };
 
   const handleResetAction = async (reqId, actionStr) => {
@@ -778,7 +582,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     } catch (err) { alert(`Error: ${stripHtmlTags(err.message)}`); }
   };
 
-  // 🟢 Super Admin Force Password Reset Handler
   const handleForcePassword = async (fnum, name) => {
     const newPass = window.prompt(`[SUPER ADMIN OVERRIDE]\nEnter new 6+ character password for ${name} (${fnum}):`);
     if (!newPass) return;
@@ -876,7 +679,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         <button onClick={() => setActiveTab('matrix')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'matrix' ? 'bg-slate-50 border-b-[3px] border-indigo-600 text-indigo-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}>
           <Shield className="w-4 h-4 mr-2"/> Clearance Matrix ({filteredSystemUsers.length})
         </button>
-        {/* 🟢 RESTORED SYSTEM ROSTER TAB */}
         <button onClick={() => setActiveTab('roster')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'roster' ? 'bg-slate-50 border-b-[3px] border-cyan-600 text-cyan-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}>
           <Users className="w-4 h-4 mr-2"/> Directory Roster ({filteredSystemUsers.length})
         </button>
@@ -1061,7 +863,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 NEW: SYSTEM DIRECTORY ROSTER TAB */}
+      {/* SYSTEM DIRECTORY ROSTER TAB */}
       {activeTab === 'roster' && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
           <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center justify-between text-white font-semibold text-xs uppercase tracking-wider">
@@ -1143,6 +945,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
+      {/* HR MODIFICATION REQUESTS TAB */}
       {activeTab === 'requests' && (
         <div className="bg-white rounded-xl shadow-xs border border-amber-200 overflow-hidden max-w-6xl mx-auto">
           <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider"><Shield className="w-4 h-4 mr-2 text-amber-400" /> HR Modification Requests</div>
@@ -1184,6 +987,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
+      {/* AUDIT LOGS TAB */}
       {activeTab === 'logs' && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
           <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center justify-between text-white font-semibold text-xs uppercase tracking-wider"><span className="flex items-center"><Shield className="w-4 h-4 mr-2 text-blue-400" /> System Audit Logs ({stripHtmlTags(filterRegion)} {filterStation !== 'ALL STATIONS' ? `/ ${stripHtmlTags(filterStation)}` : ''})</span></div>
@@ -1214,6 +1018,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
+      {/* PASSWORD RESETS TAB */}
       {activeTab === 'resets' && (        
         <div className="bg-white rounded-xl shadow-xs border border-red-200 overflow-hidden max-w-6xl mx-auto">
           <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider"><Lock className="w-4 h-4 mr-2 text-red-400" /> Authorized Password Recovery</div>
@@ -1249,8 +1054,51 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             </div>
           )}
         </div>
-    )}
+      )}
 
+      {/* MODALS EXTERNALLY LOADED */}
+      <SignupDossierModal 
+        user={selectedPendingUser} 
+        onClose={() => setSelectedPendingUser(null)} 
+        setViewingPhotoModal={setViewingPhotoModal} 
+        currentUser={currentUser} 
+        isProcessingAction={isProcessingAction} 
+        handleRejectUser={handleRejectUser} 
+        handleApproveUser={handleApproveUser} 
+        canModifyUser={canModifyUser} 
+      />
+
+      <HRModificationModal 
+        req={selectedModRequest} 
+        onClose={() => setSelectedModRequest(null)} 
+        currentUser={currentUser} 
+        isProcessingAction={isProcessingAction} 
+        handleReviewRequest={handleReviewRequest} 
+      />
+
+      <LockdownMatrixModal 
+        isOpen={showLockdownModal} 
+        onClose={() => setShowLockdownModal(false)} 
+        activeLockdownSummary={activeLockdownSummary} 
+        lockdownData={lockdownData} 
+        handleToggleLockdown={handleToggleLockdown} 
+        lockdownRegionFilter={lockdownRegionFilter} 
+        setLockdownRegionFilter={setLockdownRegionFilter} 
+      />
+
+      <RevocationModal 
+        prompt={revokePrompt} 
+        setPrompt={setRevokePrompt} 
+        executeRoleChange={executeRoleChange} 
+        executePermissionChange={executePermissionChange} 
+      />
+
+      {viewingPhotoModal && (
+        <div className="fixed inset-0 bg-black/90 z-[400] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingPhotoModal(null)}>
+          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg cursor-pointer"><X size={24}/></button>
+          <img src={viewingPhotoModal} alt="Enlarged Profile" className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </div>  
   );
 };
