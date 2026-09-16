@@ -161,6 +161,22 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     reason: ''
   });
 
+  // 🟢 CALCULATE ACTIVE LOCKDOWNS FOR UI SUMMARY
+  const activeLockdownSummary = useMemo(() => {
+    let list = [];
+    if (lockdownData.system) list.push("🚨 SYSTEM-WIDE FULL LOCKDOWN");
+    
+    Object.keys(lockdownData.regions).forEach(r => {
+      if (lockdownData.regions[r]) list.push(`⚠️ REGION: ${r}`);
+    });
+    
+    Object.keys(lockdownData.stations).forEach(s => {
+      if (lockdownData.stations[s]) list.push(`🔒 STATION: ${s}`);
+    });
+    
+    return list;
+  }, [lockdownData]);
+
   // 🟢 DEFINED SECURITY HIERARCHY VARIABLES 
   const canViewGlobalActive = canViewGlobal || 
     ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || 
@@ -986,7 +1002,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 <tbody className="bg-white divide-y divide-slate-200">
                   {filteredPending.map((user) => {
                     // 🟢 STRICT HIERARCHY / JURISDICTION CHECK
-                    const isCrossRegion = !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== user.region;
+                    const isCrossRegion = !canModifyUser(currentUser, user);
 
                     return (
                       <tr 
@@ -1048,7 +1064,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             type="button"
                             disabled={isProcessingAction || isCrossRegion}
                             onClick={() => handleRejectUser(user)}
-                            title={isCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : "Reject Request"}
+                            title={isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Reject Request"}
                             className={`border font-bold py-1.5 px-3 rounded-md text-[11px] transition inline-flex items-center ${isCrossRegion ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-red-50 hover:bg-red-600 hover:text-white text-red-600 border-red-200 cursor-pointer'}`}
                           >
                             <XCircle size={13} className="mr-1" /> Reject
@@ -1057,7 +1073,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             type="button"
                             disabled={isProcessingAction || isCrossRegion}
                             onClick={() => handleApproveUser(user)}
-                            title={isCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : "Approve Access"}
+                            title={isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Approve Access"}
                             className={`font-bold py-1.5 px-3 rounded-md shadow-xs text-[11px] transition inline-flex items-center ${isCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'}`}
                           >
                             <CheckCircle size={13} className="mr-1" /> Approve Access
@@ -1147,14 +1163,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               </button>
               <div className="space-x-2">
                 {(() => {
-                  const isModalCrossRegion = !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== selectedPendingUser.region;
+                  const isModalCrossRegion = !canModifyUser(currentUser, selectedPendingUser);
                   return (
                     <>
                       <button
                         type="button"
                         disabled={isProcessingAction || isModalCrossRegion}
                         onClick={() => handleRejectUser(selectedPendingUser)}
-                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : "Reject Request"}
+                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Higher Tier)" : "Reject Request"}
                         className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white cursor-pointer'}`}
                       >
                         <XCircle size={14} className="inline mr-1"/> Reject Request
@@ -1163,7 +1179,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                         type="button"
                         disabled={isProcessingAction || isModalCrossRegion}
                         onClick={() => handleApproveUser(selectedPendingUser)}
-                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : "Approve Access"}
+                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Higher Tier)" : "Approve Access"}
                         className={`px-5 py-2 rounded-xl text-xs font-extrabold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-blue-700 hover:bg-blue-800 text-white cursor-pointer'}`}
                       >
                         <CheckCircle size={14} className="inline mr-1"/> Approve Access
@@ -1324,7 +1340,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           // 🟢 DISABLE BUTTON IF THERE IS A MISMATCH
                           disabled={isProcessingAction || isModalCrossRegion || rankMismatchError !== null}
                           onClick={() => handleReviewRequest(selectedModRequest.id || selectedModRequest.sn, "APPROVED")}
-                          title={rankMismatchError ? "Cannot Approve: Protocol Violation" : isModalCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : "Approve & Execute"}
+                          title={rankMismatchError ? "Cannot Approve: Protocol Violation" : isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Approve & Execute"}
                           className={`px-5 py-2 rounded-xl text-xs font-extrabold transition shadow-xs ${isModalCrossRegion || rankMismatchError ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-60' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}
                         >
                           <CheckCircle size={14} className="inline mr-1"/> Approve & Execute
@@ -1366,6 +1382,27 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
             <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-6">
               
+              {/* 🟢 ACTIVE LOCKDOWN SUMMARY PANEL */}
+              {activeLockdownSummary.length > 0 ? (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 shadow-sm animate-in fade-in">
+                  <h4 className="text-xs font-black text-red-800 uppercase tracking-wider mb-3 flex items-center">
+                    <AlertTriangle className="w-4 h-4 mr-1.5 animate-pulse" /> Currently Active Lockdowns ({activeLockdownSummary.length})
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {activeLockdownSummary.map((item, idx) => (
+                      <span key={idx} className="bg-white border border-red-300 text-red-700 text-[10px] font-bold px-2.5 py-1 rounded shadow-sm">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 shadow-sm flex items-center animate-in fade-in">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 mr-2" />
+                  <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">All Systems Operational - No Active Lockdowns</span>
+                </div>
+              )}
+
               {/* SYSTEM GLOBAL LOCKDOWN */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center justify-between">
                 <div>
