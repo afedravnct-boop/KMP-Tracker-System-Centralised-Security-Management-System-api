@@ -16,8 +16,75 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 TOP TIER ROLES (RESTRICTED TO SUPER ADMIN ONLY)
-const TOP_TIER_ROLES = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'SYSTEM_ADMIN'];
+// 🟢 ROLE WEIGHT HIERARCHY (Determines who can modify whom)
+const getRoleWeight = (role) => {
+  if (role === 'SUPER_ADMIN') return 100;
+  if (role === 'ASSISTANT_SUPER_ADMIN') return 90;
+  if (role === 'SYSTEM_ADMIN') return 80;
+  if (role === 'ADMIN_USER' || role === 'ADMIN' || role === 'RPC') return 70;
+  if (role === 'DIVISION_ADMIN') return 60; // 🟢 NEW TIER
+  if (role === 'STATION_ADMIN') return 50; // 🟢 ADJUSTED TIER
+  if (role === 'USER') return 10;
+  return 0; // REVOKED
+};
+
+const canModifyUser = (currentUser, targetUser) => {
+  if (!currentUser || !targetUser) return false;
+  if (currentUser.role === 'SUPER_ADMIN') return true; // Ultimate authority
+  if (currentUser.fnum === targetUser.fnum) return false; // Cannot self-modify roles/permissions
+  
+  const currWeight = getRoleWeight(currentUser.role);
+  const targetWeight = getRoleWeight(targetUser.role);
+  
+  if (currWeight <= targetWeight) return false; // Must be strictly higher in rank
+  
+  if (currentUser.role === 'ASSISTANT_SUPER_ADMIN') return true; // Assistant Super Admin has global reach for lower ranks
+  
+  return currentUser.region === targetUser.region; // Regional/Division/Station Admins must be in the same region
+};
+
+// 🟢 EXPRESS ACCESS GENERATOR (Rebuilt to explicitly guarantee form access)
+const grantExpressAccess = (role, currentPerms) => {
+  let newPerms = { ...(currentPerms || {}) };
+  
+  // 1. Basic Operational Modules (Guaranteed for ANY active personnel)
+  const baseModules = ['acc_home', 'acc_profile', 'acc_comms', 'acc_crime', 'acc_ops', 'acc_stories', 'acc_documents'];
+  
+  // 2. Middle Management Modules (Station, Division, Regional)
+  const adminModules = ['acc_est', 'acc_analytics', 'acc_hr', 'acc_ledgers'];
+  
+  // 3. High Command Modules (System, Assistant, Super)
+  const topModules = ['acc_approvals', 'acc_consolidated', 'acc_roster'];
+
+  // Apply Base Modules to ALL valid roles
+  if (role !== 'REVOKED') {
+      baseModules.forEach(key => {
+          if (!newPerms?.super_admin_locks?.[key]) newPerms[key] = true;
+      });
+  }
+
+  // Apply Admin Modules
+  if (['STATION_ADMIN', 'DIVISION_ADMIN', 'ADMIN_USER', 'ADMIN', 'RPC', 'SYSTEM_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(role)) {
+      adminModules.forEach(key => {
+          if (!newPerms?.super_admin_locks?.[key]) newPerms[key] = true;
+      });
+  }
+
+  // Apply Top Modules
+  if (['SYSTEM_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(role)) {
+      topModules.forEach(key => {
+          if (!newPerms?.super_admin_locks?.[key]) newPerms[key] = true;
+      });
+  }
+
+  // Global Scope overrides for Assistant Super Admin
+  if (role === 'ASSISTANT_SUPER_ADMIN') {
+      if (!newPerms?.super_admin_locks?.view_global_roster) newPerms.view_global_roster = true;
+      if (!newPerms?.super_admin_locks?.export_data) newPerms.export_data = true;
+  }
+  
+  return newPerms;
+};
 
 // 🟢 EXPANDED SUPER CONTROL PANEL MODULES
 const CLEARANCE_MATRIX_COLS = [
@@ -77,7 +144,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [isDbKillActive, setIsDbKillActive] = useState(false);
   const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
 
-  // 🟢 LOCKDOWN UI STATE
   const [activeLockdownCount, setActiveLockdownCount] = useState(0);
   const [showLockdownModal, setShowLockdownModal] = useState(false);
   const [lockdownRegionFilter, setLockdownRegionFilter] = useState("KMP NORTH");
@@ -92,36 +158,23 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     reason: ''
   });
 
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
+  const canViewGlobalActive = canViewGlobal || 
+    ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || 
+    currentUser?.permissions?.view_global_roster === true || 
+    currentUser?.permissions?.global_observer === true;
 
-  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
-  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
 
-  const isSuperAdminOrTopCommand = (
-    canViewGlobalActive ||
-    userRoleClean === 'SUPER_ADMIN' ||
-    userPosClean.includes('KMP COMMANDER') ||
-    userPosClean.includes('DEPUTY KMP COMMANDER') ||
-    userPosClean.includes('STAFF OFFICER ADMIN') ||
-    userPosClean.includes('SO ADMIN')
-  );
-
-  const isExplicitHighCommand = [
-    'IGP', 'DEPUTY IGP', 'DIRECTOR OPERATIONS', 'DEPUTY DIRECTOR OPERATIONS', 
-    'KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN'
-  ].some(pos => userPosClean.includes(pos)) || userRoleClean === 'SUPER_ADMIN';
-
-  const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
-  const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
+  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
 
   useEffect(() => {
-    if (canViewGlobalActive || isSuperAdminOrTopCommand) {
+    if (canViewGlobalActive) {
       setFilterRegion('ALL REGIONS');
       setFilterStation('ALL STATIONS');
     }
-  }, [canViewGlobalActive, isSuperAdminOrTopCommand]);
+  }, [canViewGlobalActive]);
 
-  // 🟢 FETCH LOCKDOWN STATUS (Populates the GUI Matrices)
   const fetchLockdownStatus = useCallback(async () => {
     if (!hasValidSession()) return;
     try {
@@ -152,45 +205,34 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
   }, []);
 
-  // 🟢 TOGGLE SPECIFIC LOCKDOWN VIA API
   const handleToggleLockdown = async (type, name, currentStatus) => {
-    const isLifting = currentStatus; // If it's currently true, the action is lifting
+    const isLifting = currentStatus; 
     const actionWord = isLifting ? "LIFT" : "ACTIVATE";
 
-    const rawReason = window.prompt(
-      `State official reason to ${actionWord} lockdown on [${type}: ${name}]:`
-    );
+    const rawReason = window.prompt(`State official reason to ${actionWord} lockdown on [${type}: ${name}]:`);
     if (rawReason === null) return;
     const reason = stripHtmlTags(rawReason || (isLifting ? "Command Lockdown Lifted" : "Command Maintenance"));
 
     if (isLifting) {
-      const confirmLift = window.confirm(`⚠️ Are you sure you want to LIFT the lockdown for [${type}: ${name}]?`);
-      if (!confirmLift) return;
+      if (!window.confirm(`⚠️ Are you sure you want to LIFT the lockdown for [${type}: ${name}]?`)) return;
     } else {
-      const confirmLock = window.confirm(`🛑 Are you sure you want to LOCK DOWN [${type}: ${name}]? This will instantly restrict access.`);
-      if (!confirmLock) return;
+      if (!window.confirm(`🛑 Are you sure you want to LOCK DOWN [${type}: ${name}]? This will instantly restrict access.`)) return;
     }
 
     try {
       const res = await authFetch('/api/v1/admin/toggle-maintenance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lockdown_type: type,
-          target_name: name,
-          reason: reason
-        })
+        body: JSON.stringify({ lockdown_type: type, target_name: name, reason: reason })
       });
 
       if (res.ok) {
-        // Refresh the matrix immediately
         fetchLockdownStatus();
       } else {
         const err = await res.json().catch(() => ({}));
         alert(`❌ Failed to execute command: ${err.detail || 'Server error'}`);
       }
     } catch (err) {
-      console.error("Failed to manage lockdown:", err);
       alert("❌ Error communicating with the command server.");
     }
   };
@@ -349,33 +391,28 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
     const cleanFnum = stripHtmlTags(fnum);
-    if (cleanFnum === currentUser?.fnum) {
-      alert("Security Restriction: You cannot bulk-modify your own clearance access.");
-      return;
-    }
-    if (!isExplicitHighCommand) {
-      alert("Security Restriction: Only High Command or Super Admins are authorized to perform bulk clearance modifications.");
-      return;
-    }
-
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    
     if (!targetUser) return;
 
-    if (currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetUser.region) {
-      alert("SECURITY OVERRIDE DENIED: Cross-regional clearance modifications require SUPER ADMIN authority.");
-      return;
-    }
-
-    if (TOP_TIER_ROLES.includes(targetUser.role) && currentUser?.role !== 'SUPER_ADMIN') {
-      alert("SECURITY OVERRIDE DENIED: You do not have authority to bulk-update a top-tier administrator.");
+    if (!canModifyUser(currentUser, targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance to bulk-update this user.");
       return;
     }
 
     const newPermissions = { ...(targetUser.permissions || {}) };
-    const colsToProcess = CLEARANCE_MATRIX_COLS.filter(col => !(col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN'));
+    if (!newPermissions.super_admin_locks) newPermissions.super_admin_locks = {};
+
+    const colsToProcess = CLEARANCE_MATRIX_COLS.filter(col => !(col.key === 'global_observer' && !isSuperAdmin));
 
     colsToProcess.forEach(col => {
+      const isLocked = newPermissions.super_admin_locks[col.key];
+      if (!isSuperAdmin && isLocked) return; // Respect locks
+
       newPermissions[col.key] = setAllToTrue;
+      if (isSuperAdmin) {
+        newPermissions.super_admin_locks[col.key] = !setAllToTrue; // Lock it to FALSE if unchecking, unlock if checking
+      }
     });
 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: newPermissions } : u));
@@ -395,29 +432,19 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const executePermissionChange = async (fnum, permissionKey, value, reason = '') => {
     const cleanFnum = stripHtmlTags(fnum);
-    if (cleanFnum === currentUser?.fnum) {
-      alert("Security Restriction: You cannot modify your own access clearance.");
-      return;
-    }
-
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    
     if (!targetUser) return;
-
-    if (currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetUser.region) {
-      alert("SECURITY OVERRIDE DENIED: Cross-regional clearance modifications require SUPER ADMIN authority.");
-      return;
-    }
-
-    if (TOP_TIER_ROLES.includes(targetUser.role) && currentUser?.role !== 'SUPER_ADMIN') {
-      alert("SECURITY OVERRIDE DENIED: You do not have authority to modify the clearance of a top-tier administrator.");
+    if (!canModifyUser(currentUser, targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance to modify this user.");
       return;
     }
 
     let locks = targetUser.permissions?.super_admin_locks || {};
 
-    if (value === false && isSuperAdminOrTopCommand) {
+    if (value === false && isSuperAdmin) {
       locks[permissionKey] = true;
-    } else if (value === true && isSuperAdminOrTopCommand) {
+    } else if (value === true && isSuperAdmin) {
       locks[permissionKey] = false;
     }
 
@@ -449,16 +476,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const executeRoleChange = async (fnum, newRole, reason = '') => {
     const cleanFnum = stripHtmlTags(fnum);
-    if (cleanFnum === currentUser?.fnum) {
-      alert("Security Restriction: You cannot modify your own access role or tier.");
-      return;
-    }
-
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
-    if (!targetUser) return;
 
-    if (currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetUser.region) {
-      alert("SECURITY OVERRIDE DENIED: Cross-regional tier modifications require SUPER ADMIN authority.");
+    if (!targetUser) return;
+    if (!canModifyUser(currentUser, targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance to modify this user.");
       return;
     }
 
@@ -466,10 +488,15 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
     if (newRole === 'REVOKED') {
       updatedPermissions.revoke_reason = stripHtmlTags(reason);
-      updatedPermissions.revoked_by = isSuperAdminOrTopCommand ? 'SUPER_ADMIN' : stripHtmlTags(currentUser?.role);
-    } else if (isSuperAdminOrTopCommand) {
-      delete updatedPermissions.revoked_by;
-      delete updatedPermissions.revoke_reason;
+      updatedPermissions.revoked_by = isSuperAdmin ? 'SUPER_ADMIN' : stripHtmlTags(currentUser?.role);
+    } else {
+      // 🟢 Automatically populate full module array explicitly in the payload
+      updatedPermissions = grantExpressAccess(newRole, updatedPermissions);
+      
+      if (isSuperAdmin) {
+        delete updatedPermissions.revoked_by;
+        delete updatedPermissions.revoke_reason;
+      }
     }
 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
@@ -493,34 +520,20 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     const cleanFnum = stripHtmlTags(fnum);
-    if (cleanFnum === currentUser?.fnum) {
-      alert("Security Restriction: You cannot modify your own access clearance.");
-      return;
-    }
-    if (currentUser?.role === 'SYSTEM_ADMIN') {
-      alert("Security Restriction: SYSTEM ADMIN has viewing access only and cannot modify permissions.");
-      return;
-    }
-
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    
     if (!targetUser) return;
-
-    if (currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetUser.region) {
-      alert("SECURITY OVERRIDE DENIED: Cross-regional clearance modifications require SUPER ADMIN authority.");
+    if (!canModifyUser(currentUser, targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance to modify this user.");
       return;
     }
 
-    if (TOP_TIER_ROLES.includes(targetUser.role) && currentUser?.role !== 'SUPER_ADMIN') {
-      alert(`SECURITY OVERRIDE DENIED: You do not have authority to modify the clearance of a ${targetUser.role.replace(/_/g, ' ')}.`);
-      return;
-    }
-
-    if (value === true && !isSuperAdminOrTopCommand && targetUser.permissions?.super_admin_locks?.[permissionKey]) {
+    if (value === true && !isSuperAdmin && targetUser.permissions?.super_admin_locks?.[permissionKey]) {
       alert("SECURITY OVERRIDE DENIED: This clearance was locked by High Command.");
       return;
     }
 
-    if (value === false && !isSuperAdminOrTopCommand) {
+    if (value === false && !isSuperAdmin) {
       setRevokePrompt({
         isOpen: true,
         fnum: cleanFnum,
@@ -533,7 +546,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
 
     let locks = { ...(targetUser.permissions?.super_admin_locks || {}) };
-    if (isSuperAdminOrTopCommand) {
+    if (isSuperAdmin) {
       locks[permissionKey] = !value;
     }
 
@@ -564,39 +577,20 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const handleRoleTierChange = async (fnum, newRole) => {
     const cleanFnum = stripHtmlTags(fnum);
-    if (cleanFnum === currentUser?.fnum) {
-      alert("Security Restriction: You cannot modify your own access role.");
-      return;
-    }
-    if (currentUser?.role === 'SYSTEM_ADMIN') {
-      alert("Security Restriction: SYSTEM ADMIN cannot manage access clearance tiers.");
-      return;
-    }
-
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    
     if (!targetUser) return;
-
-    if (currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetUser.region) {
-      alert("SECURITY OVERRIDE DENIED: Cross-regional tier modifications require SUPER ADMIN authority.");
+    if (!canModifyUser(currentUser, targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance to modify this user.");
       return;
     }
 
-    if (TOP_TIER_ROLES.includes(targetUser.role) && currentUser?.role !== 'SUPER_ADMIN') {
-      alert(`SECURITY OVERRIDE DENIED: You do not have authority to modify the clearance of a ${targetUser.role.replace(/_/g, ' ')}.`);
-      return;
-    }
-
-    if (TOP_TIER_ROLES.includes(newRole) && currentUser?.role !== 'SUPER_ADMIN') {
-      alert(`SECURITY OVERRIDE DENIED: Only a SUPER ADMIN can grant ${newRole.replace(/_/g, ' ')} clearance.`);
-      return;
-    }
-
-    if (newRole !== 'REVOKED' && targetUser.role === 'REVOKED' && !isSuperAdminOrTopCommand && targetUser.permissions?.revoked_by === 'SUPER_ADMIN') {
+    if (newRole !== 'REVOKED' && targetUser.role === 'REVOKED' && !isSuperAdmin && targetUser.permissions?.revoked_by === 'SUPER_ADMIN') {
       alert("SECURITY OVERRIDE DENIED: This access was revoked by a Super Admin.");
       return;
     }
 
-    if (newRole === 'REVOKED' && !isSuperAdminOrTopCommand) {
+    if (newRole === 'REVOKED' && !isSuperAdmin) {
       setRevokePrompt({
         isOpen: true,
         fnum: cleanFnum,
@@ -609,9 +603,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
 
     let updatedPermissions = { ...(targetUser.permissions || {}) };
-    if (newRole !== 'REVOKED' && isSuperAdminOrTopCommand) {
-      delete updatedPermissions.revoked_by;
-      delete updatedPermissions.revoke_reason;
+    if (newRole !== 'REVOKED') {
+      // 🟢 Automatically populate full module array explicitly
+      updatedPermissions = grantExpressAccess(newRole, updatedPermissions);
+      if (isSuperAdmin) {
+        delete updatedPermissions.revoked_by;
+        delete updatedPermissions.revoke_reason;
+      }
     }
 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
@@ -635,10 +633,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const handleApproveUser = async (userToApprove) => {
     const fnum = typeof userToApprove === 'object' ? userToApprove.fnum : userToApprove;
-    const targetRegion = typeof userToApprove === 'object' ? userToApprove.region : null;
-
-    if (targetRegion && currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetRegion) {
-        alert("SECURITY OVERRIDE DENIED: Cross-regional account approvals are strictly restricted to SUPER ADMINS.");
+    
+    // Cross-region validation
+    if (!canModifyUser(currentUser, userToApprove)) {
+        alert("SECURITY OVERRIDE DENIED: Out of Jurisdiction.");
         return;
     }
 
@@ -649,8 +647,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
       let finalRole = typeof userToApprove === 'object' ? userToApprove.role || 'USER' : 'USER';
 
-      if (TOP_TIER_ROLES.includes(finalRole) && currentUser?.role !== 'SUPER_ADMIN') {
-          const proceed = window.confirm(`SECURITY HALT: This officer requested [${finalRole.replace(/_/g, ' ')}] clearance, which can only be authorized by a SUPER ADMIN.\n\nWould you like to approve them with standard [USER] clearance instead?`);
+      // Cannot assign a role weight equal to or higher than current user (unless Super Admin)
+      if (getRoleWeight(finalRole) >= getRoleWeight(currentUser.role) && !isSuperAdmin) {
+          const proceed = window.confirm(`SECURITY HALT: This officer requested [${finalRole.replace(/_/g, ' ')}] clearance, which exceeds your authority to grant.\n\nWould you like to approve them with standard [USER] clearance instead?`);
           if (!proceed) {
               setIsProcessingAction(false);
               return;
@@ -658,12 +657,16 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           finalRole = 'USER';
       }
 
+      // 🟢 Generate explicit boolean permissions for the approved role so forms definitely open
+      const grantedPermissions = grantExpressAccess(finalRole, userToApprove.permissions || {});
+
       const response = await authFetch(`/api/v1/users/${safeFnum}/access`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           role: finalRole,
-          is_approved: true 
+          is_approved: true,
+          permissions: grantedPermissions
         })
       });
 
@@ -684,10 +687,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const handleRejectUser = async (userToReject) => {
     const fnum = typeof userToReject === 'object' ? userToReject.fnum : userToReject;
     const name = typeof userToReject === 'object' ? userToReject.name : fnum;
-    const targetRegion = typeof userToReject === 'object' ? userToReject.region : null;
 
-    if (targetRegion && currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== targetRegion) {
-        alert("SECURITY OVERRIDE DENIED: Cross-regional rejections are strictly restricted to SUPER ADMINS.");
+    if (!canModifyUser(currentUser, userToReject)) {
+        alert("SECURITY OVERRIDE DENIED: Out of Jurisdiction.");
         return;
     }
 
@@ -725,8 +727,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
     const reqObj = modRequests.find(r => (r.id || r.sn) === reqId);
     
-    if (reqObj && currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== reqObj.current_region) {
-        alert("SECURITY OVERRIDE DENIED: Cross-regional HR modifications are strictly restricted to SUPER ADMINS.");
+    // Check if the current user has authority over the region where the transfer is happening
+    if (reqObj && !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== reqObj.current_region) {
+        alert("SECURITY OVERRIDE DENIED: Cross-regional HR modifications are strictly restricted to Super/Assistant Admins.");
         return;
     }
 
@@ -760,8 +763,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const handleResetAction = async (reqId, actionStr) => {
     const reqObj = resetRequests.find(r => r.id === reqId);
     
-    if (reqObj && currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== reqObj.region) {
-        alert("SECURITY OVERRIDE DENIED: Cross-regional password resets are strictly restricted to SUPER ADMINS.");
+    if (reqObj && !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== reqObj.region) {
+        alert("SECURITY OVERRIDE DENIED: Cross-regional password resets are strictly restricted to Super/Assistant Admins.");
         return;
     }
 
@@ -874,7 +877,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             <RefreshCw size={14} className="mr-2 text-blue-600" /> Sync Queue
           </button>
 
-          {['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role?.toUpperCase()) && (
+          {isSuperAdmin && (
             <button
               type="button"
               onClick={() => { fetchLockdownStatus(); setShowLockdownModal(true); }}
@@ -890,7 +893,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             </button>
           )}
 
-          {currentUser?.role === 'SUPER_ADMIN' && (
+          {isSuperAdmin && (
             <button
               onClick={handleKillSwitchToggle}
               disabled={loadingKillSwitch}
@@ -971,8 +974,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                   {filteredPending.map((user) => {
-                    // 🟢 STRICT CROSS REGION LOCK
-                    const isCrossRegion = currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== user.region;
+                    // 🟢 STRICT HIERARCHY / JURISDICTION CHECK
+                    const isCrossRegion = !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== user.region;
 
                     return (
                       <tr 
@@ -1034,7 +1037,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             type="button"
                             disabled={isProcessingAction || isCrossRegion}
                             onClick={() => handleRejectUser(user)}
-                            title={isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Reject Request"}
+                            title={isCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : "Reject Request"}
                             className={`border font-bold py-1.5 px-3 rounded-md text-[11px] transition inline-flex items-center ${isCrossRegion ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-red-50 hover:bg-red-600 hover:text-white text-red-600 border-red-200 cursor-pointer'}`}
                           >
                             <XCircle size={13} className="mr-1" /> Reject
@@ -1043,7 +1046,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             type="button"
                             disabled={isProcessingAction || isCrossRegion}
                             onClick={() => handleApproveUser(user)}
-                            title={isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Approve Access"}
+                            title={isCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : "Approve Access"}
                             className={`font-bold py-1.5 px-3 rounded-md shadow-xs text-[11px] transition inline-flex items-center ${isCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'}`}
                           >
                             <CheckCircle size={13} className="mr-1" /> Approve Access
@@ -1133,14 +1136,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               </button>
               <div className="space-x-2">
                 {(() => {
-                  const isModalCrossRegion = currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== selectedPendingUser.region;
+                  const isModalCrossRegion = !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== selectedPendingUser.region;
                   return (
                     <>
                       <button
                         type="button"
                         disabled={isProcessingAction || isModalCrossRegion}
                         onClick={() => handleRejectUser(selectedPendingUser)}
-                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Reject Request"}
+                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : "Reject Request"}
                         className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white cursor-pointer'}`}
                       >
                         <XCircle size={14} className="inline mr-1"/> Reject Request
@@ -1149,7 +1152,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                         type="button"
                         disabled={isProcessingAction || isModalCrossRegion}
                         onClick={() => handleApproveUser(selectedPendingUser)}
-                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Approve Access"}
+                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : "Approve Access"}
                         className={`px-5 py-2 rounded-xl text-xs font-extrabold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-blue-700 hover:bg-blue-800 text-white cursor-pointer'}`}
                       >
                         <CheckCircle size={14} className="inline mr-1"/> Approve Access
@@ -1293,14 +1296,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 </button>
                 <div className="space-x-2">
                   {(() => {
-                    const isModalCrossRegion = currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== selectedModRequest.current_region;
+                    const isModalCrossRegion = !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== selectedModRequest.current_region;
                     return (
                       <>
                         <button
                           type="button"
                           disabled={isProcessingAction || isModalCrossRegion}
                           onClick={() => handleReviewRequest(selectedModRequest.id || selectedModRequest.sn, "REJECTED")}
-                          title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Reject Changes"}
+                          title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : "Reject Changes"}
                           className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 cursor-pointer'}`}
                         >
                           <XCircle size={14} className="inline mr-1"/> Reject Changes
@@ -1310,7 +1313,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           // 🟢 DISABLE BUTTON IF THERE IS A MISMATCH
                           disabled={isProcessingAction || isModalCrossRegion || rankMismatchError !== null}
                           onClick={() => handleReviewRequest(selectedModRequest.id || selectedModRequest.sn, "APPROVED")}
-                          title={rankMismatchError ? "Cannot Approve: Protocol Violation" : isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Approve & Execute"}
+                          title={rankMismatchError ? "Cannot Approve: Protocol Violation" : isModalCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : "Approve & Execute"}
                           className={`px-5 py-2 rounded-xl text-xs font-extrabold transition shadow-xs ${isModalCrossRegion || rankMismatchError ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-60' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}
                         >
                           <CheckCircle size={14} className="inline mr-1"/> Approve & Execute
@@ -1431,7 +1434,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               <Shield className="w-4 h-4 mr-1.5 text-indigo-400" /> Super Control Panel - Active Roster Matrix ({stripHtmlTags(filterRegion)} {filterStation !== 'ALL STATIONS' ? `/ ${stripHtmlTags(filterStation)}` : ''})
             </span>
             <span className="text-[10px] text-slate-400 font-mono text-right">
-              Tiers: USER | ADMIN_USER | STATION_ADMIN | SYSTEM_ADMIN | SUPER_ADMIN | REVOKED
+              Tiers: USER | STN_ADMIN | DIV_ADMIN | REGIONAL_ADMIN | SYS_ADMIN | ASST_SUPER | SUPER_ADMIN | REVOKED
             </span>
           </div>
             
@@ -1452,7 +1455,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                     <th className="p-2.5 text-center sticky left-[360px] z-10 bg-slate-900 shadow-[1px_0_0_#3b82f6] text-blue-100">Quick Actions</th>
 
                     {CLEARANCE_MATRIX_COLS.map((col, idx) => {
-                      if (col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN') return null;
+                      if (col.key === 'global_observer' && !isSuperAdmin) return null;
                       return (
                         <th key={idx} className="p-2 text-center border-l border-slate-700 bg-slate-900">
                           <div className="w-16 mx-auto whitespace-normal break-words leading-tight text-[9px] text-blue-100">
@@ -1467,19 +1470,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                   {filteredSystemUsers.map(u => {
                     const p = u.permissions || {};
-                    const isCurrentUserSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
                     const isTargetTopTier = TOP_TIER_ROLES.includes(u.role);
                     
-                    const isSuperAdmin = u.role === 'SUPER_ADMIN';
                     const isRevoked = u.role === 'REVOKED';
                     const isSelf = u.fnum === currentUser?.fnum;
 
-                    // 🟢 STRICT CROSS REGION LOCK
-                    const isCrossRegion = currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== u.region;
-
-                    // 🟢 STRICT HIERARCHY LOCKS (Combined with Cross Region)
-                    const isRoleSelectDisabled = isSelf || (!isCurrentUserSuperAdmin && isTargetTopTier) || isCrossRegion;
-                    const isBulkActionDisabled = isSelf || !isExplicitHighCommand || (isTargetTopTier && !isCurrentUserSuperAdmin) || isCrossRegion;
+                    // 🟢 STRICT HIERARCHY LOCKS (Combined with Cross Region checks via canModifyUser)
+                    const isRoleSelectDisabled = isSelf || !canModifyUser(currentUser, u);
+                    const isBulkActionDisabled = isSelf || !canModifyUser(currentUser, u) || !isExplicitHighCommand;
 
                     return (
                       <tr key={u.fnum} className={`transition-colors ${isRevoked ? 'bg-red-50/40' : 'hover:bg-slate-50'} ${isSelf ? 'bg-blue-50/30 ring-1 ring-inset ring-blue-100' : ''}`}>
@@ -1491,12 +1489,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                                 YOU
                               </span>
                             )}
-                            {isSuperAdmin && !isSelf && (
+                            {u.role === 'SUPER_ADMIN' && !isSelf && (
                               <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-red-100 text-red-700 font-bold rounded-full border border-red-200">
                                 GOD-MODE
                               </span>
                             )}
-                            {p.global_observer && !isSuperAdmin && (
+                            {p.global_observer && u.role !== 'SUPER_ADMIN' && (
                               <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-fuchsia-100 text-fuchsia-700 font-bold rounded-full border border-fuchsia-200">
                                 OBSERVER
                               </span>
@@ -1515,24 +1513,25 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             value={u.role || 'USER'}
                             onChange={(e) => handleRoleTierChange(u.fnum, stripHtmlTags(e.target.value))}
                             disabled={isRoleSelectDisabled}
-                            title={isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : ""}
+                            title={isRoleSelectDisabled ? "Insufficient authority to change this user's role." : ""}
                             className={`border rounded-md px-2 py-1 font-bold outline-none uppercase w-full text-[10px] ${isRoleSelectDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${
                               u.role === 'SUPER_ADMIN' ? 'bg-red-50 text-red-700 border-red-300' :
                               u.role === 'ASSISTANT_SUPER_ADMIN' ? 'bg-rose-50 text-rose-700 border-rose-300' :
                               u.role === 'SYSTEM_ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-300' :
-                              u.role === 'ADMIN_USER' ? 'bg-indigo-50 text-indigo-700 border-indigo-300' :
+                              (u.role === 'ADMIN_USER' || u.role === 'ADMIN') ? 'bg-indigo-50 text-indigo-700 border-indigo-300' :
+                              u.role === 'DIVISION_ADMIN' ? 'bg-sky-50 text-sky-700 border-sky-300' :
                               u.role === 'STATION_ADMIN' ? 'bg-blue-50 text-blue-700 border-blue-300' :
                               u.role === 'REVOKED' ? 'bg-red-100 text-red-800 border-red-400 shadow-inner' :
                               'bg-slate-100 text-slate-700 border-slate-300'
                             }`}
                           >
                             <option value="USER">USER</option>
-                            <option value="ADMIN_USER">ADMIN-USER</option>
                             <option value="STATION_ADMIN">STN ADMIN</option>
-                            
-                            {(isCurrentUserSuperAdmin || u.role === 'SYSTEM_ADMIN') && <option value="SYSTEM_ADMIN">SYS ADMIN</option>}
-                            {(isCurrentUserSuperAdmin || u.role === 'ASSISTANT_SUPER_ADMIN') && <option value="ASSISTANT_SUPER_ADMIN">ASST SUPER</option>}
-                            {(isCurrentUserSuperAdmin || u.role === 'SUPER_ADMIN') && <option value="SUPER_ADMIN">SUPER ADMIN</option>}
+                            {(getRoleWeight(currentUser?.role) > 60 || isSuperAdmin) && <option value="DIVISION_ADMIN">DIV ADMIN</option>}
+                            {(getRoleWeight(currentUser?.role) > 70 || isSuperAdmin) && <option value="ADMIN_USER">REGIONAL ADMIN</option>}
+                            {(getRoleWeight(currentUser?.role) > 80 || isSuperAdmin) && <option value="SYSTEM_ADMIN">SYS ADMIN</option>}
+                            {(getRoleWeight(currentUser?.role) > 90 || isSuperAdmin) && <option value="ASSISTANT_SUPER_ADMIN">ASST SUPER</option>}
+                            {isSuperAdmin && <option value="SUPER_ADMIN">SUPER ADMIN</option>}
 
                             <option value="REVOKED" className="text-red-600 font-extrabold bg-red-50">REVOKED</option>
                           </select>
@@ -1543,7 +1542,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             <button 
                               onClick={() => handleBulkMatrixAction(u.fnum, true)}
                               disabled={isBulkActionDisabled}
-                              title={isSelf ? "You cannot self-modify" : isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : isTargetTopTier && !isCurrentUserSuperAdmin ? "Cannot bulk-update a Super Admin" : !isExplicitHighCommand ? "Only High Command can Bulk Update" : "Check All Modules"}
+                              title={isBulkActionDisabled ? "Insufficient authority to execute bulk updates." : "Check All Modules"}
                               className={`p-1 rounded border transition shadow-xs ${
                                 isBulkActionDisabled ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300 cursor-pointer'
                               }`}
@@ -1553,7 +1552,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             <button 
                               onClick={() => handleBulkMatrixAction(u.fnum, false)}
                               disabled={isBulkActionDisabled}
-                              title={isSelf ? "You cannot self-modify" : isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : isTargetTopTier && !isCurrentUserSuperAdmin ? "Cannot bulk-update a Super Admin" : !isExplicitHighCommand ? "Only High Command can Bulk Update" : "Uncheck All Modules (Deny Access)"}
+                              title={isBulkActionDisabled ? "Insufficient authority to execute bulk updates." : "Uncheck All Modules (Deny Access)"}
                               className={`p-1 rounded border transition shadow-xs ${
                                 isBulkActionDisabled ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-red-50 text-red-700 hover:bg-red-100 border-red-300 cursor-pointer'
                               }`}
@@ -1564,26 +1563,25 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                         </td>
 
                         {CLEARANCE_MATRIX_COLS.map((col, idx) => {
-                          if (col.key === 'global_observer' && currentUser?.role !== 'SUPER_ADMIN') return null;
+                          if (col.key === 'global_observer' && !isSuperAdmin) return null;
 
                           const hasSuperAdminLock = Boolean(p.super_admin_locks?.[col.key]);
-                          const isLockedVisually = hasSuperAdminLock && !isSuperAdminOrTopCommand;
+                          const isLockedVisually = hasSuperAdminLock && !isSuperAdmin;
                           const isStrictSuperAdminOnly = col.key === 'global_observer';
 
-                          // 🟢 STRICT CHECKBOX LOCK (Including Cross Region)
+                          // 🟢 STRICT CHECKBOX LOCK 
                           const isDisabled = 
                             isSelf ||
-                            (isTargetTopTier && !isCurrentUserSuperAdmin) ||
-                            isSuperAdmin || 
+                            !canModifyUser(currentUser, u) ||
+                            u.role === 'SUPER_ADMIN' || // Super Admin row is completely locked from visual modifications here
                             isRevoked || 
                             currentUser?.role === 'SYSTEM_ADMIN' || 
-                            (!isSuperAdminOrTopCommand && hasSuperAdminLock) ||
-                            (isStrictSuperAdminOnly && !isCurrentUserSuperAdmin) ||
-                            isCrossRegion;
+                            (!isSuperAdmin && hasSuperAdminLock) ||
+                            (isStrictSuperAdminOnly && !isSuperAdmin);
 
                           let lockTitle = "";
-                          if (isCrossRegion) lockTitle = "Out of Jurisdiction (Requires Super Admin)";
-                          else if (isSuperAdmin) lockTitle = "Super Admin Access Locked";
+                          if (!canModifyUser(currentUser, u)) lockTitle = "Out of Jurisdiction (Requires Higher Tier)";
+                          else if (u.role === 'SUPER_ADMIN') lockTitle = "Super Admin Access Locked";
                           else if (hasSuperAdminLock) lockTitle = "Locked by High Command";
 
                           return (
@@ -1593,13 +1591,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                                   type="checkbox" 
                                   id={`clearance-${u.fnum}-${col.key}`}   
                                   name={`clearance_${u.fnum}_${col.key}`} 
-                                  checked={isSuperAdmin || Boolean(p[col.key])} 
+                                  checked={u.role === 'SUPER_ADMIN' || Boolean(p[col.key])} 
                                   disabled={isDisabled}
                                   title={lockTitle}
                                   onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
                                   className={`w-3.5 h-3.5 rounded accent-${col.color}-600 ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`} 
                                 />
-                                {((isLockedVisually || isSuperAdmin) && !isSelf) && !isCrossRegion && <Lock size={9} className="absolute -top-1.5 -right-2 text-red-600 drop-shadow-xs" title={lockTitle} />}
+                                {((isLockedVisually || u.role === 'SUPER_ADMIN') && !isSelf && canModifyUser(currentUser, u)) && <Lock size={9} className="absolute -top-1.5 -right-2 text-red-600 drop-shadow-xs" title={lockTitle} />}
                               </div>
                             </td>
                           );
@@ -1640,7 +1638,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 <tbody className="bg-white divide-y divide-slate-200">
                   {filteredRequests.map((req) => {
                     // 🟢 STRICT CROSS REGION LOCK
-                    const isCrossRegion = currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== req.current_region;
+                    const isCrossRegion = !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== req.current_region;
 
                     return (
                       <tr key={req.id || req.sn} className="hover:bg-amber-50/50">
@@ -1663,8 +1661,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             >
                               <Eye size={13} className="mr-1" /> Preview Details
                             </button>
-                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : ""} onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}><CheckCircle size={13} className="mr-1" /> Approve</button>
-                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : ""} onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer'}`}><X size={13} className="mr-1" /> Reject</button>
+                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : ""} onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}><CheckCircle size={13} className="mr-1" /> Approve</button>
+                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : ""} onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer'}`}><X size={13} className="mr-1" /> Reject</button>
                           </div>
                         </td>
                       </tr>
@@ -1748,7 +1746,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 <tbody className="bg-white divide-y divide-slate-200">
                   {filteredResets.map((req) => {
                     // 🟢 STRICT CROSS REGION LOCK
-                    const isCrossRegion = currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== req.region;
+                    const isCrossRegion = !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== req.region;
 
                     return (
                       <tr key={req.id} className="hover:bg-red-50/50">
@@ -1764,8 +1762,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                         </td>
                         <td className="px-4 py-2.5 whitespace-nowrap">
                           <div className="flex space-x-2">
-                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : ""} onClick={() => handleResetAction(req.id, "APPROVE")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-red-600 hover:bg-red-700 text-white cursor-pointer'}`}><Unlock size={13} className="mr-1" /> Authorize Reset</button>
-                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : ""} onClick={() => handleResetAction(req.id, "REJECT")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer'}`}><X size={13} className="mr-1" /> Reject</button>
+                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : ""} onClick={() => handleResetAction(req.id, "APPROVE")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-red-600 hover:bg-red-700 text-white cursor-pointer'}`}><Unlock size={13} className="mr-1" /> Authorize Reset</button>
+                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : ""} onClick={() => handleResetAction(req.id, "REJECT")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer'}`}><X size={13} className="mr-1" /> Reject</button>
                           </div>
                         </td>
                       </tr>

@@ -181,7 +181,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       offence: stripHtmlTags(caseData.offence || 'Other'),
       customOffence: '', 
       suspectDetails: caseData.suspectDetails || [], 
-      updateText: ''
+      updateText: '' // Start with a fresh update box
     });
   };
 
@@ -224,64 +224,22 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         }
 
         const agriCrimeIndicators = [
-          'theft of produce', 
-          'produce theft', 
-          'animal theft', 
-          'cattle theft', 
-          'stole a cow', 
-          'stole cattle',
-          'stock theft', 
-          'theft of livestock', 
-          'granary', 
-          'granaries', 
-          'broke into food store', 
-          'food stores', 
-          'storehouse', 
-          'barn', 
-          'silo', 
-          'silos',
-          'cutting down crops', 
-          'cutting crops', 
-          'slashing crops', 
-          'burning crops', 
-          'burning produce', 
-          'destroying crops', 
-          'crop destruction', 
-          'arson of crops', 
-          'arson of produce',
-          'theft of crops', 
-          'theft of coffee', 
-          'theft of vanilla', 
-          'theft of cassava', 
-          'theft of maize', 
-          'coffee theft', 
-          'vanilla theft', 
-          'maize theft', 
-          'matooke theft', 
-          'theft of matooke', 
-          'bribery to receive farm inputs', 
-          'extortion of farmers',
-          'farm break-in', 
-          'farm robbery', 
-          'farm trespass', 
-          'fire on crops', 
-          'fire in the sugarcane', 
-          'fire on farm house', 
-          'crop theft',
-          'suspected stolen cows', 
-          'suspected stolen cattle', 
-          'suspected stolen goats', 
-          'suspected stolen sheep', 
-          'suspected stolen chicken', 
-          'suspected stolen eggs', 
-          'suspected stolen produce', 
-          'suspected stolen coffee', 
-          'suspected stolen vanilla', 
-          'suspected stolen maize', 
-          'suspected stolen matooke', 
-          'suspected stolen cassava', 
-          'suspected stolen livestock', 
-          'suspected stolen funds for farmers'
+          'theft of produce', 'produce theft', 'animal theft', 'cattle theft', 
+          'stole a cow', 'stole cattle', 'stock theft', 'theft of livestock', 
+          'granary', 'granaries', 'broke into food store', 'food stores', 
+          'storehouse', 'barn', 'silo', 'silos', 'cutting down crops', 
+          'cutting crops', 'slashing crops', 'burning crops', 'burning produce', 
+          'destroying crops', 'crop destruction', 'arson of crops', 'arson of produce',
+          'theft of crops', 'theft of coffee', 'theft of vanilla', 'theft of cassava', 
+          'theft of maize', 'coffee theft', 'vanilla theft', 'maize theft', 
+          'matooke theft', 'theft of matooke', 'bribery to receive farm inputs', 
+          'extortion of farmers', 'farm break-in', 'farm robbery', 'farm trespass', 
+          'fire on crops', 'fire in the sugarcane', 'fire on farm house', 'crop theft',
+          'suspected stolen cows', 'suspected stolen cattle', 'suspected stolen goats', 
+          'suspected stolen sheep', 'suspected stolen chicken', 'suspected stolen eggs', 
+          'suspected stolen produce', 'suspected stolen coffee', 'suspected stolen vanilla', 
+          'suspected stolen maize', 'suspected stolen matooke', 'suspected stolen cassava', 
+          'suspected stolen livestock', 'suspected stolen funds for farmers'
         ];
 
         const isAgriCrimeMatch = agriCrimeIndicators.some(indicator => combinedText.includes(indicator));
@@ -290,7 +248,13 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
        
       if (searchQuery) {
         const query = stripHtmlTags(searchQuery).toLowerCase().trim();
-        const textMatch = extractPlainText(r.narrative || '').toLowerCase().includes(query) || stripHtmlTags(r.station || '').toLowerCase().includes(query) || stripHtmlTags(r.sdRef || r.sd_ref || '').toLowerCase().includes(query);
+        // 🟢 FIX: Added r.offence to the search parameters so offenses like "Aggravated Robbery" are indexed
+        const textMatch = 
+          extractPlainText(r.narrative || '').toLowerCase().includes(query) || 
+          stripHtmlTags(r.station || '').toLowerCase().includes(query) || 
+          stripHtmlTags(r.sdRef || r.sd_ref || '').toLowerCase().includes(query) ||
+          stripHtmlTags(r.offence || '').toLowerCase().includes(query);
+          
         if (!textMatch) return false;
       }
        
@@ -312,7 +276,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       return true;
     });
 
-    // 🟢 Enforce descending chronological order (newest SN/ID first)
     return filtered.sort((a, b) => (b.sn || b.id || 0) - (a.sn || a.id || 0));
 
   }, [reports, filterRegion, filterStation, dateFilter, canViewGlobalActive, showAgriculturalOnly, searchQuery]);
@@ -335,11 +298,11 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
   const metrics = useMemo(() => {
     const stationCellPop = {};
     const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-     
+      
     let hqGrandTotalToday = null;
     let latestHqGrandTotal = null;
     let hasLockupUpdateToday = false;
-     
+      
     lockupData.forEach(l => {
       const lStation = stripHtmlTags(l.station || '');
       const lRegion = getOfficialRegionForStation(lStation, l.region);
@@ -354,7 +317,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         }
       }
     });
-     
+      
     const calculatedGlobalSum = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
     const kmpGeneralTotal = hqGrandTotalToday !== null ? hqGrandTotalToday : calculatedGlobalSum > 0 ? calculatedGlobalSum : latestHqGrandTotal;
 
@@ -408,7 +371,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       if (index === arr.length - 1) return { ...log, variation: 0, hasPrev: false };
       return { ...log, variation: log.suspects - arr[index + 1].suspects, hasPrev: true };
     });
-     
+      
     return {
       generalCrimes: crimesArray,
       processedLockups: lockupsWithVar,
@@ -480,7 +443,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
     } else {
       const todayStr = getTodayString();
       const existingEntry = lockupData.find(l => stripHtmlTags(l.station) === formData.station && l.date === todayStr);
-       
+        
       if (existingEntry) {
         setEditLockupTarget(existingEntry);
         setStandalonePopInput({
@@ -513,9 +476,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
     if (totalVal === 0 && maleVal === 0 && femaleVal === 0) {
       return setNotification("Error: Please enter valid cell population numbers.");
     }
-     
+      
     setNotification(isEditingLockup ? "⏳ Updating Daily Cell Population..." : "⏳ Logging Daily Cell Population to Independent Matrix...");
-     
+      
     try {
       const activeSubmissionRegion = canViewGlobalActive
         ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
@@ -543,9 +506,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         const response = await authFetch(`/api/v1/lockup-matrix/${targetId}`, {
           method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatePayload)
         });  
-         
+          
         if (!response.ok) throw new Error("Database rejected the lockup update.");
-         
+          
         setLockupData(lockupData.map(l => (l.id || l.sn) === targetId ? updatePayload : l));
         setNotification(`✅ Daily Cell Population updated & reassigned successfully for ${stripHtmlTags(formData.station)}!`);
         setIsEditingLockup(false);
@@ -554,7 +517,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
       } else {
         const cleanStationSub = stripHtmlTags(formData.station).substring(0,3).toUpperCase();
         const popRef = `POP-${cleanStationSub}-${Date.now().toString().slice(-6)}`;
-         
+          
         const apiPayload = {
           sd_ref: popRef, 
           region: activeSubmissionRegion, 
@@ -576,12 +539,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload)
         });  
         if (!response.ok) throw new Error("Database rejected the lockup entry. Did you already log one today?");
-         
+          
         const newLockup = await response.json();
         setLockupData([newLockup, ...lockupData]);
         setNotification(`✅ Daily Cell Population successfully logged to the Independent Matrix for ${stripHtmlTags(formData.station)}!`);
       }
-       
+        
       setStandalonePopInput({ total: '', male: '', male_juvenile: '', female: '', female_juvenile: '', d1: '', d2: '', d3: '' }); 
       setTimeout(() => setNotification(null), 5000);
     } catch (err) {
@@ -592,7 +555,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
   const handleHqGrandTotalSubmit = async (e) => {
     e.preventDefault();
     if (!hqGrandTotalInput && hqGrandTotalInput !== 0) return alert("Please enter a valid Grand Total.");
-     
+      
     setNotification("⏳ Submitting HQ General Grand Total to Independent Matrix...");
     const hqRef = `HQ-GRAND-${Date.now().toString().slice(-6)}`;
 
@@ -632,19 +595,18 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-     
+      
     let formattedTime = stripHtmlTags(formData.time || '');
     if (formattedTime && !/hrs$/i.test(formattedTime.trim())) formattedTime = `${formattedTime.trim()}Hrs`;
 
     const plainNarrative = formData.narrative;
     const plainTextForDuplicate = extractPlainText(formData.narrative);
-    const plainUpdateText = formData.updateText;
 
     if (operation === 'new') {
       const cleanRefType = stripHtmlTags(formData.ref_type);
       const cleanRefNumber = stripHtmlTags(formData.ref_number).toUpperCase();
       const final_reference = `${cleanRefType} ${cleanRefNumber}`.trim();
-       
+        
       const isDuplicate = reports.some(r => stripHtmlTags(r.station) === stripHtmlTags(formData.station) && ((stripHtmlTags(r.sdRef || r.sd_ref || '')).trim().toLowerCase() === final_reference.toLowerCase() || extractPlainText(r.narrative || '').trim().toLowerCase() === plainTextForDuplicate.toLowerCase()));
       if (isDuplicate) return setNotification(`Error: This specific ${cleanRefType} entry or identical narrative already exists.`);
 
@@ -666,12 +628,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
         suspectDetails: formData.suspectDetails,
         daily_lock_up: 0 
       };
-       
+        
       try {
         const response = await authFetch(`/api/v1/reports`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload) });
         const resData = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Database rejected the entry.");
-         
+          
         setReports([{ ...apiPayload, id: resData.id, sn: resData.sn }, ...reports]);
         setNotification(`✅ Case SN ${resData.sn} (Ref: ${apiPayload.sd_ref}) successfully registered!`);
         resetFormToBlank();
@@ -680,22 +642,29 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
 
     } else if (operation === 'update') {
       if (!formData.sn) return setNotification("Error: Please select a case first.");
-       
-      let updatedNarrative = plainUpdateText 
-        ? `${plainNarrative}<p><br></p><p><strong>[UPDATE ${new Date().toLocaleString()}]:</strong><br>${plainUpdateText}</p>` 
-        : plainNarrative;
-       
+        
+      // 🟢 FIX: Securely append the HTML from the update box to the original narrative
+      const plainUpdateText = extractPlainText(formData.updateText || '').trim();
+      let updatedNarrative = formData.narrative;
+      if (plainUpdateText) {
+          updatedNarrative = `${formData.narrative}<p><br></p><p><strong style="color: #2563eb;">[UPDATE ${new Date().toLocaleString()}]:</strong></p>${formData.updateText}`;
+      }
+        
       const updatedRecord = { 
         ...formData, 
         region: getOfficialRegionForStation(formData.station, formData.region),
         time: formattedTime, 
         narrative: updatedNarrative, 
+        status: formData.status,
         suspects: (formData.suspects || 0) + formData.suspectDetails.length,
         last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})`, 
         daily_lock_up: 0
       };
-      delete updatedRecord.updateText; delete updatedRecord.ref_type; delete updatedRecord.ref_number;
-       
+      
+      delete updatedRecord.updateText; 
+      delete updatedRecord.ref_type; 
+      delete updatedRecord.ref_number;
+        
       try {
         const response = await authFetch(`/api/v1/reports/${formData.sn}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord) });
         if (!response.ok) throw new Error("Failed to update record in database.");
@@ -710,7 +679,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
    
   return (
     <div className="p-4 max-w-[1600px] mx-auto space-y-4 relative z-10 font-sans">
-       
+        
       {showHqGrandModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-md w-full overflow-hidden border border-amber-300 dark:border-amber-800 animate-in zoom-in-95">
@@ -954,19 +923,32 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
                   )}
                 </div>
 
-                <div className="pb-5"> 
-                  <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">
-                    {operation === 'update' ? 'Original Incident Narrative (Read-Only)' : 'Incident Narrative *'}
-                  </label>
-                  <ReactQuill 
-                    theme="snow" 
-                    value={formData.narrative} 
-                    onChange={(content) => setFormData(prev => ({ ...prev, narrative: content }))} 
-                    onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, narrative: autoCapitalize(editor.getHTML()) }))}
-                    className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded [&_.ql-editor]:min-h-[80px]"
-                    modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
-                  />
-                </div>
+                {/* 🟢 FIXED NARRATIVE AND APPEND UI */}
+                {operation === 'new' ? (
+                  <div className="pb-5"> 
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">
+                      Incident Narrative *
+                    </label>
+                    <ReactQuill 
+                      theme="snow" 
+                      value={formData.narrative} 
+                      onChange={(content) => setFormData(prev => ({ ...prev, narrative: content }))} 
+                      onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, narrative: autoCapitalize(editor.getHTML()) }))}
+                      className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded [&_.ql-editor]:min-h-[80px]"
+                      modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
+                    />
+                  </div>
+                ) : (
+                  <div className="pb-5"> 
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">
+                      Original Incident Narrative (Read-Only)
+                    </label>
+                    <div 
+                      className="bg-gray-100 dark:bg-slate-900/50 text-slate-700 dark:text-slate-300 p-3 rounded border border-gray-300 dark:border-slate-700 ql-editor min-h-[80px] max-h-[150px] overflow-y-auto cursor-not-allowed text-xs"
+                      dangerouslySetInnerHTML={{ __html: formData.narrative }} 
+                    />
+                  </div>
+                )}
 
                 {operation === 'update' && (
                   <div className="pb-5 mt-2"> 
@@ -974,9 +956,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
                     <ReactQuill 
                       theme="snow" 
                       value={formData.updateText || ''} 
-                      onChange={(content) => setFormData(prev => ({ ...prev, narrative: content }))} 
-                      onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, narrative: autoCapitalize(editor.getHTML()) }))}
-                      className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded [&_.ql-editor]:min-h-[80px]"
+                      onChange={(content) => setFormData(prev => ({ ...prev, updateText: content }))} 
+                      onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, updateText: autoCapitalize(editor.getHTML()) }))}
+                      className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded [&_.ql-editor]:min-h-[80px] ring-1 ring-blue-200 dark:ring-blue-900"
                       modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
                     />
                   </div>
@@ -996,8 +978,8 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
                   </div>
                   <div>
                     <div className="block text-[11px] font-bold text-red-600 dark:text-red-400 mb-0.5 flex items-center">
-  <Lock size={10} className="mr-1"/> Suspects in Custody
-</div>
+                      <Lock size={10} className="mr-1"/> Suspects in Custody
+                    </div>
                     <div className="flex space-x-1.5">
                       <div className="w-10 bg-red-100 dark:bg-red-950 border border-red-200 dark:border-red-900 text-red-800 dark:text-red-200 font-extrabold rounded flex items-center justify-center text-xs shadow-inner">
                         {operation === 'update' ? formData.suspects : formData.suspectDetails.length}
@@ -1021,7 +1003,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
           <div className="flex flex-col sm:flex-row gap-2.5 items-center">
              <div className="relative flex-1 w-full"> 
                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
-               <input type="text" placeholder="Search Reference, narrative or station..." value={searchQuery} onChange={(e) => setSearchQuery(stripHtmlTags(e.target.value))} className="w-full pl-8 pr-3 py-1.5 border dark:border-slate-700 rounded-lg text-xs shadow-sm outline-none focus:border-blue-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+               <input type="text" placeholder="Search Reference, narrative, station or offence..." value={searchQuery} onChange={(e) => setSearchQuery(stripHtmlTags(e.target.value))} className="w-full pl-8 pr-3 py-1.5 border dark:border-slate-700 rounded-lg text-xs shadow-sm outline-none focus:border-blue-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
              </div>
 
              <button
@@ -1243,7 +1225,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, reports, se
               ))}
             </div>
           </div>
-           
+            
           <div className="overflow-y-auto max-h-80 custom-scrollbar">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0 border-b border-slate-200 dark:border-slate-700 shadow-sm z-10">
