@@ -53,17 +53,25 @@ def clean_model_dict(obj):
     return clean
 
 # ====================================================================
-# 1. RETRIEVE CRIME REPORTS
+# 1. RETRIEVE CRIME REPORTS (UPGRADED ENTERPRISE SQL FILTERING)
 # ====================================================================
 @router.get("/reports")
-def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def get_reports(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    limit: int = Query(default=200, le=1000), # 🟢 Prevents DB memory exhaustion
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
     CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
     if not CrimeModel:
         return []
 
+    # 1. Start the Base Database Query
     query = db.query(CrimeModel)
     
-    # 🟢 Global view permission check: allows reading globally if granted, otherwise falls back to regional/station scope
+    # 2. Enforce Strict Security Clearances
     user_role = (current_user.role or "").upper()
     perms = current_user.permissions or {}
     is_global_view = (
@@ -77,39 +85,71 @@ def get_reports(db: Session = Depends(get_db), current_user: models.Users = Depe
     if not is_global_view:
         if user_role in ["ADMIN", "RPC"]:
             if hasattr(CrimeModel, 'region'):
-                query = query.filter(CrimeModel.region == current_user.region)
+                query = query.filter(func.upper(CrimeModel.region) == str(current_user.region).upper())
         else:
             if hasattr(CrimeModel, 'station'):
-                query = query.filter(CrimeModel.station == current_user.station)
+                query = query.filter(func.upper(CrimeModel.station) == str(current_user.station).upper())
+
+    # 3. 🟢 APPLY DYNAMIC SQL FILTERS (Memory Optimization)
+    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(CrimeModel, 'region'):
+            query = query.filter(func.upper(CrimeModel.region) == region.upper())
         
+    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(CrimeModel, 'station'):
+            query = query.filter(func.upper(CrimeModel.station) == station.upper())
+
+    if search:
+        search_term = f"%{search.strip()}%"
+        search_conditions = []
+        # Safely check which columns exist in the DB model before querying
+        if hasattr(CrimeModel, 'sd_ref'): search_conditions.append(CrimeModel.sd_ref.ilike(search_term))
+        if hasattr(CrimeModel, 'sdRef'): search_conditions.append(CrimeModel.sdRef.ilike(search_term))
+        if hasattr(CrimeModel, 'offence'): search_conditions.append(CrimeModel.offence.ilike(search_term))
+        if hasattr(CrimeModel, 'narrative'): search_conditions.append(CrimeModel.narrative.ilike(search_term))
+        if hasattr(CrimeModel, 'station'): search_conditions.append(CrimeModel.station.ilike(search_term))
+        
+        if search_conditions:
+            query = query.filter(or_(*search_conditions))
+
+    # 4. Execute Query with Limit & Order By
     pk_col = getattr(CrimeModel, 'sn', getattr(CrimeModel, 'id', None))
-    reports = query.order_by(pk_col.desc()).all() if pk_col is not None else query.all()
+    if pk_col is not None:
+        reports = query.order_by(pk_col.desc()).limit(limit).all()
+    else:
+        reports = query.limit(limit).all()
     
-    return [{
-        "sn": getattr(r, 'sn', getattr(r, 'id', 1)), 
-        "sdRef": getattr(r, 'sd_ref', getattr(r, 'sdRef', '')), 
-        "sd_ref": getattr(r, 'sd_ref', getattr(r, 'sdRef', '')), 
-        "region": getattr(r, 'region', 'KMP HEADQUARTERS'), 
-        "station": getattr(r, 'station', 'HQ'),
-        "date": str(getattr(r, 'date', '')), 
-        "time": str(getattr(r, 'time', '')), 
-        "offence": getattr(r, 'offence', 'GENERAL CRIME'), 
-        "narrative": getattr(r, 'narrative', ''), 
-        "status": getattr(r, 'status', 'PENDING'), 
-        "suspects": getattr(r, 'suspects', 0), 
-        "lastUpdatedBy": getattr(r, 'last_updated_by', 'UNKNOWN COMMANDER'),
-        "daily_lock_up": getattr(r, 'daily_lock_up', 0), 
-        "suspectDetails": [{
-            "name": getattr(s, 'name', ''), 
-            "sex": getattr(s, 'sex', ''), 
-            "age": getattr(s, 'age', ''),
-            "tribe": getattr(s, 'tribe', ''),
-            "residence": getattr(s, 'residence', ''),
-            "contact": getattr(s, 'contact', ''),
-            "mental_health_status": getattr(s, 'mental_health_status', ''), 
-            "photo_url": getattr(s, 'photo_url', '')
-        } for s in getattr(r, 'suspect_details', [])]
-    } for r in reports] 
+    # 5. Format and return data
+    SuspectModel = get_model_safe('Suspect_Lockup', 'SuspectLockup', 'suspect_lockup')
+    
+    result = []
+    for r in reports:
+        c_dict = clean_model_dict(r)
+        
+        # Attach nested suspects natively
+        if SuspectModel and hasattr(r, 'id'):
+            suspects = db.query(SuspectModel).filter(SuspectModel.report_id == r.id).all()
+            c_dict['suspectDetails'] = [clean_model_dict(s) for s in suspects]
+        else:
+            c_dict['suspectDetails'] = getattr(r, 'suspect_details', getattr(r, 'suspectDetails', []))
+            
+        # Standardize strictly typed keys for the React frontend
+        c_dict['sn'] = getattr(r, 'sn', getattr(r, 'id', 1))
+        c_dict['sdRef'] = getattr(r, 'sd_ref', getattr(r, 'sdRef', ''))
+        c_dict['region'] = getattr(r, 'region', 'KMP HEADQUARTERS')
+        c_dict['station'] = getattr(r, 'station', 'HQ')
+        c_dict['date'] = str(getattr(r, 'date', ''))
+        c_dict['time'] = str(getattr(r, 'time', ''))
+        c_dict['offence'] = getattr(r, 'offence', 'GENERAL CRIME')
+        c_dict['narrative'] = getattr(r, 'narrative', '')
+        c_dict['status'] = getattr(r, 'status', 'PENDING')
+        c_dict['suspects'] = getattr(r, 'suspects', 0)
+        c_dict['lastUpdatedBy'] = getattr(r, 'last_updated_by', 'UNKNOWN COMMANDER')
+        c_dict['daily_lock_up'] = getattr(r, 'daily_lock_up', 0)
+        
+        result.append(c_dict)
+
+    return result
 
 # ====================================================================
 # 2. CREATE CRIME REPORT

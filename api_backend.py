@@ -666,6 +666,44 @@ def update_user_access(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database commit error: {str(e)}")
 
+@app.put("/api/v1/admin/users/{fnum:path}/force-password")
+def force_user_password(
+    fnum: str, 
+    payload: dict, 
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
+    # Strict security check: Only Super Admins can force a password change
+    if current_user.role != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="SECURITY OVERRIDE DENIED: Only Super Admins can force password resets.")
+        
+    target_fnum = unquote(unquote(fnum)).strip().upper()
+    target_user = db.query(models.Users).filter(func.upper(models.Users.fnum) == target_fnum).first()
+    
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Officer record not found in database.")
+        
+    new_pass = payload.get("new_password")
+    if not new_pass or len(new_pass) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters long.")
+        
+    # Hash the new password and apply it
+    target_user.hashed_password = pwd_context.hash(new_pass)
+    
+    # Log the action in the Audit Trail
+    if hasattr(models, 'Audit_Logs'):
+        log_semantic_audit(
+            db=db, 
+            fnum=current_user.fnum, 
+            action="FORCE_PASSWORD_RESET",
+            target_identifier=target_fnum, 
+            changes={}, 
+            remarks="Super Admin forced a new security key override."
+        )
+        
+    db.commit()
+    return {"status": "success", "message": f"Password forcibly updated for {target_fnum}"}
+
 @app.get("/api/v1/admin/reset-requests")
 def get_reset_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:

@@ -4,10 +4,18 @@ import {
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
   Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power
 } from 'lucide-react';
-import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
 
-// 🟢 REGIONAL HIERARCHY CONSTANTS
+// ============================================================================
+// 1. UTILITIES & BUSINESS LOGIC
+// 🟢 DEFINED LOCALLY TO BREAK THE CIRCULAR DEPENDENCY LOOP WITH App.jsx
+// ============================================================================
+
+const stripHtmlTags = (str) => {
+  if (!str) return '';
+  return str.toString().replace(/<[^>]*>?/gm, '');
+};
+
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -16,80 +24,55 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 TOP TIER ROLES (RESTRICTED TO SUPER ADMIN ONLY)
 const TOP_TIER_ROLES = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'SYSTEM_ADMIN'];
 
-// 🟢 ROLE WEIGHT HIERARCHY (Determines who can modify whom)
 const getRoleWeight = (role) => {
   if (role === 'SUPER_ADMIN') return 100;
   if (role === 'ASSISTANT_SUPER_ADMIN') return 90;
   if (role === 'SYSTEM_ADMIN') return 80;
   if (role === 'ADMIN_USER' || role === 'ADMIN' || role === 'RPC') return 70;
-  if (role === 'DIVISION_ADMIN') return 60; // 🟢 NEW TIER
-  if (role === 'STATION_ADMIN') return 50;  // 🟢 ADJUSTED TIER
+  if (role === 'DIVISION_ADMIN') return 60; 
+  if (role === 'STATION_ADMIN') return 50;  
   if (role === 'USER') return 10;
-  return 0; // REVOKED
+  return 0; 
 };
 
 const canModifyUser = (currentUser, targetUser) => {
   if (!currentUser || !targetUser) return false;
-  if (currentUser.role === 'SUPER_ADMIN') return true; // Ultimate authority
-  if (currentUser.fnum === targetUser.fnum) return false; // Cannot self-modify roles/permissions
+  if (currentUser.role === 'SUPER_ADMIN') return true; 
+  if (currentUser.fnum === targetUser.fnum) return false; 
   
   const currWeight = getRoleWeight(currentUser.role);
   const targetWeight = getRoleWeight(targetUser.role);
   
-  if (currWeight <= targetWeight) return false; // Must be strictly higher in rank
+  if (currWeight <= targetWeight) return false; 
+  if (currentUser.role === 'ASSISTANT_SUPER_ADMIN') return true; 
   
-  if (currentUser.role === 'ASSISTANT_SUPER_ADMIN') return true; // Assistant Super Admin has global reach for lower ranks
-  
-  return currentUser.region === targetUser.region; // Regional/Division/Station Admins must be in the same region
+  return currentUser.region === targetUser.region; 
 };
 
-// 🟢 EXPRESS ACCESS GENERATOR (Rebuilt to explicitly guarantee form access)
 const grantExpressAccess = (role, currentPerms) => {
   let newPerms = { ...(currentPerms || {}) };
-  
-  // 1. Basic Operational Modules (Guaranteed for ANY active personnel)
   const baseModules = ['acc_home', 'acc_profile', 'acc_comms', 'acc_crime', 'acc_ops', 'acc_stories', 'acc_documents'];
-  
-  // 2. Middle Management Modules (Station, Division, Regional)
   const adminModules = ['acc_est', 'acc_analytics', 'acc_hr', 'acc_ledgers'];
-  
-  // 3. High Command Modules (System, Assistant, Super)
   const topModules = ['acc_approvals', 'acc_consolidated', 'acc_roster'];
 
-  // Apply Base Modules to ALL valid roles
   if (role !== 'REVOKED') {
-      baseModules.forEach(key => {
-          if (!newPerms?.super_admin_locks?.[key]) newPerms[key] = true;
-      });
+      baseModules.forEach(key => { if (!newPerms?.super_admin_locks?.[key]) newPerms[key] = true; });
   }
-
-  // Apply Admin Modules
   if (['STATION_ADMIN', 'DIVISION_ADMIN', 'ADMIN_USER', 'ADMIN', 'RPC', 'SYSTEM_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(role)) {
-      adminModules.forEach(key => {
-          if (!newPerms?.super_admin_locks?.[key]) newPerms[key] = true;
-      });
+      adminModules.forEach(key => { if (!newPerms?.super_admin_locks?.[key]) newPerms[key] = true; });
   }
-
-  // Apply Top Modules
   if (['SYSTEM_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(role)) {
-      topModules.forEach(key => {
-          if (!newPerms?.super_admin_locks?.[key]) newPerms[key] = true;
-      });
+      topModules.forEach(key => { if (!newPerms?.super_admin_locks?.[key]) newPerms[key] = true; });
   }
-
-  // Global Scope overrides for Assistant Super Admin
   if (role === 'ASSISTANT_SUPER_ADMIN') {
       if (!newPerms?.super_admin_locks?.view_global_roster) newPerms.view_global_roster = true;
       if (!newPerms?.super_admin_locks?.export_data) newPerms.export_data = true;
   }
-  
   return newPerms;
 };
 
-// 🟢 EXPANDED SUPER CONTROL PANEL MODULES
 const CLEARANCE_MATRIX_COLS = [
   { key: 'global_observer', label: 'Global Observer (Read-Only)', color: 'fuchsia', bg: 'bg-fuchsia-50/50' },
   { key: 'ai_hr_access', label: 'AI Nominal Roll', color: 'amber', bg: 'bg-amber-100/60' },
@@ -119,6 +102,16 @@ const formatOfficerHeader = (user) => {
   const name = stripHtmlTags(user.name || 'UNKNOWN');
   return `${fnum} ${rank} ${name}`;
 };
+
+const ToggleSwitch = ({ checked, onChange }) => (
+  <div onClick={onChange} className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-300 shadow-inner ${checked ? 'bg-red-600' : 'bg-slate-300'}`}>
+    <div className={`bg-white w-3.5 h-3.5 rounded-full shadow-md transform transition-transform duration-300 ${checked ? 'translate-x-4.5' : 'translate-x-0'}`} />
+  </div>
+);
+
+// ============================================================================
+// 2. MAIN DASHBOARD COMPONENT
+// ============================================================================
 
 const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
@@ -153,54 +146,50 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [lockdownData, setLockdownData] = useState({ system: false, regions: {}, stations: {} });
 
   const [revokePrompt, setRevokePrompt] = useState({
-    isOpen: false,
-    fnum: null,
-    actionType: null,
-    targetValue: null,
-    permissionKey: null,
-    reason: ''
+    isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: ''
   });
 
-  // 🟢 CALCULATE ACTIVE LOCKDOWNS FOR UI SUMMARY
   const activeLockdownSummary = useMemo(() => {
     let list = [];
     if (lockdownData.system) list.push("🚨 SYSTEM-WIDE FULL LOCKDOWN");
-    
-    Object.keys(lockdownData.regions).forEach(r => {
-      if (lockdownData.regions[r]) list.push(`⚠️ REGION: ${r}`);
-    });
-    
-    Object.keys(lockdownData.stations).forEach(s => {
-      if (lockdownData.stations[s]) list.push(`🔒 STATION: ${s}`);
-    });
-    
+    Object.keys(lockdownData.regions).forEach(r => { if (lockdownData.regions[r]) list.push(`⚠️ REGION: ${r}`); });
+    Object.keys(lockdownData.stations).forEach(s => { if (lockdownData.stations[s]) list.push(`🔒 STATION: ${s}`); });
     return list;
   }, [lockdownData]);
 
-  // 🟢 DEFINED SECURITY HIERARCHY VARIABLES 
   const canViewGlobalActive = canViewGlobal || 
-    ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || 
+    currentUser?.role === 'SUPER_ADMIN' || 
     currentUser?.permissions?.view_global_roster === true || 
     currentUser?.permissions?.global_observer === true;
 
-  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+
+  const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
+
+  const isSuperAdminOrTopCommand = (
+    canViewGlobalActive ||
+    userRoleClean === 'SUPER_ADMIN' ||
+    userPosClean.includes('KMP COMMANDER') ||
+    userPosClean.includes('DEPUTY KMP COMMANDER') ||
+    userPosClean.includes('STAFF OFFICER ADMIN') ||
+    userPosClean.includes('SO ADMIN')
+  );
 
   const isExplicitHighCommand = [
     'IGP', 'DEPUTY IGP', 'DIRECTOR OPERATIONS', 'DEPUTY DIRECTOR OPERATIONS', 
     'KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN'
-  ].some(pos => userPosClean.includes(pos)) || ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean);
+  ].some(pos => userPosClean.includes(pos)) || userRoleClean === 'SUPER_ADMIN';
 
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
-  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
+  const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
+  const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
 
   useEffect(() => {
-    if (canViewGlobalActive) {
+    if (canViewGlobalActive || isSuperAdminOrTopCommand) {
       setFilterRegion('ALL REGIONS');
       setFilterStation('ALL STATIONS');
     }
-  }, [canViewGlobalActive]);
+  }, [canViewGlobalActive, isSuperAdminOrTopCommand]);
 
   const fetchLockdownStatus = useCallback(async () => {
     if (!hasValidSession()) return;
@@ -211,10 +200,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         let count = 0;
         let newLockdownData = { system: false, regions: {}, stations: {} };
 
-        if (data.system_lockdown) {
-          count++;
-          newLockdownData.system = true;
-        }
+        if (data.system_lockdown) { count++; newLockdownData.system = true; }
         if (data.active_regions?.length > 0) {
           count += data.active_regions.length;
           data.active_regions.forEach(r => newLockdownData.regions[r] = true);
@@ -223,7 +209,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           count += data.active_stations.length;
           data.active_stations.forEach(s => newLockdownData.stations[s] = true);
         }
-        
         setActiveLockdownCount(count);
         setLockdownData(newLockdownData);
       }
@@ -253,9 +238,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         body: JSON.stringify({ lockdown_type: type, target_name: name, reason: reason })
       });
 
-      if (res.ok) {
-        fetchLockdownStatus();
-      } else {
+      if (res.ok) fetchLockdownStatus();
+      else {
         const err = await res.json().catch(() => ({}));
         alert(`❌ Failed to execute command: ${err.detail || 'Server error'}`);
       }
@@ -349,69 +333,43 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   useEffect(() => {
     if (activeTab === 'approvals') fetchPendingUsers();
-    else if (activeTab === 'matrix') fetchAllSystemUsers();
+    else if (activeTab === 'matrix' || activeTab === 'roster') fetchAllSystemUsers();
     else if (activeTab === 'requests') fetchModRequests();
     else if (activeTab === 'logs') { fetchAuditLogs(); fetchAllSystemUsers(); }
     else if (activeTab === 'resets') fetchResets();
     fetchLockdownStatus();
   }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
 
-  const filteredPending = useMemo(() => {
-    return realPendingUsers.filter(u => {
-      const uRegion = stripHtmlTags(u.region || '');
-      const uStation = stripHtmlTags(u.station || '');
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
-      if (filterRegion !== 'ALL REGIONS' && uRegion !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && uStation !== filterStation) return false;
-      return true;
-    });
-  }, [realPendingUsers, filterRegion, filterStation, canViewGlobalActive]);
-
-  const filteredRequests = useMemo(() => {
-    return modRequests.filter(r => {
-      const rRegion = stripHtmlTags(r.current_region || '');
-      const rStation = stripHtmlTags(r.current_station || '');
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
-      if (filterRegion !== 'ALL REGIONS' && rRegion !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && rStation !== filterStation) return false;
-      return true;
-    });
-  }, [modRequests, filterRegion, filterStation, canViewGlobalActive]);
-
-  const filteredResets = useMemo(() => {
-    return resetRequests.filter(r => {
-      const rRegion = stripHtmlTags(r.region || '');
-      const rStation = stripHtmlTags(r.station || '');
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
-      if (filterRegion !== 'ALL REGIONS' && rRegion !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && rStation !== filterStation) return false;
-      return true;
-    });
-  }, [resetRequests, filterRegion, filterStation, canViewGlobalActive]);
-
-  const filteredSystemUsers = useMemo(() => {
-    return allSystemUsers.filter(u => {
-      const uReg = stripHtmlTags(u.region || '').trim().toUpperCase();
-      const uStat = stripHtmlTags(u.station || '').trim().toUpperCase();
+  const filterByRegionStation = (items, itemRegionKey = 'region', itemStationKey = 'station') => {
+    return items.filter(item => {
+      const itemRegion = stripHtmlTags(item[itemRegionKey] || '').trim().toUpperCase();
+      const itemStation = stripHtmlTags(item[itemStationKey] || '').trim().toUpperCase();
       const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
       const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
       if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return true;
-      if (activeReg && activeReg !== 'ALL REGIONS' && uReg !== activeReg) return false;
-      if (activeStat && activeStat !== 'ALL STATIONS' && uStat !== activeStat) return false;
+      if (activeReg && activeReg !== 'ALL REGIONS' && itemRegion !== activeReg) return false;
+      if (activeStat && activeStat !== 'ALL STATIONS' && itemStation !== activeStat) return false;
       return true;
     });
-  }, [allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
+  };
+
+  const filteredPending = useMemo(() => filterByRegionStation(realPendingUsers), [realPendingUsers, filterRegion, filterStation, canViewGlobalActive]);
+  const filteredRequests = useMemo(() => filterByRegionStation(modRequests, 'current_region', 'current_station'), [modRequests, filterRegion, filterStation, canViewGlobalActive]);
+  const filteredResets = useMemo(() => filterByRegionStation(resetRequests), [resetRequests, filterRegion, filterStation, canViewGlobalActive]);
+  const filteredSystemUsers = useMemo(() => filterByRegionStation(allSystemUsers), [allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
 
   const filteredLogs = useMemo(() => {
     return auditLogs.filter(log => {
       const logUser = allSystemUsers.find(u => u.fnum === log.user_fnum);
-      const logRegion = stripHtmlTags(log.region || logUser?.region || '');
-      const logStation = stripHtmlTags(log.station || logUser?.station || '');
+      const logRegion = stripHtmlTags(log.region || logUser?.region || '').trim().toUpperCase();
+      const logStation = stripHtmlTags(log.station || logUser?.station || '').trim().toUpperCase();
+      const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
+      const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
-      if (filterRegion !== 'ALL REGIONS' && logRegion && logRegion !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && logStation && logStation !== filterStation) return false;
+      if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return true;
+      if (activeReg && activeReg !== 'ALL REGIONS' && logRegion !== activeReg) return false;
+      if (activeStat && activeStat !== 'ALL STATIONS' && logStation !== activeStat) return false;
       return true;
     });
   }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
@@ -421,7 +379,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
     
     if (!targetUser) return;
-
     if (!canModifyUser(currentUser, targetUser)) {
       alert("SECURITY OVERRIDE DENIED: Insufficient clearance to bulk-update this user.");
       return;
@@ -434,27 +391,19 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
     colsToProcess.forEach(col => {
       const isLocked = newPermissions.super_admin_locks[col.key];
-      if (!isSuperAdmin && isLocked) return; // Respect locks
-
+      if (!isSuperAdmin && isLocked) return; 
       newPermissions[col.key] = setAllToTrue;
-      if (isSuperAdmin) {
-        newPermissions.super_admin_locks[col.key] = !setAllToTrue; // Lock it to FALSE if unchecking, unlock if checking
-      }
+      if (isSuperAdmin) newPermissions.super_admin_locks[col.key] = !setAllToTrue; 
     });
 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: newPermissions } : u));
 
     try {
       const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
       });
       if (!response.ok) throw new Error("Failed to update bulk permissions.");
-    } catch (err) {
-      alert(`Bulk Update Failed: ${err.message}`);
-      fetchAllSystemUsers();
-    }
+    } catch (err) { alert(`Bulk Update Failed: ${err.message}`); fetchAllSystemUsers(); }
   };
 
   const executePermissionChange = async (fnum, permissionKey, value, reason = '') => {
@@ -468,17 +417,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
 
     let locks = targetUser.permissions?.super_admin_locks || {};
-
-    if (value === false && isSuperAdmin) {
-      locks[permissionKey] = true;
-    } else if (value === true && isSuperAdmin) {
-      locks[permissionKey] = false;
-    }
+    if (value === false && isSuperAdmin) locks[permissionKey] = true;
+    else if (value === true && isSuperAdmin) locks[permissionKey] = false;
 
     const updatedPermissions = {
-      ...(targetUser.permissions || {}),
-      [permissionKey]: value,
-      super_admin_locks: locks,
+      ...(targetUser.permissions || {}), [permissionKey]: value, super_admin_locks: locks,
       [`${permissionKey}_revoke_reason`]: stripHtmlTags(reason || targetUser.permissions?.[`${permissionKey}_revoke_reason`])
     };
 
@@ -486,19 +429,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
     try {
       const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
       });
-      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
       }
-    } catch (err) {
-      alert(`Permission Update Failed:\n${stripHtmlTags(err.message)}`);
-      fetchAllSystemUsers();
-    }
+    } catch (err) { alert(`Permission Update Failed:\n${stripHtmlTags(err.message)}`); fetchAllSystemUsers(); }
   };
 
   const executeRoleChange = async (fnum, newRole, reason = '') => {
@@ -517,32 +454,21 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       updatedPermissions.revoke_reason = stripHtmlTags(reason);
       updatedPermissions.revoked_by = isSuperAdmin ? 'SUPER_ADMIN' : stripHtmlTags(currentUser?.role);
     } else {
-      // 🟢 Automatically populate full module array explicitly in the payload
       updatedPermissions = grantExpressAccess(newRole, updatedPermissions);
-      
-      if (isSuperAdmin) {
-        delete updatedPermissions.revoked_by;
-        delete updatedPermissions.revoke_reason;
-      }
+      if (isSuperAdmin) { delete updatedPermissions.revoked_by; delete updatedPermissions.revoke_reason; }
     }
 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
     try {
       const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
-      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
       }
-    } catch (err) {
-      alert(`Role Update Failed:\n${stripHtmlTags(err.message)}`);
-      fetchAllSystemUsers();
-    }
+    } catch (err) { alert(`Role Update Failed:\n${stripHtmlTags(err.message)}`); fetchAllSystemUsers(); }
   };
 
   const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
@@ -561,45 +487,26 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
 
     if (value === false && !isSuperAdmin) {
-      setRevokePrompt({
-        isOpen: true,
-        fnum: cleanFnum,
-        actionType: 'PERMISSION',
-        targetValue: value,
-        permissionKey,
-        reason: ''
-      });
+      setRevokePrompt({ isOpen: true, fnum: cleanFnum, actionType: 'PERMISSION', targetValue: value, permissionKey, reason: '' });
       return;
     }
 
     let locks = { ...(targetUser.permissions?.super_admin_locks || {}) };
-    if (isSuperAdmin) {
-      locks[permissionKey] = !value;
-    }
+    if (isSuperAdmin) locks[permissionKey] = !value;
 
-    const updatedPermissions = {
-      ...(targetUser.permissions || {}),
-      [permissionKey]: value,
-      super_admin_locks: locks
-    };
+    const updatedPermissions = { ...(targetUser.permissions || {}), [permissionKey]: value, super_admin_locks: locks };
 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
 
     try {
       const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
       });
-      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
       }
-    } catch (err) {
-      alert(`Permission Update Failed:\n${stripHtmlTags(err.message)}`);
-      fetchAllSystemUsers();
-    }
+    } catch (err) { alert(`Permission Update Failed:\n${stripHtmlTags(err.message)}`); fetchAllSystemUsers(); }
   };
 
   const handleRoleTierChange = async (fnum, newRole) => {
@@ -618,50 +525,32 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
 
     if (newRole === 'REVOKED' && !isSuperAdmin) {
-      setRevokePrompt({
-        isOpen: true,
-        fnum: cleanFnum,
-        actionType: 'ROLE',
-        targetValue: newRole,
-        permissionKey: null,
-        reason: ''
-      });
+      setRevokePrompt({ isOpen: true, fnum: cleanFnum, actionType: 'ROLE', targetValue: newRole, permissionKey: null, reason: '' });
       return;
     }
 
     let updatedPermissions = { ...(targetUser.permissions || {}) };
     if (newRole !== 'REVOKED') {
-      // 🟢 Automatically populate full module array explicitly
       updatedPermissions = grantExpressAccess(newRole, updatedPermissions);
-      if (isSuperAdmin) {
-        delete updatedPermissions.revoked_by;
-        delete updatedPermissions.revoke_reason;
-      }
+      if (isSuperAdmin) { delete updatedPermissions.revoked_by; delete updatedPermissions.revoke_reason; }
     }
 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
     try {
       const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
-      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
       }
-    } catch (err) {
-      alert(`Role Update Failed:\n${stripHtmlTags(err.message)}`);
-      fetchAllSystemUsers();
-    }
+    } catch (err) { alert(`Role Update Failed:\n${stripHtmlTags(err.message)}`); fetchAllSystemUsers(); }
   };
 
   const handleApproveUser = async (userToApprove) => {
     const fnum = typeof userToApprove === 'object' ? userToApprove.fnum : userToApprove;
     
-    // Cross-region validation
     if (!canModifyUser(currentUser, userToApprove)) {
         alert("SECURITY OVERRIDE DENIED: Out of Jurisdiction.");
         return;
@@ -671,30 +560,18 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     try {
       const cleanFnum = stripHtmlTags(fnum);
       const safeFnum = encodeURIComponent(cleanFnum.trim());
-
       let finalRole = typeof userToApprove === 'object' ? userToApprove.role || 'USER' : 'USER';
 
-      // Cannot assign a role weight equal to or higher than current user (unless Super Admin)
       if (getRoleWeight(finalRole) >= getRoleWeight(currentUser.role) && !isSuperAdmin) {
           const proceed = window.confirm(`SECURITY HALT: This officer requested [${finalRole.replace(/_/g, ' ')}] clearance, which exceeds your authority to grant.\n\nWould you like to approve them with standard [USER] clearance instead?`);
-          if (!proceed) {
-              setIsProcessingAction(false);
-              return;
-          }
+          if (!proceed) { setIsProcessingAction(false); return; }
           finalRole = 'USER';
       }
 
-      // 🟢 Generate explicit boolean permissions for the approved role so forms definitely open
       const grantedPermissions = grantExpressAccess(finalRole, userToApprove.permissions || {});
 
       const response = await authFetch(`/api/v1/users/${safeFnum}/access`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          role: finalRole,
-          is_approved: true,
-          permissions: grantedPermissions
-        })
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: finalRole, is_approved: true, permissions: grantedPermissions })
       });
 
       const data = await response.json();
@@ -704,11 +581,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       setSelectedPendingUser(null);
       fetchPendingUsers();
       fetchAllSystemUsers();
-    } catch (err) {
-      alert(`Approval Error: ${stripHtmlTags(err.message)}`);
-    } finally {
-      setIsProcessingAction(false);
-    }
+    } catch (err) { alert(`Approval Error: ${stripHtmlTags(err.message)}`); } 
+    finally { setIsProcessingAction(false); }
   };
 
   const handleRejectUser = async (userToReject) => {
@@ -730,9 +604,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const safeFnum = encodeURIComponent(cleanFnum.trim());
       const safeReason = encodeURIComponent(stripHtmlTags(rawReason));
 
-      const response = await authFetch(`/api/v1/users/${safeFnum}/revoke?reason=${safeReason}`, {
-        method: "DELETE"
-      });
+      const response = await authFetch(`/api/v1/users/${safeFnum}/revoke?reason=${safeReason}`, { method: "DELETE" });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -742,19 +614,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       alert(`⛔ Request Rejected: ${cleanFnum} has been removed from the queue.`);
       setSelectedPendingUser(null);
       fetchPendingUsers();
-    } catch (err) {
-      alert(`Rejection Error: ${stripHtmlTags(err.message)}`);
-    } finally {
-      setIsProcessingAction(false);
-    }
+    } catch (err) { alert(`Rejection Error: ${stripHtmlTags(err.message)}`); } 
+    finally { setIsProcessingAction(false); }
   };
 
   const handleReviewRequest = async (reqId, actionStatus) => {
     if (!reqId) return alert("Error: Request ID is undefined.");
-
     const reqObj = modRequests.find(r => (r.id || r.sn) === reqId);
     
-    // Check if the current user has authority over the region where the transfer is happening
     if (reqObj && !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== reqObj.current_region) {
         alert("SECURITY OVERRIDE DENIED: Cross-regional HR modifications are strictly restricted to Super/Assistant Admins.");
         return;
@@ -769,9 +636,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
     try {
       const response = await authFetch(`/api/v1/requests/${reqId}`, {
-        method: "PATCH", 
-        headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify(payload)
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
       
       if (!response.ok) {
@@ -782,9 +647,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       setModRequests(modRequests.filter(r => r.id !== reqId && r.sn !== reqId));
       setSelectedModRequest(null); 
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
-    } catch (err) {
-      alert(`Error processing request: ${stripHtmlTags(err.message)}`);
-    }
+    } catch (err) { alert(`Error processing request: ${stripHtmlTags(err.message)}`); }
   };
 
   const handleResetAction = async (reqId, actionStr) => {
@@ -800,9 +663,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       formData.append('action', actionStr);
       
       const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
-        method: "POST", 
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, 
-        body: formData
+        method: "POST", headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData
       });
       
       const data = await response.json();
@@ -810,31 +671,32 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       
       setResetRequests(resetRequests.filter(r => r.id !== reqId));
       
-      if (actionStr === "APPROVE") {
-        alert(`Password successfully reset! Temporary key: ${stripHtmlTags(data.new_password)}`);
-      } else {
-        alert("Request rejected.");
-      }
-    } catch (err) { 
-      alert(`Error: ${stripHtmlTags(err.message)}`); 
-    }
+      if (actionStr === "APPROVE") alert(`Password successfully reset! Temporary key: ${stripHtmlTags(data.new_password)}`);
+      else alert("Request rejected.");
+    } catch (err) { alert(`Error: ${stripHtmlTags(err.message)}`); }
   };
 
-  // 🟢 HELPER: Inline UI Toggle Switch component
-  const ToggleSwitch = ({ checked, onChange }) => (
-    <div
-      onClick={onChange}
-      className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-300 shadow-inner ${
-        checked ? 'bg-red-600' : 'bg-slate-300'
-      }`}
-    >
-      <div 
-        className={`bg-white w-3.5 h-3.5 rounded-full shadow-md transform transition-transform duration-300 ${
-          checked ? 'translate-x-4.5' : 'translate-x-0'
-        }`} 
-      />
-    </div>
-  );
+  const handleForcePassword = async (fnum, name) => {
+    const newPass = window.prompt(`[SUPER ADMIN OVERRIDE]\nEnter new 6+ character password for ${name} (${fnum}):`);
+    if (!newPass) return;
+    if (newPass.length < 6) return alert("Password must be at least 6 characters long.");
+
+    setIsProcessingAction(true);
+    try {
+      const response = await authFetch(`/api/v1/admin/users/${encodeURIComponent(fnum.trim())}/force-password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_password: newPass })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Failed to force password reset.");
+      alert(`✅ ${data.message}`);
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
 
   return (
     <div className="p-4 max-w-[1800px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
@@ -855,15 +717,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5 relative z-20">
         
-        {/* Left Side: Clearly Labeled Scope Filters */}
         <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-100 w-full xl:w-auto">
           <span className="text-xs font-extrabold text-blue-900 uppercase flex items-center tracking-wider mr-1">
             <Filter size={14} className="mr-1.5 text-blue-600" /> Filter Scope:
           </span>
 
           <select 
-            id="filterRegion"
-            name="filterRegion"
             value={filterRegion} 
             onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} 
             disabled={!canViewGlobalActive} 
@@ -875,8 +734,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           </select>
 
           <select 
-            id="filterStation"
-            name="filterStation"
             value={filterStation} 
             onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} 
             disabled={!canViewGlobalActive && !['RPC', 'Deputy Commander'].includes(currentUser?.role)} 
@@ -889,151 +746,74 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
-          <button
-            onClick={() => {
-              if (activeTab === 'approvals') fetchPendingUsers();
-              else if (activeTab === 'matrix') fetchAllSystemUsers();
-              else if (activeTab === 'requests') fetchModRequests();
-              else if (activeTab === 'logs') fetchAuditLogs();
-              else if (activeTab === 'resets') fetchResets();
-              fetchLockdownStatus();
-            }}
-            className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm"
-            title="Refresh Current Queue"
-          >
+          <button onClick={() => { fetchPendingUsers(); fetchAllSystemUsers(); fetchModRequests(); fetchAuditLogs(); fetchResets(); fetchLockdownStatus(); }} className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm">
             <RefreshCw size={14} className="mr-2 text-blue-600" /> Sync Queue
           </button>
 
-          {isSuperAdmin && (
-            <button
-              type="button"
-              onClick={() => { fetchLockdownStatus(); setShowLockdownModal(true); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
-                activeLockdownCount > 0
-                  ? 'bg-red-950 border-red-500 text-red-200 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]'
-                  : 'bg-amber-950/60 border-amber-600/50 text-amber-300 hover:bg-amber-900/60'
-              }`}
-              title="Manage Emergency Regional & Station Lockdowns"
-            >
-              <span>🔒</span>
-              <span>{activeLockdownCount > 0 ? `Lockdowns (${activeLockdownCount} Active)` : 'Lockdowns'}</span>
+          {isSuperAdminOrTopCommand && (
+            <button onClick={() => { fetchLockdownStatus(); setShowLockdownModal(true); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${activeLockdownCount > 0 ? 'bg-red-950 border-red-500 text-red-200 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-amber-950/60 border-amber-600/50 text-amber-300 hover:bg-amber-900/60'}`}>
+              <span>🔒</span><span>{activeLockdownCount > 0 ? `Lockdowns (${activeLockdownCount} Active)` : 'Lockdowns'}</span>
             </button>
           )}
 
           {isSuperAdmin && (
-            <button
-              onClick={handleKillSwitchToggle}
-              disabled={loadingKillSwitch}
-              className={`font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm border ${
-                isDbKillActive 
-                  ? 'bg-emerald-50 border-emerald-400 text-emerald-800 hover:bg-emerald-100' 
-                  : 'bg-red-50 border-red-400 text-red-800 hover:bg-red-100'
-              }`}
-              title="Toggle AI Direct Database Querying Access"
-            >
-              {loadingKillSwitch ? (
-                <Loader2 size={14} className="mr-2 animate-spin text-slate-500" />
-              ) : (
-                <ShieldAlert size={14} className={`mr-2 ${isDbKillActive ? 'text-emerald-600' : 'text-red-600'}`} />
-              )}
+            <button onClick={handleKillSwitchToggle} disabled={loadingKillSwitch} className={`font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm border ${isDbKillActive ? 'bg-emerald-50 border-emerald-400 text-emerald-800 hover:bg-emerald-100' : 'bg-red-50 border-red-400 text-red-800 hover:bg-red-100'}`}>
+              {loadingKillSwitch ? <Loader2 size={14} className="mr-2 animate-spin text-slate-500" /> : <ShieldAlert size={14} className={`mr-2 ${isDbKillActive ? 'text-emerald-600' : 'text-red-600'}`} />}
               {isDbKillActive ? 'AI DB Query: ON' : 'AI DB Query: KILLED'}
             </button>
           )}
         </div>
       </div>
 
+      {/* TABS SECTION */}
       <div className="flex border-b border-slate-200 bg-white rounded-t-xl shadow-sm overflow-x-auto custom-scrollbar">
-        <button 
-          onClick={() => setActiveTab('approvals')} 
-          className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'approvals' ? 'bg-slate-50 border-b-[3px] border-blue-600 text-blue-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}
-        >
+        <button onClick={() => setActiveTab('approvals')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'approvals' ? 'bg-slate-50 border-b-[3px] border-blue-600 text-blue-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}>
           <UserPlus className="w-4 h-4 mr-2"/> Authorizations ({loadingPending ? '...' : filteredPending.length})
         </button>
-        
-        <button 
-          onClick={() => setActiveTab('matrix')} 
-          className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'matrix' ? 'bg-slate-50 border-b-[3px] border-indigo-600 text-indigo-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}
-        >
+        <button onClick={() => setActiveTab('matrix')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'matrix' ? 'bg-slate-50 border-b-[3px] border-indigo-600 text-indigo-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}>
           <Shield className="w-4 h-4 mr-2"/> Clearance Matrix ({filteredSystemUsers.length})
         </button>
-        
-        <button 
-          onClick={() => setActiveTab('requests')} 
-          className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'requests' ? 'bg-slate-50 border-b-[3px] border-amber-500 text-amber-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}
-        >
+        {/* 🟢 NEW ROSTER TAB */}
+        <button onClick={() => setActiveTab('roster')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'roster' ? 'bg-slate-50 border-b-[3px] border-cyan-600 text-cyan-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}>
+          <Users className="w-4 h-4 mr-2"/> Directory Roster ({filteredSystemUsers.length})
+        </button>
+        <button onClick={() => setActiveTab('requests')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'requests' ? 'bg-slate-50 border-b-[3px] border-amber-500 text-amber-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}>
           <RefreshCw className="w-4 h-4 mr-2"/> HR Transfers ({filteredRequests.length})
         </button>
-        
-        <button 
-          onClick={() => setActiveTab('logs')} 
-          className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'logs' ? 'bg-slate-50 border-b-[3px] border-emerald-600 text-emerald-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}
-        >
+        <button onClick={() => setActiveTab('logs')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'logs' ? 'bg-slate-50 border-b-[3px] border-emerald-600 text-emerald-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}>
           <FileText className="w-4 h-4 mr-2"/> Audit Logs ({filteredLogs.length})
         </button>
-        
-        <button 
-          onClick={() => setActiveTab('resets')} 
-          className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'resets' ? 'bg-slate-50 border-b-[3px] border-red-600 text-red-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}
-        >
+        <button onClick={() => setActiveTab('resets')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'resets' ? 'bg-slate-50 border-b-[3px] border-red-600 text-red-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50 hover:text-slate-800'}`}>
           <KeyRound className="w-4 h-4 mr-2"/> Password Resets ({filteredResets.length})
         </button>
       </div>
 
+      {/* PENDING USERS TAB */}
       {activeTab === 'approvals' && (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
           {loadingPending ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs flex items-center justify-center">
-              <Loader2 size={16} className="animate-spin mr-2 text-blue-600" /> Syncing with Command Database...
-            </div>
+            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs flex items-center justify-center"><Loader2 size={16} className="animate-spin mr-2 text-blue-600" /> Syncing with Command Database...</div>
           ) : filteredPending.length === 0 ? (
             <div className="p-8 text-center text-slate-500 font-medium text-xs">No active unapproved access requests pending in selected queue.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200 text-xs">
-                {/* 🟢 HIGH CONTRAST HEADERS */}
                 <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px] tracking-wider border-b-2 border-blue-500">
-                  <tr>
-                    <th className="px-4 py-3.5 text-left">Officer Details</th>
-                    <th className="px-4 py-3.5 text-left">Command Post</th>
-                    <th className="px-4 py-3.5 text-left">Derived Role Tier</th>
-                    <th className="px-4 py-3.5 text-right">Action</th>
-                  </tr>
+                  <tr><th className="px-4 py-3.5 text-left">Officer Details</th><th className="px-4 py-3.5 text-left">Command Post</th><th className="px-4 py-3.5 text-left">Derived Role Tier</th><th className="px-4 py-3.5 text-right">Action</th></tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                   {filteredPending.map((user) => {
-                    // 🟢 STRICT HIERARCHY / JURISDICTION CHECK
                     const isCrossRegion = !canModifyUser(currentUser, user);
-
                     return (
-                      <tr 
-                        key={user.fnum} 
-                        onClick={() => setSelectedPendingUser(user)}
-                        className="hover:bg-blue-50/50 cursor-pointer transition-colors group"
-                      >
+                      <tr key={user.fnum} onClick={() => setSelectedPendingUser(user)} className="hover:bg-blue-50/50 cursor-pointer transition-colors group">
                         <td className="px-4 py-3 whitespace-nowrap">
                           <div className="flex items-center space-x-3">
-                            <div 
-                              onClick={(e) => {
-                                if (user.profile_photo_path) {
-                                  e.stopPropagation();
-                                  setViewingPhotoModal(user.profile_photo_path);
-                                }
-                              }}
-                              className="w-9 h-9 rounded-full bg-slate-100 border border-slate-300 flex items-center justify-center font-bold text-xs text-slate-600 shrink-0 overflow-hidden shadow-xs group-hover:border-blue-400"
-                            >
-                              {user.profile_photo_path ? (
-                                <img src={user.profile_photo_path} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                user.name?.charAt(0) || 'U'
-                              )}
+                            <div onClick={(e) => { if (user.profile_photo_path) { e.stopPropagation(); setViewingPhotoModal(user.profile_photo_path); } }} className="w-9 h-9 rounded-full bg-slate-100 border border-slate-300 flex items-center justify-center font-bold text-xs text-slate-600 shrink-0 overflow-hidden shadow-xs group-hover:border-blue-400">
+                              {user.profile_photo_path ? <img src={user.profile_photo_path} alt="" className="w-full h-full object-cover" /> : user.name?.charAt(0) || 'U'}
                             </div>
                             <div>
-                              <div className="font-extrabold text-slate-900 group-hover:text-blue-700 transition-colors">
-                                {formatOfficerHeader(user)}
-                              </div>
-                              <div className="text-[10px] text-slate-400 font-mono">
-                                NIN: {stripHtmlTags(user.nin || 'N/A')} • Tel: {stripHtmlTags(user.phone || 'N/A')}
-                              </div>
+                              <div className="font-extrabold text-slate-900 group-hover:text-blue-700 transition-colors">{formatOfficerHeader(user)}</div>
+                              <div className="text-[10px] text-slate-400 font-mono">NIN: {stripHtmlTags(user.nin || 'N/A')} • Tel: {stripHtmlTags(user.phone || 'N/A')}</div>
                             </div>
                           </div>
                         </td>
@@ -1043,41 +823,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           <div className="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded mt-0.5 inline-block border font-bold text-slate-600">{stripHtmlTags(user.position)}</div>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
-                          <span className={`px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full border ${
-                            user.role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-800 border-purple-200' :
-                            user.role === 'ADMIN' ? 'bg-blue-100 text-blue-800 border-blue-200' :
-                            user.role === 'RPC' ? 'bg-amber-100 text-amber-800 border-amber-200' :
-                            'bg-slate-100 text-slate-800 border-slate-200'
-                          }`}>
-                            {stripHtmlTags(user.role || 'USER')}
-                          </span>
+                          <span className={`px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full border ${user.role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-800 border-purple-200' : user.role === 'ADMIN' ? 'bg-blue-100 text-blue-800 border-blue-200' : user.role === 'RPC' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>{stripHtmlTags(user.role || 'USER')}</span>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-right space-x-2" onClick={(e) => e.stopPropagation()}>
-                          <button 
-                            type="button"
-                            onClick={() => setSelectedPendingUser(user)}
-                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-1.5 px-3 rounded-md text-[11px] transition inline-flex items-center cursor-pointer border border-slate-300"
-                          >
-                            <Eye size={13} className="mr-1" /> Review
-                          </button>
-                          <button 
-                            type="button"
-                            disabled={isProcessingAction || isCrossRegion}
-                            onClick={() => handleRejectUser(user)}
-                            title={isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Reject Request"}
-                            className={`border font-bold py-1.5 px-3 rounded-md text-[11px] transition inline-flex items-center ${isCrossRegion ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-red-50 hover:bg-red-600 hover:text-white text-red-600 border-red-200 cursor-pointer'}`}
-                          >
-                            <XCircle size={13} className="mr-1" /> Reject
-                          </button>
-                          <button 
-                            type="button"
-                            disabled={isProcessingAction || isCrossRegion}
-                            onClick={() => handleApproveUser(user)}
-                            title={isCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Approve Access"}
-                            className={`font-bold py-1.5 px-3 rounded-md shadow-xs text-[11px] transition inline-flex items-center ${isCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'}`}
-                          >
-                            <CheckCircle size={13} className="mr-1" /> Approve Access
-                          </button>
+                          <button type="button" onClick={() => setSelectedPendingUser(user)} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-1.5 px-3 rounded-md text-[11px] transition inline-flex items-center cursor-pointer border border-slate-300"><Eye size={13} className="mr-1" /> Review</button>
+                          <button type="button" disabled={isProcessingAction || isCrossRegion} onClick={() => handleRejectUser(user)} title={isCrossRegion ? "Out of Jurisdiction" : "Reject Request"} className={`border font-bold py-1.5 px-3 rounded-md text-[11px] transition inline-flex items-center ${isCrossRegion ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-red-50 hover:bg-red-600 hover:text-white text-red-600 border-red-200 cursor-pointer'}`}><XCircle size={13} className="mr-1" /> Reject</button>
+                          <button type="button" disabled={isProcessingAction || isCrossRegion} onClick={() => handleApproveUser(user)} title={isCrossRegion ? "Out of Jurisdiction" : "Approve Access"} className={`font-bold py-1.5 px-3 rounded-md shadow-xs text-[11px] transition inline-flex items-center ${isCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'}`}><CheckCircle size={13} className="mr-1" /> Approve Access</button>
                         </td>
                       </tr>
                     );
@@ -1089,6 +840,318 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
+      {/* CLEARANCE MATRIX TAB */}
+      {activeTab === 'matrix' && (
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden w-full">
+          <div className="bg-slate-900 text-white p-3 text-xs font-extrabold uppercase tracking-wider flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
+            <span className="flex items-center"><Shield className="w-4 h-4 mr-1.5 text-indigo-400" /> Super Control Panel - Active Roster Matrix ({stripHtmlTags(filterRegion)} {filterStation !== 'ALL STATIONS' ? `/ ${stripHtmlTags(filterStation)}` : ''})</span>
+            <span className="text-[10px] text-slate-400 font-mono text-right">Tiers: USER | STN_ADMIN | DIV_ADMIN | REGIONAL_ADMIN | SYS_ADMIN | ASST_SUPER | SUPER_ADMIN | REVOKED</span>
+          </div>
+            
+          {loadingUsers ? (
+            <div className="p-8 text-center text-slate-400 font-medium animate-pulse text-xs flex items-center justify-center"><Loader2 size={16} className="animate-spin mr-2 text-indigo-600" /> Syncing user database roster...</div>
+          ) : filteredSystemUsers.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-xs font-medium">No registered system users found for this regional filter.</div>
+          ) : (
+            <div className="overflow-x-auto w-full custom-scrollbar">
+              <table className="min-w-max divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-900 text-white uppercase font-black text-[10px] tracking-wider border-b-2 border-blue-500">
+                  <tr>
+                    <th className="p-2.5 text-left sticky left-0 z-10 bg-slate-900 shadow-[1px_0_0_#3b82f6] text-blue-100">Officer Details</th>
+                    <th className="p-2.5 text-center sticky left-[240px] z-10 bg-slate-900 shadow-[1px_0_0_#3b82f6] text-blue-100">Administrative Tier</th>
+                    <th className="p-2.5 text-center sticky left-[360px] z-10 bg-slate-900 shadow-[1px_0_0_#3b82f6] text-blue-100">Quick Actions</th>
+                    {CLEARANCE_MATRIX_COLS.map((col, idx) => {
+                      if (col.key === 'global_observer' && !isSuperAdmin) return null;
+                      return (
+                        <th key={idx} className="p-2 text-center border-l border-slate-700 bg-slate-900">
+                          <div className="w-16 mx-auto whitespace-normal break-words leading-tight text-[9px] text-blue-100">
+                            {col.key === 'global_observer' && <Globe className="w-3 h-3 mx-auto text-fuchsia-400 mb-1" />}{stripHtmlTags(col.label)}
+                          </div>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                  {filteredSystemUsers.map(u => {
+                    const p = u.permissions || {};
+                    const isRevoked = u.role === 'REVOKED';
+                    const isSelf = u.fnum === currentUser?.fnum;
+                    const isRoleSelectDisabled = isSelf || !canModifyUser(currentUser, u);
+                    const isBulkActionDisabled = isSelf || !canModifyUser(currentUser, u) || !isExplicitHighCommand;
+
+                    return (
+                      <tr key={u.fnum} className={`transition-colors ${isRevoked ? 'bg-red-50/40' : 'hover:bg-slate-50'} ${isSelf ? 'bg-blue-50/30 ring-1 ring-inset ring-blue-100' : ''}`}>
+                        <td className="p-2.5 sticky left-0 z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[240px]">
+                          <div className={`font-extrabold text-[11px] flex items-center ${isRevoked ? 'text-red-900' : 'text-slate-900'}`}>
+                            {formatOfficerHeader(u)}
+                            {isSelf && <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-blue-100 text-blue-700 font-bold rounded-full border border-blue-200" title="You cannot modify your own row.">YOU</span>}
+                            {u.role === 'SUPER_ADMIN' && !isSelf && <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-red-100 text-red-700 font-bold rounded-full border border-red-200">GOD-MODE</span>}
+                            {p.global_observer && u.role !== 'SUPER_ADMIN' && <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-fuchsia-100 text-fuchsia-700 font-bold rounded-full border border-fuchsia-200">OBSERVER</span>}
+                            {p.revoked_by === 'SUPER_ADMIN' && <Lock size={12} className="ml-2 text-red-600" title="Revoked by Super Admin" />}
+                          </div>
+                          <div className={`text-[10px] font-mono mt-0.5 ${isRevoked ? 'text-red-500' : 'text-slate-500'}`}>Station: <strong className={isRevoked ? 'text-red-700' : 'text-slate-700'}>{stripHtmlTags(u.station)}</strong> ({stripHtmlTags(u.region)})</div>
+                        </td>
+
+                        <td className="p-2.5 text-center sticky left-[240px] z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[120px]">
+                          <select 
+                            id={`role-select-${u.fnum}`} name={`role_select_${u.fnum}`} value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, stripHtmlTags(e.target.value))}
+                            disabled={isRoleSelectDisabled} title={isRoleSelectDisabled ? "Insufficient authority to change this user's role." : ""}
+                            className={`border rounded-md px-2 py-1 font-bold outline-none uppercase w-full text-[10px] ${isRoleSelectDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${u.role === 'SUPER_ADMIN' ? 'bg-red-50 text-red-700 border-red-300' : u.role === 'ASSISTANT_SUPER_ADMIN' ? 'bg-rose-50 text-rose-700 border-rose-300' : u.role === 'SYSTEM_ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-300' : (u.role === 'ADMIN_USER' || u.role === 'ADMIN') ? 'bg-indigo-50 text-indigo-700 border-indigo-300' : u.role === 'DIVISION_ADMIN' ? 'bg-sky-50 text-sky-700 border-sky-300' : u.role === 'STATION_ADMIN' ? 'bg-blue-50 text-blue-700 border-blue-300' : u.role === 'REVOKED' ? 'bg-red-100 text-red-800 border-red-400 shadow-inner' : 'bg-slate-100 text-slate-700 border-slate-300'}`}
+                          >
+                            <option value="USER">USER</option>
+                            <option value="STATION_ADMIN">STN ADMIN</option>
+                            {(getRoleWeight(currentUser?.role) > 60 || isSuperAdmin) && <option value="DIVISION_ADMIN">DIV ADMIN</option>}
+                            {(getRoleWeight(currentUser?.role) > 70 || isSuperAdmin) && <option value="ADMIN_USER">REGIONAL ADMIN</option>}
+                            {(getRoleWeight(currentUser?.role) > 80 || isSuperAdmin) && <option value="SYSTEM_ADMIN">SYS ADMIN</option>}
+                            {(getRoleWeight(currentUser?.role) > 90 || isSuperAdmin) && <option value="ASSISTANT_SUPER_ADMIN">ASST SUPER</option>}
+                            {isSuperAdmin && <option value="SUPER_ADMIN">SUPER ADMIN</option>}
+                            <option value="REVOKED" className="text-red-600 font-extrabold bg-red-50">REVOKED</option>
+                          </select>
+                        </td>
+
+                        <td className="p-2.5 text-center sticky left-[360px] z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[90px]">
+                          <div className="flex items-center justify-center space-x-1.5">
+                            <button onClick={() => handleBulkMatrixAction(u.fnum, true)} disabled={isBulkActionDisabled} title={isBulkActionDisabled ? "Insufficient authority to execute bulk updates." : "Check All Modules"} className={`p-1 rounded border transition shadow-xs ${isBulkActionDisabled ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300 cursor-pointer'}`}><CheckSquare size={13} /></button>
+                            <button onClick={() => handleBulkMatrixAction(u.fnum, false)} disabled={isBulkActionDisabled} title={isBulkActionDisabled ? "Insufficient authority to execute bulk updates." : "Uncheck All Modules (Deny Access)"} className={`p-1 rounded border transition shadow-xs ${isBulkActionDisabled ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-red-50 text-red-700 hover:bg-red-100 border-red-300 cursor-pointer'}`}><Square size={13} /></button>
+                            
+                            {isSuperAdmin && !isSelf && (
+                              <button 
+                                onClick={() => handleForcePassword(u.fnum, u.name)}
+                                disabled={isProcessingAction}
+                                title="Force Password Reset"
+                                className="p-1 rounded border transition shadow-xs bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-300 cursor-pointer"
+                              >
+                                <KeyRound size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+
+                        {CLEARANCE_MATRIX_COLS.map((col, idx) => {
+                          if (col.key === 'global_observer' && !isSuperAdmin) return null;
+                          const hasSuperAdminLock = Boolean(p.super_admin_locks?.[col.key]);
+                          const isLockedVisually = hasSuperAdminLock && !isSuperAdmin;
+                          const isStrictSuperAdminOnly = col.key === 'global_observer';
+                          const isDisabled = isSelf || !canModifyUser(currentUser, u) || u.role === 'SUPER_ADMIN' || isRevoked || currentUser?.role === 'SYSTEM_ADMIN' || (!isSuperAdmin && hasSuperAdminLock) || (isStrictSuperAdminOnly && !isSuperAdmin);
+                          let lockTitle = "";
+                          if (!canModifyUser(currentUser, u)) lockTitle = "Out of Jurisdiction (Requires Higher Tier)";
+                          else if (u.role === 'SUPER_ADMIN') lockTitle = "Super Admin Access Locked";
+                          else if (hasSuperAdminLock) lockTitle = "Locked by High Command";
+
+                          return (
+                            <td key={idx} className={`p-2 text-center border-l border-white/50 ${col.bg || ''}`}>
+                              <div className="relative inline-flex items-center justify-center">
+                                <input type="checkbox" id={`clearance-${u.fnum}-${col.key}`} name={`clearance_${u.fnum}_${col.key}`} checked={u.role === 'SUPER_ADMIN' || Boolean(p[col.key])} disabled={isDisabled} title={lockTitle} onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} className={`w-3.5 h-3.5 rounded accent-${col.color}-600 ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`} />
+                                {((isLockedVisually || u.role === 'SUPER_ADMIN') && !isSelf && canModifyUser(currentUser, u)) && <Lock size={9} className="absolute -top-1.5 -right-2 text-red-600 drop-shadow-xs" title={lockTitle} />}
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SYSTEM DIRECTORY ROSTER TAB */}
+      {activeTab === 'roster' && (
+        <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
+          <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center justify-between text-white font-semibold text-xs uppercase tracking-wider">
+            <span className="flex items-center">
+              <Users className="w-4 h-4 mr-2 text-cyan-400" /> Command Directory & System Roster ({stripHtmlTags(filterRegion)} {filterStation !== 'ALL STATIONS' ? `/ ${stripHtmlTags(filterStation)}` : ''})
+            </span>
+          </div>
+          
+          {loadingUsers ? (
+            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs flex items-center justify-center">
+              <Loader2 size={16} className="animate-spin mr-2 text-cyan-600" /> Compiling deployment roster...
+            </div>
+          ) : filteredSystemUsers.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-xs font-medium">No registered personnel found for this filter.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px] tracking-wider border-b-2 border-blue-500">
+                  <tr>
+                    <th className="px-4 py-3.5 text-left">Officer Details</th>
+                    <th className="px-4 py-3.5 text-left">Identifiers</th>
+                    <th className="px-4 py-3.5 text-left">Contact Data</th>
+                    <th className="px-4 py-3.5 text-left">Deployment</th>
+                    <th className="px-4 py-3.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-slate-200">
+                  {filteredSystemUsers.map((user) => (
+                    <tr key={user.fnum} className="hover:bg-cyan-50/50 transition-colors">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-9 h-9 rounded-full bg-slate-100 border border-slate-300 flex items-center justify-center font-bold text-xs text-slate-600 shrink-0 overflow-hidden shadow-xs">
+                            {user.profile_photo_path ? (
+                              <img src={user.profile_photo_path} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              user.name?.charAt(0) || 'U'
+                            )}
+                          </div>
+                          <div>
+                            <div className="font-extrabold text-slate-900">
+                              {formatOfficerHeader(user)}
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">
+                              {stripHtmlTags(user.position || 'General Duties')}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="text-[11px] text-slate-700"><span className="font-bold text-slate-400">IPPS:</span> {stripHtmlTags(user.ipps || 'N/A')}</div>
+                        <div className="text-[11px] text-slate-700 font-mono"><span className="font-bold text-slate-400">NIN:</span> {stripHtmlTags(user.nin || 'N/A')}</div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="text-[11px] text-slate-700 font-bold">{stripHtmlTags(user.phone || 'N/A')}</div>
+                        <div className="text-[10px] text-slate-500">{stripHtmlTags(user.email || 'N/A')}</div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="font-bold text-blue-700 uppercase">{stripHtmlTags(user.station)}</div>
+                        <div className="text-[10px] text-slate-500 uppercase">{stripHtmlTags(user.region)}</div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-right">
+                         {isSuperAdmin && currentUser?.fnum !== user.fnum && (
+                           <button 
+                             onClick={() => handleForcePassword(user.fnum, user.name)}
+                             disabled={isProcessingAction}
+                             title="Force Password Reset"
+                             className="px-3 py-1.5 rounded-lg border transition shadow-xs bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-300 cursor-pointer font-bold inline-flex items-center text-[10px] uppercase tracking-wider"
+                           >
+                             <KeyRound size={12} className="mr-1.5" /> Force Password
+                           </button>
+                         )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* HR MODIFICATION REQUESTS TAB */}
+      {activeTab === 'requests' && (
+        <div className="bg-white rounded-xl shadow-xs border border-amber-200 overflow-hidden max-w-6xl mx-auto">
+          <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider"><Shield className="w-4 h-4 mr-2 text-amber-400" /> HR Modification Requests</div>
+          {loadingRequests ? (
+            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs flex items-center justify-center"><Loader2 size={16} className="animate-spin mr-2 text-amber-600" /> Loading pending modifications...</div>
+          ) : filteredRequests.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 font-medium text-xs">No pending profile modification requests in selected queue.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px] tracking-wider border-b-2 border-blue-500">
+                  <tr><th className="px-4 py-3.5 text-left">Officer Details</th><th className="px-4 py-3.5 text-left">Requested Changes</th><th className="px-4 py-3.5 text-left">Action</th></tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-slate-200">
+                  {filteredRequests.map((req) => {
+                    const isCrossRegion = !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== req.current_region;
+                    return (
+                      <tr key={req.id || req.sn} className="hover:bg-amber-50/50">
+                        <td className="px-4 py-2.5 whitespace-nowrap"><div className="font-extrabold text-blue-700">{formatOfficerHeader({ fnum: req.fnum, rank: req.current_rank, name: req.current_name })}</div></td>
+                        <td className="px-4 py-2.5 text-slate-700">
+                          {req.requested_name && req.requested_name !== req.current_name && <div className="text-[11px]"><span className="font-bold text-slate-400">Name:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_name)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_name)}</span></div>}
+                          {req.requested_rank && req.requested_rank !== req.current_rank && <div className="text-[11px]"><span className="font-bold text-slate-400">Rank:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_rank)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_rank)}</span></div>}
+                          {req.requested_station && req.requested_station !== req.current_station && <div className="text-[11px]"><span className="font-bold text-slate-400">Station:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_station)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_station)}</span></div>}
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          <div className="flex space-x-2">
+                            <button onClick={() => setSelectedModRequest(req)} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs cursor-pointer border border-slate-300"><Eye size={13} className="mr-1" /> Preview Details</button>
+                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction" : ""} onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}><CheckCircle size={13} className="mr-1" /> Approve</button>
+                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction" : ""} onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer'}`}><X size={13} className="mr-1" /> Reject</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* AUDIT LOGS TAB */}
+      {activeTab === 'logs' && (
+        <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
+          <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center justify-between text-white font-semibold text-xs uppercase tracking-wider"><span className="flex items-center"><Shield className="w-4 h-4 mr-2 text-blue-400" /> System Audit Logs ({stripHtmlTags(filterRegion)} {filterStation !== 'ALL STATIONS' ? `/ ${stripHtmlTags(filterStation)}` : ''})</span></div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-xs">
+              <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px] tracking-wider border-b-2 border-blue-500">
+                <tr><th className="px-4 py-3.5 text-left">Timestamp</th><th className="px-4 py-3.5 text-left">User FNUM</th><th className="px-4 py-3.5 text-left">Event</th><th className="px-4 py-3.5 text-left">Target</th><th className="px-4 py-3.5 text-left">Details</th></tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-slate-200">
+                {loadingLogs ? (
+                  <tr><td colSpan="5" className="p-8 text-center text-slate-500 font-bold animate-pulse text-xs">Decrypting server logs...</td></tr>
+                ) : filteredLogs.length === 0 ? (
+                  <tr><td colSpan="5" className="p-4 text-center text-slate-500 text-xs">No audit logs found for the selected regional filter and station.</td></tr>
+                ) : (
+                  filteredLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-2 whitespace-nowrap text-slate-500 font-mono text-[10px]">{stripHtmlTags(log.created_at || 'Unknown Time')}</td>
+                      <td className="px-4 py-2 whitespace-nowrap font-extrabold text-blue-700">{stripHtmlTags(log.user_fnum)}</td>
+                      <td className="px-4 py-2 whitespace-nowrap"><span className="font-extrabold text-slate-800 uppercase text-[10px]">{stripHtmlTags(log.event_type)}</span></td>
+                      <td className="px-4 py-2 text-slate-600 font-medium text-[11px]">{stripHtmlTags(log.target_user || 'N/A')}</td>
+                      <td className="px-4 py-2 text-slate-600 text-[11px]">{stripHtmlTags(log.details)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* PASSWORD RESETS TAB */}
+      {activeTab === 'resets' && (        
+        <div className="bg-white rounded-xl shadow-xs border border-red-200 overflow-hidden max-w-6xl mx-auto">
+          <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider"><Lock className="w-4 h-4 mr-2 text-red-400" /> Authorized Password Recovery</div>
+          {loadingResets ? (
+            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs flex items-center justify-center"><Loader2 size={16} className="animate-spin mr-2 text-red-600" /> Scanning jurisdiction for requests...</div>
+          ) : filteredResets.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 font-medium text-xs">No pending password reset requests in selected queue.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px] tracking-wider border-b-2 border-blue-500">
+                  <tr><th className="px-4 py-3.5 text-left">Date Requested</th><th className="px-4 py-3.5 text-left">Officer Details</th><th className="px-4 py-3.5 text-left">Station / Division</th><th className="px-4 py-3.5 text-left">Command Action</th></tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-slate-200">
+                  {filteredResets.map((req) => {
+                    const isCrossRegion = !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== req.region;
+                    return (
+                      <tr key={req.id} className="hover:bg-red-50/50">
+                        <td className="px-4 py-2.5 whitespace-nowrap font-bold text-slate-500 text-[10px]">{stripHtmlTags(req.request_date)}</td>
+                        <td className="px-4 py-2.5 whitespace-nowrap"><div className="font-extrabold text-blue-700">{formatOfficerHeader({ fnum: req.fnum, rank: req.rank, name: req.name })}</div></td>
+                        <td className="px-4 py-2.5 whitespace-nowrap text-slate-700"><div className="font-bold">{stripHtmlTags(req.station)}</div><div className="text-[10px] text-slate-500">{stripHtmlTags(req.region)}</div></td>
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          <div className="flex space-x-2">
+                            <button disabled={isCrossRegion} onClick={() => handleResetAction(req.id, "APPROVE")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-red-600 hover:bg-red-700 text-white cursor-pointer'}`}><Unlock size={13} className="mr-1" /> Authorize Reset</button>
+                            <button disabled={isCrossRegion} onClick={() => handleResetAction(req.id, "REJECT")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer'}`}><X size={13} className="mr-1" /> Reject</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* MODALS INLINED FROM OLD FILE */}
       {selectedPendingUser && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-300 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150">
@@ -1118,59 +1181,31 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               </div>
 
               <div className="grid grid-cols-2 gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-2xs text-xs">
-                <div>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">IPPS Number</span>
-                  <span className="font-extrabold text-slate-800">{selectedPendingUser.ipps || 'N/A'}</span>
-                </div>
-                <div>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">National ID (NIN)</span>
-                  <span className="font-extrabold text-slate-800 font-mono">{selectedPendingUser.nin || 'N/A'}</span>
-                </div>
-                <div>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Gender / Sex</span>
-                  <span className="font-extrabold text-slate-800">{selectedPendingUser.sex || 'MALE'}</span>
-                </div>
-                <div>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Role Requested</span>
-                  <span className="font-extrabold text-blue-700 uppercase">{selectedPendingUser.role || 'USER'}</span>
-                </div>
-                <div>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span>
-                  <span className="font-extrabold text-slate-800">{selectedPendingUser.region}</span>
-                </div>
-                <div>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span>
-                  <span className="font-extrabold text-slate-800">{selectedPendingUser.station}</span>
-                </div>
-                <div className="col-span-2 border-t border-slate-100 pt-2">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Official Email</span>
-                  <span className="font-bold text-slate-800 break-all">{selectedPendingUser.email || 'N/A'}</span>
-                </div>
-                <div className="col-span-2">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Phone Number</span>
-                  <span className="font-bold text-slate-800">{selectedPendingUser.phone || 'N/A'}</span>
-                </div>
+                <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">IPPS Number</span><span className="font-extrabold text-slate-800">{selectedPendingUser.ipps || 'N/A'}</span></div>
+                <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">National ID (NIN)</span><span className="font-extrabold text-slate-800 font-mono">{selectedPendingUser.nin || 'N/A'}</span></div>
+                <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Gender / Sex</span><span className="font-extrabold text-slate-800">{selectedPendingUser.sex || 'MALE'}</span></div>
+                <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Role Requested</span><span className="font-extrabold text-blue-700 uppercase">{selectedPendingUser.role || 'USER'}</span></div>
+                <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span><span className="font-extrabold text-slate-800">{selectedPendingUser.region}</span></div>
+                <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span><span className="font-extrabold text-slate-800">{selectedPendingUser.station}</span></div>
+                <div className="col-span-2 border-t border-slate-100 pt-2"><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Official Email</span><span className="font-bold text-slate-800 break-all">{selectedPendingUser.email || 'N/A'}</span></div>
+                <div className="col-span-2"><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Phone Number</span><span className="font-bold text-slate-800">{selectedPendingUser.phone || 'N/A'}</span></div>
               </div>
             </div>
 
             <div className="bg-white p-4 border-t border-slate-200 flex justify-between items-center shrink-0">
-              <button 
-                type="button"
-                onClick={() => setSelectedPendingUser(null)} 
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
-              >
+              <button type="button" onClick={() => setSelectedPendingUser(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer">
                 Close
               </button>
               <div className="space-x-2">
                 {(() => {
-                  const isModalCrossRegion = !canModifyUser(currentUser, selectedPendingUser);
+                  const isModalCrossRegion = currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== selectedPendingUser.region;
                   return (
                     <>
                       <button
                         type="button"
                         disabled={isProcessingAction || isModalCrossRegion}
                         onClick={() => handleRejectUser(selectedPendingUser)}
-                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Higher Tier)" : "Reject Request"}
+                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Reject Request"}
                         className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white cursor-pointer'}`}
                       >
                         <XCircle size={14} className="inline mr-1"/> Reject Request
@@ -1179,7 +1214,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                         type="button"
                         disabled={isProcessingAction || isModalCrossRegion}
                         onClick={() => handleApproveUser(selectedPendingUser)}
-                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Higher Tier)" : "Approve Access"}
+                        title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Approve Access"}
                         className={`px-5 py-2 rounded-xl text-xs font-extrabold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-blue-700 hover:bg-blue-800 text-white cursor-pointer'}`}
                       >
                         <CheckCircle size={14} className="inline mr-1"/> Approve Access
@@ -1193,9 +1228,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 HR TRANSFER PREVIEW MODAL */}
       {selectedModRequest && (() => {
-        // Calculate Mismatch for the UI
         const targetRank = (selectedModRequest.requested_rank || selectedModRequest.current_rank || '').toUpperCase();
         const targetFnum = (selectedModRequest.requested_fnum || selectedModRequest.fnum || '').toUpperCase();
         const ncoRanks = ['PC', 'SPC', 'CPL', 'SGT'];
@@ -1203,9 +1236,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         const isFnumNumeric = /^\d+$/.test(targetFnum);
         
         const rankMismatchError = isTargetNCO && !isFnumNumeric 
-          ? `SECURITY CONFLICT: Rank [${targetRank}] requires a strictly numeric Force Number, but the target Force Number is [${targetFnum}].` 
+          ? `SECURITY CONFLICT: Rank [${targetRank}] requires a strictly numeric Force Number.` 
           : (!isTargetNCO && isFnumNumeric && targetRank) 
-          ? `SECURITY CONFLICT: Rank [${targetRank}] requires an alphanumeric File Number (e.g., A/123), but [${targetFnum}] is strictly numeric.` 
+          ? `SECURITY CONFLICT: Rank [${targetRank}] requires an alphanumeric File Number.` 
           : null;
 
         return (
@@ -1235,109 +1268,68 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                    </div>
                 </div>
 
-                {/* 🟢 RED BANNER INJECTED HERE IF THERE IS A MISMATCH */}
                 {rankMismatchError && (
                   <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start shadow-sm">
                     <AlertTriangle size={18} className="text-red-600 mr-3 shrink-0 mt-0.5" />
                     <div>
                       <h4 className="text-xs font-black text-red-800 uppercase tracking-wider mb-1">HR Protocol Violation</h4>
                       <p className="text-[11px] font-semibold text-red-700 leading-tight">{rankMismatchError}</p>
-                      <p className="text-[10px] text-red-500 mt-1">This request must be rejected. The officer must resubmit both the Rank and the appropriately formatted Force Number simultaneously.</p>
+                      <p className="text-[10px] text-red-500 mt-1">This request must be rejected.</p>
                     </div>
                   </div>
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* LEFT SIDE: CURRENT DATA */}
                   <div className="bg-white rounded-xl border border-rose-200 shadow-2xs overflow-hidden">
                      <div className="bg-rose-50 px-4 py-2 border-b border-rose-200 text-[10px] font-black text-rose-800 uppercase tracking-wider">
                        Current Active Profile
                      </div>
                      <div className="p-4 space-y-3 text-xs">
-                       <div>
-                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Legal Name</span>
-                         <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_name}</span>
-                       </div>
-                       <div>
-                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Professional Rank</span>
-                         <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_rank}</span>
-                       </div>
-                       <div>
-                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span>
-                         <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_region}</span>
-                       </div>
-                       <div>
-                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span>
-                         <span className="font-bold text-slate-600 line-through">{selectedModRequest.current_station}</span>
-                       </div>
+                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Legal Name</span><span className="font-bold text-slate-600 line-through">{selectedModRequest.current_name}</span></div>
+                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Professional Rank</span><span className="font-bold text-slate-600 line-through">{selectedModRequest.current_rank}</span></div>
+                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span><span className="font-bold text-slate-600 line-through">{selectedModRequest.current_region}</span></div>
+                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span><span className="font-bold text-slate-600 line-through">{selectedModRequest.current_station}</span></div>
                      </div>
                   </div>
 
-                  {/* RIGHT SIDE: REQUESTED CHANGES */}
                   <div className="bg-white rounded-xl border border-emerald-200 shadow-2xs overflow-hidden relative">
                      <div className="absolute left-[-16px] top-1/2 transform -translate-y-1/2 bg-white rounded-full p-1 shadow-md z-10 hidden md:block border border-slate-200">
                        <ArrowRight size={16} className="text-slate-400" />
                      </div>
-                     
                      <div className="bg-emerald-50 px-4 py-2 border-b border-emerald-200 text-[10px] font-black text-emerald-800 uppercase tracking-wider flex justify-between items-center">
                        <span>Requested Changes</span>
                        <span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[8px]">PENDING APPROVAL</span>
                      </div>
                      <div className="p-4 space-y-3 text-xs">
-                       <div>
-                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Legal Name</span>
-                         <span className={`font-extrabold ${selectedModRequest.requested_name !== selectedModRequest.current_name ? 'text-emerald-700' : 'text-slate-700'}`}>
-                           {selectedModRequest.requested_name || selectedModRequest.current_name}
-                         </span>
-                       </div>
-                       <div>
-                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Professional Rank</span>
-                         <span className={`font-extrabold ${selectedModRequest.requested_rank !== selectedModRequest.current_rank ? 'text-emerald-700' : 'text-slate-700'}`}>
-                           {selectedModRequest.requested_rank || selectedModRequest.current_rank}
-                         </span>
-                       </div>
-                       <div>
-                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span>
-                         <span className={`font-extrabold ${selectedModRequest.requested_region !== selectedModRequest.current_region ? 'text-emerald-700' : 'text-slate-700'}`}>
-                           {selectedModRequest.requested_region || selectedModRequest.current_region}
-                         </span>
-                       </div>
-                       <div>
-                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span>
-                         <span className={`font-extrabold ${selectedModRequest.requested_station !== selectedModRequest.current_station ? 'text-emerald-700' : 'text-slate-700'}`}>
-                           {selectedModRequest.requested_station || selectedModRequest.current_station}
-                         </span>
-                       </div>
+                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Legal Name</span><span className={`font-extrabold ${selectedModRequest.requested_name !== selectedModRequest.current_name ? 'text-emerald-700' : 'text-slate-700'}`}>{selectedModRequest.requested_name || selectedModRequest.current_name}</span></div>
+                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Professional Rank</span><span className={`font-extrabold ${selectedModRequest.requested_rank !== selectedModRequest.current_rank ? 'text-emerald-700' : 'text-slate-700'}`}>{selectedModRequest.requested_rank || selectedModRequest.current_rank}</span></div>
+                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Command Region</span><span className={`font-extrabold ${selectedModRequest.requested_region !== selectedModRequest.current_region ? 'text-emerald-700' : 'text-slate-700'}`}>{selectedModRequest.requested_region || selectedModRequest.current_region}</span></div>
+                       <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Assigned Station</span><span className={`font-extrabold ${selectedModRequest.requested_station !== selectedModRequest.current_station ? 'text-emerald-700' : 'text-slate-700'}`}>{selectedModRequest.requested_station || selectedModRequest.current_station}</span></div>
                      </div>
                   </div>
                 </div>
               </div>
 
               <div className="bg-white p-4 border-t border-slate-200 flex justify-between items-center shrink-0">
-                <button 
-                  type="button"
-                  onClick={() => setSelectedModRequest(null)} 
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
-                >
+                <button type="button" onClick={() => setSelectedModRequest(null)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer">
                   Close Preview
                 </button>
                 <div className="space-x-2">
                   {(() => {
-                    const isModalCrossRegion = !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== selectedModRequest.current_region;
+                    const isModalCrossRegion = currentUser?.role !== 'SUPER_ADMIN' && currentUser?.region !== selectedModRequest.current_region;
                     return (
                       <>
                         <button
                           type="button"
                           disabled={isProcessingAction || isModalCrossRegion}
                           onClick={() => handleReviewRequest(selectedModRequest.id || selectedModRequest.sn, "REJECTED")}
-                          title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : "Reject Changes"}
+                          title={isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Reject Changes"}
                           className={`px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs ${isModalCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 cursor-pointer'}`}
                         >
                           <XCircle size={14} className="inline mr-1"/> Reject Changes
                         </button>
                         <button
                           type="button"
-                          // 🟢 DISABLE BUTTON IF THERE IS A MISMATCH
                           disabled={isProcessingAction || isModalCrossRegion || rankMismatchError !== null}
                           onClick={() => handleReviewRequest(selectedModRequest.id || selectedModRequest.sn, "APPROVED")}
                           title={rankMismatchError ? "Cannot Approve: Protocol Violation" : isModalCrossRegion ? "Out of Jurisdiction (Requires Super Admin)" : "Approve & Execute"}
@@ -1355,522 +1347,76 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         );
       })()}
 
-      {viewingPhotoModal && (
-        <div className="fixed inset-0 bg-black/90 z-[400] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingPhotoModal(null)}>
-          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg cursor-pointer"><X size={24}/></button>
-          <img src={viewingPhotoModal} alt="Enlarged Profile" className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" onClick={(e) => e.stopPropagation()} />
-        </div>
-      )}
-
-      {/* 🟢 LOCKDOWN MATRIX MODAL UI */}
       {showLockdownModal && (
         <div className="fixed inset-0 z-[9999] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-slate-50 w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-300 overflow-hidden flex flex-col max-h-[90vh]">
-            
             <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shrink-0">
-              <div className="flex items-center">
-                <ShieldAlert className="w-5 h-5 text-amber-500 mr-3 animate-pulse" />
-                <div>
-                  <h3 className="text-sm font-black uppercase tracking-widest">Central Command Lockdown Matrix</h3>
-                  <p className="text-[10px] text-slate-400">Instantly suspend module access for specific regions or the entire system.</p>
-                </div>
-              </div>
-              <button onClick={() => setShowLockdownModal(false)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white cursor-pointer transition">
-                <X size={20} />
-              </button>
+              <div className="flex items-center"><ShieldAlert className="w-5 h-5 text-amber-500 mr-3 animate-pulse" /><div><h3 className="text-sm font-black uppercase tracking-widest">Central Command Lockdown Matrix</h3><p className="text-[10px] text-slate-400">Instantly suspend module access for specific regions or the entire system.</p></div></div>
+              <button onClick={() => setShowLockdownModal(false)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white cursor-pointer transition"><X size={20} /></button>
             </div>
-
             <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-6">
-              
-              {/* 🟢 ACTIVE LOCKDOWN SUMMARY PANEL */}
               {activeLockdownSummary.length > 0 ? (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-4 shadow-sm animate-in fade-in">
-                  <h4 className="text-xs font-black text-red-800 uppercase tracking-wider mb-3 flex items-center">
-                    <AlertTriangle className="w-4 h-4 mr-1.5 animate-pulse" /> Currently Active Lockdowns ({activeLockdownSummary.length})
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {activeLockdownSummary.map((item, idx) => (
-                      <span key={idx} className="bg-white border border-red-300 text-red-700 text-[10px] font-bold px-2.5 py-1 rounded shadow-sm">
-                        {item}
-                      </span>
-                    ))}
-                  </div>
+                  <h4 className="text-xs font-black text-red-800 uppercase tracking-wider mb-3 flex items-center"><AlertTriangle className="w-4 h-4 mr-1.5 animate-pulse" /> Currently Active Lockdowns ({activeLockdownSummary.length})</h4>
+                  <div className="flex flex-wrap gap-2">{activeLockdownSummary.map((item, idx) => <span key={idx} className="bg-white border border-red-300 text-red-700 text-[10px] font-bold px-2.5 py-1 rounded shadow-sm">{item}</span>)}</div>
                 </div>
               ) : (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 shadow-sm flex items-center animate-in fade-in">
-                  <CheckCircle className="w-4 h-4 text-emerald-600 mr-2" />
-                  <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">All Systems Operational - No Active Lockdowns</span>
-                </div>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 shadow-sm flex items-center animate-in fade-in"><CheckCircle className="w-4 h-4 text-emerald-600 mr-2" /><span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">All Systems Operational - No Active Lockdowns</span></div>
               )}
-
-              {/* SYSTEM GLOBAL LOCKDOWN */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-extrabold text-slate-900 flex items-center">
-                    <Power className="w-4 h-4 mr-2 text-red-600" /> Force-Wide System Lockdown
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-1 max-w-lg">
-                    Activating this will instantly freeze the entire application. All active users (except Super Admins) will be forcefully logged out and blocked from logging in.
-                  </p>
-                </div>
-                <ToggleSwitch 
-                  checked={lockdownData.system} 
-                  onChange={() => handleToggleLockdown('SYSTEM', 'GLOBAL', lockdownData.system)} 
-                />
+                <div><h4 className="text-sm font-extrabold text-slate-900 flex items-center"><Power className="w-4 h-4 mr-2 text-red-600" /> Force-Wide System Lockdown</h4><p className="text-xs text-slate-500 mt-1 max-w-lg">Activating this will instantly freeze the entire application. All active users (except Super Admins) will be forcefully logged out.</p></div>
+                <ToggleSwitch checked={lockdownData.system} onChange={() => handleToggleLockdown('SYSTEM', 'GLOBAL', lockdownData.system)} />
               </div>
-
-              {/* REGIONAL MATRIX */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="bg-slate-100 px-5 py-3 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">Jurisdictional Lockdowns</h4>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">Select Region:</span>
-                    <select
-                      value={lockdownRegionFilter}
-                      onChange={(e) => setLockdownRegionFilter(e.target.value)}
-                      className="border border-slate-300 rounded p-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer bg-white"
-                    >
-                      {Object.keys(REGIONAL_HIERARCHY).map(reg => (
-                        <option key={reg} value={reg}>{reg}</option>
-                      ))}
-                    </select>
-                  </div>
+                  <div className="flex items-center space-x-2"><span className="text-[10px] font-bold text-slate-500 uppercase">Select Region:</span><select value={lockdownRegionFilter} onChange={(e) => setLockdownRegionFilter(e.target.value)} className="border border-slate-300 rounded p-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer bg-white">{Object.keys(REGIONAL_HIERARCHY).map(reg => (<option key={reg} value={reg}>{reg}</option>))}</select></div>
                 </div>
-
                 <div className="p-5 space-y-6">
-                  {/* Parent Region Toggle */}
                   <div className="flex items-center justify-between bg-amber-50 border border-amber-200 p-4 rounded-lg shadow-inner">
-                    <div>
-                      <h5 className="text-xs font-black text-amber-900 uppercase">Lock Entire Region: {lockdownRegionFilter}</h5>
-                      <p className="text-[10px] text-amber-700 mt-0.5">Suspends access for ALL stations within this region immediately.</p>
-                    </div>
-                    <ToggleSwitch 
-                      checked={!!lockdownData.regions[lockdownRegionFilter]} 
-                      onChange={() => handleToggleLockdown('REGION', lockdownRegionFilter, !!lockdownData.regions[lockdownRegionFilter])} 
-                    />
+                    <div><h5 className="text-xs font-black text-amber-900 uppercase">Lock Entire Region: {lockdownRegionFilter}</h5><p className="text-[10px] text-amber-700 mt-0.5">Suspends access for ALL stations within this region immediately.</p></div>
+                    <ToggleSwitch checked={!!lockdownData.regions[lockdownRegionFilter]} onChange={() => handleToggleLockdown('REGION', lockdownRegionFilter, !!lockdownData.regions[lockdownRegionFilter])} />
                   </div>
-
-                  {/* Stations Grid */}
                   <div>
-                    <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 border-b pb-2">
-                      Individual Station Lockdowns ({lockdownRegionFilter})
-                    </h5>
+                    <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 border-b pb-2">Individual Station Lockdowns ({lockdownRegionFilter})</h5>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                       {REGIONAL_HIERARCHY[lockdownRegionFilter]?.map(station => (
                         <div key={station} className="flex items-center justify-between border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-colors">
                           <span className="text-xs font-bold text-slate-700 uppercase truncate pr-2">{station}</span>
-                          <ToggleSwitch 
-                            checked={!!lockdownData.stations[station]} 
-                            onChange={() => handleToggleLockdown('STATION', station, !!lockdownData.stations[station])} 
-                          />
+                          <ToggleSwitch checked={!!lockdownData.stations[station]} onChange={() => handleToggleLockdown('STATION', station, !!lockdownData.stations[station])} />
                         </div>
                       ))}
                     </div>
                   </div>
                 </div>
               </div>
-
             </div>
           </div>
         </div>
       )}
 
-      {activeTab === 'matrix' && (
-        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden w-full">
-          <div className="bg-slate-900 text-white p-3 text-xs font-extrabold uppercase tracking-wider flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
-            <span className="flex items-center">
-              <Shield className="w-4 h-4 mr-1.5 text-indigo-400" /> Super Control Panel - Active Roster Matrix ({stripHtmlTags(filterRegion)} {filterStation !== 'ALL STATIONS' ? `/ ${stripHtmlTags(filterStation)}` : ''})
-            </span>
-            <span className="text-[10px] text-slate-400 font-mono text-right">
-              Tiers: USER | STN_ADMIN | DIV_ADMIN | REGIONAL_ADMIN | SYS_ADMIN | ASST_SUPER | SUPER_ADMIN | REVOKED
-            </span>
-          </div>
-            
-          {loadingUsers ? (
-            <div className="p-8 text-center text-slate-400 font-medium animate-pulse text-xs flex items-center justify-center">
-              <Loader2 size={16} className="animate-spin mr-2 text-indigo-600" /> Syncing user database roster...
-            </div>
-          ) : filteredSystemUsers.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-xs font-medium">No registered system users found for this regional filter.</div>
-          ) : (
-            <div className="overflow-x-auto w-full custom-scrollbar">
-              <table className="min-w-max divide-y divide-slate-200 text-xs">
-                {/* 🟢 HIGH CONTRAST MATRIX HEADERS */}
-                <thead className="bg-slate-900 text-white uppercase font-black text-[10px] tracking-wider border-b-2 border-blue-500">
-                  <tr>
-                    <th className="p-2.5 text-left sticky left-0 z-10 bg-slate-900 shadow-[1px_0_0_#3b82f6] text-blue-100">Officer Details</th>
-                    <th className="p-2.5 text-center sticky left-[240px] z-10 bg-slate-900 shadow-[1px_0_0_#3b82f6] text-blue-100">Administrative Tier</th>
-                    <th className="p-2.5 text-center sticky left-[360px] z-10 bg-slate-900 shadow-[1px_0_0_#3b82f6] text-blue-100">Quick Actions</th>
-
-                    {CLEARANCE_MATRIX_COLS.map((col, idx) => {
-                      if (col.key === 'global_observer' && !isSuperAdmin) return null;
-                      return (
-                        <th key={idx} className="p-2 text-center border-l border-slate-700 bg-slate-900">
-                          <div className="w-16 mx-auto whitespace-normal break-words leading-tight text-[9px] text-blue-100">
-                            {col.key === 'global_observer' && <Globe className="w-3 h-3 mx-auto text-fuchsia-400 mb-1" />}
-                            {stripHtmlTags(col.label)}
-                          </div>
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {filteredSystemUsers.map(u => {
-                    const p = u.permissions || {};
-                    const isTargetTopTier = TOP_TIER_ROLES.includes(u.role);
-                    
-                    const isRevoked = u.role === 'REVOKED';
-                    const isSelf = u.fnum === currentUser?.fnum;
-
-                    // 🟢 STRICT HIERARCHY LOCKS (Combined with Cross Region checks via canModifyUser)
-                    const isRoleSelectDisabled = isSelf || !canModifyUser(currentUser, u);
-                    const isBulkActionDisabled = isSelf || !canModifyUser(currentUser, u) || !isExplicitHighCommand;
-
-                    return (
-                      <tr key={u.fnum} className={`transition-colors ${isRevoked ? 'bg-red-50/40' : 'hover:bg-slate-50'} ${isSelf ? 'bg-blue-50/30 ring-1 ring-inset ring-blue-100' : ''}`}>
-                        <td className="p-2.5 sticky left-0 z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[240px]">
-                          <div className={`font-extrabold text-[11px] flex items-center ${isRevoked ? 'text-red-900' : 'text-slate-900'}`}>
-                            {formatOfficerHeader(u)}
-                            {isSelf && (
-                              <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-blue-100 text-blue-700 font-bold rounded-full border border-blue-200" title="You cannot modify your own row.">
-                                YOU
-                              </span>
-                            )}
-                            {u.role === 'SUPER_ADMIN' && !isSelf && (
-                              <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-red-100 text-red-700 font-bold rounded-full border border-red-200">
-                                GOD-MODE
-                              </span>
-                            )}
-                            {p.global_observer && u.role !== 'SUPER_ADMIN' && (
-                              <span className="ml-2 px-1.5 py-0.5 text-[8px] bg-fuchsia-100 text-fuchsia-700 font-bold rounded-full border border-fuchsia-200">
-                                OBSERVER
-                              </span>
-                            )}
-                            {p.revoked_by === 'SUPER_ADMIN' && <Lock size={12} className="ml-2 text-red-600" title="Revoked by Super Admin" />}
-                          </div>
-                          <div className={`text-[10px] font-mono mt-0.5 ${isRevoked ? 'text-red-500' : 'text-slate-500'}`}>
-                            Station: <strong className={isRevoked ? 'text-red-700' : 'text-slate-700'}>{stripHtmlTags(u.station)}</strong> ({stripHtmlTags(u.region)})
-                          </div>
-                        </td>
-
-                        <td className="p-2.5 text-center sticky left-[240px] z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[120px]">
-                          <select 
-                            id={`role-select-${u.fnum}`}     
-                            name={`role_select_${u.fnum}`}   
-                            value={u.role || 'USER'}
-                            onChange={(e) => handleRoleTierChange(u.fnum, stripHtmlTags(e.target.value))}
-                            disabled={isRoleSelectDisabled}
-                            title={isRoleSelectDisabled ? "Insufficient authority to change this user's role." : ""}
-                            className={`border rounded-md px-2 py-1 font-bold outline-none uppercase w-full text-[10px] ${isRoleSelectDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${
-                              u.role === 'SUPER_ADMIN' ? 'bg-red-50 text-red-700 border-red-300' :
-                              u.role === 'ASSISTANT_SUPER_ADMIN' ? 'bg-rose-50 text-rose-700 border-rose-300' :
-                              u.role === 'SYSTEM_ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-300' :
-                              (u.role === 'ADMIN_USER' || u.role === 'ADMIN') ? 'bg-indigo-50 text-indigo-700 border-indigo-300' :
-                              u.role === 'DIVISION_ADMIN' ? 'bg-sky-50 text-sky-700 border-sky-300' :
-                              u.role === 'STATION_ADMIN' ? 'bg-blue-50 text-blue-700 border-blue-300' :
-                              u.role === 'REVOKED' ? 'bg-red-100 text-red-800 border-red-400 shadow-inner' :
-                              'bg-slate-100 text-slate-700 border-slate-300'
-                            }`}
-                          >
-                            <option value="USER">USER</option>
-                            <option value="STATION_ADMIN">STN ADMIN</option>
-                            {(getRoleWeight(currentUser?.role) > 60 || isSuperAdmin) && <option value="DIVISION_ADMIN">DIV ADMIN</option>}
-                            {(getRoleWeight(currentUser?.role) > 70 || isSuperAdmin) && <option value="ADMIN_USER">REGIONAL ADMIN</option>}
-                            {(getRoleWeight(currentUser?.role) > 80 || isSuperAdmin) && <option value="SYSTEM_ADMIN">SYS ADMIN</option>}
-                            {(getRoleWeight(currentUser?.role) > 90 || isSuperAdmin) && <option value="ASSISTANT_SUPER_ADMIN">ASST SUPER</option>}
-                            {isSuperAdmin && <option value="SUPER_ADMIN">SUPER ADMIN</option>}
-
-                            <option value="REVOKED" className="text-red-600 font-extrabold bg-red-50">REVOKED</option>
-                          </select>
-                        </td>
-
-                        <td className="p-2.5 text-center sticky left-[360px] z-10 bg-white shadow-[1px_0_0_#e2e8f0] min-w-[90px]">
-                          <div className="flex items-center justify-center space-x-1.5">
-                            <button 
-                              onClick={() => handleBulkMatrixAction(u.fnum, true)}
-                              disabled={isBulkActionDisabled}
-                              title={isBulkActionDisabled ? "Insufficient authority to execute bulk updates." : "Check All Modules"}
-                              className={`p-1 rounded border transition shadow-xs ${
-                                isBulkActionDisabled ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300 cursor-pointer'
-                              }`}
-                            >
-                              <CheckSquare size={13} />
-                            </button>
-                            <button 
-                              onClick={() => handleBulkMatrixAction(u.fnum, false)}
-                              disabled={isBulkActionDisabled}
-                              title={isBulkActionDisabled ? "Insufficient authority to execute bulk updates." : "Uncheck All Modules (Deny Access)"}
-                              className={`p-1 rounded border transition shadow-xs ${
-                                isBulkActionDisabled ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-red-50 text-red-700 hover:bg-red-100 border-red-300 cursor-pointer'
-                              }`}
-                            >
-                              <Square size={13} />
-                            </button>
-                          </div>
-                        </td>
-
-                        {CLEARANCE_MATRIX_COLS.map((col, idx) => {
-                          if (col.key === 'global_observer' && !isSuperAdmin) return null;
-
-                          const hasSuperAdminLock = Boolean(p.super_admin_locks?.[col.key]);
-                          const isLockedVisually = hasSuperAdminLock && !isSuperAdmin;
-                          const isStrictSuperAdminOnly = col.key === 'global_observer';
-
-                          // 🟢 STRICT CHECKBOX LOCK 
-                          const isDisabled = 
-                            isSelf ||
-                            !canModifyUser(currentUser, u) ||
-                            u.role === 'SUPER_ADMIN' || // Super Admin row is completely locked from visual modifications here
-                            isRevoked || 
-                            currentUser?.role === 'SYSTEM_ADMIN' || 
-                            (!isSuperAdmin && hasSuperAdminLock) ||
-                            (isStrictSuperAdminOnly && !isSuperAdmin);
-
-                          let lockTitle = "";
-                          if (!canModifyUser(currentUser, u)) lockTitle = "Out of Jurisdiction (Requires Higher Tier)";
-                          else if (u.role === 'SUPER_ADMIN') lockTitle = "Super Admin Access Locked";
-                          else if (hasSuperAdminLock) lockTitle = "Locked by High Command";
-
-                          return (
-                            <td key={idx} className={`p-2 text-center border-l border-white/50 ${col.bg || ''}`}>
-                              <div className="relative inline-flex items-center justify-center">
-                                <input 
-                                  type="checkbox" 
-                                  id={`clearance-${u.fnum}-${col.key}`}   
-                                  name={`clearance_${u.fnum}_${col.key}`} 
-                                  checked={u.role === 'SUPER_ADMIN' || Boolean(p[col.key])} 
-                                  disabled={isDisabled}
-                                  title={lockTitle}
-                                  onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
-                                  className={`w-3.5 h-3.5 rounded accent-${col.color}-600 ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`} 
-                                />
-                                {((isLockedVisually || u.role === 'SUPER_ADMIN') && !isSelf && canModifyUser(currentUser, u)) && <Lock size={9} className="absolute -top-1.5 -right-2 text-red-600 drop-shadow-xs" title={lockTitle} />}
-                              </div>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* HR MODIFICATION REQUESTS TAB */}
-      {activeTab === 'requests' && (
-        <div className="bg-white rounded-xl shadow-xs border border-amber-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider">
-            <Shield className="w-4 h-4 mr-2 text-amber-400" /> HR Modification Requests
-          </div>
-          {loadingRequests ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs flex items-center justify-center">
-              <Loader2 size={16} className="animate-spin mr-2 text-amber-600" /> Loading pending modifications...
-            </div>
-          ) : filteredRequests.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 font-medium text-xs">No pending profile modification requests in selected queue.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-xs">
-                {/* 🟢 HIGH CONTRAST HEADERS */}
-                <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px] tracking-wider border-b-2 border-blue-500">
-                  <tr>
-                    <th className="px-4 py-3.5 text-left">Officer Details</th>
-                    <th className="px-4 py-3.5 text-left">Requested Changes</th>
-                    <th className="px-4 py-3.5 text-left">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
-                  {filteredRequests.map((req) => {
-                    // 🟢 STRICT CROSS REGION LOCK
-                    const isCrossRegion = !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== req.current_region;
-
-                    return (
-                      <tr key={req.id || req.sn} className="hover:bg-amber-50/50">
-                        <td className="px-4 py-2.5 whitespace-nowrap">
-                          <div className="font-extrabold text-blue-700">
-                            {formatOfficerHeader({ fnum: req.fnum, rank: req.current_rank, name: req.current_name })}
-                          </div>
-                        </td>
-                        <td className="px-4 py-2.5 text-slate-700">
-                          {req.requested_name && req.requested_name !== req.current_name && <div className="text-[11px]"><span className="font-bold text-slate-400">Name:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_name)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_name)}</span></div>}
-                          {req.requested_rank && req.requested_rank !== req.current_rank && <div className="text-[11px]"><span className="font-bold text-slate-400">Rank:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_rank)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_rank)}</span></div>}
-                          {req.requested_station && req.requested_station !== req.current_station && <div className="text-[11px]"><span className="font-bold text-slate-400">Station:</span> <span className="text-red-500 line-through mr-1">{stripHtmlTags(req.current_station)}</span> ➡️ <span className="text-emerald-600 font-bold">{stripHtmlTags(req.requested_station)}</span></div>}
-                        </td>
-                        <td className="px-4 py-2.5 whitespace-nowrap">
-                          {/* 🟢 NEW PREVIEW DETAILS BUTTON */}
-                          <div className="flex space-x-2">
-                            <button 
-                              onClick={() => setSelectedModRequest(req)} 
-                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs cursor-pointer border border-slate-300"
-                            >
-                              <Eye size={13} className="mr-1" /> Preview Details
-                            </button>
-                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : ""} onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'}`}><CheckCircle size={13} className="mr-1" /> Approve</button>
-                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : ""} onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer'}`}><X size={13} className="mr-1" /> Reject</button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* AUDIT LOGS TAB */}
-      {activeTab === 'logs' && (
-        <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center justify-between text-white font-semibold text-xs uppercase tracking-wider">
-            <span className="flex items-center">
-              <Shield className="w-4 h-4 mr-2 text-blue-400" /> System Audit Logs ({stripHtmlTags(filterRegion)} {filterStation !== 'ALL STATIONS' ? `/ ${stripHtmlTags(filterStation)}` : ''})
-            </span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-xs">
-              {/* 🟢 HIGH CONTRAST HEADERS */}
-              <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px] tracking-wider border-b-2 border-blue-500">
-                <tr>
-                  <th className="px-4 py-3.5 text-left">Timestamp</th>
-                  <th className="px-4 py-3.5 text-left">User FNUM</th>
-                  <th className="px-4 py-3.5 text-left">Event</th>
-                  <th className="px-4 py-3.5 text-left">Target</th>
-                  <th className="px-4 py-3.5 text-left">Details</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-slate-200">
-                {loadingLogs ? (
-                  <tr><td colSpan="5" className="p-8 text-center text-slate-500 font-bold animate-pulse text-xs">Decrypting server logs...</td></tr>
-                ) : filteredLogs.length === 0 ? (
-                  <tr><td colSpan="5" className="p-4 text-center text-slate-500 text-xs">No audit logs found for the selected regional filter and station.</td></tr>
-                ) : (
-                  filteredLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-2 whitespace-nowrap text-slate-500 font-mono text-[10px]">
-                        {stripHtmlTags(log.created_at || 'Unknown Time')}
-                      </td>
-                      <td className="px-4 py-2 whitespace-nowrap font-extrabold text-blue-700">{stripHtmlTags(log.user_fnum)}</td>
-                      <td className="px-4 py-2 whitespace-nowrap"><span className="font-extrabold text-slate-800 uppercase text-[10px]">{stripHtmlTags(log.event_type)}</span></td>
-                      <td className="px-4 py-2 text-slate-600 font-medium text-[11px]">{stripHtmlTags(log.target_user || 'N/A')}</td>
-                      <td className="px-4 py-2 text-slate-600 text-[11px]">{stripHtmlTags(log.details)}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* PASSWORD RESETS TAB */}
-      {activeTab === 'resets' && (        
-        <div className="bg-white rounded-xl shadow-xs border border-red-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex items-center text-white font-semibold text-xs uppercase tracking-wider">
-            <Lock className="w-4 h-4 mr-2 text-red-400" /> Authorized Password Recovery
-          </div>
-          {loadingResets ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs flex items-center justify-center">
-              <Loader2 size={16} className="animate-spin mr-2 text-red-600" /> Scanning jurisdiction for requests...
-            </div>
-          ) : filteredResets.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 font-medium text-xs">No pending password reset requests in selected queue.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-xs">
-                {/* 🟢 HIGH CONTRAST HEADERS */}
-                <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px] tracking-wider border-b-2 border-blue-500">
-                  <tr>
-                    <th className="px-4 py-3.5 text-left">Date Requested</th>
-                    <th className="px-4 py-3.5 text-left">Officer Details</th>
-                    <th className="px-4 py-3.5 text-left">Station / Division</th>
-                    <th className="px-4 py-3.5 text-left">Command Action</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
-                  {filteredResets.map((req) => {
-                    // 🟢 STRICT CROSS REGION LOCK
-                    const isCrossRegion = !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== req.region;
-
-                    return (
-                      <tr key={req.id} className="hover:bg-red-50/50">
-                        <td className="px-4 py-2.5 whitespace-nowrap font-bold text-slate-500 text-[10px]">{stripHtmlTags(req.request_date)}</td>
-                        <td className="px-4 py-2.5 whitespace-nowrap">
-                          <div className="font-extrabold text-blue-700">
-                            {formatOfficerHeader({ fnum: req.fnum, rank: req.rank, name: req.name })}
-                          </div>
-                        </td>
-                        <td className="px-4 py-2.5 whitespace-nowrap text-slate-700">
-                          <div className="font-bold">{stripHtmlTags(req.station)}</div>
-                          <div className="text-[10px] text-slate-500">{stripHtmlTags(req.region)}</div>
-                        </td>
-                        <td className="px-4 py-2.5 whitespace-nowrap">
-                          <div className="flex space-x-2">
-                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : ""} onClick={() => handleResetAction(req.id, "APPROVE")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50' : 'bg-red-600 hover:bg-red-700 text-white cursor-pointer'}`}><Unlock size={13} className="mr-1" /> Authorize Reset</button>
-                            <button disabled={isCrossRegion} title={isCrossRegion ? "Out of Jurisdiction (Requires Super or Assistant Super Admin)" : ""} onClick={() => handleResetAction(req.id, "REJECT")} className={`font-bold py-1 px-2.5 rounded text-[11px] transition flex items-center shadow-xs ${isCrossRegion ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-50' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer'}`}><X size={13} className="mr-1" /> Reject</button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* MANDATORY JUSTIFICATION MODAL FOR REVOKING ACCESS */}
       {revokePrompt.isOpen && (
         <div className="fixed inset-0 z-[99999] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-300 overflow-hidden flex flex-col">
-            <div className="bg-red-600 px-6 py-4 flex items-center shrink-0">
-              <AlertTriangle className="text-white mr-3 animate-pulse" size={22} />
-              <h3 className="text-white font-extrabold text-sm uppercase tracking-wider">Mandatory Justification Required</h3>
-            </div>
-              
+            <div className="bg-red-600 px-6 py-4 flex items-center shrink-0"><AlertTriangle className="text-white mr-3 animate-pulse" size={22} /><h3 className="text-white font-extrabold text-sm uppercase tracking-wider">Mandatory Justification Required</h3></div>
             <div className="p-6 space-y-4">
-              <p className="text-sm font-bold text-slate-700 leading-relaxed">
-                You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${stripHtmlTags(revokePrompt.permissionKey)}"`} clearance</span> for this officer. By command directive, you must state an official operational reason to proceed.
-              </p>
-              <textarea 
-                id="revocationReason"     
-                name="revocationReason"   
-                value={revokePrompt.reason}
-                onChange={(e) => setRevokePrompt({...revokePrompt, reason: stripHtmlTags(e.target.value)})}
-                placeholder="Type official reason for revocation here..."
-                className="w-full border border-slate-300 rounded-xl p-3 text-sm font-medium outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 resize-none h-32 bg-white"
-              />
+              <p className="text-sm font-bold text-slate-700 leading-relaxed">You are about to revoke <span className="text-red-600 bg-red-50 px-1 rounded">{revokePrompt.actionType === 'ROLE' ? 'all system access' : `the "${stripHtmlTags(revokePrompt.permissionKey)}"`} clearance</span> for this officer. By command directive, you must state an official operational reason to proceed.</p>
+              <textarea value={revokePrompt.reason} onChange={(e) => setRevokePrompt({...revokePrompt, reason: stripHtmlTags(e.target.value)})} placeholder="Type official reason for revocation here..." className="w-full border border-slate-300 rounded-xl p-3 text-sm font-medium outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200 resize-none h-32 bg-white" />
             </div>
-              
             <div className="bg-slate-50 px-6 py-4 flex justify-end space-x-3 border-t border-slate-200 shrink-0">
-              <button 
-                onClick={() => setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' })}
-                className="px-4 py-2 font-bold text-slate-600 text-xs bg-white border border-slate-300 rounded-xl hover:bg-slate-100 transition cursor-pointer"
-              >
-                Cancel Action
-              </button>
+              <button onClick={() => setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' })} className="px-4 py-2 font-bold text-slate-600 text-xs bg-white border border-slate-300 rounded-xl hover:bg-slate-100 transition cursor-pointer">Cancel Action</button>
               {revokePrompt.reason.trim().length >= 5 && (
-                <button 
-                  onClick={() => {
-                    if (revokePrompt.actionType === 'ROLE') {
-                      executeRoleChange(revokePrompt.fnum, revokePrompt.targetValue, revokePrompt.reason);
-                    } else {
-                      executePermissionChange(revokePrompt.fnum, revokePrompt.permissionKey, revokePrompt.targetValue, revokePrompt.reason);
-                    }
-                    setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' });
-                  }}
-                  className="px-4 py-2 font-bold text-white text-xs bg-red-600 rounded-xl hover:bg-red-700 shadow-md transition flex items-center cursor-pointer animate-in fade-in slide-in-from-right-4"
-                >
-                  <CheckCircle size={15} className="mr-1.5" /> Confirm Revocation
-                </button>
+                <button onClick={() => { if (revokePrompt.actionType === 'ROLE') { executeRoleChange(revokePrompt.fnum, revokePrompt.targetValue, revokePrompt.reason); } else { executePermissionChange(revokePrompt.fnum, revokePrompt.permissionKey, revokePrompt.targetValue, revokePrompt.reason); } setRevokePrompt({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' }); }} className="px-4 py-2 font-bold text-white text-xs bg-red-600 rounded-xl hover:bg-red-700 shadow-md transition flex items-center cursor-pointer animate-in fade-in slide-in-from-right-4"><CheckCircle size={15} className="mr-1.5" /> Confirm Revocation</button>
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {viewingPhotoModal && (
+        <div className="fixed inset-0 bg-black/90 z-[400] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingPhotoModal(null)}>
+          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg cursor-pointer"><X size={24}/></button>
+          <img src={viewingPhotoModal} alt="Enlarged Profile" className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
     </div>  

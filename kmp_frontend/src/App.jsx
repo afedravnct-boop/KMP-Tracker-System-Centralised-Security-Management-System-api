@@ -32,8 +32,6 @@ import AICommandConsole from "./AICommandConsole";
 import { authFetch, hasValidSession, getAuthToken, setAuthSession, clearAuthSession } from './api';
 import { FullUserPolicyText } from './policyContent';
 
-
-
 // ====================================================================
 // 1. CONSTANTS & CONFIGURATION
 // ====================================================================
@@ -110,7 +108,6 @@ export const canViewGlobalJurisdiction = (user) => {
   if (['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((user.region || '').trim().toUpperCase())) return true;
   
   const perms = user.permissions || {};
-  // 🟢 Explicitly check both global roster and global observer permissions
   return perms.view_global_roster === true || perms.global_observer === true;
 };
 
@@ -1513,8 +1510,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     </div>
                   )}
 
-                  {/* 🟢 POLICY CHECKBOX COMPLETELY REMOVED FROM SIGN-IN */}
-
                   <button 
                     type="submit" 
                     className="w-full font-bold py-3 rounded-lg transition-colors cursor-pointer text-xs uppercase tracking-wider bg-blue-700 hover:bg-blue-800 text-white"
@@ -1943,7 +1938,6 @@ const DashboardLayout = ({
 }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showOnline, setShowOnline] = useState(false);
-  const [showAllUsers, setShowAllUsers] = useState(false);
   const [selectedUserDetail, setSelectedUserDetail] = useState(null);
   const [viewingProfileImage, setViewingProfileImage] = useState(null);
   const [newForcePassword, setNewForcePassword] = useState('');
@@ -2179,37 +2173,6 @@ const handleExportLogs = async () => {
               </div>
             )}
 
-            {sidebarOpen && checkClearance(currentUser, 'acc_roster', true) && (
-              <div className="px-4 mt-3 space-y-3 min-w-max">
-                <div className="rounded-lg p-3 bg-slate-800 border border-slate-700">
-                  <button onClick={() => setShowAllUsers(!showAllUsers)} className="w-full flex justify-between items-center text-sm font-bold text-blue-400 cursor-pointer">
-                    <span className="flex items-center"><Users size={16} className="mr-2"/> 👥 System Roster</span>
-                    <span className="bg-slate-900 px-2 py-0.5 rounded-full text-xs text-white border border-slate-600">{users?.length || 0}</span>
-                  </button>
-                  {showAllUsers && (
-                   <div className="mt-3 space-y-2 border-t border-slate-700 pt-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
-                      {users?.map(u => (
-                         <div key={u.fnum} onClick={() => { setSelectedUserDetail({ ...u, isSystemUser: true, isReadOnly: false }); setNewForcePassword(''); }} className="text-xs bg-slate-900 p-2 rounded hover:bg-slate-950 border border-transparent hover:border-blue-500 cursor-pointer transition-all flex items-center justify-between group">
-                            <div className="flex items-center space-x-2">
-                              {u.profile_photo_path ? (
-                                <img src={u.profile_photo_path} alt="" className="w-7 h-7 rounded-full object-cover border border-slate-600 group-hover:border-blue-400" onError={(e) => { e.target.style.display='none'; }} />
-                              ) : (
-                                <div className="w-7 h-7 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-xs border border-slate-600 group-hover:border-blue-400 group-hover:text-blue-300">{u.name?.charAt(0) || 'U'}</div>
-                              )}
-                              <div>
-                                <span className="font-bold text-white block truncate w-28">{u.name}</span>
-                                <span className="text-slate-400 font-mono text-[9px]">{u.fnum}</span>
-                              </div>
-                            </div>
-                            <div className="text-[9px] px-1.5 py-0.5 bg-slate-800 rounded text-slate-300 font-bold uppercase border border-slate-700 group-hover:bg-blue-900 group-hover:text-blue-100 transition-colors">{String(u.role || 'USER').replace('_ADMIN', '')}</div>
-                         </div>
-                      ))}
-                   </div>
-                  )}
-                </div>
-              </div>
-            )}
-
             {sidebarOpen && checkClearance(currentUser, 'acc_ledgers', true) && (
               <div className="px-4 mt-4 space-y-3 min-w-max pb-4">
                 <div className="bg-slate-800 rounded-lg p-3 border border-yellow-600/30">
@@ -2221,15 +2184,14 @@ const handleExportLogs = async () => {
                         <button onClick={onViewHRReport} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center cursor-pointer">
                           <Eye size={14} className="mr-1"/> View
                         </button>
-{checkClearance(currentUser, 'export_data', true) && (
-  <button 
-    onClick={onGenerateHRReport} 
-    className="flex-1 flex items-center justify-center text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded px-3 py-1.5 transition-colors cursor-pointer"
-  >
-    <Download className="w-3 h-3 mr-2" />
-    Export
-  </button>
-)}
+                        {checkClearance(currentUser, 'export_data', true) && (
+                          <button 
+                            onClick={onGenerateHRReport} 
+                            className="flex-1 flex items-center justify-center text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded px-3 py-1.5 transition-colors cursor-pointer"
+                          >
+                            <Download className="w-3 h-3 mr-2" /> Export
+                          </button>
+                        )}
                       </div>
                     </div>
                     {checkClearance(currentUser, 'acc_consolidated', true) && (
@@ -2454,10 +2416,8 @@ const App = () => {
     return calculateGrandTotals(reports, currentUser, filterRegion, filterStation);
   }, [reports, currentUser, filterRegion, filterStation]);
 
-// 🟢 ENHANCED GLOBAL ACCESSIBILITY & LABEL ASSOCIATION FIXER
   useEffect(() => {
     const fixFormInputs = () => {
-      // 1. Ensure every input, select, and textarea has a unique ID, name, and autocomplete
       const inputs = document.querySelectorAll('input, select, textarea');
       inputs.forEach((el, index) => {
         if (!el.id) {
@@ -2479,21 +2439,18 @@ const App = () => {
         }
       });
 
-      // 2. Comprehensive label-to-field matching
       const labels = document.querySelectorAll('label');
       labels.forEach((label, index) => {
         const hasFor = label.hasAttribute('for') || label.hasAttribute('htmlFor');
         const hasNestedField = label.querySelector('input, select, textarea');
         
         if (!hasFor && !hasNestedField) {
-          // Strategy A: Look for an input directly inside the immediate next or previous sibling
           let targetField = 
             label.nextElementSibling?.querySelector('input, select, textarea') ||
             label.nextElementSibling?.matches('input, select, textarea') && label.nextElementSibling ||
             label.previousElementSibling?.querySelector('input, select, textarea') ||
             label.previousElementSibling?.matches('input, select, textarea') && label.previousElementSibling;
 
-          // Strategy B: Look within the closest parent wrapper container
           if (!targetField) {
             const parent = label.closest('div, form, section, span, tr, li') || document.body;
             targetField = parent.querySelector('input, select, textarea');
@@ -2505,15 +2462,12 @@ const App = () => {
             }
             label.setAttribute('for', targetField.id);
           } else {
-            // Strategy C: If it's a completely orphaned label with no form field anywhere nearby, 
-            // convert it to a span or inject aaria-hidden/fallback to satisfy the accessibility audit.
             label.setAttribute('aria-hidden', 'true');
           }
         }
       });
     };
 
-    // Run immediately and continuously observe DOM changes
     fixFormInputs();
     const observer = new MutationObserver(() => {
       fixFormInputs();
@@ -2545,6 +2499,9 @@ const App = () => {
       if (navigator.onLine) {
         const token = getAuthToken();
         if (token) {
+          const currentQueueCount = getOfflineQueueCount();
+          if (currentQueueCount === 0) return; 
+
           const remaining = await syncOfflineQueue(token);
           if (remaining === 0 && getOfflineQueueCount() === 0) {
             console.log('All offline queue records successfully synced with central database.');
@@ -2601,9 +2558,6 @@ const App = () => {
     };
   }, []);
 
-  // ====================================================================
-  // --- REAL-TIME LISTENER & SYNC (Safety-Optimized & Cleaned) ---
-  // ====================================================================
   useEffect(() => {
     if (!currentUser?.fnum || !hasValidSession()) return; 
     const controller = new AbortController();
@@ -2615,9 +2569,9 @@ const App = () => {
       if (isUserIdle) return;
 
       try {
-        const [resUsers, resReports, resStats, resStories, resEst, resNom, resArc, resComms, resDocs] = await Promise.all([
+        const [resUsers, resStats, resStories, resEst, resNom, resArc, resComms, resDocs] = await Promise.all([
           authFetch('/api/v1/users', { signal: controller.signal }).catch(() => null),
-          authFetch('/api/v1/reports', { signal: controller.signal }).catch(() => null),
+          // 🟢 Removed authFetch('/api/v1/reports') so CrimeRegistry handles it directly via SQL
           authFetch('/api/v1/stats', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/stories', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/establishments', { signal: controller.signal }).catch(() => null),
@@ -2627,7 +2581,6 @@ const App = () => {
           authFetch('/api/v1/general-documents', { signal: controller.signal }).catch(() => null)
         ]);
 
-        if (resReports && resReports.ok) setReports(await resReports.json());
         if (resStats && resStats.ok) setStats(await resStats.json());
         if (resStories && resStories.ok) setStories(await resStories.json());
         if (resEst && resEst.ok) setEstablishments(await resEst.json());
@@ -2718,7 +2671,6 @@ const App = () => {
     downloadWithAuth(url, `KMP_Master_Ledger_${value || "General"}_${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]}.zip`);
   };
 
-  // 🟢 PURE STATE-SYNC FUNCTION (Removed redundant authFetch to prevent rate-limiting)
   const handleAcknowledgeComm = (commId) => {
     setAdminCommsData(prevData => {
       if (Array.isArray(prevData)) {
@@ -2736,7 +2688,6 @@ const App = () => {
     });
   };
 
-// 🟢 Add this right below handleAcknowledgeComm
   const handleClearAllPings = () => {
     setAdminCommsData(prevData => {
       if (Array.isArray(prevData)) {
@@ -2778,8 +2729,6 @@ const App = () => {
           <CrimeIncidentRegistry 
             currentUser={currentUser} 
             canViewGlobal={canViewGlobal} 
-            reports={reports} 
-            setReports={setReports} 
           />
         ) : (
           <HomeDashboard 
@@ -2923,14 +2872,12 @@ const App = () => {
           />
         );
 
+      // 🟢 UPDATED: Admin Approvals no longer expects users or pendingUsers
       case 'approvals':  
         return checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role)) ? (
           <AdminApprovals 
-            pendingUsers={pendingUsers} 
-            setPendingUsers={setPendingUsers} 
-            users={users} 
-            setUsers={setUsers} 
             currentUser={currentUser} 
+            canViewGlobal={canViewGlobal}
           />
         ) : (
           <HomeDashboard 
@@ -3152,7 +3099,7 @@ const App = () => {
         {isViewingConsolidated && (
           <ConsolidatedLedger 
             data={consolidatedData} 
-            reports={reports} 
+            reports={consolidatedData?.crimes || []} 
             stats={stats} 
             stories={stories} 
             currentUser={currentUser}
