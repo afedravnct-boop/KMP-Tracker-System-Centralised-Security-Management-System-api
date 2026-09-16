@@ -7,54 +7,15 @@ import {
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
 
-// 🟢 REGIONAL HIERARCHY CONSTANTS
-const REGIONAL_HIERARCHY = {
-  "KMP NORTH": ["KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
-  "POLICE HEADQUARTERS": ["NAGURU"]
-};
+// 🟢 Import Business Logic & Constants from utils folder
+import { 
+  REGIONAL_HIERARCHY, TOP_TIER_ROLES, getRoleWeight, canModifyUser, 
+  grantExpressAccess, CLEARANCE_MATRIX_COLS, formatOfficerHeader 
+} from './adminUtils';
 
-// 🟢 TOP TIER ROLES (RESTRICTED TO SUPER ADMIN ONLY)
-const TOP_TIER_ROLES = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'SYSTEM_ADMIN'];
-
-// 🟢 EXPANDED SUPER CONTROL PANEL MODULES
-const CLEARANCE_MATRIX_COLS = [
-  { key: 'global_observer', label: 'Global Observer (Read-Only)', color: 'fuchsia', bg: 'bg-fuchsia-50/50' },
-  { key: 'ai_hr_access', label: 'AI Nominal Roll', color: 'amber', bg: 'bg-amber-100/60' },
-  { key: 'acc_home', label: 'Home Dash', color: 'slate', bg: 'bg-slate-100/50' },
-  { key: 'acc_profile', label: 'Profile', color: 'slate', bg: 'bg-slate-100/50' },
-  { key: 'acc_comms', label: 'Command Comms', color: 'blue', bg: 'bg-blue-50/50' },
-  { key: 'acc_crime', label: 'Crime Registry', color: 'blue', bg: 'bg-blue-50/50' },
-  { key: 'acc_ops', label: 'Disruptive Ops', color: 'blue', bg: 'bg-blue-50/50' },
-  { key: 'acc_stories', label: 'Success Stories', color: 'blue', bg: 'bg-blue-50/50' },
-  { key: 'acc_est', label: 'Establishments', color: 'indigo', bg: 'bg-indigo-50/50' },
-  { key: 'acc_hr', label: 'Nominal Roll', color: 'indigo', bg: 'bg-indigo-50/50' },
-  { key: 'acc_documents', label: 'Documents', color: 'indigo', bg: 'bg-indigo-50/50' },
-  { key: 'acc_ledgers', label: 'Reports & Ledgers', color: 'emerald', bg: 'bg-emerald-50/50' },
-  { key: 'acc_consolidated', label: 'Consolidated', color: 'emerald', bg: 'bg-emerald-50/50' },
-  { key: 'acc_analytics', label: 'Analytics & Reports', color: 'emerald', bg: 'bg-emerald-50/50' },
-  { key: 'acc_approvals', label: 'Access Approvals', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'acc_roster', label: 'System Roster', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'acc_online', label: 'Active Online', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'export_data', label: 'Master Export', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'export_logs', label: 'Export Logs', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'acc_documents_download', label: 'Documents Download', color: 'indigo', bg: 'bg-indigo-50/50' }
-];
-
-const formatOfficerHeader = (user) => {
-  const fnum = stripHtmlTags(user.fnum || user.f_num || 'NO-FNUM');
-  const rank = stripHtmlTags(user.rank || 'OFFICER');
-  const name = stripHtmlTags(user.name || 'UNKNOWN');
-  return `${fnum} ${rank} ${name}`;
-};
-
-const ToggleSwitch = ({ checked, onChange }) => (
-  <div onClick={onChange} className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-300 shadow-inner ${checked ? 'bg-red-600' : 'bg-slate-300'}`}>
-    <div className={`bg-white w-3.5 h-3.5 rounded-full shadow-md transform transition-transform duration-300 ${checked ? 'translate-x-4.5' : 'translate-x-0'}`} />
-  </div>
-);
+import { 
+  SignupDossierModal, HRModificationModal, LockdownMatrixModal, RevocationModal, ToggleSwitch 
+} from './AdminModals';
 
 const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
@@ -74,15 +35,16 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [allSystemUsers, setAllSystemUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
+  // Modal States
   const [selectedPendingUser, setSelectedPendingUser] = useState(null);
   const [selectedModRequest, setSelectedModRequest] = useState(null);
-  
   const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
 
   const [isDbKillActive, setIsDbKillActive] = useState(false);
   const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
 
+  // Lockdown States
   const [activeLockdownCount, setActiveLockdownCount] = useState(0);
   const [showLockdownModal, setShowLockdownModal] = useState(false);
   const [lockdownRegionFilter, setLockdownRegionFilter] = useState("KMP NORTH");
@@ -101,14 +63,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   }, [lockdownData]);
 
   const canViewGlobalActive = canViewGlobal || 
-    currentUser?.role === 'SUPER_ADMIN' || 
+    ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || 
     currentUser?.permissions?.view_global_roster === true || 
     currentUser?.permissions?.global_observer === true;
 
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
 
-  // 🟢 DEFINED PROPERLY TO ELIMINATE REFERENCE ERROR
+  // 🟢 Defined properly to prevent reference error crashes
   const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
 
   const isSuperAdminOrTopCommand = (
@@ -200,9 +162,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         const data = await res.json();
         setIsDbKillActive(!data.ai_database_query_enabled);
         alert(data.message);
-      } else {
-        alert("Failed to toggle AI database kill switch.");
-      }
+      } else alert("Failed to toggle AI database kill switch.");
     } catch (err) {
       alert("Error contacting the server to toggle AI database access.");
     } finally {
@@ -215,10 +175,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setLoadingPending(true);
     try {
       const res = await authFetch("/api/v1/admin/pending-users");
-      if (res && res.ok) {
-        const data = await res.json();
-        setRealPendingUsers(Array.isArray(data) ? data : []);
-      }
+      if (res && res.ok) setRealPendingUsers(Array.isArray(await res.json()) ? await res.json() : []);
     } catch (err) { console.error("Failed to sync pending users:", err); } 
     finally { setLoadingPending(false); }
   }, []);
@@ -228,10 +185,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setLoadingResets(true);
     try {
       const res = await authFetch("/api/v1/admin/reset-requests");
-      if (res && res.ok) {
-        const data = await res.json();
-        setResetRequests(Array.isArray(data) ? data : []);
-      }
+      if (res && res.ok) setResetRequests(Array.isArray(await res.json()) ? await res.json() : []);
     } catch (err) { console.error("Failed to sync password resets:", err); } 
     finally { setLoadingResets(false); }
   }, []);
@@ -241,10 +195,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setLoadingUsers(true);
     try {
       const res = await authFetch("/api/v1/users");
-      if (res && res.ok) {
-        const data = await res.json();
-        setAllSystemUsers(Array.isArray(data) ? data : []);
-      }
+      if (res && res.ok) setAllSystemUsers(Array.isArray(await res.json()) ? await res.json() : []);
     } catch (err) { console.error("Failed to sync system user roster:", err); } 
     finally { setLoadingUsers(false); }
   }, []);
@@ -254,10 +205,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setLoadingRequests(true);
     try {
       const res = await authFetch("/api/v1/requests");
-      if (res && res.ok) {
-        const data = await res.json();
-        setModRequests(Array.isArray(data) ? data : []);
-      }
+      if (res && res.ok) setModRequests(Array.isArray(await res.json()) ? await res.json() : []);
     } catch (err) { console.error("Failed to sync requests:", err); } 
     finally { setLoadingRequests(false); }
   }, []);
@@ -267,10 +215,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setLoadingLogs(true);
     try {
       const res = await authFetch("/api/v1/audit-logs");
-      if (res && res.ok) {
-        const data = await res.json();
-        setAuditLogs(Array.isArray(data) ? data : []);
-      }
+      if (res && res.ok) setAuditLogs(Array.isArray(await res.json()) ? await res.json() : []);
     } catch (err) { console.error("Failed to sync audit logs:", err); } 
     finally { setLoadingLogs(false); }
   }, []);
@@ -282,65 +227,40 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     else if (activeTab === 'requests') fetchModRequests();
     else if (activeTab === 'logs') { fetchAuditLogs(); fetchAllSystemUsers(); }
     else if (activeTab === 'resets') fetchResets();
-    fetchLockdownStatus();
+    
+    if (typeof fetchLockdownStatus === 'function') fetchLockdownStatus();
   }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
 
-  const filteredPending = useMemo(() => {
-    return realPendingUsers.filter(u => {
-      const uRegion = stripHtmlTags(u.region || '');
-      const uStation = stripHtmlTags(u.station || '');
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
-      if (filterRegion !== 'ALL REGIONS' && uRegion !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && uStation !== filterStation) return false;
-      return true;
-    });
-  }, [realPendingUsers, filterRegion, filterStation, canViewGlobalActive]);
-
-  const filteredRequests = useMemo(() => {
-    return modRequests.filter(r => {
-      const rRegion = stripHtmlTags(r.current_region || '');
-      const rStation = stripHtmlTags(r.current_station || '');
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
-      if (filterRegion !== 'ALL REGIONS' && rRegion !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && rStation !== filterStation) return false;
-      return true;
-    });
-  }, [modRequests, filterRegion, filterStation, canViewGlobalActive]);
-
-  const filteredResets = useMemo(() => {
-    return resetRequests.filter(r => {
-      const rRegion = stripHtmlTags(r.region || '');
-      const rStation = stripHtmlTags(r.station || '');
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
-      if (filterRegion !== 'ALL REGIONS' && rRegion !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && rStation !== filterStation) return false;
-      return true;
-    });
-  }, [resetRequests, filterRegion, filterStation, canViewGlobalActive]);
-
-  const filteredSystemUsers = useMemo(() => {
-    return allSystemUsers.filter(u => {
-      const uReg = stripHtmlTags(u.region || '').trim().toUpperCase();
-      const uStat = stripHtmlTags(u.station || '').trim().toUpperCase();
+  const filterByRegionStation = (items, itemRegionKey = 'region', itemStationKey = 'station') => {
+    return items.filter(item => {
+      const itemRegion = stripHtmlTags(item[itemRegionKey] || '').trim().toUpperCase();
+      const itemStation = stripHtmlTags(item[itemStationKey] || '').trim().toUpperCase();
       const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
       const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
       if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return true;
-      if (activeReg && activeReg !== 'ALL REGIONS' && uReg !== activeReg) return false;
-      if (activeStat && activeStat !== 'ALL STATIONS' && uStat !== activeStat) return false;
+      if (activeReg && activeReg !== 'ALL REGIONS' && itemRegion !== activeReg) return false;
+      if (activeStat && activeStat !== 'ALL STATIONS' && itemStation !== activeStat) return false;
       return true;
     });
-  }, [allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
+  };
+
+  const filteredPending = useMemo(() => filterByRegionStation(realPendingUsers), [realPendingUsers, filterRegion, filterStation, canViewGlobalActive]);
+  const filteredRequests = useMemo(() => filterByRegionStation(modRequests, 'current_region', 'current_station'), [modRequests, filterRegion, filterStation, canViewGlobalActive]);
+  const filteredResets = useMemo(() => filterByRegionStation(resetRequests), [resetRequests, filterRegion, filterStation, canViewGlobalActive]);
+  const filteredSystemUsers = useMemo(() => filterByRegionStation(allSystemUsers), [allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
 
   const filteredLogs = useMemo(() => {
     return auditLogs.filter(log => {
       const logUser = allSystemUsers.find(u => u.fnum === log.user_fnum);
-      const logRegion = stripHtmlTags(log.region || logUser?.region || '');
-      const logStation = stripHtmlTags(log.station || logUser?.station || '');
+      const logRegion = stripHtmlTags(log.region || logUser?.region || '').trim().toUpperCase();
+      const logStation = stripHtmlTags(log.station || logUser?.station || '').trim().toUpperCase();
+      const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
+      const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
-      if (filterRegion !== 'ALL REGIONS' && logRegion && logRegion !== filterRegion) return false;
-      if (filterStation !== 'ALL STATIONS' && logStation && logStation !== filterStation) return false;
+      if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return true;
+      if (activeReg && activeReg !== 'ALL REGIONS' && logRegion !== activeReg) return false;
+      if (activeStat && activeStat !== 'ALL STATIONS' && logStation !== activeStat) return false;
       return true;
     });
   }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
@@ -375,6 +295,71 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       });
       if (!response.ok) throw new Error("Failed to update bulk permissions.");
     } catch (err) { alert(`Bulk Update Failed: ${err.message}`); fetchAllSystemUsers(); }
+  };
+
+  const executePermissionChange = async (fnum, permissionKey, value, reason = '') => {
+    const cleanFnum = stripHtmlTags(fnum);
+    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    
+    if (!targetUser) return;
+    if (!canModifyUser(currentUser, targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance to modify this user.");
+      return;
+    }
+
+    let locks = targetUser.permissions?.super_admin_locks || {};
+    if (value === false && isSuperAdmin) locks[permissionKey] = true;
+    else if (value === true && isSuperAdmin) locks[permissionKey] = false;
+
+    const updatedPermissions = {
+      ...(targetUser.permissions || {}), [permissionKey]: value, super_admin_locks: locks,
+      [`${permissionKey}_revoke_reason`]: stripHtmlTags(reason || targetUser.permissions?.[`${permissionKey}_revoke_reason`])
+    };
+
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
+
+    try {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
+      }
+    } catch (err) { alert(`Permission Update Failed:\n${stripHtmlTags(err.message)}`); fetchAllSystemUsers(); }
+  };
+
+  const executeRoleChange = async (fnum, newRole, reason = '') => {
+    const cleanFnum = stripHtmlTags(fnum);
+    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+
+    if (!targetUser) return;
+    if (!canModifyUser(currentUser, targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance to modify this user.");
+      return;
+    }
+
+    let updatedPermissions = { ...(targetUser.permissions || {}) };
+
+    if (newRole === 'REVOKED') {
+      updatedPermissions.revoke_reason = stripHtmlTags(reason);
+      updatedPermissions.revoked_by = isSuperAdmin ? 'SUPER_ADMIN' : stripHtmlTags(currentUser?.role);
+    } else {
+      updatedPermissions = grantExpressAccess(newRole, updatedPermissions);
+      if (isSuperAdmin) { delete updatedPermissions.revoked_by; delete updatedPermissions.revoke_reason; }
+    }
+
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
+
+    try {
+      const response = await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(stripHtmlTags(errorData.detail) || `HTTP Error ${response.status}`);
+      }
+    } catch (err) { alert(`Role Update Failed:\n${stripHtmlTags(err.message)}`); fetchAllSystemUsers(); }
   };
 
   const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
@@ -554,32 +539,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       setSelectedModRequest(null); 
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
     } catch (err) { alert(`Error processing request: ${stripHtmlTags(err.message)}`); }
-  };
-
-  const handleResetAction = async (reqId, actionStr) => {
-    const reqObj = resetRequests.find(r => r.id === reqId);
-    
-    if (reqObj && !['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) && currentUser?.region !== reqObj.region) {
-        alert("SECURITY OVERRIDE DENIED: Cross-regional password resets are strictly restricted to Super/Assistant Admins.");
-        return;
-    }
-
-    try {
-      const formData = new URLSearchParams();
-      formData.append('action', actionStr);
-      
-      const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
-        method: "POST", headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData
-      });
-      
-      const data = await response.json();
-      if (!response.ok) throw new Error(stripHtmlTags(data.detail));
-      
-      setResetRequests(resetRequests.filter(r => r.id !== reqId));
-      
-      if (actionStr === "APPROVE") alert(`Password successfully reset! Temporary key: ${stripHtmlTags(data.new_password)}`);
-      else alert("Request rejected.");
-    } catch (err) { alert(`Error: ${stripHtmlTags(err.message)}`); }
   };
 
   const handleForcePassword = async (fnum, name) => {
