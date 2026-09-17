@@ -289,6 +289,7 @@ class Audit_Logs(Base):
     details = Column(String, nullable=True)
     created_at = Column(DateTime, default=get_eat_time)
     user_fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
+    user_name = Column(String, nullable=True) # 🟢 Added user name column for direct audit mapping
 
 
 class Activity_Logs(Base):

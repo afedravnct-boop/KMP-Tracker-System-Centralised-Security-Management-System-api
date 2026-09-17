@@ -982,23 +982,11 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
         AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
         logs = db.query(AuditModel).order_by(AuditModel.id.desc()).all()
 
-        # Build user name map for lookup
-        users_map = {}
-        UserModel = getattr(models, 'Users', getattr(models, 'User', None))
-        if UserModel:
-            try:
-                for u in db.query(UserModel).all():
-                    fnum_key = str(getattr(u, 'fnum', '') or getattr(u, 'f_num', '')).strip().upper()
-                    name_val = str(getattr(u, 'name', '')).strip().upper()
-                    if fnum_key:
-                        users_map[fnum_key] = name_val
-            except Exception:
-                pass
-
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Command Audit Logs"
-        ws.append(["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM"])
+        # 🟢 Include the new column header in your Excel sheet layout
+        ws.append(["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM", "User Name"])
 
         header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
@@ -1010,22 +998,16 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
         for log in logs:
             details_clean = clean_html_for_export(getattr(log, 'details', ''))
             
-            # Format Timestamp cleanly (stripping timezone text if string/datetime)
+            # Format Timestamp cleanly (stripping timezone text)
             raw_time = getattr(log, 'created_at', '')
             if hasattr(raw_time, 'strftime'):
                 formatted_time = raw_time.strftime("%Y-%m-%d %H:%M:%S")
             else:
                 formatted_time = str(raw_time).replace("+00:00", "").replace("T", " ")
 
-            # 🟢 APPEND USER NAME AFTER THE USER FNUM (e.g., "A/2408 - AFEDRA VINCENT")
-            raw_fnum = str(getattr(log, 'user_fnum', '') or getattr(log, 'fnum', '')).strip()
-            upper_fnum = raw_fnum.upper()
-            officer_name = users_map.get(upper_fnum, "")
-            
-            if raw_fnum:
-                user_fnum_display = f"{raw_fnum} - {officer_name}" if officer_name else raw_fnum
-            else:
-                user_fnum_display = "SYSTEM"
+            # 🟢 Pull FNUM and the new User Name column directly from the model
+            user_fnum = str(getattr(log, 'user_fnum', '') or getattr(log, 'fnum', '')).strip()
+            user_name = str(getattr(log, 'user_name', '')).strip().upper()
 
             ws.append([
                 getattr(log, 'id', ''), 
@@ -1034,7 +1016,8 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
                 getattr(log, 'status', ''), 
                 details_clean, 
                 formatted_time, 
-                user_fnum_display
+                user_fnum or "SYSTEM",
+                user_name or "N/A"
             ])
 
         for col in ws.columns:

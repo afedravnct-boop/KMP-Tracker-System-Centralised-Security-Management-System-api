@@ -379,6 +379,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       return;
     }
 
+    // 🟢 HIERARCHICAL ENFORCEMENT: RPC (Regional Admin) can modify Assistant Regional Admin, but Assistant cannot modify RPC
+    const currentRoleClean = (currentUser?.role || '').toUpperCase();
+    if (currentRoleClean === 'ASSISTANT_REGIONAL_ADMIN' && newRole === 'REGIONAL_ADMIN') {
+      alert("SECURITY RESTRICTION: Assistant Regional Admin cannot modify Regional Admin roles.");
+      return;
+    }
+
     const updatedPermissions = grantExpressAccess(newRole, targetUser.permissions || {});
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
@@ -511,7 +518,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-100 w-full xl:w-auto">
           <span className="text-xs font-extrabold text-blue-900 uppercase flex items-center tracking-wider mr-1">
             <Filter size={14} className="mr-1.5 text-blue-600" /> Filter Scope:
-          </span>
+        </span>
           <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border border-slate-300 rounded-md p-2 text-xs shadow-sm bg-white font-bold text-slate-700 outline-none cursor-pointer min-w-[180px]">
             {canViewGlobalActive ? (<><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY || {}).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>) : <option value={currentUser?.region}>{stripHtmlTags(currentUser?.region)}</option>}
           </select>
@@ -595,208 +602,213 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                       <td className="px-4 py-3 whitespace-nowrap text-right"><button type="button" onClick={() => setSelectedPendingUser(user)} className="bg-slate-100 hover:bg-slate-200 font-bold py-1.5 px-3 rounded-md text-[11px]">Review</button></td>
                     </tr>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'matrix' && (
-        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden w-full">
-          <div className="bg-slate-900 text-white p-3 text-xs font-extrabold uppercase tracking-wider flex justify-between">
-            <span>Super Control Panel - Active Roster Matrix</span>
+              </tbody>
+            </table>
           </div>
-          {loadingUsers ? (
-            <div className="p-8 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
-          ) : (
-            <div className="overflow-x-auto w-full custom-scrollbar">
-              <table className="min-w-max divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-900 text-white uppercase font-black text-[10px]">
-                  <tr>
-                    <th className="p-2.5 text-left sticky left-0 z-10 bg-slate-900 text-blue-100">Officer Details</th>
-                    <th className="p-2.5 text-center sticky left-[240px] z-10 bg-slate-900 text-blue-100">Administrative Tier</th>
-                    <th className="p-2.5 text-center sticky left-[360px] z-10 bg-slate-900 text-blue-100">Quick Actions</th>
-                    {CLEARANCE_MATRIX_COLS.map((col, idx) => (
-                      <th key={idx} className="p-2 text-center border-l border-slate-700 bg-slate-900"><div className="w-16 text-[9px] text-blue-100">{col.label}</div></th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {filteredSystemUsers.map(u => {
-                    const p = u.permissions || {};
-                    const isSelf = u.fnum === currentUser?.fnum;
-                    return (
-                      <tr key={u.fnum} className="hover:bg-slate-50">
-                        <td className="p-2.5 sticky left-0 z-10 bg-white font-extrabold text-[11px]">{formatOfficerHeader(u)}</td>
-                        <td className="p-2.5 text-center sticky left-[240px] z-10 bg-white">
-                          <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf} className="border rounded-md px-2 py-1 font-bold outline-none uppercase text-[10px]">
-                            <option value="USER">USER</option>
-                            <option value="STATION_ADMIN">STN ADMIN</option>
-                            <option value="SUPER_ADMIN">SUPER ADMIN</option>
-                            <option value="REVOKED">REVOKED</option>
-                          </select>
-                        </td>
-                        <td className="p-2.5 text-center sticky left-[360px] z-10 bg-white">
-                          <div className="flex items-center justify-center space-x-1.5">
-                            <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 text-emerald-700 border"><CheckSquare size={13} /></button>
-                            <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 text-red-700 border"><Square size={13} /></button>
-                            {/* 🟢 ALLOW SUPER ADMIN TO CHANGE THEIR OWN PASSWORD OR OTHERS */}
-                            {isSuperAdmin && (
-                              <button onClick={() => handleForcePassword(u.fnum, u.name)} title="Force Password" className="p-1 rounded bg-amber-50 text-amber-700 border"><KeyRound size={13} /></button>
-                            )}
-                          </div>
-                        </td>
-                        {CLEARANCE_MATRIX_COLS.map((col, idx) => {
-                          const isObserverCol = col.key === 'global_observer';
-                          const isOpenCol = col.key === 'global_open';
-                          
-                          // 🟢 MUTUAL EXCLUSIVITY GUARD FOR MATRIX CELLS
-                          const isMutuallyDisabled = (isObserverCol && Boolean(p.global_open)) || (isOpenCol && Boolean(p.global_observer));
-                          const isDisabled = isSelf || isMutuallyDisabled || u.role === 'SUPER_ADMIN';
+        )}
+      </div>
+    )}
 
-                          return (
-                            <td key={idx} className="p-2 text-center border-l border-white/50">
-                              <input 
-                                type="checkbox" 
-                                checked={u.role === 'SUPER_ADMIN' || Boolean(p[col.key])} 
-                                disabled={isDisabled}
-                                onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
-                                className={`w-3.5 h-3.5 rounded ${isDisabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`} 
-                              />
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+    {activeTab === 'matrix' && (
+      <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden w-full">
+        <div className="bg-slate-900 text-white p-3 text-xs font-extrabold uppercase tracking-wider flex justify-between">
+          <span>Super Control Panel - Active Roster Matrix</span>
         </div>
-      )}
-
-      {activeTab === 'roster' && (
-        <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 text-white font-semibold text-xs uppercase">
-            Command Directory & System Roster
-          </div>
-          {loadingUsers ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs">Compiling roster...</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px]">
-                  <tr><th className="px-4 py-3.5 text-left">Officer Details</th><th className="px-4 py-3.5 text-left">Identifiers</th><th className="px-4 py-3.5 text-left">Contact Data</th><th className="px-4 py-3.5 text-right">Actions</th></tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
-                  {filteredSystemUsers.map((user) => (
-                    <tr key={user.fnum} className="hover:bg-cyan-50/50">
-                      <td className="px-4 py-3 whitespace-nowrap"><div className="font-extrabold">{formatOfficerHeader(user)}</div></td>
-                      <td className="px-4 py-3 whitespace-nowrap">IPPS: {user.ipps || 'N/A'}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">{user.phone || 'N/A'}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        {/* 🟢 ALLOW SUPER ADMIN TO FORCE PASSWORD ON SELF OR OTHERS */}
-                        {isSuperAdmin && (
-                          <button onClick={() => handleForcePassword(user.fnum, user.name)} className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 font-bold text-[10px]"><KeyRound size={12} className="inline mr-1" /> Force Password</button>
-                        )}
-                      </td>
-                    </tr>
+        {loadingUsers ? (
+          <div className="p-8 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
+        ) : (
+          <div className="overflow-x-auto w-full custom-scrollbar">
+            <table className="min-w-max divide-y divide-slate-200 text-xs">
+              <thead className="bg-slate-900 text-white uppercase font-black text-[10px]">
+                <tr>
+                  <th className="p-2.5 text-left sticky left-0 z-10 bg-slate-900 text-blue-100">Officer Details</th>
+                  <th className="p-2.5 text-center sticky left-[240px] z-10 bg-slate-900 text-blue-100">Administrative Tier</th>
+                  <th className="p-2.5 text-center sticky left-[360px] z-10 bg-slate-900 text-blue-100">Quick Actions</th>
+                  {CLEARANCE_MATRIX_COLS.map((col, idx) => (
+                    <th key={idx} className="p-2 text-center border-l border-slate-700 bg-slate-900"><div className="w-16 text-[9px] text-blue-100">{col.label}</div></th>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                {filteredSystemUsers.map(u => {
+                  const p = u.permissions || {};
+                  const isSelf = u.fnum === currentUser?.fnum;
+                  return (
+                    <tr key={u.fnum} className="hover:bg-slate-50">
+                      <td className="p-2.5 sticky left-0 z-10 bg-white font-extrabold text-[11px]">{formatOfficerHeader(u)}</td>
+                      <td className="p-2.5 text-center sticky left-[240px] z-10 bg-white">
+                        {/* 🟢 FULL HIERARCHICAL TIERS SUPPORTED */}
+                        <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf} className="border rounded-md px-2 py-1 font-bold outline-none uppercase text-[10px]">
+                          <option value="USER">STATION USER (MAX 3)</option>
+                          <option value="STATION_ADMIN">STATION ADMIN (STN ADMIN)</option>
+                          <option value="DIVISION_USER">DIVISION USER (MAX 3)</option>
+                          <option value="DIVISION_ADMIN">DIVISION ADMIN (DPC)</option>
+                          <option value="REGIONAL_USER">REGIONAL USER (MAX 3)</option>
+                          <option value="REGIONAL_ADMIN">REGIONAL ADMIN (RPC)</option>
+                          <option value="ASSISTANT_REGIONAL_ADMIN">ASSISTANT REGIONAL ADMIN</option>
+                          <option value="ADMIN">ADMIN</option>
+                          <option value="SUPER_ADMIN">SUPER ADMIN</option>
+                          <option value="ASSISTANT_SUPER_ADMIN">ASST SUPER ADMIN</option>
+                          <option value="REVOKED">REVOKED</option>
+                        </select>
+                      </td>
+                      <td className="p-2.5 text-center sticky left-[360px] z-10 bg-white">
+                        <div className="flex items-center justify-center space-x-1.5">
+                          <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 text-emerald-700 border"><CheckSquare size={13} /></button>
+                          <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 text-red-700 border"><Square size={13} /></button>
+                          {isSuperAdmin && (
+                            <button onClick={() => handleForcePassword(u.fnum, u.name)} title="Force Password" className="p-1 rounded bg-amber-50 text-amber-700 border"><KeyRound size={13} /></button>
+                          )}
+                        </div>
+                      </td>
+                      {CLEARANCE_MATRIX_COLS.map((col, idx) => {
+                        const isObserverCol = col.key === 'global_observer';
+                        const isOpenCol = col.key === 'global_open';
+                        
+                        const isMutuallyDisabled = (isObserverCol && Boolean(p.global_open)) || (isOpenCol && Boolean(p.global_observer));
+                        const isDisabled = isSelf || isMutuallyDisabled || u.role === 'SUPER_ADMIN';
 
-      {activeTab === 'requests' && (
-        <div className="bg-white rounded-xl shadow-xs border border-amber-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-2.5 text-white font-semibold text-xs uppercase">HR Modification Requests</div>
+                        return (
+                          <td key={idx} className="p-2 text-center border-l border-white/50">
+                            <input 
+                              type="checkbox" 
+                              checked={u.role === 'SUPER_ADMIN' || Boolean(p[col.key])} 
+                              disabled={isDisabled}
+                              onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
+                              className={`w-3.5 h-3.5 rounded ${isDisabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`} 
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )}
+
+    {activeTab === 'roster' && (
+      <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
+        <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 text-white font-semibold text-xs uppercase">
+          Command Directory & System Roster
+        </div>
+        {loadingUsers ? (
+          <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs">Compiling roster...</div>
+        ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-xs">
               <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px]">
-                <tr><th className="px-4 py-3.5 text-left">Officer</th><th className="px-4 py-3.5 text-left">Requested Changes</th><th className="px-4 py-3.5 text-right">Action</th></tr>
+                <tr><th className="px-4 py-3.5 text-left">Officer Details</th><th className="px-4 py-3.5 text-left">Identifiers</th><th className="px-4 py-3.5 text-left">Contact Data</th><th className="px-4 py-3.5 text-right">Actions</th></tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-200">
-                {filteredRequests.map((req) => (
-                  <tr key={req.id || req.sn} className="hover:bg-amber-50/50">
-                    <td className="px-4 py-2.5">{formatOfficerHeader({ fnum: req.fnum, rank: req.current_rank, name: req.current_name })}</td>
-                    <td className="px-4 py-2.5">Station: {req.requested_station || req.current_station}</td>
-                    <td className="px-4 py-2.5 text-right space-x-2">
-                      <button onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className="bg-emerald-600 text-white font-bold py-1 px-2.5 rounded text-[11px]">Approve</button>
-                      <button onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className="bg-red-50 text-red-600 font-bold py-1 px-2.5 rounded text-[11px]">Reject</button>
+                {filteredSystemUsers.map((user) => (
+                  <tr key={user.fnum} className="hover:bg-cyan-50/50">
+                    <td className="px-4 py-3 whitespace-nowrap"><div className="font-extrabold">{formatOfficerHeader(user)}</div></td>
+                    <td className="px-4 py-3 whitespace-nowrap">IPPS: {user.ipps || 'N/A'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">{user.phone || 'N/A'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-right">
+                      {isSuperAdmin && (
+                        <button onClick={() => handleForcePassword(user.fnum, user.name)} className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 font-bold text-[10px]"><KeyRound size={12} className="inline mr-1" /> Force Password</button>
+                      )}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+    )}
 
-      {activeTab === 'logs' && (
-        <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-2.5 text-white font-semibold text-xs uppercase">System Audit Logs</div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-xs">
-              <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px]">
-                <tr><th className="px-4 py-3.5 text-left">Timestamp</th><th className="px-4 py-3.5 text-left">User</th><th className="px-4 py-3.5 text-left">Event</th><th className="px-4 py-3.5 text-left">Details</th></tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-slate-200">
-                {filteredLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-2 font-mono text-[10px]">{log.created_at}</td>
-                    <td className="px-4 py-2 font-extrabold text-blue-700">{log.user_fnum}</td>
-                    <td className="px-4 py-2 uppercase font-extrabold text-[10px]">{log.event_type}</td>
-                    <td className="px-4 py-2 text-[11px]">{log.details}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+    {activeTab === 'requests' && (
+      <div className="bg-white rounded-xl shadow-xs border border-amber-200 overflow-hidden max-w-6xl mx-auto">
+        <div className="bg-slate-900 px-4 py-2.5 text-white font-semibold text-xs uppercase">HR Modification Requests</div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200 text-xs">
+            <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px]">
+              <tr><th className="px-4 py-3.5 text-left">Officer</th><th className="px-4 py-3.5 text-left">Requested Changes</th><th className="px-4 py-3.5 text-right">Action</th></tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-slate-200">
+              {filteredRequests.map((req) => (
+                <tr key={req.id || req.sn} className="hover:bg-amber-50/50">
+                  <td className="px-4 py-2.5">{formatOfficerHeader({ fnum: req.fnum, rank: req.current_rank, name: req.current_name })}</td>
+                  <td className="px-4 py-2.5">Station: {req.requested_station || req.current_station}</td>
+                  <td className="px-4 py-2.5 text-right space-x-2">
+                    <button onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className="bg-emerald-600 text-white font-bold py-1 px-2.5 rounded text-[11px]">Approve</button>
+                    <button onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className="bg-red-50 text-red-600 font-bold py-1 px-2.5 rounded text-[11px]">Reject</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
+    )}
 
-      {activeTab === 'resets' && (        
-        <div className="bg-white rounded-xl shadow-xs border border-red-200 overflow-hidden max-w-6xl mx-auto">
-          <div className="bg-slate-900 px-4 py-2.5 text-white font-semibold text-xs uppercase">Authorized Password Recovery</div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-xs">
-              <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px]">
-                <tr><th className="px-4 py-3.5 text-left">Date</th><th className="px-4 py-3.5 text-left">Officer</th><th className="px-4 py-3.5 text-right">Action</th></tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-slate-200">
-                {filteredResets.map((req) => (
-                  <tr key={req.id} className="hover:bg-red-50/50">
-                    <td className="px-4 py-2.5 font-bold text-[10px]">{req.request_date}</td>
-                    <td className="px-4 py-2.5 font-extrabold text-blue-700">{formatOfficerHeader({ fnum: req.fnum, rank: req.rank, name: req.name })}</td>
-                    <td className="px-4 py-2.5 text-right space-x-2">
-                      <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 text-white font-bold py-1 px-2.5 rounded text-[11px]">Authorize Reset</button>
-                      <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-slate-100 text-slate-700 font-bold py-1 px-2.5 rounded text-[11px]">Reject</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+    {activeTab === 'logs' && (
+      <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
+        <div className="bg-slate-900 px-4 py-2.5 text-white font-semibold text-xs uppercase">System Audit Logs</div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200 text-xs">
+            <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px]">
+              <tr><th className="px-4 py-3.5 text-left">Timestamp</th><th className="px-4 py-3.5 text-left">User</th><th className="px-4 py-3.5 text-left">Event</th><th className="px-4 py-3.5 text-left">Details</th></tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-slate-200">
+              {filteredLogs.map((log) => (
+                <tr key={log.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-2 font-mono text-[10px]">{log.created_at}</td>
+                  <td className="px-4 py-2 font-extrabold text-blue-700">{log.user_fnum}</td>
+                  <td className="px-4 py-2 uppercase font-extrabold text-[10px]">{log.event_type}</td>
+                  <td className="px-4 py-2 text-[11px]">{log.details}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
+    )}
 
-      {/* MODALS */}
-      <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} canModifyUser={canModifyUser} />
-      <HRModificationModal req={selectedModRequest} onClose={() => setSelectedModRequest(null)} currentUser={currentUser} isProcessingAction={isProcessingAction} handleReviewRequest={handleReviewRequest} />
-      <LockdownMatrixModal isOpen={showLockdownModal} onClose={() => setShowLockdownModal(false)} activeLockdownSummary={activeLockdownSummary} lockdownData={lockdownData} handleToggleLockdown={handleToggleLockdown} lockdownRegionFilter={lockdownRegionFilter} setLockdownRegionFilter={setLockdownRegionFilter} />
-      <RevocationModal prompt={revokePrompt} setPrompt={setRevokePrompt} executeRoleChange={() => {}} executePermissionChange={() => {}} />
+    {activeTab === 'resets' && (        
+      <div className="bg-white rounded-xl shadow-xs border border-red-200 overflow-hidden max-w-6xl mx-auto">
+        <div className="bg-slate-900 px-4 py-2.5 text-white font-semibold text-xs uppercase">Authorized Password Recovery</div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200 text-xs">
+            <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px]">
+              <tr><th className="px-4 py-3.5 text-left">Date</th><th className="px-4 py-3.5 text-left">Officer</th><th className="px-4 py-3.5 text-right">Action</th></tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-slate-200">
+              {filteredResets.map((req) => (
+                <tr key={req.id} className="hover:bg-red-50/50">
+                  <td className="px-4 py-2.5 font-bold text-[10px]">{req.request_date}</td>
+                  <td className="px-4 py-2.5 font-extrabold text-blue-700">{formatOfficerHeader({ fnum: req.fnum, rank: req.rank, name: req.name })}</td>
+                  <td className="px-4 py-2.5 text-right space-x-2">
+                    <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 text-white font-bold py-1 px-2.5 rounded text-[11px]">Authorize Reset</button>
+                    <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-slate-100 text-slate-700 font-bold py-1 px-2.5 rounded text-[11px]">Reject</button>
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )}
 
-      {viewingPhotoModal && (
-        <div className="fixed inset-0 bg-black/90 z-[400] flex justify-center items-center p-4" onClick={() => setViewingPhotoModal(null)}>
-          <button className="absolute top-6 right-6 text-white bg-white/10 p-2 rounded-full"><X size={24}/></button>
-          <img src={viewingPhotoModal} alt="Enlarged" className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()} />
-        </div>
-      )}
-    </div>  
+  {/* MODALS */}
+  <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} canModifyUser={canModifyUser} />
+  <HRModificationModal req={selectedModRequest} onClose={() => setSelectedModRequest(null)} currentUser={currentUser} isProcessingAction={isProcessingAction} handleReviewRequest={handleReviewRequest} />
+  <LockdownMatrixModal isOpen={showLockdownModal} onClose={() => setShowLockdownModal(false)} activeLockdownSummary={activeLockdownSummary} lockdownData={lockdownData} handleToggleLockdown={handleToggleLockdown} lockdownRegionFilter={lockdownRegionFilter} setLockdownRegionFilter={setLockdownRegionFilter} />
+  <RevocationModal prompt={revokePrompt} setPrompt={setRevokePrompt} executeRoleChange={() => {}} executePermissionChange={() => {}} />
+
+  {viewingPhotoModal && (
+    <div className="fixed inset-0 bg-black/90 z-[400] flex justify-center items-center p-4" onClick={() => setViewingPhotoModal(null)}>
+      <button className="absolute top-6 right-6 text-white bg-white/10 p-2 rounded-full"><X size={24}/></button>
+      <img src={viewingPhotoModal} alt="Enlarged" className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()} />
+    </div>
+  )}
+</div>  
   );
 };
 

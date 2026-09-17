@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAlert, Inbox, Filter, Clock, ArrowLeft, Eye, X, Edit3, UserPlus, Reply, CornerDownRight } from 'lucide-react';
+import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAlert, Inbox, Filter, Clock, ArrowLeft, Eye, X, Edit3, UserPlus, Reply, CornerDownRight, Wrench, Search } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -75,6 +75,11 @@ const buildThreads = (flatMsgs) => {
 const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm, initialTab, onMarkAllRead }) => {
   const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
   
+  // High command check for viewing/granting cross-region permissions (Super Admin, Asst Super Admin, RPC, Deputy RPC)
+  const isHighCommand = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'RPC', 'DEPUTY_RPC', 'DEPUTY COMMANDER'].includes((currentUser?.role || '').toUpperCase()) ||
+    (currentUser?.position || '').toUpperCase().includes('RPC') ||
+    (currentUser?.position || '').toUpperCase().includes('COMMANDER');
+
   const [activeTab, setActiveTab] = useState(
     initialTab ? initialTab.toLowerCase() : (canBroadcast ? 'dispatch' : 'inbox')
   ); 
@@ -85,6 +90,12 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   const [filteredRecipientsList, setFilteredRecipientsList] = useState([]);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL');
   const [selectedRegionFilter, setSelectedRegionFilter] = useState('ALL');
+  
+  // 🟢 Recipient Search Input State
+  const [recipientSearchTerm, setRecipientSearchTerm] = useState('');
+
+  // 🟢 Technical Glitch Alert Toggle State
+  const [isTechnicalGlitch, setIsTechnicalGlitch] = useState(false);
 
   const [formData, setFormData] = useState({
     targetAudience: canBroadcast ? 'ALL_USERS' : 'SPECIFIC_USER', 
@@ -184,14 +195,32 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // 🟢 Enhanced Recipient Filtering with Search Box Support
   const finalSelectableRecipients = (filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || [])).filter(user => {
     if (user.fnum === currentUser.fnum) return false;
     const region = (user.region || "").toUpperCase();
     
+    if (isTechnicalGlitch) {
+      return ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes((user.role || '').toUpperCase()) || 
+             (user.position || '').toUpperCase().includes('COMMANDER');
+    }
+
     if (selectedCategoryFilter === 'POLICE_HQ' && !region.includes("POLICE HEADQUARTERS")) return false;
     if (selectedCategoryFilter === 'KMP_HQ' && !region.includes("KMP HEADQUARTERS")) return false;
     if (selectedCategoryFilter === 'FIELD_COMMAND' && region.includes("HEADQUARTERS")) return false;
     if (selectedRegionFilter !== 'ALL' && region !== selectedRegionFilter) return false;
+
+    // Search query filter
+    if (recipientSearchTerm.trim()) {
+      const term = recipientSearchTerm.trim().toLowerCase();
+      const name = (user.name || "").toLowerCase();
+      const fnum = (user.fnum || "").toLowerCase();
+      const station = (user.station || "").toLowerCase();
+      const rank = (user.rank || "").toLowerCase();
+      if (!name.includes(term) && !fnum.includes(term) && !station.includes(term) && !rank.includes(term)) {
+        return false;
+      }
+    }
 
     return true;
   });
@@ -208,8 +237,10 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       return recipientObj && recipientObj.region !== currentUser.region;
     });
 
-    if (containsCrossRegion && !['RPC', 'DPC', 'SUPER_ADMIN', 'ADMIN'].includes(currentUser.role)) {
-      return setNotification({ type: 'error', text: '⚠️ Cross-region communication requires routing through your regional RPC or DPC for approval.' });
+    const hasCrossRegionPerm = currentUser?.permissions?.cross_region_communication === true || isHighCommand;
+
+    if (containsCrossRegion && !hasCrossRegionPerm && !isTechnicalGlitch) {
+      return setNotification({ type: 'error', text: '⚠️ Cross-region communication requires routing through your regional RPC or DPC for approval, or toggling a Technical Glitch Alert.' });
     }
 
     setIsSubmitting(true);
@@ -229,11 +260,11 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
           target_audience: formData.targetAudience,
           target_region: formData.targetRegion, 
           target_fnum: formData.targetFnum, 
-          message_type: formData.messageType, 
-          subject: formData.subject, 
+          message_type: isTechnicalGlitch ? 'TECHNICAL_GLITCH_ALERT' : formData.messageType, 
+          subject: isTechnicalGlitch ? `[TECHNICAL GLITCH ALERT]: ${formData.subject}` : formData.subject, 
           message: autoCapitalize(formData.message), 
           send_email: formData.sendEmail,
-          requires_command_approval: containsCrossRegion
+          requires_command_approval: containsCrossRegion && !isTechnicalGlitch
         })
       });
 
@@ -246,6 +277,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       setNotification({ type: 'success', text: '✅ Message successfully dispatched securely.' });
       setIsReplyingTo(false);
       setReplyingToDoc(null);
+      setIsTechnicalGlitch(false);
       setFormData({ 
         ...formData, subject: '', message: '', sendEmail: false, 
         targetAudience: canBroadcast ? 'ALL_USERS' : 'SPECIFIC_USER', 
@@ -342,7 +374,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         const audience = msg.target_audience;
         const region = msg.target_region;
 
-        // 1. Calculate the exact intended audience
         if (audience === 'ALL_USERS' || audience === 'ALL') targetPool = allSystemUsers;
         else if (audience === 'ADMINS_ONLY') targetPool = allSystemUsers.filter(u => ['ADMIN', 'SUPER_ADMIN'].includes(u.role));
         else if (audience === 'RPC_ONLY') targetPool = allSystemUsers.filter(u => ['RPC', 'ADMIN', 'SUPER_ADMIN'].includes(u.role) || (u.position || '').toUpperCase().includes('RPC'));
@@ -364,11 +395,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
             targetPool = allSystemUsers.filter(u => cleanTargetFnums.includes(String(u.fnum).trim().toUpperCase()));
         }
 
-        // 🟢 2. NEW STRICT FILTER: Discard any read receipt that doesn't belong to the intended audience
         const validTargetFnums = new Set(targetPool.map(u => u.fnum));
         readers = readers.filter(r => validTargetFnums.has(r.fnum));
 
-        // 3. Calculate who hasn't read it yet
         const readerFnums = new Set(readers.map(r => r.fnum));
         const pending = targetPool.filter(u => !readerFnums.has(u.fnum) && u.fnum !== msg.sender_fnum);
 
@@ -382,14 +411,12 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     if (activeTab === 'inbox' || activeTab === 'outbox') fetchMessages();
   }, [activeTab, dateFilter, customStartDate, customEndDate]);
 
-  // 🟢 AUTOMATIC THREAD-WIDE CLEARING (SINGLE BULK NETWORK CALL)
   const handleOpenMessage = async (msg) => {
     const willExpand = !expandedMsgs[msg.id];
     setExpandedMsgs(prev => ({ ...prev, [msg.id]: willExpand }));
 
     const isSender = msg.sender_fnum === currentUser?.fnum;
     
-    // 🟢 SAFEGUARD: Prevent accidental cross-talk read receipts for non-targeted officers viewing the dashboard
     let isIntendedRecipient = false;
     if (msg.target_audience === 'ALL_USERS' || msg.target_audience === 'ALL') isIntendedRecipient = true;
     else if (msg.target_audience === 'SPECIFIC_USER' && msg.target_fnum && msg.target_fnum.includes(currentUser?.fnum)) isIntendedRecipient = true;
@@ -400,8 +427,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     if (willExpand && !isSender && isIntendedRecipient) {
       try {
         const token = sessionStorage.getItem('kmp_authToken');
-        
-        // Collect root message ID and all unacknowledged reply IDs
         const idsToAcknowledge = [msg.id];
         const collectReplyIds = (repliesList) => {
           if (!repliesList || repliesList.length === 0) return;
@@ -416,7 +441,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         };
         collectReplyIds(msg.replies);
 
-        // Fire ONE single request instead of spamming maps/loops
         if (idsToAcknowledge.length > 0) {
            await fetch(`${API_URL}/api/v1/communications/acknowledge-bulk`, { 
              method: 'POST', 
@@ -425,7 +449,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
            });
         }
         
-        // Recursively update local UI state 
         const markAllReadRecursive = (item) => {
            if (idsToAcknowledge.includes(item.id)) {
               return { ...item, acknowledged: true, replies: (item.replies || []).map(markAllReadRecursive) };
@@ -446,14 +469,11 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     }
   };
 
-  // 🟢 BULK MARK ALL INBOX MESSAGES AS READ (Forced DB Sweep)
   const handleMarkAllAsRead = async () => {
     try {
       const token = sessionStorage.getItem('kmp_authToken');
-      
       setNotification({ type: 'info', text: 'Syncing read receipts with centralized database...' });
 
-      // 1. FORCE THE BACKEND SWEEP (Ignore local state, let the DB do the math)
       const response = await fetch(`${API_URL}/api/v1/communications/acknowledge-all`, { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
@@ -461,7 +481,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
       if (!response.ok) throw new Error("Bulk sync rejected by server.");
 
-      // 2. Mark local UI state entirely read (Recursive to catch all hidden nested replies)
       const markAllReadRecursive = (item) => ({
         ...item,
         acknowledged: true,
@@ -473,7 +492,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       
       setNotification({ type: 'success', text: '✅ All command communications securely marked as read.' });
 
-      // 3. 🟢 FORCE APP.JSX TO CLEAR DASHBOARD PINGS
       if (typeof onMarkAllRead === 'function') {
         onMarkAllRead();
       }
@@ -515,9 +533,32 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     }
   };
 
+  const handleToggleCrossRegionAccess = async (targetFnum, currentStatus) => {
+    if (!isHighCommand) return alert("Security Restriction: Only High Command / RPC can grant cross-region access.");
+    try {
+      const token = sessionStorage.getItem('kmp_authToken');
+      const res = await fetch(`${API_URL}/api/v1/users/${encodeURIComponent(targetFnum)}/access`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ permissions: { cross_region_communication: !currentStatus } })
+      });
+      if (res.ok) {
+        setNotification({ type: 'success', text: `✅ Cross-region clearance ${!currentStatus ? 'GRANTED' : 'REVOKED'} successfully.` });
+        fetchRecipientsList();
+        setTimeout(() => setNotification(null), 4000);
+      } else {
+        throw new Error("Failed to update user access matrix.");
+      }
+    } catch (err) {
+      setNotification({ type: 'error', text: `❌ ${err.message}` });
+      setTimeout(() => setNotification(null), 4000);
+    }
+  };
+
   const getPriorityStyle = (type) => {
     switch(type) {
       case 'CRITICAL_ALERT': return 'bg-red-100 text-red-800 border-red-300';
+      case 'TECHNICAL_GLITCH_ALERT': return 'bg-amber-100 text-amber-900 border-amber-300 font-extrabold animate-pulse';
       case 'COMPLAINT_GRIEVANCE': return 'bg-orange-100 text-orange-800 border-orange-300';
       case 'ASSIGNMENT': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
       case 'DIRECT_MESSAGE': return 'bg-purple-100 text-purple-800 border-purple-300';
@@ -528,7 +569,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   return (
     <div className="p-6 w-full max-w-[1920px] mx-auto space-y-6 relative z-10 font-sans">
       
-      {/* Quill Editor Dark Mode Override Style */}
       <style>{`
         .quill-editor-container .ql-editor {
           color: #0f172a !important;
@@ -651,13 +691,44 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                 </div>
               )}
 
+              {/* 🟢 TECHNICAL GLITCH ALERT TOGGLE BOX */}
+              <div className={`p-4 rounded-xl border mb-6 flex items-center justify-between transition-all ${isTechnicalGlitch ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-400/30' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="flex items-center space-x-3">
+                  <div className={`p-2.5 rounded-lg ${isTechnicalGlitch ? 'bg-amber-600 text-white animate-pulse' : 'bg-slate-200 text-slate-600'}`}>
+                    <Wrench size={20} />
+                  </div>
+                  <div>
+                    <h4 className={`text-xs font-black uppercase tracking-wider ${isTechnicalGlitch ? 'text-amber-900' : 'text-slate-800'}`}>
+                      Technical Glitch Alert Bypass
+                    </h4>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      Toggle this switch if system errors prevent normal workflow, bypassing standard RPC/DPC regional routing to communicate directly with Super Admin.
+                    </p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input 
+                    type="checkbox" 
+                    checked={isTechnicalGlitch} 
+                    onChange={(e) => {
+                      setIsTechnicalGlitch(e.target.checked);
+                      if (e.target.checked) {
+                        setFormData(prev => ({ ...prev, targetAudience: 'SPECIFIC_USER' }));
+                      }
+                    }} 
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                </label>
+              </div>
+
               <form onSubmit={handleDispatch} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   
                   <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><Users size={14} className="mr-1"/> Target Audience</label>
-                    <select name="targetAudience" value={formData.targetAudience} onChange={handleInputChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none focus:border-blue-500">
-                      {canBroadcast && (
+                    <select name="targetAudience" value={formData.targetAudience} onChange={handleInputChange} disabled={isTechnicalGlitch} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-400">
+                      {canBroadcast && !isTechnicalGlitch && (
                         <>
                           <option value="ALL_USERS">All System Users</option>
                           <option value="ADMINS_ONLY">System Admins Only</option>
@@ -670,7 +741,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                     </select>
                   </div>
 
-                  {formData.targetAudience === 'SPECIFIC_REGION' && (
+                  {formData.targetAudience === 'SPECIFIC_REGION' && !isTechnicalGlitch && (
                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                       <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Select Region</label>
                       <select name="targetRegion" value={formData.targetRegion} onChange={handleInputChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none">
@@ -685,8 +756,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
                   <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><ShieldAlert size={14} className="mr-1"/> Priority Level</label>
-                    <select name="messageType" value={formData.messageType} onChange={handleInputChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none focus:border-blue-500">
-                      {canBroadcast && (
+                    <select name="messageType" value={formData.messageType} onChange={handleInputChange} disabled={isTechnicalGlitch} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none focus:border-blue-500 disabled:bg-slate-100">
+                      {canBroadcast && !isTechnicalGlitch && (
                         <>
                           <option value="GENERAL_INFO">General Notification (Blue)</option>
                           <option value="ASSIGNMENT">Operational Assignment (Yellow)</option>
@@ -695,12 +766,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                       )}
                       <option value="DIRECT_MESSAGE">Direct Message / Inquiry (Purple)</option>
                       <option value="COMPLAINT_GRIEVANCE">Complaint / Grievance (Orange)</option>
+                      {isTechnicalGlitch && <option value="TECHNICAL_GLITCH_ALERT">Technical Glitch Alert (Amber)</option>}
                     </select>
                   </div>
                 </div>
 
-                {formData.targetAudience === 'SPECIFIC_USER' && (
-                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 space-y-4">
+                {(formData.targetAudience === 'SPECIFIC_USER' || isTechnicalGlitch) && (
+                  <div className={`p-4 rounded-lg border space-y-4 ${isTechnicalGlitch ? 'bg-amber-50 border-amber-300' : 'bg-blue-50 border-blue-200'}`}>
                     {isReplyingTo && replyingToDoc ? (
                       <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-blue-300 text-xs font-bold text-blue-900">
                         <span>🔒 Direct Reply Recipient: {replyingToDoc.sender_name} ({replyingToDoc.sender_fnum})</span>
@@ -708,38 +780,56 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                       </div>
                     ) : (
                       <>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
-                            <label className="block text-xs font-bold text-blue-900 uppercase mb-1">Filter by Command Category</label>
+                            <label className="block text-xs font-bold text-blue-900 uppercase mb-1">Filter by Category</label>
                             <select 
                               value={selectedCategoryFilter} 
                               onChange={(e) => setSelectedCategoryFilter(e.target.value)}
                               className="w-full p-2.5 bg-white border border-blue-300 rounded-lg text-xs font-bold text-slate-800"
                             >
-                              <option value="ALL">All System Categories</option>
+                              <option value="ALL">All Categories</option>
                               <option value="POLICE_HQ">Police Headquarters</option>
                               <option value="KMP_HQ">KMP Headquarters</option>
-                              <option value="FIELD_COMMAND">Field Regions & Divisions</option>
+                              <option value="FIELD_COMMAND">Field Regions</option>
                             </select>
                           </div>
 
                           <div>
-                            <label className="block text-xs font-bold text-blue-900 uppercase mb-1">Filter by Specific Jurisdiction</label>
+                            <label className="block text-xs font-bold text-blue-900 uppercase mb-1">Filter by Jurisdiction</label>
                             <select 
                               value={selectedRegionFilter} 
                               onChange={(e) => setSelectedRegionFilter(e.target.value)}
                               className="w-full p-2.5 bg-white border border-blue-300 rounded-lg text-xs font-bold text-slate-800"
                             >
-                              <option value="ALL">All Active Jurisdictions</option>
+                              <option value="ALL">All Jurisdictions</option>
                               {Array.from(new Set((filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || [])).map(r => r.region))).filter(Boolean).map(reg => (
                                 <option key={reg} value={reg}>{reg}</option>
                               ))}
                             </select>
                           </div>
+
+                          {/* 🟢 NEW RECIPIENT SEARCH INPUT BOX */}
+                          <div>
+                            <label className="block text-xs font-bold text-blue-900 uppercase mb-1">Search Recipient</label>
+                            <div className="relative flex items-center">
+                              <Search size={14} className="absolute left-3 text-slate-400" />
+                              <input 
+                                type="text"
+                                value={recipientSearchTerm}
+                                onChange={(e) => setRecipientSearchTerm(e.target.value)}
+                                placeholder="Name, F/No, Station..."
+                                className="w-full pl-9 pr-3 py-2 bg-white border border-blue-300 rounded-lg text-xs font-bold text-slate-800 outline-none"
+                              />
+                              {recipientSearchTerm && (
+                                <button type="button" onClick={() => setRecipientSearchTerm('')} className="absolute right-2 text-slate-400 hover:text-slate-600 text-xs font-bold">×</button>
+                              )}
+                            </div>
+                          </div>
                         </div>
 
                         <div>
-                          <label className="block text-xs font-bold text-blue-800 uppercase tracking-wider mb-2 flex items-center justify-between">
+                          <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center justify-between">
                             <span className="flex items-center"><UserPlus size={14} className="mr-1"/> Select Recipients (Multi-Select)</span>
                             <span className="text-[10px] bg-blue-200 text-blue-900 px-2 py-0.5 rounded font-mono">
                               {formData.targetFnum.length} Selected
@@ -748,13 +838,15 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                           
                           <div className="max-h-48 overflow-y-auto bg-white border border-blue-300 rounded-md p-2 space-y-1.5 custom-scrollbar">
                             {finalSelectableRecipients.length === 0 ? (
-                              <p className="text-xs text-center text-slate-400 py-4 font-bold">No active users match the selected filters.</p>
+                              <p className="text-xs text-center text-slate-400 py-4 font-bold">No active users match the selected filters or search query.</p>
                             ) : (
                               finalSelectableRecipients.map(u => {
                                 const isChecked = formData.targetFnum.includes(u.fnum);
+                                const hasCrossRegionPerm = u.permissions?.cross_region_communication === true;
+
                                 return (
-                                  <label key={u.fnum} className={`flex items-center justify-between p-2 rounded cursor-pointer transition-colors text-xs font-bold ${isChecked ? 'bg-blue-100/70 border border-blue-300 text-blue-900' : 'hover:bg-slate-50 text-slate-700'}`}>
-                                    <div className="flex items-center space-x-2">
+                                  <div key={u.fnum} className={`flex items-center justify-between p-2 rounded transition-colors text-xs font-bold ${isChecked ? 'bg-blue-100/70 border border-blue-300 text-blue-900' : 'hover:bg-slate-50 text-slate-700'}`}>
+                                    <label className="flex items-center space-x-2 flex-1 cursor-pointer">
                                       <input 
                                         type="checkbox" 
                                         checked={isChecked}
@@ -771,9 +863,31 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                                         className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
                                       />
                                       <span>{u.rank} {u.name} ({u.position || 'Officer'})</span>
+                                    </label>
+                                    
+                                    <div className="flex items-center space-x-2 shrink-0">
+                                      <span className="text-[10px] uppercase font-mono text-slate-500 bg-white px-1.5 py-0.5 rounded border">{u.station} [{u.region}]</span>
+                                      
+                                      {/* 🟢 HIGH COMMAND TOGGLE FOR GRANTING CROSS-REGION CLEARANCE */}
+                                      {isHighCommand && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleToggleCrossRegionAccess(u.fnum, hasCrossRegionPerm);
+                                          }}
+                                          className={`px-2 py-0.5 text-[10px] font-extrabold rounded border transition-all cursor-pointer ${
+                                            hasCrossRegionPerm 
+                                              ? 'bg-emerald-600 text-white border-emerald-700' 
+                                              : 'bg-slate-200 text-slate-700 border-slate-300 hover:bg-slate-300'
+                                          }`}
+                                          title="Grant or Revoke Cross-Region Communication Privilege"
+                                        >
+                                          {hasCrossRegionPerm ? 'Cross-Region: ON' : 'Grant Cross-Region'}
+                                        </button>
+                                      )}
                                     </div>
-                                    <span className="text-[10px] uppercase font-mono text-slate-500 bg-white px-1.5 py-0.5 rounded border">{u.station} [{u.region}]</span>
-                                  </label>
+                                  </div>
                                 );
                               })
                             )}
@@ -834,7 +948,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                   </label>
                 </div>
 
-                <button type="submit" disabled={isSubmitting} className="w-full bg-slate-900 hover:bg-black text-white font-extrabold py-4 px-6 rounded-xl shadow-md transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed text-lg cursor-pointer">
+                <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-extrabold py-4 px-6 rounded-xl shadow-md transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed text-lg cursor-pointer">
                   {isSubmitting ? 'Transmitting...' : <><Send size={20} className="mr-2"/> Send Secure Message</>}
                 </button>
               </form>
@@ -927,6 +1041,17 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                     }`}
                   >
                     💬 Messages / Notices
+                  </button>
+
+                  <button
+                    onClick={() => setActiveFilter('TECHNICAL_GLITCH_ALERT')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      activeFilter === 'TECHNICAL_GLITCH_ALERT' 
+                        ? 'bg-amber-600 text-white shadow' 
+                        : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    ⚠️ Glitch Alerts
                   </button>
 
                   <button
