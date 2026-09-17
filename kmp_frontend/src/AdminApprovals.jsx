@@ -749,27 +749,30 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     )}
 
     {activeTab === 'logs' && (
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
-        <div className="bg-slate-900 px-4 py-2.5 text-white font-semibold text-xs uppercase">System Audit Logs</div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-xs">
-            <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px]">
-              <tr><th className="px-4 py-3.5 text-left">Timestamp</th><th className="px-4 py-3.5 text-left">User</th><th className="px-4 py-3.5 text-left">Event</th><th className="px-4 py-3.5 text-left">Details</th></tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-slate-200">
-              {filteredLogs.map((log) => (
-                <tr key={log.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-2 font-mono text-[10px]">{log.created_at}</td>
-                  <td className="px-4 py-2 font-extrabold text-blue-700">{log.user_fnum}</td>
-                  <td className="px-4 py-2 uppercase font-extrabold text-[10px]">{log.event_type}</td>
-                  <td className="px-4 py-2 text-[11px]">{log.details}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    )}
+  <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
+    <div className="bg-slate-900 px-4 py-2.5 text-white font-semibold text-xs uppercase">System Audit Logs</div>
+    <div className="overflow-x-auto">
+      <table className="min-w-full divide-y divide-slate-200 text-xs">
+        <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px]">
+          <tr><th className="px-4 py-3.5 text-left">Timestamp</th><th className="px-4 py-3.5 text-left">User</th><th className="px-4 py-3.5 text-left">Event</th><th className="px-4 py-3.5 text-left">Details</th></tr>
+        </thead>
+        <tbody className="bg-white divide-y divide-slate-200">
+          {filteredLogs.map((log) => (
+            <tr key={log.id} className="hover:bg-slate-50">
+              <td className="px-4 py-2 font-mono text-[10px]">{log.created_at}</td>
+              {/* 🟢 Render user_fnum combined with user_name */}
+              <td className="px-4 py-2 font-extrabold text-blue-700">
+                {log.user_fnum} {log.user_name ? `- ${log.user_name}` : ''}
+              </td>
+              <td className="px-4 py-2 uppercase font-extrabold text-[10px]">{log.event_type}</td>
+              <td className="px-4 py-2 text-[11px]">{log.details}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+)}
 
     {activeTab === 'resets' && (        
       <div className="bg-white rounded-xl shadow-xs border border-red-200 overflow-hidden max-w-6xl mx-auto">

@@ -356,6 +356,13 @@ def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, chang
             [f"{k}: {v[0]} -> {v[1]}" for k, v in changes.items()]
         ) + f" | Remarks: {remarks}"
         
+        # Look up user name by fnum
+        user_name_val = ""
+        if fnum and fnum != "SYSTEM":
+            user_obj = db.query(models.Users).filter(func.upper(models.Users.fnum) == fnum.upper()).first()
+            if user_obj:
+                user_name_val = user_obj.name
+        
         audit_model = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
         if audit_model:
             new_audit = audit_model(
@@ -364,6 +371,7 @@ def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, chang
                 status="SUCCESS",
                 details=formatted_details,
                 user_fnum=fnum,
+                user_name=user_name_val, # 🟢 Save user name natively
                 created_at=get_eat_time()
             )
             db.add(new_audit)
@@ -600,7 +608,6 @@ def review_system_request(req_id: int, data: dict, db: Session = Depends(get_db)
     else:
         raise HTTPException(status_code=400, detail="Invalid action status provided.")
 
-# 🟢 FIXED: USES require_admin_or_observer SO OBSERVERS CAN VIEW THE AUDIT LOGS
 @app.get("/api/v1/audit-logs")
 def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin_or_observer)):
     try:
@@ -616,6 +623,7 @@ def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = D
                 "status": getattr(log, 'status', 'SUCCESS'),
                 "details": getattr(log, 'details', ''),
                 "user_fnum": getattr(log, 'user_fnum', ''),
+                "user_name": getattr(log, 'user_name', ''), # 🟢 Expose user_name to frontend
                 "created_at": str(getattr(log, 'created_at', ''))
             } for log in logs
         ]
