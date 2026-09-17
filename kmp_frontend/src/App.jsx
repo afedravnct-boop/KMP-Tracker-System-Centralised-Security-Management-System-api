@@ -2716,6 +2716,11 @@ const App = () => {
   const renderPage = () => {
     const canViewGlobal = canViewGlobalJurisdiction(currentUser);
 
+    // 🟢 Define the strict read-only observer guard
+    const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && 
+      !currentUser?.permissions?.global_open && 
+      currentUser?.role !== 'SUPER_ADMIN';
+
     switch (currentPage) {
       case 'home':  
         return checkClearance(currentUser, 'acc_home', true) ? (
@@ -2734,7 +2739,8 @@ const App = () => {
         return checkClearance(currentUser, 'acc_crime', true) ? (
           <CrimeIncidentRegistry 
             currentUser={currentUser} 
-            canViewGlobal={canViewGlobal} 
+            canViewGlobal={canViewGlobal}
+            isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
           />
         ) : (
           <HomeDashboard 
@@ -2754,7 +2760,8 @@ const App = () => {
             currentUser={currentUser} 
             canViewGlobal={canViewGlobal} 
             stats={stats} 
-            setStats={setStats} 
+            setStats={setStats}
+            isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
           />
         ) : (
           <HomeDashboard 
@@ -2774,7 +2781,8 @@ const App = () => {
             currentUser={currentUser} 
             canViewGlobal={canViewGlobal} 
             stories={stories} 
-            setStories={setStories} 
+            setStories={setStories}
+            isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
           />
         ) : (
           <HomeDashboard 
@@ -2794,7 +2802,8 @@ const App = () => {
             currentUser={currentUser} 
             canViewGlobal={canViewGlobal} 
             establishments={establishments} 
-            setEstablishments={setEstablishments} 
+            setEstablishments={setEstablishments}
+            isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
           />
         ) : (
           <HomeDashboard 
@@ -2837,6 +2846,7 @@ const App = () => {
             setNominal_Rolls={setNominal_Rolls} 
             Nominal_Roll_archives={Nominal_Roll_archives} 
             setNominal_Roll_archives={setNominal_Roll_archives} 
+            isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
           />
         ) : (
           <HomeDashboard 
@@ -2856,6 +2866,7 @@ const App = () => {
             currentUser={currentUser} 
             generalDocs={generalDocs}
             setGeneralDocs={setGeneralDocs}
+            isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
           />
         ) : (
           <HomeDashboard 
@@ -2878,7 +2889,6 @@ const App = () => {
           />
         );
 
-      // 🟢 UPDATED: Admin Approvals no longer expects users or pendingUsers
       case 'approvals':  
         return checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role)) ? (
           <AdminApprovals 
@@ -3082,6 +3092,10 @@ const App = () => {
       console.error("Failed to revoke user:", err); 
     }
   };
+
+const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && 
+  !currentUser?.permissions?.global_open && 
+  currentUser?.role !== 'SUPER_ADMIN';
 
   return (
     <>

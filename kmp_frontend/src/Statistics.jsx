@@ -69,7 +69,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats = [], setStats, setAgricStats, setSidebarOpen }) => {
+const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats = [], setStats, setAgricStats, setSidebarOpen, isReadOnlyObserver }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 

@@ -25,7 +25,7 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   return cleanDbRegion || 'KMP GENERAL';
 };
 
-const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canViewGlobal = false }) => {
+const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canViewGlobal = false, isReadOnlyObserver }) => {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState(null);

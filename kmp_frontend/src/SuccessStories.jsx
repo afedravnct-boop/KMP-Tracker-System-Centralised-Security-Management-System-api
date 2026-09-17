@@ -88,7 +88,7 @@ const autoCapitalize = (text) => {
   });
 };
 
-const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStories, setSidebarOpen, reports, setSelectedCase }) => {
+const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStories, setSidebarOpen, reports, setSelectedCase, isReadOnlyObserver }) => {
   const [operation, setOperation] = useState('new');
   const [selectedDossier, setSelectedDossier] = useState(null);
   const [expandedRows, setExpandedRows] = useState({});

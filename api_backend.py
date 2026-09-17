@@ -982,6 +982,19 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
         AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
         logs = db.query(AuditModel).order_by(AuditModel.id.desc()).all()
 
+        # Build user name map for lookup
+        users_map = {}
+        UserModel = getattr(models, 'Users', getattr(models, 'User', None))
+        if UserModel:
+            try:
+                for u in db.query(UserModel).all():
+                    fnum_key = str(getattr(u, 'fnum', '') or getattr(u, 'f_num', '')).strip().upper()
+                    name_val = str(getattr(u, 'name', '')).strip().upper()
+                    if fnum_key:
+                        users_map[fnum_key] = name_val
+            except Exception:
+                pass
+
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Command Audit Logs"
@@ -990,11 +1003,39 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
         header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
         for cell in ws[1]:
-            cell.fill = header_fill; cell.font = header_font; cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
 
         for log in logs:
             details_clean = clean_html_for_export(getattr(log, 'details', ''))
-            ws.append([log.id, getattr(log, 'event_type', ''), getattr(log, 'target_user', ''), getattr(log, 'status', ''), details_clean, str(getattr(log, 'created_at', '')), getattr(log, 'user_fnum', '')])
+            
+            # Format Timestamp cleanly (stripping timezone text if string/datetime)
+            raw_time = getattr(log, 'created_at', '')
+            if hasattr(raw_time, 'strftime'):
+                formatted_time = raw_time.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                formatted_time = str(raw_time).replace("+00:00", "").replace("T", " ")
+
+            # 🟢 APPEND USER NAME AFTER THE USER FNUM (e.g., "A/2408 - AFEDRA VINCENT")
+            raw_fnum = str(getattr(log, 'user_fnum', '') or getattr(log, 'fnum', '')).strip()
+            upper_fnum = raw_fnum.upper()
+            officer_name = users_map.get(upper_fnum, "")
+            
+            if raw_fnum:
+                user_fnum_display = f"{raw_fnum} - {officer_name}" if officer_name else raw_fnum
+            else:
+                user_fnum_display = "SYSTEM"
+
+            ws.append([
+                getattr(log, 'id', ''), 
+                getattr(log, 'event_type', ''), 
+                getattr(log, 'target_user', ''), 
+                getattr(log, 'status', ''), 
+                details_clean, 
+                formatted_time, 
+                user_fnum_display
+            ])
 
         for col in ws.columns:
             col_letter = col[0].column_letter
@@ -1002,9 +1043,13 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
             if col[0].value == "Details":
                 ws.column_dimensions[col_letter].width = 50
                 for cell in col:
-                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                    if cell.row > 1:
+                        cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
             else:
-                ws.column_dimensions[col_letter].width = min(max_len + 3, 30)
+                ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 35)
+                for cell in col:
+                    if cell.row > 1:
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
 
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
@@ -1106,7 +1151,8 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
             user_role in ['SUPER_ADMIN', 'ADMIN', 'RPC', 'DEPUTY COMMANDER'] or
             (current_user.region or "").strip().upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'] or
             perms.get("view_global_roster") is True or
-            perms.get("global_observer") is True
+            perms.get("global_observer") is True or
+            perms.get("global_open") is True
         )
         
         CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
@@ -1118,6 +1164,7 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         ActivityModel = getattr(models, 'Activity_Logs', getattr(models, 'ActivityLogs', None))
         AIModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
         ArcModel = getattr(models, 'NominalRollArchive', getattr(models, 'Nominal_Roll_Archive', None))
+        AgricStatsModel = getattr(models, 'AgricStats', getattr(models, 'agric_stats', getattr(models, 'Agric_Stats', None)))
 
         def get_full_dataframe(ModelClass):
             if not ModelClass: 
@@ -1138,7 +1185,7 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
                         val = getattr(r, col, '')
                         if isinstance(val, datetime):
                             val = val.strftime("%Y-%m-%d %H:%M")
-                        elif isinstance(val, str) and col in ['narrative', 'comment', 'message', 'details', 'archive_reason']:
+                        elif isinstance(val, str) and col in ['narrative', 'comment', 'message', 'details', 'archive_reason', 'status', 'agric_crime_report', 'recovery_report']:
                             val = clean_html_for_export(val)
                         row_dict[col] = val if val is not None else ''
                     data.append(row_dict)
@@ -1149,6 +1196,7 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
 
         df_crime = get_full_dataframe(CrimeModel)
         df_stats = get_full_dataframe(StatsModel)
+        df_agric_stats = get_full_dataframe(AgricStatsModel)
         df_stories = get_full_dataframe(StoryModel)
         df_users = get_full_dataframe(NomModel)
         df_est = get_full_dataframe(EstModel)
@@ -1181,45 +1229,47 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         header_font = Font(color="FFFFFF", bold=True)
         header_align = Alignment(horizontal="center", vertical="center")
 
-        def write_dual_sheets(df, print_title, full_title, print_cols):
+        def write_wrapped_sheet(df, title, wrap_columns=[]):
             if df.empty:
                 return
             
-            ws_print = wb.create_sheet(title=print_title)
-            available_print_cols = [c for c in print_cols if c in df.columns]
-            df_print_subset = df[available_print_cols].copy()
+            ws = wb.create_sheet(title=title)
+            columns_to_write = [c for c in df.columns if c.lower() not in ['sn', 'id']]
+            ws.append(["SN"] + list(columns_to_write))
             
-            ws_print.append(["SN"] + list(df_print_subset.columns))
-            for cell in ws_print[1]:
-                cell.fill = header_fill; cell.font = header_font; cell.alignment = header_align
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_align
             
-            for idx, row in enumerate(df_print_subset.values, 1):
-                ws_print.append([idx] + list(row))
+            for idx, row in enumerate(df[columns_to_write].values, 1):
+                ws.append([idx] + list(row))
                 
-            for col in ws_print.columns:
+            for col in ws.columns:
+                col_letter = col[0].column_letter
+                col_name = col[1].value if len(col) > 1 else ""
                 max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-                ws_print.column_dimensions[col[0].column_letter].width = min(max_len + 3, 40)
-
-            ws_full = wb.create_sheet(title=full_title)
-            ws_full.append(["SN"] + list(df.columns))
-            for cell in ws_full[1]:
-                cell.fill = header_fill; cell.font = header_font; cell.alignment = header_align
                 
-            for idx, row in enumerate(df.values, 1):
-                ws_full.append([idx] + list(row))
-                
-            for col in ws_full.columns:
-                max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-                ws_full.column_dimensions[col[0].column_letter].width = min(max_len + 3, 60)
+                if col_name in wrap_columns or max_len > 40:
+                    ws.column_dimensions[col_letter].width = 45
+                    for cell in col:
+                        if cell.row > 1:
+                            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                else:
+                    ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 35)
+                    for cell in col:
+                        if cell.row > 1:
+                            cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        write_dual_sheets(df_crime, "Crime Registry (Print)", "Crime Registry", ['sd_ref', 'region', 'station', 'date', 'time', 'offence', 'status', 'suspects', 'last_updated_by'])
-        write_dual_sheets(df_stats, "OPS Statistics (Print)", "OPS Statistics", ['date', 'region', 'station', 'arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted'])
-        write_dual_sheets(df_stories, "Success Stories (Print)", "Success Stories", ['date', 'time', 'region', 'station', 'status', 'narrative'])
-        write_dual_sheets(df_users, "Establishments (Print)", "Nominal Roll", ['f_num', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status'])
-        write_dual_sheets(df_arc, "Archived Personnel (Print)", "Archived Personnel", ['fnum', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status', 'archive_reason', 'archive_date'])
-        write_dual_sheets(df_est, "Establishments Print Copy", "Establishments", ['region', 'division', 'station', 'personnel_in_station', 'sub_station', 'personnel_in_sub_station', 'post', 'personnel_in_post', 'booths', 'personnel_in_booth'])
-        write_dual_sheets(df_docs, "Documents & Reports (Print)", "Documents & Reports", ['file_name', 'doc_type', 'file_size', 'region', 'station', 'uploaded_by', 'upload_date'])
-        write_dual_sheets(df_ai, "AI Command (Print)", "AI Command", ['Interaction Type', 'Details', 'Officer FNUM', 'Timestamp'])
+        write_wrapped_sheet(df_crime, "Crime Registry", ['narrative', 'offence', 'sd_ref'])
+        write_wrapped_sheet(df_stats, "OPS Statistics", [])
+        write_wrapped_sheet(df_agric_stats, "Agric Statistics", ['agric_crime_report', 'recovery_report'])
+        write_wrapped_sheet(df_stories, "Success Stories", ['narrative'])
+        write_wrapped_sheet(df_users, "Nominal Roll", ['position', 'name'])
+        write_wrapped_sheet(df_est, "Establishments", ['comment', 'location', 'station'])
+        write_wrapped_sheet(df_arc, "Archived Personnel", ['archive_reason'])
+        write_wrapped_sheet(df_docs, "Documents & Reports", ['file_name'])
+        write_wrapped_sheet(df_ai, "AI Command Logs", ['Details'])
 
         eat_tz = pytz.timezone("Africa/Nairobi")
         eat_time = datetime.now(eat_tz).replace(tzinfo=None)

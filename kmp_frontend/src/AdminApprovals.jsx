@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
-  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power
+  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -47,6 +47,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [showLockdownModal, setShowLockdownModal] = useState(false);
   const [lockdownRegionFilter, setLockdownRegionFilter] = useState("KMP NORTH");
   const [lockdownData, setLockdownData] = useState({ system: false, regions: {}, stations: {} });
+  
+  // 🟢 Search bar query state
+  const [searchTerm, setSearchTerm] = useState('');
 
   const [revokePrompt, setRevokePrompt] = useState({
     isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: ''
@@ -60,7 +63,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     return list;
   }, [lockdownData]);
 
-  // 🟢 DUAL GLOBAL SCOPE SUPPORT: Recognizes both read-only observer and full open access
+  // 🟢 DUAL GLOBAL SCOPE SUPPORT
   const canViewGlobalActive = canViewGlobal || 
     ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || 
     currentUser?.permissions?.view_global_roster === true || 
@@ -71,7 +74,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
 
-  // 🟢 STRICT READ-ONLY GUARD: Active if global_observer is set, but global_open is NOT active and user is not Super Admin
+  // 🟢 STRICT READ-ONLY GUARD
   const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && 
     !currentUser?.permissions?.global_open && 
     !isSuperAdmin;
@@ -183,7 +186,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
   };
 
-  // 🟢 SAFE FETCH FUNCTIONS (Preventing body stream already read errors)
   const fetchPendingUsers = useCallback(async () => {
     if (!hasValidSession()) return;
     setLoadingPending(true);
@@ -259,24 +261,37 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     if (typeof fetchLockdownStatus === 'function') fetchLockdownStatus();
   }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
 
-  const filterByRegionStation = (items, itemRegionKey = 'region', itemStationKey = 'station') => {
+  // 🟢 UNIVERSAL SEARCH & REGIONAL FILTER HELPER
+  const matchesSearch = (item, fields) => {
+    if (!searchTerm.trim()) return true;
+    const term = searchTerm.toLowerCase();
+    return fields.some(field => {
+      const val = stripHtmlTags(String(item[field] || ''));
+      return val.toLowerCase().includes(term);
+    });
+  };
+
+  const filterByRegionStation = (items, itemRegionKey = 'region', itemStationKey = 'station', searchFields = []) => {
     return items.filter(item => {
       const itemRegion = stripHtmlTags(item[itemRegionKey] || '').trim().toUpperCase();
       const itemStation = stripHtmlTags(item[itemStationKey] || '').trim().toUpperCase();
       const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
       const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
-      if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return true;
+      if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') {
+        return matchesSearch(item, searchFields);
+      }
       if (activeReg && activeReg !== 'ALL REGIONS' && itemRegion !== activeReg) return false;
       if (activeStat && activeStat !== 'ALL STATIONS' && itemStation !== activeStat) return false;
-      return true;
+      
+      return matchesSearch(item, searchFields);
     });
   };
 
-  const filteredPending = useMemo(() => filterByRegionStation(realPendingUsers), [realPendingUsers, filterRegion, filterStation, canViewGlobalActive]);
-  const filteredRequests = useMemo(() => filterByRegionStation(modRequests, 'current_region', 'current_station'), [modRequests, filterRegion, filterStation, canViewGlobalActive]);
-  const filteredResets = useMemo(() => filterByRegionStation(resetRequests), [resetRequests, filterRegion, filterStation, canViewGlobalActive]);
-  const filteredSystemUsers = useMemo(() => filterByRegionStation(allSystemUsers), [allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
+  const filteredPending = useMemo(() => filterByRegionStation(realPendingUsers, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'nin', 'ipps', 'phone', 'email']), [realPendingUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
+  const filteredRequests = useMemo(() => filterByRegionStation(modRequests, 'current_region', 'current_station', ['fnum', 'current_name', 'current_station', 'current_region', 'requested_station', 'requested_name']), [modRequests, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
+  const filteredResets = useMemo(() => filterByRegionStation(resetRequests, 'region', 'station', ['fnum', 'name', 'station', 'region']), [resetRequests, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
+  const filteredSystemUsers = useMemo(() => filterByRegionStation(allSystemUsers, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'ipps', 'phone', 'email', 'role']), [allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
 
   const filteredLogs = useMemo(() => {
     return auditLogs.filter(log => {
@@ -286,12 +301,15 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
       const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
-      if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return true;
+      if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') {
+        return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
+      }
       if (activeReg && activeReg !== 'ALL REGIONS' && logRegion !== activeReg) return false;
       if (activeStat && activeStat !== 'ALL STATIONS' && logStation !== activeStat) return false;
-      return true;
+      
+      return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
     });
-  }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive]);
+  }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
 
   const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
     if (isReadOnlyObserver) {
@@ -319,18 +337,26 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     if (isReadOnlyObserver) {
-      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit modifying permissions.");
+      alert("SECURITY RESTRICTION: Your clearance is Read-Only.");
       return;
     }
 
     const cleanFnum = stripHtmlTags(fnum);
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
-    if (!targetUser || !canModifyUser(currentUser, targetUser)) {
-      alert("SECURITY OVERRIDE DENIED: Insufficient clearance.");
-      return;
+    if (!targetUser) return;
+
+    let updatedPermissions = { ...(targetUser.permissions || {}) };
+
+    if (permissionKey === 'global_observer' && value === true) {
+      updatedPermissions.global_observer = true;
+      updatedPermissions.global_open = false; 
+    } else if (permissionKey === 'global_open' && value === true) {
+      updatedPermissions.global_open = true;
+      updatedPermissions.global_observer = false; 
+    } else {
+      updatedPermissions[permissionKey] = value;
     }
 
-    const updatedPermissions = { ...(targetUser.permissions || {}), [permissionKey]: value };
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
 
     try {
@@ -492,6 +518,21 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive && !['RPC', 'Deputy Commander'].includes(currentUser?.role)} className="border border-slate-300 rounded-md p-2 text-xs shadow-sm bg-white font-bold text-slate-700 outline-none cursor-pointer min-w-[200px]">
             {canViewGlobalActive || ['RPC', 'Deputy Commander'].includes(currentUser?.role) ? (<><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
           </select>
+          
+          {/* 🟢 SEARCH BAR INPUT */}
+          <div className="relative flex items-center min-w-[220px]">
+            <Search size={14} className="absolute left-3 text-slate-400" />
+            <input 
+              type="text" 
+              value={searchTerm} 
+              onChange={(e) => setSearchTerm(e.target.value)} 
+              placeholder="Search FNUM, name, action..." 
+              className="w-full pl-9 pr-3 py-1.5 border border-slate-300 rounded-md text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            />
+            {searchTerm && (
+              <button onClick={() => setSearchTerm('')} className="absolute right-2 text-slate-400 hover:text-slate-600 text-xs font-bold">×</button>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
@@ -600,16 +641,32 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           <div className="flex items-center justify-center space-x-1.5">
                             <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 text-emerald-700 border"><CheckSquare size={13} /></button>
                             <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 text-red-700 border"><Square size={13} /></button>
-                            {isSuperAdmin && !isSelf && (
+                            {/* 🟢 ALLOW SUPER ADMIN TO CHANGE THEIR OWN PASSWORD OR OTHERS */}
+                            {isSuperAdmin && (
                               <button onClick={() => handleForcePassword(u.fnum, u.name)} title="Force Password" className="p-1 rounded bg-amber-50 text-amber-700 border"><KeyRound size={13} /></button>
                             )}
                           </div>
                         </td>
-                        {CLEARANCE_MATRIX_COLS.map((col, idx) => (
-                          <td key={idx} className="p-2 text-center border-l border-white/50">
-                            <input type="checkbox" checked={u.role === 'SUPER_ADMIN' || Boolean(p[col.key])} onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} className="w-3.5 h-3.5 rounded" />
-                          </td>
-                        ))}
+                        {CLEARANCE_MATRIX_COLS.map((col, idx) => {
+                          const isObserverCol = col.key === 'global_observer';
+                          const isOpenCol = col.key === 'global_open';
+                          
+                          // 🟢 MUTUAL EXCLUSIVITY GUARD FOR MATRIX CELLS
+                          const isMutuallyDisabled = (isObserverCol && Boolean(p.global_open)) || (isOpenCol && Boolean(p.global_observer));
+                          const isDisabled = isSelf || isMutuallyDisabled || u.role === 'SUPER_ADMIN';
+
+                          return (
+                            <td key={idx} className="p-2 text-center border-l border-white/50">
+                              <input 
+                                type="checkbox" 
+                                checked={u.role === 'SUPER_ADMIN' || Boolean(p[col.key])} 
+                                disabled={isDisabled}
+                                onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
+                                className={`w-3.5 h-3.5 rounded ${isDisabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`} 
+                              />
+                            </td>
+                          );
+                        })}
                       </tr>
                     );
                   })}
@@ -640,7 +697,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                       <td className="px-4 py-3 whitespace-nowrap">IPPS: {user.ipps || 'N/A'}</td>
                       <td className="px-4 py-3 whitespace-nowrap">{user.phone || 'N/A'}</td>
                       <td className="px-4 py-3 whitespace-nowrap text-right">
-                        {isSuperAdmin && currentUser?.fnum !== user.fnum && (
+                        {/* 🟢 ALLOW SUPER ADMIN TO FORCE PASSWORD ON SELF OR OTHERS */}
+                        {isSuperAdmin && (
                           <button onClick={() => handleForcePassword(user.fnum, user.name)} className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 font-bold text-[10px]"><KeyRound size={12} className="inline mr-1" /> Force Password</button>
                         )}
                       </td>

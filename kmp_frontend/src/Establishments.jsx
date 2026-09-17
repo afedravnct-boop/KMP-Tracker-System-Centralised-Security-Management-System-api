@@ -91,7 +91,7 @@ const autoCapitalize = (text) => {
   });
 };
 
-const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false, establishments, setEstablishments, setSidebarOpen }) => {
+const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false, establishments, setEstablishments, setSidebarOpen, isReadOnlyObserver }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);

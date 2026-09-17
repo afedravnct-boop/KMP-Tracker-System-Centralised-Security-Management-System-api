@@ -83,7 +83,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports, setSidebarOpen }) => {
+const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports, setSidebarOpen, isReadOnlyObserver }) => {
   // 🟢 1. NEW STATE: Server-Side Data Management
   const [serverReports, setServerReports] = useState([]);
   const [isFetchingReports, setIsFetchingReports] = useState(false);
