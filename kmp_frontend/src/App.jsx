@@ -31,6 +31,7 @@ import SystemAssistant from './SystemAssistant';
 import AICommandConsole from "./AICommandConsole";
 import { authFetch, hasValidSession, getAuthToken, setAuthSession, clearAuthSession } from './api';
 import { FullUserPolicyText } from './policyContent';
+import ExhibitsRegistry from './ExhibitsRegistry';
 
 // ====================================================================
 // 1. CONSTANTS & CONFIGURATION
@@ -2935,6 +2936,26 @@ const App = () => {
             onAcknowledgeComm={handleAcknowledgeComm}
             onMarkAllRead={handleClearAllPings} 
             initialTab={commDefaultTab} 
+          />
+        ) : (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        );
+
+case 'exhibits':  
+        return checkClearance(currentUser, 'acc_exhibits', true) ? (
+          <ExhibitsRegistry 
+            currentUser={currentUser} 
+            canViewGlobal={canViewGlobal}
+            isReadOnlyObserver={isReadOnlyObserver} 
+            setSidebarOpen={setSidebarOpen}
           />
         ) : (
           <HomeDashboard 

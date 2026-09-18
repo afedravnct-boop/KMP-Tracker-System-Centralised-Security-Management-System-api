@@ -618,14 +618,16 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           <div className="p-8 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
         ) : (
           <div className="overflow-x-auto w-full custom-scrollbar">
-            <table className="min-w-max divide-y divide-slate-200 text-xs">
+            <table className="min-w-max divide-y divide-slate-200 text-xs table-fixed">
               <thead className="bg-slate-900 text-white uppercase font-black text-[10px]">
                 <tr>
-                  <th className="p-2.5 text-left sticky left-0 z-10 bg-slate-900 text-blue-100">Officer Details</th>
-                  <th className="p-2.5 text-center sticky left-[240px] z-10 bg-slate-900 text-blue-100">Administrative Tier</th>
-                  <th className="p-2.5 text-center sticky left-[360px] z-10 bg-slate-900 text-blue-100">Quick Actions</th>
+                  <th className="p-2.5 text-left sticky left-0 z-20 bg-slate-900 text-blue-100 w-[240px] min-w-[240px]">Officer Details</th>
+                  <th className="p-2.5 text-center sticky left-[240px] z-20 bg-slate-900 text-blue-100 w-[120px] min-w-[120px]">Administrative Tier</th>
+                  <th className="p-2.5 text-center sticky left-[360px] z-20 bg-slate-900 text-blue-100 w-[100px] min-w-[100px]">Quick Actions</th>
                   {CLEARANCE_MATRIX_COLS.map((col, idx) => (
-                    <th key={idx} className="p-2 text-center border-l border-slate-700 bg-slate-900"><div className="w-16 text-[9px] text-blue-100">{col.label}</div></th>
+                    <th key={idx} className="p-2 text-center border-l border-slate-700 bg-slate-900 w-16 min-w-[64px]">
+                      <div className="w-16 min-w-[64px] text-[9px] text-blue-100 leading-tight truncate px-1" title={col.label}>{col.label}</div>
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -635,41 +637,40 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                   const isSelf = u.fnum === currentUser?.fnum;
                   return (
                     <tr key={u.fnum} className="hover:bg-slate-50">
-                      <td className="p-2.5 sticky left-0 z-10 bg-white font-extrabold text-[11px]">{formatOfficerHeader(u)}</td>
-                      <td className="p-2.5 text-center sticky left-[240px] z-10 bg-white">
-                        {/* 🟢 FULL HIERARCHICAL TIERS SUPPORTED */}
-                        <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf} className="border rounded-md px-2 py-1 font-bold outline-none uppercase text-[10px]">
-                          <option value="USER">STATION USER (MAX 3)</option>
-                          <option value="STATION_ADMIN">STATION ADMIN (STN ADMIN)</option>
-                          <option value="DIVISION_USER">DIVISION USER (MAX 3)</option>
-                          <option value="DIVISION_ADMIN">DIVISION ADMIN (DPC)</option>
-                          <option value="REGIONAL_USER">REGIONAL USER (MAX 3)</option>
-                          <option value="REGIONAL_ADMIN">REGIONAL ADMIN (RPC)</option>
-                          <option value="ASSISTANT_REGIONAL_ADMIN">ASSISTANT REGIONAL ADMIN</option>
+                      <td className="p-2.5 sticky left-0 z-10 bg-white font-extrabold text-[11px] w-[240px] min-w-[240px] truncate" title={formatOfficerHeader(u)}>{formatOfficerHeader(u)}</td>
+                      <td className="p-2.5 text-center sticky left-[240px] z-10 bg-white w-[120px] min-w-[120px]">
+                        <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf} className="border rounded-md px-1.5 py-1 font-bold outline-none uppercase text-[10px] w-full truncate bg-white">
+                          <option value="USER">USER</option>
+                          <option value="STATION_ADMIN">STN ADMIN</option>
+                          <option value="DIVISION_USER">DIV USER</option>
+                          <option value="DIVISION_ADMIN">DIV ADMIN</option>
+                          <option value="REGIONAL_USER">REG USER</option>
+                          <option value="REGIONAL_ADMIN">REG ADMIN</option>
+                          <option value="ASSISTANT_REGIONAL_ADMIN">ASST REG ADMIN</option>
                           <option value="ADMIN">ADMIN</option>
                           <option value="SUPER_ADMIN">SUPER ADMIN</option>
                           <option value="ASSISTANT_SUPER_ADMIN">ASST SUPER ADMIN</option>
                           <option value="REVOKED">REVOKED</option>
-                        </select>
-                      </td>
-                      <td className="p-2.5 text-center sticky left-[360px] z-10 bg-white">
-                        <div className="flex items-center justify-center space-x-1.5">
-                          <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 text-emerald-700 border"><CheckSquare size={13} /></button>
-                          <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 text-red-700 border"><Square size={13} /></button>
+                      </select>
+                    </td>
+                    <td className="p-2.5 text-center sticky left-[360px] z-10 bg-white w-[100px] min-w-[100px]">
+                        <div className="flex items-center justify-center space-x-1">
+                          <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 text-emerald-700 border cursor-pointer"><CheckSquare size={12} /></button>
+                          <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 text-red-700 border cursor-pointer"><Square size={12} /></button>
                           {isSuperAdmin && (
-                            <button onClick={() => handleForcePassword(u.fnum, u.name)} title="Force Password" className="p-1 rounded bg-amber-50 text-amber-700 border"><KeyRound size={13} /></button>
+                            <button onClick={() => handleForcePassword(u.fnum, u.name)} title="Force Password" className="p-1 rounded bg-amber-50 text-amber-700 border cursor-pointer"><KeyRound size={12} /></button>
                           )}
                         </div>
-                      </td>
-                      {CLEARANCE_MATRIX_COLS.map((col, idx) => {
-                        const isObserverCol = col.key === 'global_observer';
-                        const isOpenCol = col.key === 'global_open';
-                        
-                        const isMutuallyDisabled = (isObserverCol && Boolean(p.global_open)) || (isOpenCol && Boolean(p.global_observer));
-                        const isDisabled = isSelf || isMutuallyDisabled || u.role === 'SUPER_ADMIN';
+                    </td>
+                    {CLEARANCE_MATRIX_COLS.map((col, idx) => {
+                      const isObserverCol = col.key === 'global_observer';
+                      const isOpenCol = col.key === 'global_open';
+                      
+                      const isMutuallyDisabled = (isObserverCol && Boolean(p.global_open)) || (isOpenCol && Boolean(p.global_observer));
+                      const isDisabled = isSelf || isMutuallyDisabled || u.role === 'SUPER_ADMIN';
 
-                        return (
-                          <td key={idx} className="p-2 text-center border-l border-white/50">
+                      return (
+                          <td key={idx} className="p-2 text-center border-l border-slate-100 w-16 min-w-[64px]">
                             <input 
                               type="checkbox" 
                               checked={u.role === 'SUPER_ADMIN' || Boolean(p[col.key])} 
@@ -679,16 +680,16 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             />
                           </td>
                         );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     )}
+  </div>
+)}
 
     {activeTab === 'roster' && (
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
@@ -720,8 +721,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             </table>
           </div>
         )}
-      </div>
-    )}
+    </div>
+  )}
 
     {activeTab === 'requests' && (
       <div className="bg-white rounded-xl shadow-xs border border-amber-200 overflow-hidden max-w-6xl mx-auto">
@@ -745,8 +746,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             </tbody>
           </table>
         </div>
-      </div>
-    )}
+    </div>
+  )}
 
     {activeTab === 'logs' && (
   <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
@@ -796,8 +797,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           </tbody>
         </table>
       </div>
-    </div>
-  )}
+  </div>
+)}
 
   {/* MODALS */}
   <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} canModifyUser={canModifyUser} />

@@ -66,6 +66,7 @@ from app.core import security
 from auth import router as auth_router
 from docx import Document
 from app.schemas import AgricStatsCreate, AgricStatsResponse
+from routers import exhibits
 
 # ==========================================
 # 0. LOAD ENVIRONMENT VARIABLES & CONFIG
@@ -105,6 +106,7 @@ app.include_router(analytics_export.router)
 app.include_router(admin_communication.router)
 app.include_router(ai_router.router)
 app.include_router(auth_router)
+app.include_router(exhibits.router)
 
 # ==========================================
 # GLOBAL EXCEPTION HANDLER (FIXED CORS)

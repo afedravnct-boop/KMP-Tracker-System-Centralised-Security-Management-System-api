@@ -506,3 +506,30 @@ class Agricultural_Crime_Summary(Base):
     created_at = Column(DateTime, default=get_eat_time)
 
 AgriculturalCrimeSummary = Agricultural_Crime_Summary
+
+class Impounded_Exhibits(Base):
+    __tablename__ = "impounded_exhibits"
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    sn = Column(Integer, index=True, autoincrement=True)
+    reg_no = Column(String, index=True, nullable=False)
+    type_make = Column(String, nullable=False)
+    colour = Column(String, nullable=False)
+    case_no = Column(String, index=True, nullable=False)
+    reason = Column(String, nullable=False)
+    status = Column(String, default="COURT")
+    unit_responsible = Column(String, default="CID")
+    assorted_items = Column(String, default="NIL")
+    comment = Column(String, default="NIL")
+    region = Column(String, index=True, nullable=False)
+    station = Column(String, index=True, nullable=False)
+    date_impounded = Column(String, nullable=True)
+    impounded_by_fnum = Column(String, nullable=True)
+    impounded_by_rank = Column(String, nullable=True)
+    impounded_by_name = Column(String, nullable=True)
+    date_cleared = Column(String, nullable=True)
+    entered_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=get_eat_time)
+
+ImpoundedExhibits = Impounded_Exhibits
