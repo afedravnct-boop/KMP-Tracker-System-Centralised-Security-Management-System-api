@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
-  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search
+  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search, Truck
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -16,6 +16,8 @@ import {
 import { 
   SignupDossierModal, HRModificationModal, LockdownMatrixModal, RevocationModal, ToggleSwitch 
 } from './AdminModals';
+
+import ExhibitsRegistry from './ExhibitsRegistry';
 
 const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
@@ -567,6 +569,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         <button onClick={() => setActiveTab('matrix')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'matrix' ? 'bg-slate-50 border-b-[3px] border-indigo-600 text-indigo-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50'}`}>
           <Shield className="w-4 h-4 mr-2"/> Clearance Matrix ({filteredSystemUsers.length})
         </button>
+        <button onClick={() => setActiveTab('exhibits')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'exhibits' ? 'bg-slate-50 border-b-[3px] border-emerald-600 text-emerald-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50'}`}>
+          <Truck className="w-4 h-4 mr-2"/> Exhibits Clearance
+        </button>
         <button onClick={() => setActiveTab('roster')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'roster' ? 'bg-slate-50 border-b-[3px] border-cyan-600 text-cyan-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50'}`}>
           <Users className="w-4 h-4 mr-2"/> Directory Roster ({filteredSystemUsers.length})
         </button>
@@ -625,8 +630,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                   <th className="p-2.5 text-center sticky left-[240px] z-20 bg-slate-900 text-blue-100 w-[120px] min-w-[120px]">Administrative Tier</th>
                   <th className="p-2.5 text-center sticky left-[360px] z-20 bg-slate-900 text-blue-100 w-[100px] min-w-[100px]">Quick Actions</th>
                   {CLEARANCE_MATRIX_COLS.map((col, idx) => (
-                    <th key={idx} className="p-2 text-center border-l border-slate-700 bg-slate-900 w-16 min-w-[64px]">
-                      <div className="w-16 min-w-[64px] text-[9px] text-blue-100 leading-tight truncate px-1" title={col.label}>{col.label}</div>
+                    <th key={idx} className="p-2 border-l border-slate-700 bg-slate-900 w-20 min-w-[80px] align-middle">
+                      <div className="w-20 min-w-[80px] text-[9px] text-blue-100 font-bold whitespace-normal break-words leading-tight text-center px-0.5" title={col.label}>
+                        {col.label}
+                      </div>
                     </th>
                   ))}
                 </tr>
@@ -670,7 +677,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                       const isDisabled = isSelf || isMutuallyDisabled || u.role === 'SUPER_ADMIN';
 
                       return (
-                          <td key={idx} className="p-2 text-center border-l border-slate-100 w-16 min-w-[64px]">
+                          <td key={idx} className="p-2 text-center border-l border-slate-100 w-20 min-w-[80px]">
                             <input 
                               type="checkbox" 
                               checked={u.role === 'SUPER_ADMIN' || Boolean(p[col.key])} 
@@ -679,7 +686,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                               className={`w-3.5 h-3.5 rounded ${isDisabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`} 
                             />
                           </td>
-                        );
+                      );
                   })}
                 </tr>
               );
@@ -690,6 +697,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     )}
   </div>
 )}
+
+    {activeTab === 'exhibits' && (
+      <div className="bg-white rounded-xl shadow-sm border border-emerald-200 overflow-hidden">
+        <ExhibitsRegistry currentUser={currentUser} canViewGlobal={canViewGlobal} isReadOnlyObserver={isReadOnlyObserver} />
+      </div>
+    )}
 
     {activeTab === 'roster' && (
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
@@ -721,8 +734,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             </table>
           </div>
         )}
-    </div>
-  )}
+      </div>
+    )}
 
     {activeTab === 'requests' && (
       <div className="bg-white rounded-xl shadow-xs border border-amber-200 overflow-hidden max-w-6xl mx-auto">
@@ -743,7 +756,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                   </td>
                 </tr>
               ))}
-            </tbody>
+          </tbody>
           </table>
         </div>
     </div>

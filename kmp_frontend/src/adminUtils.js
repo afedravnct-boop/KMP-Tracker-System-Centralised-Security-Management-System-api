@@ -101,7 +101,8 @@ export const CLEARANCE_MATRIX_COLS = [
   { key: 'acc_online', label: 'Active Online', color: 'red', bg: 'bg-red-50/50' },
   { key: 'export_data', label: 'Master Export', color: 'red', bg: 'bg-red-50/50' },
   { key: 'export_logs', label: 'Export Logs', color: 'red', bg: 'bg-red-50/50' },
-  { key: 'acc_documents_download', label: 'Documents Download', color: 'indigo', bg: 'bg-indigo-50/50' }
+  { key: 'acc_documents_download', label: 'Documents Download', color: 'indigo', bg: 'bg-indigo-50/50' },
+{ key: 'acc_exhibits', label: 'Impounded Fleet & Exhibits', color: 'emerald', bg: 'bg-emerald-50/50' }
 ];
 
 export const formatOfficerHeader = (user) => {
