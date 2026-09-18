@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
-  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search, Truck
+  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -16,8 +16,6 @@ import {
 import { 
   SignupDossierModal, HRModificationModal, LockdownMatrixModal, RevocationModal, ToggleSwitch 
 } from './AdminModals';
-
-import ExhibitsRegistry from './ExhibitsRegistry';
 
 const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
@@ -562,15 +560,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       </div>
 
+      {/* 🟢 TAB NAVIGATION BAR (Exhibits tab removed; accessed via sidebar now) */}
       <div className="flex border-b border-slate-200 bg-white rounded-t-xl shadow-sm overflow-x-auto custom-scrollbar">
         <button onClick={() => setActiveTab('approvals')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'approvals' ? 'bg-slate-50 border-b-[3px] border-blue-600 text-blue-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50'}`}>
           <UserPlus className="w-4 h-4 mr-2"/> Authorizations ({loadingPending ? '...' : filteredPending.length})
         </button>
         <button onClick={() => setActiveTab('matrix')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'matrix' ? 'bg-slate-50 border-b-[3px] border-indigo-600 text-indigo-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50'}`}>
           <Shield className="w-4 h-4 mr-2"/> Clearance Matrix ({filteredSystemUsers.length})
-        </button>
-        <button onClick={() => setActiveTab('exhibits')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'exhibits' ? 'bg-slate-50 border-b-[3px] border-emerald-600 text-emerald-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50'}`}>
-          <Truck className="w-4 h-4 mr-2"/> Exhibits Clearance
         </button>
         <button onClick={() => setActiveTab('roster')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'roster' ? 'bg-slate-50 border-b-[3px] border-cyan-600 text-cyan-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50'}`}>
           <Users className="w-4 h-4 mr-2"/> Directory Roster ({filteredSystemUsers.length})
@@ -698,12 +694,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   </div>
 )}
 
-    {activeTab === 'exhibits' && (
-      <div className="bg-white rounded-xl shadow-sm border border-emerald-200 overflow-hidden">
-        <ExhibitsRegistry currentUser={currentUser} canViewGlobal={canViewGlobal} isReadOnlyObserver={isReadOnlyObserver} />
-      </div>
-    )}
-
     {activeTab === 'roster' && (
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
         <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 text-white font-semibold text-xs uppercase">
@@ -807,9 +797,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                   </td>
                 </tr>
               ))}
-          </tbody>
-        </table>
-      </div>
+        </tbody>
+      </table>
+    </div>
   </div>
 )}
 
