@@ -2952,7 +2952,7 @@ const App = () => {
           />
         );
 
-case 'exhibits':  
+      case 'exhibits':  
         return checkClearance(currentUser, 'acc_exhibits', true) ? (
           <ExhibitsRegistry 
             currentUser={currentUser} 
