@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Shield, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, 
-  Filter, HardDrive, Save, Truck, Calendar, UserCheck, Loader2, FileSpreadsheet, Lock
+  Filter, Save, Truck, Loader2, Lock
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -13,6 +13,14 @@ const REGIONAL_HIERARCHY = {
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "TRAFFIC", "LOGISTICS", "FLYING SQUAD", "CRIME INTELLIGENCE", "PRO"],
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
+
+// 🟢 Specific Filter Lists requested
+const CASE_REF_TYPES = ['SD REF', 'CRB', 'TAR', 'GEF', 'DEF'];
+const STATUS_OPTIONS = ['UNDER INVESTIGATION', 'PENDING COURT', 'IN COURT', 'UNCLAIMED', 'FORFEITED', 'CLEARED', 'DISPOSED BY COURT', 'CUSTOM'];
+const POLICE_UNITS = [
+  '1ST DIV', '999 ERU', 'ASTU', 'CI', 'CID', 'CT', 'DIS', 'EPPU', 'FFU', 'FIRE', 'FLYING SQUAD', 'FSU', 
+  'G/DUTIES', 'IHP', 'JAT', 'MILITARY POLICE', 'MINERAL POLICE', 'MOTORCYCLE SQUAD', 'PARLIAMENTARY POLICE', 'PPG', 'SFC', 'SHACU', 'TRAFFIC'
+].sort(); // Alphabetically sorted
 
 const getOfficialRegionForStation = (stationName, dbRegion) => {
   const cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
@@ -53,7 +61,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, isReadOnlyObserver = false }) => {
+const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen = () => {}, isReadOnlyObserver = false }) => {
   const [serverExhibits, setServerExhibits] = useState([]);
   const [isFetching, setIsFetching] = useState(false);
   const [operation, setOperation] = useState('new');
@@ -69,6 +77,13 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, 
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+  
+  // 🟢 New Custom Filters
+  const [filterCaseType, setFilterCaseType] = useState('ALL');
+  const [filterStatus, setFilterStatus] = useState('ALL');
+  const [filterUnit, setFilterUnit] = useState('ALL');
+  
+  const [customStatusInput, setCustomStatusInput] = useState('');
 
   const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
 
@@ -80,7 +95,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, 
     date_in: getTodayString(),
     case_no: '',
     reason: '',
-    status: 'COURT',
+    status: 'UNDER INVESTIGATION',
     unit_responsible: 'CID',
     assorted_items: 'NIL',
     comment: 'NIL',
@@ -134,7 +149,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, 
       date_in: getTodayString(),
       case_no: '',
       reason: '',
-      status: 'COURT',
+      status: 'UNDER INVESTIGATION',
       unit_responsible: 'CID',
       assorted_items: 'NIL',
       comment: 'NIL',
@@ -147,11 +162,18 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, 
       date_cleared: '',
       entered_by: `${stripHtmlTags(currentUser?.name || '')} (${stripHtmlTags(currentUser?.fnum || '')})`
     });
+    setCustomStatusInput('');
   };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     const clean = stripHtmlTags(value);
+    
+    if (name === 'status' && clean === 'CUSTOM') {
+      setFormData(prev => ({ ...prev, status: 'CUSTOM' }));
+      return;
+    }
+
     if (name === 'region') {
       setFormData(prev => ({ ...prev, region: clean, station: REGIONAL_HIERARCHY[clean]?.[0] || '' }));
     } else {
@@ -167,8 +189,11 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, 
       return setNotification({ type: 'error', text: 'Registration Number and Case Number are required.' });
     }
 
+    const finalStatus = formData.status === 'CUSTOM' ? customStatusInput.toUpperCase() : formData.status;
+
     const payload = {
       ...formData,
+      status: finalStatus,
       region: getOfficialRegionForStation(formData.station, formData.region),
       entered_by: `${currentUser.name} (${currentUser.fnum})`,
       timestamp: new Date().toISOString()
@@ -202,15 +227,25 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, 
   const populateEditForm = (item) => {
     if (isReadOnlyObserver) return;
     setOperation('update');
+    
+    let isStandardStatus = STATUS_OPTIONS.includes((item.status || '').toUpperCase());
+    
     setFormData({
       ...item,
-      id: item.id || item.sn
+      id: item.id || item.sn,
+      status: isStandardStatus ? item.status : 'CUSTOM'
     });
+    
+    if (!isStandardStatus) {
+      setCustomStatusInput(item.status);
+    }
+    
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const filteredExhibits = useMemo(() => {
     return serverExhibits.filter(item => {
+      // 1. Date Filter
       const diffDays = Math.ceil(Math.abs(new Date() - new Date(item.date_in || item.created_at)) / (1000 * 60 * 60 * 24));
       if (dateFilter === 'TODAY') {
         const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
@@ -218,15 +253,31 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, 
       } else if (dateFilter === 'LAST 7 DAYS' && diffDays > 7) return false;
       else if (dateFilter === 'LAST 30 DAYS' && diffDays > 30) return false;
       else if (dateFilter === 'LAST 90 DAYS' && diffDays > 90) return false;
+
+      // 2. Case Type Filter (Matches start of case_no)
+      if (filterCaseType !== 'ALL' && !(item.case_no || '').toUpperCase().startsWith(filterCaseType)) return false;
+
+      // 3. Status Filter
+      if (filterStatus !== 'ALL') {
+        if (filterStatus === 'CUSTOM') {
+          if (STATUS_OPTIONS.includes((item.status || '').toUpperCase())) return false;
+        } else if ((item.status || '').toUpperCase() !== filterStatus) {
+          return false;
+        }
+      }
+
+      // 4. Unit Responsible Filter
+      if (filterUnit !== 'ALL' && (item.unit_responsible || '').toUpperCase() !== filterUnit) return false;
+
       return true;
     });
-  }, [serverExhibits, dateFilter]);
+  }, [serverExhibits, dateFilter, filterCaseType, filterStatus, filterUnit]);
 
   const metrics = useMemo(() => {
     return {
       total: filteredExhibits.length,
-      court: filteredExhibits.filter(e => (e.status || '').toUpperCase() === 'COURT').length,
-      rsa: filteredExhibits.filter(e => (e.status || '').toUpperCase() === 'RSA').length,
+      court: filteredExhibits.filter(e => (e.status || '').toUpperCase().includes('COURT')).length,
+      investigating: filteredExhibits.filter(e => (e.status || '').toUpperCase().includes('INVESTIGATION')).length,
       motorcycles: filteredExhibits.filter(e => (e.type_make || '').toUpperCase().includes('BAJAJI') || (e.type_make || '').toUpperCase().includes('M/CYCLE')).length,
       vehicles: filteredExhibits.filter(e => !(e.type_make || '').toUpperCase().includes('BAJAJI')).length
     };
@@ -256,8 +307,8 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, 
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <MetricCard title="Total Exhibits" value={metrics.total} colorClass="text-emerald-900 dark:text-emerald-100" />
-        <MetricCard title="Court Cases" value={metrics.court} colorClass="text-blue-700 dark:text-blue-400" />
-        <MetricCard title="RSA Cases" value={metrics.rsa} colorClass="text-purple-700 dark:text-purple-400" />
+        <MetricCard title="Pending / In Court" value={metrics.court} colorClass="text-blue-700 dark:text-blue-400" />
+        <MetricCard title="Under Investigation" value={metrics.investigating} colorClass="text-purple-700 dark:text-purple-400" />
         <MetricCard title="Motorcycles (Bajaji)" value={metrics.motorcycles} colorClass="text-amber-700 dark:text-amber-400" />
         <MetricCard title="Motor Vehicles" value={metrics.vehicles} colorClass="text-emerald-700 dark:text-emerald-400" />
       </div>
@@ -308,17 +359,33 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, 
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
+                  <div className="col-span-2">
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Case No (SD/CRB/TAR) *</label>
-                    <input type="text" name="case_no" required value={formData.case_no} onChange={handleInputChange} placeholder="e.g. CRB 030/2025" className="w-full border rounded p-2 uppercase font-bold text-blue-700 bg-white dark:bg-slate-800 dark:text-slate-100" />
+                    <div className="flex">
+                      <select className="border rounded-l p-2 bg-slate-100 dark:bg-slate-700 font-bold border-r-0" onChange={(e) => setFormData(prev => ({...prev, case_no: e.target.value + ' '} ))}>
+                        <option value="">Prefix</option>
+                        {CASE_REF_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+                      </select>
+                      <input type="text" name="case_no" required value={formData.case_no} onChange={handleInputChange} placeholder="e.g. CRB 030/2025" className="w-full border rounded-r p-2 uppercase font-bold text-blue-700 bg-white dark:bg-slate-800 dark:text-slate-100" />
+                    </div>
                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Status</label>
                     <select name="status" value={formData.status} onChange={handleInputChange} className="w-full border rounded p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100">
-                      <option value="COURT">COURT</option>
-                      <option value="RSA">RSA</option>
-                      <option value="CLEARED">CLEARED</option>
-                      <option value="FORFEITED">FORFEITED</option>
+                      {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                    {formData.status === 'CUSTOM' && (
+                      <input type="text" placeholder="Specify Status" value={customStatusInput} onChange={(e) => setCustomStatusInput(e.target.value)} required className="w-full border rounded p-2 mt-1 uppercase font-bold bg-amber-50 dark:bg-slate-700" />
+                    )}
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Unit Responsible</label>
+                    <select name="unit_responsible" value={formData.unit_responsible} onChange={handleInputChange} className="w-full border rounded p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100">
+                      <option value="GENERAL">GENERAL POLICE</option>
+                      {POLICE_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
                     </select>
                   </div>
                 </div>
@@ -328,15 +395,9 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, 
                   <input type="text" name="reason" required value={formData.reason} onChange={handleInputChange} placeholder="e.g. MURDER BY MOB / MONEY LAUNDERING" className="w-full border rounded p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100" />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Unit Responsible</label>
-                    <input type="text" name="unit_responsible" value={formData.unit_responsible} onChange={handleInputChange} className="w-full border rounded p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100" />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Assorted Items</label>
-                    <input type="text" name="assorted_items" value={formData.assorted_items} onChange={handleInputChange} className="w-full border rounded p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100" />
-                  </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Assorted Items</label>
+                  <input type="text" name="assorted_items" value={formData.assorted_items} onChange={handleInputChange} className="w-full border rounded p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -382,36 +443,67 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, 
 
         <div className={isReadOnlyObserver ? "lg:col-span-12 space-y-4" : "lg:col-span-8 space-y-4"}>
           
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-emerald-200 dark:border-slate-800 flex flex-col sm:flex-row gap-3 items-center justify-between">
-            <div className="relative flex-1 w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-              <input 
-                type="text" 
-                value={searchQuery} 
-                onChange={(e) => setSearchQuery(e.target.value)} 
-                placeholder="Search Reg No, Type, Case No, Reason, Status..." 
-                className="w-full pl-9 pr-3 py-2 border dark:border-slate-700 rounded-xl text-xs font-bold outline-none focus:border-emerald-500 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100" 
-              />
-              {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">×</button>}
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-emerald-200 dark:border-slate-800 flex flex-col gap-3">
+            
+            {/* 🟢 Search & Regional Filters */}
+            <div className="flex flex-col sm:flex-row gap-3 items-center justify-between w-full">
+              <div className="relative flex-1 w-full">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                <input 
+                  type="text" 
+                  value={searchQuery} 
+                  onChange={(e) => setSearchQuery(e.target.value)} 
+                  placeholder="Search Reg No, Type, Case No, Reason..." 
+                  className="w-full pl-9 pr-3 py-2 border dark:border-slate-700 rounded-xl text-xs font-bold outline-none focus:border-emerald-500 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100" 
+                />
+                {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">×</button>}
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 outline-none cursor-pointer">
+                  <option value="ALL TIME">ALL TIME</option>
+                  <option value="TODAY">TODAY ONLY</option>
+                  <option value="LAST 7 DAYS">LAST 7 DAYS</option>
+                  <option value="LAST 30 DAYS">LAST 30 DAYS</option>
+                  <option value="LAST 90 DAYS">LAST 90 DAYS</option>
+                </select>
+
+                <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 disabled:opacity-50 outline-none cursor-pointer">
+                  {canViewGlobalActive ? (<><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+                </select>
+
+                <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 disabled:opacity-50 outline-none cursor-pointer">
+                  {canViewGlobalActive ? (<><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stn => <option key={stn} value={stn}>{stn}</option>) : null}</>) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+                </select>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 outline-none cursor-pointer">
-                <option value="ALL TIME">ALL TIME</option>
-                <option value="TODAY">TODAY ONLY</option>
-                <option value="LAST 7 DAYS">LAST 7 DAYS</option>
-                <option value="LAST 30 DAYS">LAST 30 DAYS</option>
-                <option value="LAST 90 DAYS">LAST 90 DAYS</option>
+            {/* 🟢 Advanced Logistical Filters */}
+            <div className="flex flex-wrap items-center gap-2 border-t dark:border-slate-800 pt-3">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center"><Filter size={12} className="mr-1"/> Logic Filters:</span>
+              
+              <select value={filterCaseType} onChange={(e) => setFilterCaseType(e.target.value)} className="border dark:border-slate-700 rounded-lg px-2 py-1.5 text-[11px] font-bold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 outline-none cursor-pointer shadow-sm">
+                <option value="ALL">ANY CASE TYPE</option>
+                {CASE_REF_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
               </select>
 
-              <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 disabled:opacity-50 outline-none cursor-pointer">
-                {canViewGlobalActive ? (<><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+              <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="border dark:border-slate-700 rounded-lg px-2 py-1.5 text-[11px] font-bold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 outline-none cursor-pointer shadow-sm">
+                <option value="ALL">ANY STATUS</option>
+                {STATUS_OPTIONS.map(status => <option key={status} value={status}>{status}</option>)}
               </select>
 
-              <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 disabled:opacity-50 outline-none cursor-pointer">
-                {canViewGlobalActive ? (<><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stn => <option key={stn} value={stn}>{stn}</option>) : null}</>) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+              <select value={filterUnit} onChange={(e) => setFilterUnit(e.target.value)} className="border dark:border-slate-700 rounded-lg px-2 py-1.5 text-[11px] font-bold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 outline-none cursor-pointer shadow-sm">
+                <option value="ALL">ANY UNIT RESPONSIBLE</option>
+                {POLICE_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
               </select>
+
+              {(filterCaseType !== 'ALL' || filterStatus !== 'ALL' || filterUnit !== 'ALL') && (
+                <button onClick={() => { setFilterCaseType('ALL'); setFilterStatus('ALL'); setFilterUnit('ALL'); }} className="text-[10px] text-red-500 font-bold hover:underline cursor-pointer ml-auto flex items-center">
+                  <X size={10} className="mr-1"/> Clear Advanced
+                </button>
+              )}
             </div>
+
           </div>
 
           <ExpandableTableCard title="Impounded Fleet & Property Exhibits Ledger" onToggle={(expanded) => { setSidebarOpen?.(!expanded); }}>
@@ -451,9 +543,10 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, 
                         <td className="px-3 py-2.5 uppercase font-semibold">{stripHtmlTags(item.reason)}</td>
                         <td className="px-3 py-2.5 text-center">
                           <span className={`px-2 py-0.5 rounded-full font-extrabold text-[9px] ${
-                            (item.status || '').toUpperCase() === 'COURT' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
-                            (item.status || '').toUpperCase() === 'RSA' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
-                            'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                            (item.status || '').toUpperCase() === 'COURT' || (item.status || '').toUpperCase() === 'IN COURT' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                            (item.status || '').toUpperCase() === 'RSA' || (item.status || '').toUpperCase() === 'PENDING COURT' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
+                            (item.status || '').toUpperCase() === 'CLEARED' || (item.status || '').toUpperCase() === 'DISPOSED BY COURT' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                            'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
                           }`}>
                             {stripHtmlTags(item.status)}
                           </span>
