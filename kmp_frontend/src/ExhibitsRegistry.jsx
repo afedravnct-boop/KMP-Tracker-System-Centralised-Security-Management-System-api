@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, 
   Filter, Save, Truck, Loader2, Lock
@@ -14,13 +14,13 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 Specific Filter Lists requested
+// 🟢 Standardized Dropdown Options
 const CASE_REF_TYPES = ['SD REF', 'CRB', 'TAR', 'GEF', 'DEF'];
 const STATUS_OPTIONS = ['UNDER INVESTIGATION', 'PENDING COURT', 'IN COURT', 'UNCLAIMED', 'FORFEITED', 'CLEARED', 'DISPOSED BY COURT', 'CUSTOM'];
 const POLICE_UNITS = [
   '1ST DIV', '999 ERU', 'ASTU', 'CI', 'CID', 'CT', 'DIS', 'EPPU', 'FFU', 'FIRE', 'FLYING SQUAD', 'FSU', 
   'G/DUTIES', 'IHP', 'JAT', 'MILITARY POLICE', 'MINERAL POLICE', 'MOTORCYCLE SQUAD', 'PARLIAMENTARY POLICE', 'PPG', 'SFC', 'SHACU', 'TRAFFIC'
-].sort(); // Alphabetically sorted
+].sort();
 
 const getOfficialRegionForStation = (stationName, dbRegion) => {
   const cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
@@ -78,7 +78,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
   
-  // 🟢 New Custom Filters
   const [filterCaseType, setFilterCaseType] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [filterUnit, setFilterUnit] = useState('ALL');
@@ -87,13 +86,15 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
   const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
 
+  // 🟢 Form State updated with separate case_no_prefix and case_no_value
   const [formData, setFormData] = useState({
     id: null,
     reg_no: '',
     type_make: 'BAJAJI',
     colour: '',
-    date_in: getTodayString(),
-    case_no: '',
+    date_impounded: getTodayString(),
+    case_no_prefix: '',
+    case_no_value: '',
     reason: '',
     status: 'UNDER INVESTIGATION',
     unit_responsible: 'CID',
@@ -101,7 +102,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     comment: 'NIL',
     region: stripHtmlTags(currentUser?.region || ''),
     station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
-    date_impounded: getTodayString(),
     impounded_by_fnum: stripHtmlTags(currentUser?.fnum || ''),
     impounded_by_rank: stripHtmlTags(currentUser?.rank || ''),
     impounded_by_name: stripHtmlTags(currentUser?.name || ''),
@@ -146,8 +146,9 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       reg_no: '',
       type_make: 'BAJAJI',
       colour: '',
-      date_in: getTodayString(),
-      case_no: '',
+      date_impounded: getTodayString(),
+      case_no_prefix: '',
+      case_no_value: '',
       reason: '',
       status: 'UNDER INVESTIGATION',
       unit_responsible: 'CID',
@@ -155,7 +156,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       comment: 'NIL',
       region: stripHtmlTags(currentUser?.region || ''),
       station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
-      date_impounded: getTodayString(),
       impounded_by_fnum: stripHtmlTags(currentUser?.fnum || ''),
       impounded_by_rank: stripHtmlTags(currentUser?.rank || ''),
       impounded_by_name: stripHtmlTags(currentUser?.name || ''),
@@ -185,7 +185,11 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     e.preventDefault();
     if (isReadOnlyObserver) return alert("SECURITY RESTRICTION: Read-Only mode active.");
 
-    if (!formData.reg_no || !formData.case_no) {
+    const finalCaseNo = formData.case_no_prefix 
+      ? `${formData.case_no_prefix} ${formData.case_no_value}`.trim() 
+      : formData.case_no_value.trim();
+
+    if (!formData.reg_no || !finalCaseNo) {
       return setNotification({ type: 'error', text: 'Registration Number and Case Number are required.' });
     }
 
@@ -193,10 +197,12 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
     const payload = {
       ...formData,
+      case_no: finalCaseNo,
       status: finalStatus,
       region: getOfficialRegionForStation(formData.station, formData.region),
       entered_by: `${currentUser.name} (${currentUser.fnum})`,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      date_cleared: formData.date_cleared === '' ? null : formData.date_cleared
     };
 
     try {
@@ -230,10 +236,27 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     
     let isStandardStatus = STATUS_OPTIONS.includes((item.status || '').toUpperCase());
     
+    // 🟢 Extract Prefix and Value safely from the combined string
+    let extractedPrefix = '';
+    let extractedValue = item.case_no || '';
+    
+    const matchingPrefix = CASE_REF_TYPES.find(p => extractedValue.toUpperCase().startsWith(p));
+    if (matchingPrefix) {
+      extractedPrefix = matchingPrefix;
+      extractedValue = extractedValue.substring(matchingPrefix.length).trim();
+      // Remove any lingering colons or hyphens
+      if (extractedValue.startsWith(':') || extractedValue.startsWith('-')) {
+        extractedValue = extractedValue.substring(1).trim();
+      }
+    }
+
     setFormData({
       ...item,
       id: item.id || item.sn,
-      status: isStandardStatus ? item.status : 'CUSTOM'
+      status: isStandardStatus ? item.status : 'CUSTOM',
+      date_cleared: item.date_cleared || '',
+      case_no_prefix: extractedPrefix,
+      case_no_value: extractedValue
     });
     
     if (!isStandardStatus) {
@@ -245,19 +268,16 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
   const filteredExhibits = useMemo(() => {
     return serverExhibits.filter(item => {
-      // 1. Date Filter
-      const diffDays = Math.ceil(Math.abs(new Date() - new Date(item.date_in || item.created_at)) / (1000 * 60 * 60 * 24));
+      const diffDays = Math.ceil(Math.abs(new Date() - new Date(item.date_impounded || item.created_at)) / (1000 * 60 * 60 * 24));
       if (dateFilter === 'TODAY') {
         const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-        if (item.date_in !== todayStr) return false;
+        if (item.date_impounded !== todayStr) return false;
       } else if (dateFilter === 'LAST 7 DAYS' && diffDays > 7) return false;
       else if (dateFilter === 'LAST 30 DAYS' && diffDays > 30) return false;
       else if (dateFilter === 'LAST 90 DAYS' && diffDays > 90) return false;
 
-      // 2. Case Type Filter (Matches start of case_no)
       if (filterCaseType !== 'ALL' && !(item.case_no || '').toUpperCase().startsWith(filterCaseType)) return false;
 
-      // 3. Status Filter
       if (filterStatus !== 'ALL') {
         if (filterStatus === 'CUSTOM') {
           if (STATUS_OPTIONS.includes((item.status || '').toUpperCase())) return false;
@@ -266,7 +286,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
         }
       }
 
-      // 4. Unit Responsible Filter
       if (filterUnit !== 'ALL' && (item.unit_responsible || '').toUpperCase() !== filterUnit) return false;
 
       return true;
@@ -339,51 +358,70 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Reg No *</label>
-                    <input type="text" name="reg_no" required value={formData.reg_no} onChange={handleInputChange} placeholder="e.g. UGH 190C" className="w-full border rounded p-2 uppercase font-black text-emerald-800 bg-white dark:bg-slate-800 dark:text-slate-100" />
+                    <input type="text" name="reg_no" required value={formData.reg_no} onChange={handleInputChange} placeholder="e.g. UGH 190C" className="w-full border rounded-lg p-2 uppercase font-black text-emerald-800 bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
                   </div>
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Type (Make) *</label>
-                    <input type="text" name="type_make" required value={formData.type_make} onChange={handleInputChange} placeholder="e.g. BAJAJI / NOAH" className="w-full border rounded p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100" />
+                    <input type="text" name="type_make" required value={formData.type_make} onChange={handleInputChange} placeholder="e.g. BAJAJI / NOAH" className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Colour *</label>
-                    <input type="text" name="colour" required value={formData.colour} onChange={handleInputChange} placeholder="e.g. RED / BLACK" className="w-full border rounded p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100" />
+                    <input type="text" name="colour" required value={formData.colour} onChange={handleInputChange} placeholder="e.g. RED / BLACK" className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
                   </div>
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Date In *</label>
-                    <input type="date" name="date_in" required value={formData.date_in} onChange={handleInputChange} className="w-full border rounded p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100" />
+                    <input type="date" name="date_impounded" required value={formData.date_impounded} onChange={handleInputChange} className="w-full border rounded-lg p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2">
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Case No (SD/CRB/TAR) *</label>
-                    <div className="flex">
-                      <select className="border rounded-l p-2 bg-slate-100 dark:bg-slate-700 font-bold border-r-0" onChange={(e) => setFormData(prev => ({...prev, case_no: e.target.value + ' '} ))}>
-                        <option value="">Prefix</option>
+                    <div className="flex shadow-sm rounded-lg">
+                      <select 
+                        name="case_no_prefix" 
+                        value={formData.case_no_prefix} 
+                        onChange={handleInputChange} 
+                        className="border border-r-0 rounded-l-lg p-2 bg-slate-100 dark:bg-slate-700 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
+                      >
+                        <option value="">No Prefix</option>
                         {CASE_REF_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
                       </select>
-                      <input type="text" name="case_no" required value={formData.case_no} onChange={handleInputChange} placeholder="e.g. CRB 030/2025" className="w-full border rounded-r p-2 uppercase font-bold text-blue-700 bg-white dark:bg-slate-800 dark:text-slate-100" />
+                      <input 
+                        type="text" 
+                        name="case_no_value" 
+                        required 
+                        value={formData.case_no_value} 
+                        onChange={handleInputChange} 
+                        placeholder="e.g. 030/2026" 
+                        className="w-full border rounded-r-lg p-2 uppercase font-bold text-blue-700 bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" 
+                      />
                     </div>
                   </div>
+                </div>
+
+                {/* 🟢 Reordered: Reason comes BEFORE Status */}
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Reason (Offence / Context) *</label>
+                  <input type="text" name="reason" required value={formData.reason} onChange={handleInputChange} placeholder="e.g. MURDER BY MOB / MONEY LAUNDERING" className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Status</label>
-                    <select name="status" value={formData.status} onChange={handleInputChange} className="w-full border rounded p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100">
+                    <select name="status" value={formData.status} onChange={handleInputChange} className="w-full border rounded-lg p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500">
                       {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
                     {formData.status === 'CUSTOM' && (
-                      <input type="text" placeholder="Specify Status" value={customStatusInput} onChange={(e) => setCustomStatusInput(e.target.value)} required className="w-full border rounded p-2 mt-1 uppercase font-bold bg-amber-50 dark:bg-slate-700" />
+                      <input type="text" placeholder="Specify Status" value={customStatusInput} onChange={(e) => setCustomStatusInput(e.target.value)} required className="w-full border rounded-lg p-2 mt-1 uppercase font-bold bg-amber-50 dark:bg-slate-700 outline-none focus:ring-2 focus:ring-amber-500" />
                     )}
                   </div>
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Unit Responsible</label>
-                    <select name="unit_responsible" value={formData.unit_responsible} onChange={handleInputChange} className="w-full border rounded p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100">
+                    <select name="unit_responsible" value={formData.unit_responsible} onChange={handleInputChange} className="w-full border rounded-lg p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500">
                       <option value="GENERAL">GENERAL POLICE</option>
                       {POLICE_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
                     </select>
@@ -391,25 +429,20 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Reason (Offence / Context) *</label>
-                  <input type="text" name="reason" required value={formData.reason} onChange={handleInputChange} placeholder="e.g. MURDER BY MOB / MONEY LAUNDERING" className="w-full border rounded p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100" />
-                </div>
-
-                <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Assorted Items</label>
-                  <input type="text" name="assorted_items" value={formData.assorted_items} onChange={handleInputChange} className="w-full border rounded p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100" />
+                  <input type="text" name="assorted_items" value={formData.assorted_items} onChange={handleInputChange} className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Region *</label>
-                    <select name="region" value={formData.region} onChange={handleInputChange} className="w-full border rounded p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100">
+                    <select name="region" value={formData.region} onChange={handleInputChange} className="w-full border rounded-lg p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500">
                       {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange} className="w-full border rounded p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100">
+                    <select name="station" value={formData.station} onChange={handleInputChange} className="w-full border rounded-lg p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500">
                       {(REGIONAL_HIERARCHY[formData.region] || []).map(stn => <option key={stn} value={stn}>{stn}</option>)}
                     </select>
                   </div>
@@ -418,19 +451,19 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                 <div className="bg-emerald-50 dark:bg-slate-800/60 p-3 rounded-xl border border-emerald-200 dark:border-emerald-900 space-y-2">
                   <h4 className="font-extrabold text-emerald-900 dark:text-emerald-400 uppercase text-[10px]">Command Audit Trail</h4>
                   <div className="grid grid-cols-3 gap-2">
-                    <input type="text" name="impounded_by_fnum" value={formData.impounded_by_fnum} onChange={handleInputChange} placeholder="F/No" className="border rounded p-1.5 uppercase font-mono text-[11px] bg-white dark:bg-slate-800 dark:text-slate-100" title="Impounding Officer F/No" />
-                    <input type="text" name="impounded_by_rank" value={formData.impounded_by_rank} onChange={handleInputChange} placeholder="Rank" className="border rounded p-1.5 uppercase font-bold text-[11px] bg-white dark:bg-slate-800 dark:text-slate-100" title="Impounding Officer Rank" />
-                    <input type="text" name="impounded_by_name" value={formData.impounded_by_name} onChange={handleInputChange} placeholder="Name" className="border rounded p-1.5 uppercase font-bold text-[11px] bg-white dark:bg-slate-800 dark:text-slate-100" title="Impounding Officer Name" />
+                    <input type="text" name="impounded_by_fnum" value={formData.impounded_by_fnum} onChange={handleInputChange} placeholder="F/No" className="border rounded p-1.5 uppercase font-mono text-[11px] bg-white dark:bg-slate-800 dark:text-slate-100 outline-none" title="Impounding Officer F/No" />
+                    <input type="text" name="impounded_by_rank" value={formData.impounded_by_rank} onChange={handleInputChange} placeholder="Rank" className="border rounded p-1.5 uppercase font-bold text-[11px] bg-white dark:bg-slate-800 dark:text-slate-100 outline-none" title="Impounding Officer Rank" />
+                    <input type="text" name="impounded_by_name" value={formData.impounded_by_name} onChange={handleInputChange} placeholder="Name" className="border rounded p-1.5 uppercase font-bold text-[11px] bg-white dark:bg-slate-800 dark:text-slate-100 outline-none" title="Impounding Officer Name" />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-0.5">Date Cleared (If Applicable)</label>
-                    <input type="date" name="date_cleared" value={formData.date_cleared} onChange={handleInputChange} className="w-full border rounded p-1.5 text-xs bg-white dark:bg-slate-800 dark:text-slate-100" />
+                    <input type="date" name="date_cleared" value={formData.date_cleared} onChange={handleInputChange} className="w-full border rounded p-1.5 text-xs bg-white dark:bg-slate-800 dark:text-slate-100 outline-none" />
                   </div>
                 </div>
 
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Comment</label>
-                  <input type="text" name="comment" value={formData.comment} onChange={handleInputChange} className="w-full border rounded p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100" />
+                  <input type="text" name="comment" value={formData.comment} onChange={handleInputChange} className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
 
                 <button type="submit" className="w-full bg-emerald-800 hover:bg-emerald-900 text-white font-black py-3 rounded-xl shadow-md transition cursor-pointer uppercase tracking-wider text-xs flex items-center justify-center">
@@ -445,7 +478,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
           
           <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-emerald-200 dark:border-slate-800 flex flex-col gap-3">
             
-            {/* 🟢 Search & Regional Filters */}
             <div className="flex flex-col sm:flex-row gap-3 items-center justify-between w-full">
               <div className="relative flex-1 w-full">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
@@ -478,7 +510,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
               </div>
             </div>
 
-            {/* 🟢 Advanced Logistical Filters */}
             <div className="flex flex-wrap items-center gap-2 border-t dark:border-slate-800 pt-3">
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex items-center"><Filter size={12} className="mr-1"/> Logic Filters:</span>
               
@@ -538,7 +569,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                         <td className="px-3 py-2.5 font-extrabold text-emerald-800 dark:text-emerald-400">{stripHtmlTags(item.reg_no)}</td>
                         <td className="px-3 py-2.5 font-bold uppercase">{stripHtmlTags(item.type_make)}</td>
                         <td className="px-3 py-2.5 uppercase">{stripHtmlTags(item.colour)}</td>
-                        <td className="px-3 py-2.5 text-center font-mono">{stripHtmlTags(item.date_in)}</td>
+                        <td className="px-3 py-2.5 text-center font-mono">{stripHtmlTags(item.date_impounded)}</td>
                         <td className="px-3 py-2.5 font-extrabold text-blue-700 dark:text-blue-400">{stripHtmlTags(item.case_no)}</td>
                         <td className="px-3 py-2.5 uppercase font-semibold">{stripHtmlTags(item.reason)}</td>
                         <td className="px-3 py-2.5 text-center">
