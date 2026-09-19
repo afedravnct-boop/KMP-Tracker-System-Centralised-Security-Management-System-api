@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, 
-  Filter, Save, Truck, Loader2, Lock
+  Filter, Save, Truck, Loader2, Lock, RefreshCw
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -86,7 +86,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
   const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
 
-  // 🟢 Form State updated with separate case_no_prefix and case_no_value
   const [formData, setFormData] = useState({
     id: null,
     reg_no: '',
@@ -141,6 +140,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
   }, [fetchExhibits]);
 
   const resetForm = () => {
+    setOperation('new');
     setFormData({
       id: null,
       reg_no: '',
@@ -222,7 +222,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
       setNotification({ type: 'success', text: operation === 'update' ? '✅ Exhibit record updated successfully!' : '✅ Exhibit successfully impounded & logged!' });
       fetchExhibits();
-      setOperation('new');
       resetForm();
       setTimeout(() => setNotification(null), 4000);
     } catch (err) {
@@ -336,14 +335,16 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
         
         {!isReadOnlyObserver && (
           <div className="lg:col-span-4 space-y-4">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-emerald-200 dark:border-slate-700 overflow-hidden">
-              <div className="bg-emerald-900 text-white px-4 py-3 flex justify-between items-center">
+            <div className={`rounded-2xl shadow-sm border overflow-hidden transition-colors ${operation === 'update' ? 'bg-amber-50 border-amber-300 dark:bg-amber-950/20 dark:border-amber-700/50' : 'bg-white dark:bg-slate-900 border-emerald-200 dark:border-slate-700'}`}>
+              <div className={`px-4 py-3 flex justify-between items-center ${operation === 'update' ? 'bg-amber-700 text-white' : 'bg-emerald-900 text-white'}`}>
                 <h3 className="font-extrabold text-xs uppercase tracking-wider flex items-center">
-                  {operation === 'new' ? <PlusCircle size={15} className="mr-1.5 text-emerald-400" /> : <Edit size={15} className="mr-1.5 text-emerald-400" />}
-                  {operation === 'new' ? 'Impound New Exhibit' : `Update Record #${formData.id}`}
+                  {operation === 'new' ? <PlusCircle size={15} className="mr-1.5" /> : <Edit size={15} className="mr-1.5" />}
+                  {operation === 'new' ? 'Impound New Exhibit' : `Updating Record #${formData.id}`}
                 </h3>
                 {operation === 'update' && (
-                  <button type="button" onClick={() => { setOperation('new'); resetForm(); }} className="text-[11px] text-emerald-300 underline font-bold cursor-pointer">Cancel Edit</button>
+                  <button type="button" onClick={resetForm} className="text-[10px] bg-white/20 hover:bg-white/30 text-white px-2 py-1 rounded font-bold cursor-pointer flex items-center transition-colors">
+                    <RefreshCw size={12} className="mr-1"/> Switch to New Entry
+                  </button>
                 )}
               </div>
 
@@ -403,7 +404,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                   </div>
                 </div>
 
-                {/* 🟢 Reordered: Reason comes BEFORE Status */}
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Reason (Offence / Context) *</label>
                   <input type="text" name="reason" required value={formData.reason} onChange={handleInputChange} placeholder="e.g. MURDER BY MOB / MONEY LAUNDERING" className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
@@ -456,7 +456,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                     <input type="text" name="impounded_by_name" value={formData.impounded_by_name} onChange={handleInputChange} placeholder="Name" className="border rounded p-1.5 uppercase font-bold text-[11px] bg-white dark:bg-slate-800 dark:text-slate-100 outline-none" title="Impounding Officer Name" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-0.5">Date Cleared (If Applicable)</label>
+                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-0.5">Date Cleared (Update Later)</label>
                     <input type="date" name="date_cleared" value={formData.date_cleared} onChange={handleInputChange} className="w-full border rounded p-1.5 text-xs bg-white dark:bg-slate-800 dark:text-slate-100 outline-none" />
                   </div>
                 </div>
@@ -466,7 +466,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                   <input type="text" name="comment" value={formData.comment} onChange={handleInputChange} className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
 
-                <button type="submit" className="w-full bg-emerald-800 hover:bg-emerald-900 text-white font-black py-3 rounded-xl shadow-md transition cursor-pointer uppercase tracking-wider text-xs flex items-center justify-center">
+                <button type="submit" className={`w-full text-white font-black py-3 rounded-xl shadow-md transition cursor-pointer uppercase tracking-wider text-xs flex items-center justify-center ${operation === 'update' ? 'bg-amber-700 hover:bg-amber-800' : 'bg-emerald-800 hover:bg-emerald-900'}`}>
                   <Save size={15} className="mr-1.5"/> {operation === 'new' ? 'Commit Exhibit Record' : 'Save Record Updates'}
                 </button>
               </form>
@@ -542,6 +542,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
               <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700 text-xs whitespace-nowrap">
                 <thead className="bg-emerald-900 text-white sticky top-0 z-10 font-black text-[10px]">
                   <tr>
+                    {/* 🟢 Display S/NO automatically auto-generates sequential numbering for UI consistency */}
                     <th className="px-3 py-3 text-center w-12">S/NO</th>
                     <th className="px-3 py-3 text-left">REG NO</th>
                     <th className="px-3 py-3 text-left">TYPE (MAKE)</th>
@@ -564,9 +565,10 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                     <tr><td colSpan="13" className="text-center py-8 text-slate-400 font-bold">No impounded fleet or exhibits found matching your filters.</td></tr>
                   ) : (
                     filteredExhibits.map((item, index) => (
-                      <tr key={item.id || item.sn || index} onClick={() => populateEditForm(item)} className="hover:bg-emerald-50/60 dark:hover:bg-slate-800 transition-colors cursor-pointer group">
+                      <tr key={item.id || item.sn || index} onClick={() => populateEditForm(item)} title="Click to edit this record" className="hover:bg-amber-50 dark:hover:bg-slate-800 transition-colors cursor-pointer group">
+                        {/* 🟢 Uses React index + 1 to ensure UI numbering is perfectly sequential without gaps */}
                         <td className="px-3 py-2.5 text-center font-black">{index + 1}</td>
-                        <td className="px-3 py-2.5 font-extrabold text-emerald-800 dark:text-emerald-400">{stripHtmlTags(item.reg_no)}</td>
+                        <td className="px-3 py-2.5 font-extrabold text-emerald-800 dark:text-emerald-400 group-hover:text-amber-700">{stripHtmlTags(item.reg_no)}</td>
                         <td className="px-3 py-2.5 font-bold uppercase">{stripHtmlTags(item.type_make)}</td>
                         <td className="px-3 py-2.5 uppercase">{stripHtmlTags(item.colour)}</td>
                         <td className="px-3 py-2.5 text-center font-mono">{stripHtmlTags(item.date_impounded)}</td>
