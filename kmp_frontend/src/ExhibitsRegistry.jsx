@@ -53,7 +53,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, isReadOnlyObserver = false }) => {
+const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen = () => {}, isReadOnlyObserver = false }) => {
   const [serverExhibits, setServerExhibits] = useState([]);
   const [isFetching, setIsFetching] = useState(false);
   const [operation, setOperation] = useState('new');
