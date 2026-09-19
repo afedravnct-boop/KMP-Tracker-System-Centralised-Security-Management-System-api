@@ -36,7 +36,7 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
 
 const MetricCard = ({ title, value, colorClass }) => (
   <div className="bg-white dark:bg-slate-800 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-900 shadow-sm flex flex-col items-center justify-center text-center">
-    <h4 className="text-[9px] font-extrabold mb-1 uppercase tracking-wider text-emerald-800 dark:text-emerald-400">{title}</h4>
+    <h4 className="text-[9px] font-extrabold mb-1 uppercase tracking-wider text-emerald-800 dark:text-emerald-400 truncate w-full">{title}</h4>
     <div className={`text-base font-black leading-none ${colorClass}`}>{value}</div>
   </div>
 );
@@ -235,7 +235,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     
     let isStandardStatus = STATUS_OPTIONS.includes((item.status || '').toUpperCase());
     
-    // 🟢 Extract Prefix and Value safely from the combined string
     let extractedPrefix = '';
     let extractedValue = item.case_no || '';
     
@@ -243,7 +242,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     if (matchingPrefix) {
       extractedPrefix = matchingPrefix;
       extractedValue = extractedValue.substring(matchingPrefix.length).trim();
-      // Remove any lingering colons or hyphens
       if (extractedValue.startsWith(':') || extractedValue.startsWith('-')) {
         extractedValue = extractedValue.substring(1).trim();
       }
@@ -291,13 +289,20 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     });
   }, [serverExhibits, dateFilter, filterCaseType, filterStatus, filterUnit]);
 
+  // 🟢 Updated Metrics: Aligned with the operational statuses
   const metrics = useMemo(() => {
+    const getCount = (statusName) => 
+      filteredExhibits.filter(e => (e.status || '').toUpperCase() === statusName).length;
+
     return {
       total: filteredExhibits.length,
-      court: filteredExhibits.filter(e => (e.status || '').toUpperCase().includes('COURT')).length,
-      investigating: filteredExhibits.filter(e => (e.status || '').toUpperCase().includes('INVESTIGATION')).length,
-      motorcycles: filteredExhibits.filter(e => (e.type_make || '').toUpperCase().includes('BAJAJI') || (e.type_make || '').toUpperCase().includes('M/CYCLE')).length,
-      vehicles: filteredExhibits.filter(e => !(e.type_make || '').toUpperCase().includes('BAJAJI')).length
+      investigating: getCount('UNDER INVESTIGATION'),
+      pendingCourt: getCount('PENDING COURT'),
+      inCourt: getCount('IN COURT'),
+      unclaimed: getCount('UNCLAIMED'),
+      forfeited: getCount('FORFEITED'),
+      cleared: getCount('CLEARED'),
+      disposed: getCount('DISPOSED BY COURT')
     };
   }, [filteredExhibits]);
 
@@ -323,12 +328,16 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
         )}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <MetricCard title="Total Exhibits" value={metrics.total} colorClass="text-emerald-900 dark:text-emerald-100" />
-        <MetricCard title="Pending / In Court" value={metrics.court} colorClass="text-blue-700 dark:text-blue-400" />
+      {/* 🟢 Synchronized Metrics Cards (Reflecting all updated statuses) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2.5">
+        <MetricCard title="Total Exhibits" value={metrics.total} colorClass="text-emerald-950 dark:text-emerald-100" />
         <MetricCard title="Under Investigation" value={metrics.investigating} colorClass="text-purple-700 dark:text-purple-400" />
-        <MetricCard title="Motorcycles (Bajaji)" value={metrics.motorcycles} colorClass="text-amber-700 dark:text-amber-400" />
-        <MetricCard title="Motor Vehicles" value={metrics.vehicles} colorClass="text-emerald-700 dark:text-emerald-400" />
+        <MetricCard title="Pending Court" value={metrics.pendingCourt} colorClass="text-indigo-700 dark:text-indigo-400" />
+        <MetricCard title="In Court" value={metrics.inCourt} colorClass="text-blue-700 dark:text-blue-400" />
+        <MetricCard title="Unclaimed" value={metrics.unclaimed} colorClass="text-slate-700 dark:text-slate-300" />
+        <MetricCard title="Forfeited" value={metrics.forfeited} colorClass="text-red-700 dark:text-red-400" />
+        <MetricCard title="Cleared" value={metrics.cleared} colorClass="text-emerald-700 dark:text-emerald-400" />
+        <MetricCard title="Disposed By Court" value={metrics.disposed} colorClass="text-teal-700 dark:text-teal-400" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -404,6 +413,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                   </div>
                 </div>
 
+                {/* 🟢 Reordered: Reason comes BEFORE Status */}
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Reason (Offence / Context) *</label>
                   <input type="text" name="reason" required value={formData.reason} onChange={handleInputChange} placeholder="e.g. MURDER BY MOB / MONEY LAUNDERING" className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
@@ -542,7 +552,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
               <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700 text-xs whitespace-nowrap">
                 <thead className="bg-emerald-900 text-white sticky top-0 z-10 font-black text-[10px]">
                   <tr>
-                    {/* 🟢 Display S/NO automatically auto-generates sequential numbering for UI consistency */}
                     <th className="px-3 py-3 text-center w-12">S/NO</th>
                     <th className="px-3 py-3 text-left">REG NO</th>
                     <th className="px-3 py-3 text-left">TYPE (MAKE)</th>
@@ -566,7 +575,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                   ) : (
                     filteredExhibits.map((item, index) => (
                       <tr key={item.id || item.sn || index} onClick={() => populateEditForm(item)} title="Click to edit this record" className="hover:bg-amber-50 dark:hover:bg-slate-800 transition-colors cursor-pointer group">
-                        {/* 🟢 Uses React index + 1 to ensure UI numbering is perfectly sequential without gaps */}
                         <td className="px-3 py-2.5 text-center font-black">{index + 1}</td>
                         <td className="px-3 py-2.5 font-extrabold text-emerald-800 dark:text-emerald-400 group-hover:text-amber-700">{stripHtmlTags(item.reg_no)}</td>
                         <td className="px-3 py-2.5 font-bold uppercase">{stripHtmlTags(item.type_make)}</td>
@@ -576,9 +584,12 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                         <td className="px-3 py-2.5 uppercase font-semibold">{stripHtmlTags(item.reason)}</td>
                         <td className="px-3 py-2.5 text-center">
                           <span className={`px-2 py-0.5 rounded-full font-extrabold text-[9px] ${
-                            (item.status || '').toUpperCase() === 'COURT' || (item.status || '').toUpperCase() === 'IN COURT' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
-                            (item.status || '').toUpperCase() === 'RSA' || (item.status || '').toUpperCase() === 'PENDING COURT' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
-                            (item.status || '').toUpperCase() === 'CLEARED' || (item.status || '').toUpperCase() === 'DISPOSED BY COURT' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                            (item.status || '').toUpperCase() === 'IN COURT' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                            (item.status || '').toUpperCase() === 'PENDING COURT' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' :
+                            (item.status || '').toUpperCase() === 'UNDER INVESTIGATION' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
+                            (item.status || '').toUpperCase() === 'CLEARED' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                            (item.status || '').toUpperCase() === 'DISPOSED BY COURT' ? 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300' :
+                            (item.status || '').toUpperCase() === 'FORFEITED' ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' :
                             'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
                           }`}>
                             {stripHtmlTags(item.status)}
