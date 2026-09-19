@@ -303,6 +303,10 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const canViewEst = checkClearance(currentUser, 'acc_est', true);
   const canViewAnalytics = checkClearance(currentUser, 'acc_analytics', true);
   const canViewHR = checkClearance(currentUser, 'acc_hr', true);
+  
+  // 🟢 Added Clearance Check for Exhibits
+  const canViewExhibits = checkClearance(currentUser, 'acc_exhibits', true);
+  
   const canViewApprovals = checkClearance(currentUser, 'acc_approvals', isAdmin || ['RPC', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role));
   const canViewConsolidated = checkClearance(currentUser, 'acc_consolidated', isAdmin || currentUser?.permissions?.consolidated);
   const canExportData = checkClearance(currentUser, 'export_data', isRPC || currentUser?.permissions?.export_data);
@@ -402,6 +406,19 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
             <div>
               <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Establishments</h3>
               <p className="text-[11px] text-slate-500 dark:text-emerald-200/70 font-medium mt-0.5 leading-snug">Map divisions, stations, posts.</p>
+            </div>
+          </div>
+        )}
+
+        {/* 🟢 IMPOUNDED EXHIBITS CARD ADDED HERE */}
+        {canViewExhibits && (
+          <div onClick={() => setCurrentPage('exhibits')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-teal-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-teal-400 dark:hover:border-teal-500 dark:hover:bg-slate-800 group">
+            <div className="w-10 h-10 rounded-full bg-teal-50 dark:bg-teal-500/20 text-teal-600 dark:text-teal-400 flex items-center justify-center mr-3 group-hover:bg-teal-600 group-hover:text-white dark:group-hover:bg-teal-500 dark:group-hover:shadow-[0_0_15px_rgba(20,184,166,0.5)] transition-all shrink-0">
+              <Truck size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Impounded Exhibits</h3>
+              <p className="text-[11px] text-slate-500 dark:text-teal-200/70 font-medium mt-0.5 leading-snug">Fleet & property registry.</p>
             </div>
           </div>
         )}
