@@ -143,103 +143,105 @@ const AnalyticsDashboard = ({
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : (currentUser?.region || 'KMP HEADQUARTERS'));
   const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : (currentUser?.station || 'KMP HEADQUARTERS'));
 
-  const comprehensiveManpowerAnalysis = useMemo(() => {
+  // 🟢 DYNAMIC MANPOWER ANALYSIS MATRIX
+  const manpowerAnalysis = useMemo(() => {
     const rolls = Array.isArray(resolvedNominalRolls) ? resolvedNominalRolls : [];
-    const crimes = Array.isArray(resolvedCrimeRegistry) ? resolvedCrimeRegistry.filter(r => !isLockupLog(r)) : [];
-    const ops = Array.isArray(resolvedOperationalStats) ? resolvedOperationalStats : [];
+    
+    const unitsSet = new Set();
+    const reasonsSet = new Set();
+    const regionMap = {};
 
-    const regionSummary = {};
+    // Initialize Hierarchy
     Object.keys(REGIONAL_HIERARCHY).forEach(reg => {
-      regionSummary[reg] = { region: reg, officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0, stations: {} };
-      REGIONAL_HIERARCHY[reg].forEach(stn => {
-        regionSummary[reg].stations[stn] = { station: stn, officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0 };
-      });
+      regionMap[reg] = { region: reg, units: {}, reasons: {}, totalDeployable: 0, totalNonDeployable: 0, stations: {} };
     });
-    regionSummary["GENERAL / OTHER"] = { region: "GENERAL / OTHER", officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0, stations: {} };
+    regionMap["GENERAL / OTHER"] = { region: "GENERAL / OTHER", units: {}, reasons: {}, totalDeployable: 0, totalNonDeployable: 0, stations: {} };
+
+    const grandTotals = { deployableTotal: 0, nonDeployableTotal: 0, units: {}, reasons: {} };
 
     rolls.forEach(o => {
       let stn = (o.station || 'UNKNOWN').trim().toUpperCase();
       if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
-
       const reg = getOfficialRegionForStation(stn, o.region);
-      const targetReg = regionSummary[reg] || regionSummary["GENERAL / OTHER"];
+
+      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion) return;
+      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation) return;
+
+      const targetReg = regionMap[reg] || regionMap["GENERAL / OTHER"];
+      if (!targetReg.stations[stn]) {
+        targetReg.stations[stn] = { station: stn, units: {}, reasons: {}, totalDeployable: 0, totalNonDeployable: 0 };
+      }
+      const targetStn = targetReg.stations[stn];
+
+      // 🟢 Determine Deployability & Casualty Logic
+      const depStr = String(o.deployability || o.deployable_status || '').toUpperCase();
+      const statStr = String(o.status || '').toUpperCase();
+      const casStr = String(o.casualty || o.casualty_type || o.reason || '').toUpperCase();
       
-      targetReg.officers += 1;
-      const sex = (o.sex || '').trim().toUpperCase();
-      if (sex.startsWith('F')) targetReg.female += 1;
-      else targetReg.male += 1;
+      const isNonDeployable = 
+          depStr.includes('NON') || 
+          statStr.includes('NON') || 
+          statStr === 'CASUALTY' || 
+          (casStr !== '' && casStr !== 'NIL' && casStr !== 'N/A' && casStr !== 'NONE');
 
-      const rank = (o.rank || 'UNRANKED').trim().toUpperCase();
-      targetReg.ranks[rank] = (targetReg.ranks[rank] || 0) + 1;
+      if (isNonDeployable) {
+          // Identify the reason (e.g. SICK, COURSE, MATERNITY)
+          let reason = casStr && casStr !== 'NIL' && casStr !== 'N/A' && casStr !== 'NONE' 
+              ? casStr 
+              : (depStr.includes('NON') ? statStr || 'UNSPECIFIED' : statStr);
+          
+          if (!reason || reason === 'NIL' || reason === 'NON DEPLOYABLE') reason = 'UNSPECIFIED';
+          
+          // Format specific casualty headers
+          if (reason.includes('ANNUAL')) reason = 'ANN/LEAVE';
+          else if (reason.includes('MATERNITY')) reason = 'MATERNITY';
+          else if (reason.includes('SICK')) reason = 'SICK';
+          else if (reason.includes('COURSE')) reason = 'COURSE';
+          else if (reason.includes('AWOL')) reason = 'AWOL';
+          
+          reason = reason.substring(0, 15).trim();
 
-      if (!targetReg.stations[stn]) {
-        targetReg.stations[stn] = { station: stn, officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0 };
+          reasonsSet.add(reason);
+          targetReg.reasons[reason] = (targetReg.reasons[reason] || 0) + 1;
+          targetStn.reasons[reason] = (targetStn.reasons[reason] || 0) + 1;
+          targetReg.totalNonDeployable += 1;
+          targetStn.totalNonDeployable += 1;
+          
+          grandTotals.reasons[reason] = (grandTotals.reasons[reason] || 0) + 1;
+          grandTotals.nonDeployableTotal += 1;
+      } else {
+          // Identify the Unit / Directorate (e.g. GD, CID, CI, TAR)
+          let unit = (o.section || o.dir || o.unit || 'GD').toUpperCase();
+          
+          if (unit.includes('GENERAL DUTIES')) unit = 'GD';
+          else if (unit.includes('CRIME INTELLIGENCE')) unit = 'CI';
+          else if (unit.includes('TRAFFIC')) unit = 'TAR';
+          
+          unit = unit.trim();
+
+          unitsSet.add(unit);
+          targetReg.units[unit] = (targetReg.units[unit] || 0) + 1;
+          targetStn.units[unit] = (targetStn.units[unit] || 0) + 1;
+          targetReg.totalDeployable += 1;
+          targetStn.totalDeployable += 1;
+          
+          grandTotals.units[unit] = (grandTotals.units[unit] || 0) + 1;
+          grandTotals.deployableTotal += 1;
       }
-      targetReg.stations[stn].officers += 1;
-      if (sex.startsWith('F')) targetReg.stations[stn].female += 1;
-      else targetReg.stations[stn].male += 1;
-      targetReg.stations[stn].ranks[rank] = (targetReg.stations[stn].ranks[rank] || 0) + 1;
     });
 
-    crimes.forEach(c => {
-      let stn = (c.station || 'UNKNOWN').trim().toUpperCase();
-      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+    // Sort column headers alphabetically for standard display
+    const uniqueUnits = Array.from(unitsSet).sort();
+    const uniqueReasons = Array.from(reasonsSet).sort();
 
-      const reg = getOfficialRegionForStation(stn, c.region);
-      const targetReg = regionSummary[reg] || regionSummary["GENERAL / OTHER"];
-      targetReg.crimes += 1;
-
-      if (!targetReg.stations[stn]) {
-        targetReg.stations[stn] = { station: stn, officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0 };
-      }
-      targetReg.stations[stn].crimes += 1;
-    });
-
-    ops.forEach(op => {
-      let stn = (op.station || 'UNKNOWN').trim().toUpperCase();
-      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
-
-      const reg = getOfficialRegionForStation(stn, op.region);
-      const targetReg = regionSummary[reg] || regionSummary["GENERAL / OTHER"];
-      const arrestsCount = Number(op.arrests || op.suspects || 1);
-      targetReg.arrests += arrestsCount;
-
-      if (!targetReg.stations[stn]) {
-        targetReg.stations[stn] = { station: stn, officers: 0, male: 0, female: 0, ranks: {}, crimes: 0, arrests: 0 };
-      }
-      targetReg.stations[stn].arrests += arrestsCount;
-    });
-
-    return Object.values(regionSummary).map(item => ({
+    // Map rows and remove empty structures
+    const rows = Object.values(regionMap).filter(r => r.totalDeployable > 0 || r.totalNonDeployable > 0).map(item => ({
       ...item,
-      crimePerOfficer: item.officers > 0 ? (item.crimes / item.officers).toFixed(2) : '0.00',
-      arrestsPerOfficer: item.officers > 0 ? (item.arrests / item.officers).toFixed(2) : '0.00',
-      dominantRank: Object.entries(item.ranks).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A',
-      stationList: Object.values(item.stations).map(stn => ({
-        ...stn,
-        crimePerOfficer: stn.officers > 0 ? (stn.crimes / stn.officers).toFixed(2) : '0.00',
-        arrestsPerOfficer: stn.officers > 0 ? (stn.arrests / stn.officers).toFixed(2) : '0.00',
-        dominantRank: Object.entries(stn.ranks).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A'
-      }))
+      stationList: Object.values(item.stations).filter(s => s.totalDeployable > 0 || s.totalNonDeployable > 0).sort((a,b) => a.station.localeCompare(b.station))
     }));
-  }, [resolvedNominalRolls, resolvedCrimeRegistry, resolvedOperationalStats]);
 
-  const manpowerGrandTotals = useMemo(() => {
-    const totalOfficers = comprehensiveManpowerAnalysis.reduce((sum, r) => sum + r.officers, 0);
-    const totalMale = comprehensiveManpowerAnalysis.reduce((sum, r) => sum + r.male, 0);
-    const totalFemale = comprehensiveManpowerAnalysis.reduce((sum, r) => sum + r.female, 0);
-    const totalCrimes = comprehensiveManpowerAnalysis.reduce((sum, r) => sum + r.crimes, 0);
-    const totalArrests = comprehensiveManpowerAnalysis.reduce((sum, r) => sum + r.arrests, 0);
-
-    return {
-      totalOfficers,
-      totalMale,
-      totalFemale,
-      totalCrimes,
-      crimePerOfficer: totalOfficers > 0 ? (totalCrimes / totalOfficers).toFixed(2) : '0.00',
-      arrestsPerOfficer: totalOfficers > 0 ? (totalArrests / totalOfficers).toFixed(2) : '0.00'
-    };
-  }, [comprehensiveManpowerAnalysis]);
+    return { rows, uniqueUnits, uniqueReasons, grandTotals };
+  }, [resolvedNominalRolls, selectedRegion, selectedStation]);
 
   const currentDataset = useMemo(() => {
     let baseData = [];
@@ -491,24 +493,21 @@ const AnalyticsDashboard = ({
     return { rows: rows.sort((a, b) => b.currentArrests - a.currentArrests), currentWeek, previousWeek };
   }, [resolvedOperationalStats, selectedRegion, selectedStation]);
 
-// 🟢 ROUTED SECURE BACKEND EXPORT (Clean Analytics Relational Report)
-const handleExportExcel = async () => {
+  const handleExportExcel = async () => {
     try {
-      // 🟢 FIX: Change from /api/v1/hr/export-ledger to /api/v1/analytics/export
       const response = await authFetch('/api/v1/analytics/export'); 
       if (!response.ok) throw new Error("Failed to securely generate the report.");
 
       const blob = await response.blob();
       
-      // 🟢 THE FIX: Extract the EXACT filename from the backend headers
-      let finalFilename = 'SECURE_RELATIONAL_REPORT.zip'; // Fallback
+      let finalFilename = 'SECURE_RELATIONAL_REPORT.zip'; 
       const disposition = response.headers.get('content-disposition');
       
       if (disposition && disposition.indexOf('attachment') !== -1) {
         const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
         const matches = filenameRegex.exec(disposition);
         if (matches != null && matches[1]) {
-          finalFilename = matches[1].replace(/['"]/g, ''); // Removes any extra quotes
+          finalFilename = matches[1].replace(/['"]/g, ''); 
         }
       }
 
@@ -516,7 +515,6 @@ const handleExportExcel = async () => {
       const link = document.createElement('a');
       link.href = url;
       
-      // 🟢 Uses the exact backend name instead of hardcoding
       link.setAttribute('download', finalFilename); 
       
       document.body.appendChild(link);
@@ -529,6 +527,7 @@ const handleExportExcel = async () => {
       alert(`Export Failed: ${error.message}`);
     }
   };
+
   return (
     <div className="p-3 max-w-[1600px] mx-auto space-y-3 font-sans min-h-screen" style={{ backgroundColor: '#f4eee2' }}>
       
@@ -632,7 +631,7 @@ const handleExportExcel = async () => {
         </div>
 
         <span className="text-[11px] font-extrabold text-[#596E47] bg-[#e9eedf] px-2 py-0.5 rounded border border-[#cfe1b9]">
-          Total: {activeDomain === 'RELATIONAL' ? relationalImpactMatrix.length : activeDomain === 'MANPOWER_DEEP' ? comprehensiveManpowerAnalysis.length : activeDomain === 'CRIME_SUMMARY' ? crimeSummaryGrandTotal : totalRecords}
+          Total: {activeDomain === 'RELATIONAL' ? relationalImpactMatrix.length : activeDomain === 'MANPOWER_DEEP' ? manpowerAnalysis.rows.length : activeDomain === 'CRIME_SUMMARY' ? crimeSummaryGrandTotal : totalRecords}
         </span>
       </div>
 
@@ -695,85 +694,138 @@ const handleExportExcel = async () => {
           </div>
         </div>
       ) : activeDomain === 'MANPOWER_DEEP' ? (
-        <div className="space-y-3">
+        <div className="space-y-6">
           <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
             <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Users className="mr-2 text-[#C5A880] w-4 h-4" /> Deep Manpower Multi-Relational Analysis
+              <Users className="mr-2 text-[#C5A880] w-4 h-4" /> Multi-Layered Manpower Matrix Analysis
             </h2>
             <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
-              Analyzing force distribution across multiple parameters: Strength, Gender ratios, Dominant ranks, Crime workload, and Arrest efficiency. Click a region to view stations.
+              Detailed structural breakdown of personnel force distribution by functional Units/Directorates and categorized Operational Casualties. Click a region to expand details.
             </p>
           </div>
 
+          {/* 🟢 DEPLOYABLE PERSONNEL (UNITS) TABLE */}
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-            <table className="min-w-full divide-y divide-[#e2d6c3]">
-              <thead className="bg-[#efece6]">
-                <tr>
-                  <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Command Region / Division</th>
-                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Total Officers</th>
-                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Male / Female</th>
-                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Dominant Rank</th>
-                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Recorded Crimes</th>
-                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Crime / Officer</th>
-                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Arrests / Officer</th>
-                </tr>
-              </thead>
-              <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
-                {comprehensiveManpowerAnalysis.map((row, index) => {
-                  const isExpanded = !!expandedManpowerRegions[row.region];
-                  const hasStations = row.stationList && row.stationList.length > 0;
+             <div className="bg-[#efece6] px-4 py-2 border-b border-[#d3c2a8] flex items-center justify-between">
+                <h3 className="text-xs font-black text-[#3a3225] uppercase">General Summary (Deployable Personnel)</h3>
+                <span className="text-[10px] font-extrabold text-[#596E47] bg-[#e9eedf] px-2 py-0.5 rounded border border-[#cfe1b9]">
+                  Total Active: {manpowerAnalysis.grandTotals.deployableTotal}
+                </span>
+             </div>
+             <div className="overflow-x-auto w-full custom-scrollbar">
+               <table className="min-w-full divide-y divide-[#e2d6c3]">
+                  <thead className="bg-[#efece6]">
+                     <tr>
+                       <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase sticky left-0 bg-[#efece6] z-10 w-48 shadow-[1px_0_0_#d3c2a8]">Command Region / Station</th>
+                       {manpowerAnalysis.uniqueUnits.map(u => (
+                          <th key={u} className="px-2 py-2 text-center text-[10px] font-bold text-[#594d3c] uppercase border-l border-[#e2d6c3]/50">{u}</th>
+                       ))}
+                       <th className="px-3 py-2 text-center text-[11px] font-bold text-[#3a3225] uppercase border-l border-[#e2d6c3] shadow-inner">Total</th>
+                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#e2d6c3]">
+                     {manpowerAnalysis.rows.map(reg => {
+                        const isExpanded = !!expandedManpowerRegions[reg.region];
+                        return (
+                          <React.Fragment key={reg.region}>
+                            <tr onClick={() => toggleManpowerRegion(reg.region)} className="bg-[#efece6]/50 hover:bg-[#e9eedf]/50 cursor-pointer transition-colors border-t border-[#d3c2a8] select-none">
+                               <td className="px-3 py-2 text-[11px] font-extrabold text-[#3a3225] uppercase flex items-center space-x-1.5 sticky left-0 bg-[#efece6]/50 shadow-[1px_0_0_#d3c2a8]">
+                                  <span className="text-[#596E47]">{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+                                  <span>{reg.region}</span>
+                               </td>
+                               {manpowerAnalysis.uniqueUnits.map(u => (
+                                  <td key={u} className="px-2 py-2 text-[11px] text-center font-bold text-[#596E47] border-l border-[#e2d6c3]/50 bg-white/30">{reg.units[u] || ''}</td>
+                               ))}
+                               <td className="px-3 py-2 text-[11px] text-center font-black text-emerald-800 border-l border-[#e2d6c3] bg-white/30">{reg.totalDeployable}</td>
+                            </tr>
+                            {isExpanded && reg.stationList.map((stn, sIdx) => (
+                               <tr key={`dep-${sIdx}`} className="bg-white hover:bg-[#f7f3eb] transition-colors">
+                                  <td className="px-3 py-1.5 pl-7 text-[10px] font-semibold text-[#594d3c] uppercase sticky left-0 bg-white shadow-[1px_0_0_#e2d6c3]">
+                                     — {stn.station}
+                                  </td>
+                                  {manpowerAnalysis.uniqueUnits.map(u => (
+                                     <td key={u} className="px-2 py-1.5 text-[10px] text-center font-medium text-slate-700 border-l border-[#e2d6c3]/50">{stn.units[u] || ''}</td>
+                                  ))}
+                                  <td className="px-3 py-1.5 text-[10px] text-center font-bold text-emerald-700 border-l border-[#e2d6c3] bg-[#fbf8f3]">{stn.totalDeployable || ''}</td>
+                               </tr>
+                            ))}
+                          </React.Fragment>
+                        );
+                     })}
+                  </tbody>
+                  <tfoot className="bg-[#efece6] border-t-2 border-[#d3c2a8]">
+                     <tr className="font-extrabold text-[#3a3225]">
+                       <td className="px-3 py-2.5 text-[11px] uppercase tracking-wider sticky left-0 bg-[#efece6] shadow-[1px_0_0_#d3c2a8]">DEPLOYABLE GRAND TOTAL</td>
+                       {manpowerAnalysis.uniqueUnits.map(u => (
+                          <td key={u} className="px-2 py-2.5 text-[11px] text-center border-l border-[#d3c2a8] bg-white/40">{manpowerAnalysis.grandTotals.units[u] || ''}</td>
+                       ))}
+                       <td className="px-3 py-2.5 text-[11px] text-center font-black text-emerald-900 border-l border-[#d3c2a8] bg-[#e9eedf]">{manpowerAnalysis.grandTotals.deployableTotal}</td>
+                     </tr>
+                  </tfoot>
+               </table>
+             </div>
+          </div>
 
-                  return (
-                    <React.Fragment key={index}>
-                      <tr 
-                        onClick={() => toggleManpowerRegion(row.region)}
-                        className="hover:bg-[#e9eedf]/50 cursor-pointer transition-colors border-t border-[#e2d6c3] select-none"
-                      >
-                        <td className="px-3 py-2 text-[11px] font-extrabold text-[#3a3225] uppercase flex items-center space-x-1.5">
-                          <span className="text-[#596E47]">
-                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                          </span>
-                          <span>{row.region}</span>
-                        </td>
-                        <td className="px-3 py-2 text-[11px] text-center font-black text-[#596E47]">{row.officers}</td>
-                        <td className="px-3 py-2 text-[11px] text-center font-bold text-[#736450]">👨‍✈️ {row.male} | 👩‍✈️ {row.female}</td>
-                        <td className="px-3 py-2 text-[11px] text-center font-bold text-amber-900 uppercase">{row.dominantRank}</td>
-                        <td className="px-3 py-2 text-[11px] text-center font-bold text-slate-800">{row.crimes}</td>
-                        <td className="px-3 py-2 text-[11px] text-center font-extrabold text-blue-800">{row.crimePerOfficer}</td>
-                        <td className="px-3 py-2 text-[11px] text-center font-extrabold text-emerald-800">{row.arrestsPerOfficer}</td>
-                      </tr>
-
-                      {isExpanded && hasStations && row.stationList.map((stn, sIdx) => (
-                        <tr key={`stn-sub-${sIdx}`} className="bg-[#f7f3eb] hover:bg-[#ece6d8] transition-colors border-t border-[#e2d6c3]/60">
-                          <td className="px-3 py-1.5 pl-8 text-[11px] font-semibold text-[#594d3c] uppercase flex items-center space-x-1.5">
-                            <span className="text-[10px] text-[#8c7b65]">↳</span>
-                            <span>{stn.station}</span>
-                          </td>
-                          <td className="px-3 py-1.5 text-[11px] text-center font-bold text-[#596E47]">{stn.officers}</td>
-                          <td className="px-3 py-1.5 text-[11px] text-center text-[#736450]">👨‍✈️ {stn.male} | 👩‍✈️ {stn.female}</td>
-                          <td className="px-3 py-1.5 text-[11px] text-center text-amber-900 uppercase">{stn.dominantRank}</td>
-                          <td className="px-3 py-1.5 text-[11px] text-center text-slate-700">{stn.crimes}</td>
-                          <td className="px-3 py-1.5 text-[11px] text-center font-semibold text-blue-700">{stn.crimePerOfficer}</td>
-                          <td className="px-3 py-1.5 text-[11px] text-center font-semibold text-emerald-700">{stn.arrestsPerOfficer}</td>
-                        </tr>
-                      ))}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-
-              <tfoot className="bg-[#efece6] border-t-2 border-[#d3c2a8]">
-                <tr className="font-extrabold text-[#3a3225]">
-                  <td className="px-3 py-2.5 text-[11px] uppercase tracking-wider">GRAND TOTAL</td>
-                  <td className="px-3 py-2.5 text-[11px] text-center font-black text-[#596E47]">{manpowerGrandTotals.totalOfficers}</td>
-                  <td className="px-3 py-2.5 text-[11px] text-center font-bold text-[#736450]">👨‍✈️ {manpowerGrandTotals.totalMale} | 👩‍✈️ {manpowerGrandTotals.totalFemale}</td>
-                  <td className="px-3 py-2.5 text-[11px] text-center font-bold text-amber-900 uppercase">OVERALL</td>
-                  <td className="px-3 py-2.5 text-[11px] text-center font-bold text-slate-800">{manpowerGrandTotals.totalCrimes}</td>
-                  <td className="px-3 py-2.5 text-[11px] text-center font-black text-blue-900">{manpowerGrandTotals.crimePerOfficer}</td>
-                  <td className="px-3 py-2.5 text-[11px] text-center font-black text-emerald-900">{manpowerGrandTotals.arrestsPerOfficer}</td>
-                </tr>
-              </tfoot>
-            </table>
+          {/* 🟢 NON-DEPLOYABLE PERSONNEL (CASUALTIES) TABLE */}
+          <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
+             <div className="bg-[#efece6] px-4 py-2 border-b border-[#d3c2a8] flex items-center justify-between">
+                <h3 className="text-xs font-black text-amber-900 uppercase">Consolidated Casualty / Non-Deployables Summary</h3>
+                <span className="text-[10px] font-extrabold text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-200">
+                  Total Casualties: {manpowerAnalysis.grandTotals.nonDeployableTotal}
+                </span>
+             </div>
+             <div className="overflow-x-auto w-full custom-scrollbar">
+               <table className="min-w-full divide-y divide-[#e2d6c3]">
+                  <thead className="bg-[#efece6]">
+                     <tr>
+                       <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase sticky left-0 bg-[#efece6] z-10 w-48 shadow-[1px_0_0_#d3c2a8]">Command Region / Station</th>
+                       {manpowerAnalysis.uniqueReasons.map(r => (
+                          <th key={r} className="px-2 py-2 text-center text-[10px] font-bold text-amber-800 uppercase border-l border-[#e2d6c3]/50">{r}</th>
+                       ))}
+                       <th className="px-3 py-2 text-center text-[11px] font-bold text-[#3a3225] uppercase border-l border-[#e2d6c3] shadow-inner">Total</th>
+                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#e2d6c3]">
+                     {manpowerAnalysis.rows.map(reg => {
+                        const isExpanded = !!expandedManpowerRegions[reg.region];
+                        return (
+                          <React.Fragment key={reg.region}>
+                            <tr onClick={() => toggleManpowerRegion(reg.region)} className="bg-[#efece6]/50 hover:bg-[#e9eedf]/50 cursor-pointer transition-colors border-t border-[#d3c2a8] select-none">
+                               <td className="px-3 py-2 text-[11px] font-extrabold text-[#3a3225] uppercase flex items-center space-x-1.5 sticky left-0 bg-[#efece6]/50 shadow-[1px_0_0_#d3c2a8]">
+                                  <span className="text-amber-700">{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+                                  <span>{reg.region}</span>
+                               </td>
+                               {manpowerAnalysis.uniqueReasons.map(r => (
+                                  <td key={r} className="px-2 py-2 text-[11px] text-center font-bold text-amber-700 border-l border-[#e2d6c3]/50 bg-white/30">{reg.reasons[r] || ''}</td>
+                               ))}
+                               <td className="px-3 py-2 text-[11px] text-center font-black text-amber-900 border-l border-[#e2d6c3] bg-white/30">{reg.totalNonDeployable}</td>
+                            </tr>
+                            {isExpanded && reg.stationList.map((stn, sIdx) => (
+                               <tr key={`non-${sIdx}`} className="bg-white hover:bg-[#f7f3eb] transition-colors">
+                                  <td className="px-3 py-1.5 pl-7 text-[10px] font-semibold text-[#594d3c] uppercase sticky left-0 bg-white shadow-[1px_0_0_#e2d6c3]">
+                                     — {stn.station}
+                                  </td>
+                                  {manpowerAnalysis.uniqueReasons.map(r => (
+                                     <td key={r} className="px-2 py-1.5 text-[10px] text-center font-medium text-slate-700 border-l border-[#e2d6c3]/50">{stn.reasons[r] || ''}</td>
+                                  ))}
+                                  <td className="px-3 py-1.5 text-[10px] text-center font-bold text-amber-800 border-l border-[#e2d6c3] bg-[#fbf8f3]">{stn.totalNonDeployable || ''}</td>
+                               </tr>
+                            ))}
+                          </React.Fragment>
+                        );
+                     })}
+                  </tbody>
+                  <tfoot className="bg-[#efece6] border-t-2 border-[#d3c2a8]">
+                     <tr className="font-extrabold text-[#3a3225]">
+                       <td className="px-3 py-2.5 text-[11px] uppercase tracking-wider sticky left-0 bg-[#efece6] shadow-[1px_0_0_#d3c2a8]">CASUALTY GRAND TOTAL</td>
+                       {manpowerAnalysis.uniqueReasons.map(r => (
+                          <td key={r} className="px-2 py-2.5 text-[11px] text-center border-l border-[#d3c2a8] bg-white/40 text-amber-800">{manpowerAnalysis.grandTotals.reasons[r] || ''}</td>
+                       ))}
+                       <td className="px-3 py-2.5 text-[11px] text-center font-black text-amber-900 border-l border-[#d3c2a8] bg-amber-50">{manpowerAnalysis.grandTotals.nonDeployableTotal}</td>
+                     </tr>
+                  </tfoot>
+               </table>
+             </div>
           </div>
         </div>
       ) : activeDomain === 'TRENDS' ? (
