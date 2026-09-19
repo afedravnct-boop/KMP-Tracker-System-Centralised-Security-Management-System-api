@@ -2044,7 +2044,6 @@ const DashboardLayout = ({
     checkClearance(currentUser, 'acc_ops', true) ? { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> } : null,
     checkClearance(currentUser, 'acc_stories', true) ? { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> } : null,
     checkClearance(currentUser, 'acc_est', true) ? { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> } : null,
-    // 🟢 Impounded Exhibits Sidebar Entry Added Here
     checkClearance(currentUser, 'acc_exhibits', true) ? { name: 'Impounded Exhibits', id: 'exhibits', icon: <Truck size={20} className="text-emerald-400" /> } : null,
     checkClearance(currentUser, 'acc_analytics', true) ? { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> } : null,
     checkClearance(currentUser, 'acc_hr', true) ? { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> } : null,
@@ -2265,11 +2264,7 @@ const handleExportLogs = async () => {
             <img src="/upf_badge.png" alt="watermark" className="w-1/2 max-w-2xl grayscale object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
           </div>
           
-          {React.Children.map(children, child => 
-            (React.isValidElement(child) && typeof child.type !== 'string') 
-              ? React.cloneElement(child, { setSidebarOpen: setSidebarOpen }) 
-              : child
-          )}  
+          {children}
         </main>
       </div>
 
@@ -2655,7 +2650,7 @@ const App = () => {
           console.warn("Network congestion or temporary blip intercepted. Holding execution:", error.message);
         }
       } 
-    };    
+    };   
 
     fetchAllData();
     const pollingInterval = setInterval(fetchAllData, 15000);
@@ -2958,7 +2953,6 @@ const App = () => {
             currentUser={currentUser} 
             canViewGlobal={canViewGlobal}
             isReadOnlyObserver={isReadOnlyObserver} 
-            setSidebarOpen={setSidebarOpen}
           />
         ) : (
           <HomeDashboard 
