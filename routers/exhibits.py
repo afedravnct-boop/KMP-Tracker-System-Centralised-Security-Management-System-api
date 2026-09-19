@@ -80,7 +80,6 @@ def create_exhibit(
             reg_no=data.get("reg_no"),
             type_make=data.get("type_make"),
             colour=data.get("colour"),
-            date_in=data.get("date_in"),
             case_no=data.get("case_no"),
             reason=data.get("reason"),
             status=data.get("status", "COURT"),
