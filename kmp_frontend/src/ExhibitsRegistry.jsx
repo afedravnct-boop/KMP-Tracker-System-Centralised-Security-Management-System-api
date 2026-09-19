@@ -53,7 +53,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen = () => {}, isReadOnlyObserver = false }) => {
+const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen, isReadOnlyObserver = false }) => {
   const [serverExhibits, setServerExhibits] = useState([]);
   const [isFetching, setIsFetching] = useState(false);
   const [operation, setOperation] = useState('new');
@@ -414,7 +414,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
             </div>
           </div>
 
-          <ExpandableTableCard title="Impounded Fleet & Property Exhibits Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+          <ExpandableTableCard title="Impounded Fleet & Property Exhibits Ledger" onToggle={(expanded) => { setSidebarOpen?.(!expanded); }}>
             <div className="overflow-x-auto w-full max-h-[65vh] custom-scrollbar">
               <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700 text-xs whitespace-nowrap">
                 <thead className="bg-emerald-900 text-white sticky top-0 z-10 font-black text-[10px]">
