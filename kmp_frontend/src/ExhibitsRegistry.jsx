@@ -14,8 +14,8 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 Standardized Dropdown Options
-const CASE_REF_TYPES = ['SD REF', 'CRB', 'TAR', 'GEF', 'DEF'];
+// 🟢 Standardized Dropdown Options with Colons Appended
+const CASE_REF_TYPES = ['SD REF:', 'CRB:', 'TAR:', 'GEF:', 'DEF:'];
 const STATUS_OPTIONS = ['UNDER INVESTIGATION', 'PENDING COURT', 'IN COURT', 'UNCLAIMED', 'FORFEITED', 'CLEARED', 'DISPOSED BY COURT', 'CUSTOM'];
 const POLICE_UNITS = [
   '1ST DIV', '999 ERU', 'ASTU', 'CI', 'CID', 'CT', 'DIS', 'EPPU', 'FFU', 'FIRE', 'FLYING SQUAD', 'FSU', 
@@ -238,10 +238,13 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     let extractedPrefix = '';
     let extractedValue = item.case_no || '';
     
-    const matchingPrefix = CASE_REF_TYPES.find(p => extractedValue.toUpperCase().startsWith(p));
-    if (matchingPrefix) {
-      extractedPrefix = matchingPrefix;
-      extractedValue = extractedValue.substring(matchingPrefix.length).trim();
+    // 🟢 Smart Parser: Handles older database entries that might not have colons yet
+    const basePrefixes = ['SD REF', 'CRB', 'TAR', 'GEF', 'DEF'];
+    const matchingBase = basePrefixes.find(p => extractedValue.toUpperCase().startsWith(p));
+    
+    if (matchingBase) {
+      extractedPrefix = matchingBase + ':';
+      extractedValue = extractedValue.substring(matchingBase.length).trim();
       if (extractedValue.startsWith(':') || extractedValue.startsWith('-')) {
         extractedValue = extractedValue.substring(1).trim();
       }
@@ -273,7 +276,11 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       else if (dateFilter === 'LAST 30 DAYS' && diffDays > 30) return false;
       else if (dateFilter === 'LAST 90 DAYS' && diffDays > 90) return false;
 
-      if (filterCaseType !== 'ALL' && !(item.case_no || '').toUpperCase().startsWith(filterCaseType)) return false;
+      // 🟢 Filter accommodates with or without colon for backward compatibility
+      if (filterCaseType !== 'ALL') {
+        const baseCaseType = filterCaseType.replace(':', '');
+        if (!(item.case_no || '').toUpperCase().startsWith(baseCaseType)) return false;
+      }
 
       if (filterStatus !== 'ALL') {
         if (filterStatus === 'CUSTOM') {
@@ -289,7 +296,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     });
   }, [serverExhibits, dateFilter, filterCaseType, filterStatus, filterUnit]);
 
-  // 🟢 Updated Metrics: Aligned with the operational statuses
   const metrics = useMemo(() => {
     const getCount = (statusName) => 
       filteredExhibits.filter(e => (e.status || '').toUpperCase() === statusName).length;
@@ -328,7 +334,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
         )}
       </div>
 
-      {/* 🟢 Synchronized Metrics Cards (Reflecting all updated statuses) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2.5">
         <MetricCard title="Total Exhibits" value={metrics.total} colorClass="text-emerald-950 dark:text-emerald-100" />
         <MetricCard title="Under Investigation" value={metrics.investigating} colorClass="text-purple-700 dark:text-purple-400" />
@@ -413,7 +418,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                   </div>
                 </div>
 
-                {/* 🟢 Reordered: Reason comes BEFORE Status */}
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Reason (Offence / Context) *</label>
                   <input type="text" name="reason" required value={formData.reason} onChange={handleInputChange} placeholder="e.g. MURDER BY MOB / MONEY LAUNDERING" className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
@@ -587,8 +591,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                             (item.status || '').toUpperCase() === 'IN COURT' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
                             (item.status || '').toUpperCase() === 'PENDING COURT' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' :
                             (item.status || '').toUpperCase() === 'UNDER INVESTIGATION' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
-                            (item.status || '').toUpperCase() === 'CLEARED' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
-                            (item.status || '').toUpperCase() === 'DISPOSED BY COURT' ? 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300' :
+                            (item.status || '').toUpperCase() === 'CLEARED' || (item.status || '').toUpperCase() === 'DISPOSED BY COURT' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
                             (item.status || '').toUpperCase() === 'FORFEITED' ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' :
                             'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
                           }`}>
