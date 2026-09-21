@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {  
   UploadCloud, FileText, Download, CheckCircle, AlertTriangle,  
-  Loader2, FolderOpen, Clock, FileArchive, Lock, Server, Trash2, Filter, ExternalLink
+  Loader2, FolderOpen, Clock, FileArchive, Lock, Server, Trash2, Filter, ExternalLink, Search, X
 } from 'lucide-react';
 import { authFetch } from './api';
 
@@ -34,6 +34,9 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
   const [templateCustomName, setTemplateCustomName] = useState('');
+  
+  // 🟢 Added search state
+  const [searchQuery, setSearchQuery] = useState('');
 
   const canViewGlobalActive = canViewGlobal || 
     ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
@@ -60,7 +63,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const canUploadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN'].includes(currentUser?.role?.toUpperCase());
   const canDownloadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN', 'USER'].includes(currentUser?.role?.toUpperCase());
 
-  // 🟢 FIXED SYNTAX: Removed the fatal "&" operator error and mapped properly to Matrix Keys
   const hasUploadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_documents !== false && (canUploadByRole || currentUser?.permissions?.acc_documents === true));
   const hasDownloadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_documents_download !== false && (canDownloadByRole || currentUser?.permissions?.acc_documents_download === true));
 
@@ -167,11 +169,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-// 🟢 STRICT ROUTING READ PATH: With Mobile-Safe Synchronous Tab Opening
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document', categoryKey = 'weekly_report') => {
     setActionLoading(`read-${docId}`);
-    
-    // 🟢 MOBILE FIX: Open the tab instantly BEFORE the network request to bypass popup blockers
     const mobileSafeWindow = window.open('about:blank', '_blank');
 
     try {
@@ -197,19 +196,15 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
       const lowerName = (docName || '').toLowerCase();
       
-     // 🟢 UNIVERSAL MOBILE READER ROUTING
-     if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
-       mobileSafeWindow.location.href = s3Url;
-     } else if (lowerName.endsWith('.xls') || lowerName.endsWith('.xlsx')) {
-       // Excel native live view handler
-       mobileSafeWindow.location.href = s3Url;
-     } else {
-       // Word and general documents: Route via Google Docs Viewer to prevent blank white screens on mobile
-       const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
-       mobileSafeWindow.location.href = googleViewerUrl;
-     }
+      if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
+        mobileSafeWindow.location.href = s3Url;
+      } else if (lowerName.endsWith('.xls') || lowerName.endsWith('.xlsx')) {
+        mobileSafeWindow.location.href = s3Url;
+      } else {
+        const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
+        mobileSafeWindow.location.href = googleViewerUrl;
+      }
     } catch (err) {
-      // 🟢 Close the blank tab if the request failed to prevent a dead screen
       if (mobileSafeWindow) mobileSafeWindow.close();
       alert(`Reader Error: ${err.message}`);
     } finally {
@@ -217,7 +212,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-  // 🟢 STRICT ROUTING DOWNLOAD PATH
   const handleDownloadDoc = async (docId, isTemplate = false, fileName = 'document', categoryKey = 'weekly_report') => {
     if (!hasDownloadClearance) return alert("Security Restriction: You do not have clearance to download.");
 
@@ -252,17 +246,40 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
+  // 🟢 UPDATED: Search integration & Sort by most recent
   const filteredDocuments = useMemo(() => {
-    return documents.filter(doc => {
+    let result = documents.filter(doc => {
+      // Filter by active tab category
       if (doc.categoryKey !== activeCategory) return false;
+      
+      // Filter by Region/Station
       const stn = (doc.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, doc.region);
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
-      if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return false;
-      if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return false;
+      if (!canViewGlobalActive || filterRegion !== 'ALL REGIONS' || filterStation !== 'ALL STATIONS') {
+        if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return false;
+        if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return false;
+      }
+      
+      // Filter by Search Query
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const docName = (doc.name || '').toLowerCase();
+        const docType = (doc.type || '').toLowerCase();
+        if (!docName.includes(q) && !docType.includes(q)) return false;
+      }
+
       return true;
     });
-  }, [documents, activeCategory, filterRegion, filterStation, canViewGlobalActive]);
+
+    // 🟢 Sort by date (Most recent first)
+    result.sort((a, b) => {
+      const dateA = new Date(a.date || a.created_at || 0).getTime();
+      const dateB = new Date(b.date || b.created_at || 0).getTime();
+      return (isNaN(dateB) ? 0 : dateB) - (isNaN(dateA) ? 0 : dateA);
+    });
+
+    return result;
+  }, [documents, activeCategory, filterRegion, filterStation, canViewGlobalActive, searchQuery]);
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-6 font-sans mb-8">
@@ -276,8 +293,26 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
         </div>
       </div>
 
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+        
+        {/* 🟢 Added Live Search Bar */}
+        <div className="relative flex-1 w-full lg:max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+          <input 
+            type="text" 
+            value={searchQuery} 
+            onChange={(e) => setSearchQuery(e.target.value)} 
+            placeholder="Search reports or templates..." 
+            className="w-full pl-9 pr-8 py-2 border border-slate-300 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 text-slate-800 transition-all" 
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold hover:text-red-500 cursor-pointer">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
           <span className="text-xs font-bold text-slate-500 uppercase flex items-center">
             <Filter size={14} className="mr-1 text-blue-600" /> Jurisdiction Filters:
           </span>
@@ -304,9 +339,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
             ) : (<option value={currentUser?.station || ''}>{currentUser?.station || 'UNKNOWN'}</option>)}
           </select>
         </div>
-        <span className="text-xs font-extrabold text-blue-800 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
-          Showing: {filterRegion} {filterStation !== 'ALL STATIONS' ? `➔ ${filterStation}` : ''}
-        </span>
       </div>
 
       <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
