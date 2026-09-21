@@ -13,6 +13,7 @@ import pytz
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt, RGBColor
+from docx.oxml import parse_xml # 🟢 Required for floating vertical text
 from pptx import Presentation
 from pptx.util import Inches, Pt as PPTXPt
 from pptx.dml.color import RGBColor as PPTXRGBColor
@@ -224,8 +225,7 @@ async def upload_word_report(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to process document intake: {str(e)}")
 
-# 🟢 MASTER DOWNLOAD & FORENSIC STAMPING ROUTER
-# 🟢 MASTER DOWNLOAD & FORENSIC STAMPING ROUTER
+
 @router.get("/reports/download/{doc_id}")
 @router.get("/templates/download/{doc_id}")
 @router.get("/general-docs/download/{doc_id}") 
@@ -289,17 +289,8 @@ def download_archive_file(
         keywords_str = f"KMP_AUDIT;{encoded_token}"[:250]
         comments_str = f"Export: {officer_signature} [{command_post}]. ID: {stamp_id}"
 
-        receipt_text = (
-            "========================================================\n"
-            "         KAMPALA METROPOLITAN POLICE HEADQUARTERS        \n"
-            "         SECURE DOCUMENT ACCESS        \n"
-            "--------------------------------------------------------\n"
-            f"ACCESSED BY    : {officer_signature}\n"
-            f"CLEARANCE      : {current_user.role} | STATION: {current_user.station}\n"
-            f"AUDIT STAMP ID : {stamp_id}\n"
-            f"TIMESTAMP      : {timestamp_eat}\n"
-            "========================================================"
-        )
+        # 🟢 Left Margin Vertical String
+        vertical_stamp_text = f"SECURE ACCESS BY: {officer_signature}  |  CLEARANCE: {current_user.role}  |  STAMP ID: {stamp_id}  |  TIMESTAMP: {timestamp_eat}"
 
         output_stream = io.BytesIO()
         content_type = "application/octet-stream"
@@ -313,19 +304,46 @@ def download_archive_file(
             core_props.comments = comments_str
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
+            # 🟢 Put Header Centered
             section = word_doc.sections[0]
-            footer = section.footer
-            stamp_p = footer.add_paragraph()
-            stamp_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            stamp_p.paragraph_format.space_before = Pt(0)
-            stamp_p.paragraph_format.space_after = Pt(0)
-            stamp_p.paragraph_format.line_spacing = 0.7
+            header = section.header
+            header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
+            header_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             
-            run = stamp_p.add_run(receipt_text)
-            run.font.name = 'Courier New' 
-            run.font.size = Pt(5.5) 
-            run.font.bold = True
-            run.font.color.rgb = RGBColor(139, 0, 0) 
+            run_header = header_p.add_run("KAMPALA METROPOLITAN POLICE HEADQUARTERS\nSECURE DOCUMENT ACCESS\n")
+            run_header.bold = True
+            run_header.font.name = 'Arial'
+            run_header.font.size = Pt(11)
+            run_header.font.color.rgb = RGBColor(139, 0, 0)
+
+            # 🟢 VML Injection for Floating Vertical Text on the Left Margin
+            try:
+                vml_xml = f'''
+                <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
+                     xmlns:v="urn:schemas-microsoft-com:vml" 
+                     xmlns:o="urn:schemas-microsoft-com:office:office">
+                    <w:pict>
+                        <v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e">
+                            <v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>
+                            <v:textpath on="t" fitshape="t"/>
+                            <o:lock v:ext="edit" text="t" shapetype="t"/>
+                        </v:shapetype>
+                        <v:shape id="VerticalStamp" type="#_x0000_t136" 
+                                 style="position:absolute;left:0;text-align:left;margin-left:-45pt;margin-top:100pt;width:12pt;height:650pt;rotation:270;z-index:-251657216;mso-position-horizontal:left;mso-position-vertical:center;mso-position-horizontal-relative:margin;mso-position-vertical-relative:page" 
+                                 fillcolor="#8B0000" stroked="f">
+                            <v:textpath style="font-family:'Courier New';font-size:7.5pt;font-weight:bold" string="{vertical_stamp_text}"/>
+                        </v:shape>
+                    </w:pict>
+                </w:r>
+                '''
+                vml_run = parse_xml(vml_xml)
+                header_p._p.append(vml_run)
+            except Exception as e:
+                print(f"Failed to inject VML vertical watermark: {e}")
+                # Fallback if VML fails
+                fallback_run = header_p.add_run(f"\n{vertical_stamp_text}")
+                fallback_run.font.color.rgb = RGBColor(139, 0, 0)
+                fallback_run.font.size = Pt(7)
             
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -338,9 +356,15 @@ def download_archive_file(
             wb.properties.description = comments_str
             wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
 
+            top_header = "KAMPALA METROPOLITAN POLICE HEADQUARTERS\nSECURE DOCUMENT ACCESS"
+            
             for ws in wb.worksheets:
-                if hasattr(ws, 'sheet_footer'): ws.sheet_footer.center.text = receipt_text
-                elif hasattr(ws, 'odd_footer'): ws.odd_footer.center.text = receipt_text
+                if hasattr(ws, 'sheet_header'): 
+                    ws.sheet_header.center.text = top_header
+                    ws.sheet_footer.left.text = vertical_stamp_text
+                elif hasattr(ws, 'odd_header'): 
+                    ws.odd_header.center.text = top_header
+                    ws.odd_footer.left.text = vertical_stamp_text
             wb.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -355,14 +379,23 @@ def download_archive_file(
                 
                 if prs.slides:
                     slide = prs.slides[0]
-                    txBox = slide.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(8), Inches(1))
-                    tf = txBox.text_frame
-                    p = tf.add_paragraph()
-                    p.text = receipt_text
-                    p.font.size = PPTXPt(6.5)
-                    p.font.color.rgb = PPTXRGBColor(139, 0, 0)
-                    p.font.bold = True
-                    p.font.name = 'Courier New'
+                    # Top Centered Heading
+                    top_box = slide.shapes.add_textbox(Inches(2), Inches(0.1), Inches(6), Inches(0.5))
+                    p_top = top_box.text_frame.add_paragraph()
+                    p_top.text = "KAMPALA METROPOLITAN POLICE HEADQUARTERS - SECURE DOCUMENT ACCESS"
+                    p_top.font.size = PPTXPt(11)
+                    p_top.font.bold = True
+                    p_top.font.color.rgb = PPTXRGBColor(139, 0, 0)
+                    
+                    # Left vertical text box
+                    left_box = slide.shapes.add_textbox(Inches(0.1), Inches(1), Inches(8), Inches(0.5))
+                    left_box.rotation = 270 
+                    p_left = left_box.text_frame.add_paragraph()
+                    p_left.text = vertical_stamp_text
+                    p_left.font.size = PPTXPt(7.5)
+                    p_left.font.bold = True
+                    p_left.font.name = 'Courier New'
+                    p_left.font.color.rgb = PPTXRGBColor(139, 0, 0)
 
                 prs.save(output_stream)
                 content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -375,13 +408,25 @@ def download_archive_file(
                 pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
                 for page in pdf_doc:
                     rect = page.rect
-                    stamp_point = pymupdf.Point(50, rect.height - 60)
+                    
+                    # 🟢 Centered Top Heading
                     page.insert_text(
-                        stamp_point,
-                        receipt_text,
-                        fontsize=6,
+                        pymupdf.Point(rect.width / 2 - 140, 30),
+                        "KAMPALA METROPOLITAN POLICE HEADQUARTERS\nSECURE DOCUMENT ACCESS",
+                        fontsize=10,
+                        fontname="helv-bold",
+                        color=(0.545, 0, 0),
+                        align=1 
+                    )
+                    
+                    # 🟢 Rotated 90-degrees upward on Left Margin
+                    page.insert_text(
+                        pymupdf.Point(25, rect.height - 50),
+                        vertical_stamp_text,
+                        fontsize=7,
                         fontname="courier-bold",
-                        color=(0.545, 0, 0)
+                        color=(0.545, 0, 0),
+                        rotate=90 
                     )
                 stamped_pdf_bytes = pdf_doc.tobytes()
                 output_stream = io.BytesIO(stamped_pdf_bytes)
