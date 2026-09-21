@@ -2547,6 +2547,18 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    // 🟢 SYSTEM-WIDE MOBILE VIEWPORT & LANDSCAPE FIX
+    // Dynamically forces all mobile devices to allow landscape scaling
+    let viewportMeta = document.querySelector('meta[name="viewport"]');
+    if (!viewportMeta) {
+      viewportMeta = document.createElement('meta');
+      viewportMeta.name = "viewport";
+      document.head.appendChild(viewportMeta);
+    }
+    viewportMeta.content = "width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes";
+  }, []);
+
+  useEffect(() => {
     const initApp = () => {
       const token = getAuthToken();
       const params = new URLSearchParams(window.location.search);
@@ -3171,9 +3183,9 @@ const isReadOnlyObserver = currentUser?.permissions?.global_observer === true &&
           />
         )}
         
-        <div className={(isViewingConsolidated || isViewingHR) ? 'hidden' : 'block w-full h-full'}>
-          {renderPage()}
-        </div>
+        <div className={(isViewingConsolidated || isViewingHR) ? 'hidden' : 'block w-full h-full overflow-x-hidden'}>
+  {renderPage()}
+</div>
 
         <SystemAssistant 
           currentUser={currentUser} 

@@ -311,3 +311,49 @@
   padding-bottom: 0.5rem !important;
   font-size: 11px !important;
 }
+
+/* ========================================================
+   SYSTEM-WIDE MOBILE TABLE & SCROLLING FIX
+   ======================================================== */
+
+body, html {
+  overflow-x: hidden;
+  width: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Force hardware-accelerated momentum scrolling on all tables */
+.overflow-x-auto, 
+.custom-scrollbar {
+  -webkit-overflow-scrolling: touch !important;
+  max-width: 100vw;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 transparent;
+  padding-bottom: 8px;
+}
+
+/* Ensure tables stretch properly to trigger the scrollbar */
+.overflow-x-auto table,
+.custom-scrollbar table {
+  min-width: max-content;
+  width: 100%;
+}
+
+/* Highly visible custom mobile scrollbars */
+.overflow-x-auto::-webkit-scrollbar,
+.custom-scrollbar::-webkit-scrollbar {
+  height: 8px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-track,
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 8px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-thumb,
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 8px;
+}
