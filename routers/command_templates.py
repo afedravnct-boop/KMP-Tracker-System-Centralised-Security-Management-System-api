@@ -3,6 +3,7 @@ import os
 import json
 import base64
 import urllib.parse
+import re
 from datetime import datetime
 from typing import Optional, List
 
@@ -144,7 +145,6 @@ async def upload_command_template(
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
 
-# 🟢 ADDED: Master Download & Forensic Stamping for Templates
 @router.get("/download/{doc_id}")
 def download_template_file(
     doc_id: int, 
@@ -191,7 +191,6 @@ def download_template_file(
         keywords_str = f"KMP_AUDIT;{encoded_token}"[:250]
         comments_str = f"Export: {officer_signature} [{command_post}]. ID: {stamp_id}"
 
-        # 🟢 Vertical Left Margin Stamp Text
         vertical_stamp_text = f"SECURE ACCESS BY: {officer_signature}  |  CLEARANCE: {current_user.role}  |  STAMP ID: {stamp_id}  |  TIMESTAMP: {timestamp_eat}"
 
         output_stream = io.BytesIO()
@@ -206,7 +205,6 @@ def download_template_file(
             core_props.comments = comments_str
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
-            # 🟢 VML Injection for Floating Vertical Text on the Left Margin
             section = word_doc.sections[0]
             header = section.header
             if not header.paragraphs:
@@ -288,7 +286,6 @@ def download_template_file(
                 pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
                 for page in pdf_doc:
                     rect = page.rect
-                    # 🟢 Rotated 90-degrees upward on Left Margin
                     page.insert_text(
                         pymupdf.Point(20, rect.height - 100),
                         vertical_stamp_text,
@@ -310,19 +307,21 @@ def download_template_file(
         output_stream.seek(0)
         final_bytes = output_stream.getvalue()
 
-        # 🟢 If it's a "Read" request, return the JSON URL so the frontend can open it in the viewer
         if return_url:
-            # 🟢 FIX: Clean the filename of spaces and special chars. 
-            # Google Docs Viewer throws a 'Network Error' if the S3 URL contains spaces that get double URL-encoded (%2520).
-            safe_file_name = file_name.replace(" ", "_").replace("%20", "_")
+            # 🟢 FIX: Aggressive Regex Stripping.
+            # Erase all spaces, percent signs, and special characters from the filename to prevent Google Viewer %2520 encoding bugs.
+            safe_file_name = re.sub(r'[^a-zA-Z0-9.]', '_', file_name)
+            safe_file_name = re.sub(r'_+', '_', safe_file_name) # Squeeze multiple underscores into one
+            
             temp_s3_key = f"forensic_cache/{stamp_id}_{safe_file_name}"
             
+            # 🟢 FIX: Enforce "inline" disposition so the browser knows not to auto-download
             s3_client.put_object(
                 Bucket=BUCKET_NAME,
                 Key=temp_s3_key,
                 Body=final_bytes,
                 ContentType=content_type,
-                ContentDisposition="inline", # 🟢 FIX: Force inline rendering on the S3 Object
+                ContentDisposition=f'inline; filename="{safe_file_name}"', 
                 ServerSideEncryption="AES256"
             )
             
@@ -331,14 +330,13 @@ def download_template_file(
                 Params={
                     'Bucket': BUCKET_NAME, 
                     'Key': temp_s3_key,
-                    'ResponseContentDisposition': 'inline', # 🟢 FIX: Guarantee the URL does not trigger a 'Save As' dialogue
+                    'ResponseContentDisposition': f'inline; filename="{safe_file_name}"',
                     'ResponseContentType': content_type
                 },
                 ExpiresIn=3600
             )
             return JSONResponse(content={"url": presigned_url})
 
-        # 🟢 If it's a "Download" request, return the streaming attachment
         return StreamingResponse(
             io.BytesIO(final_bytes),
             media_type=content_type,
