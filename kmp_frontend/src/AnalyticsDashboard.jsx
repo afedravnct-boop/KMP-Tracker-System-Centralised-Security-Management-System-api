@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart, Clock, Users, Award, MapPin, Zap, CheckCircle2, GitCommit, Network, Loader2, BookOpen, ChevronDown, ChevronRight, Download } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart, Clock, Users, Award, MapPin, Zap, CheckCircle2, GitCommit, Network, Loader2, BookOpen, ChevronDown, ChevronRight, Download, Truck } from 'lucide-react';
 import { authFetch, hasValidSession } from './api';
 
 const REGIONAL_HIERARCHY = {
@@ -65,6 +65,7 @@ const AnalyticsDashboard = ({
   successStories = [], 
   operationalStats = [], 
   stats = [], 
+  impoundedExhibits = [], // 🟢 Added Exhibits to Props
   currentUser, 
   canViewGlobal = false 
 }) => {
@@ -74,6 +75,7 @@ const AnalyticsDashboard = ({
   const [fetchedCrime, setFetchedCrime] = useState([]);
   const [fetchedSuccess, setFetchedSuccess] = useState([]);
   const [fetchedOps, setFetchedOps] = useState([]);
+  const [fetchedExhibits, setFetchedExhibits] = useState([]); // 🟢 Added Exhibits State
   const [loading, setLoading] = useState(false);
 
   const [expandedManpowerRegions, setExpandedManpowerRegions] = useState({});
@@ -92,13 +94,14 @@ const AnalyticsDashboard = ({
 
       setLoading(true);
       try {
-        const [rollRes, archiveRes, lockupRes, crimeRes, storyRes, statsRes] = await Promise.all([
+        const [rollRes, archiveRes, lockupRes, crimeRes, storyRes, statsRes, exhibitsRes] = await Promise.all([
           authFetch('/api/v1/nominal-roll').catch(() => null),
           authFetch('/api/v1/nominal-roll-archive').catch(() => null),
           authFetch('/api/v1/lockup-matrix').catch(() => null),
           authFetch('/api/v1/reports').catch(() => null),
           authFetch('/api/v1/stories').catch(() => null),
-          authFetch('/api/v1/stats').catch(() => null)
+          authFetch('/api/v1/stats').catch(() => null),
+          authFetch('/api/v1/exhibits').catch(() => null) // 🟢 Fetch Exhibits
         ]);
 
         const rollData = rollRes && rollRes.ok ? await rollRes.json() : [];
@@ -107,6 +110,7 @@ const AnalyticsDashboard = ({
         const crimeData = crimeRes && crimeRes.ok ? await crimeRes.json() : [];
         const storyData = storyRes && storyRes.ok ? await storyRes.json() : [];
         const statsData = statsRes && statsRes.ok ? await statsRes.json() : [];
+        const exhibitsData = exhibitsRes && exhibitsRes.ok ? await exhibitsRes.json() : []; // 🟢 Parse Exhibits
 
         if (isMounted) {
           setFetchedRolls(Array.isArray(rollData) ? rollData : []);
@@ -115,6 +119,7 @@ const AnalyticsDashboard = ({
           setFetchedCrime(Array.isArray(crimeData) ? crimeData : []);
           setFetchedSuccess(Array.isArray(storyData) ? storyData : []);
           setFetchedOps(Array.isArray(statsData) ? statsData : []);
+          setFetchedExhibits(Array.isArray(exhibitsData) ? exhibitsData : []); // 🟢 Set Exhibits State
         }
       } catch (err) {
         if (err.message !== 'UNAUTHORIZED') {
@@ -133,6 +138,7 @@ const AnalyticsDashboard = ({
   const resolvedCrimeRegistry = crimeRegistry.length ? crimeRegistry : (reports.length ? reports : fetchedCrime);
   const resolvedSuccessStories = successStories.length ? successStories : fetchedSuccess;
   const resolvedOperationalStats = operationalStats.length ? operationalStats : (stats.length ? stats : fetchedOps);
+  const resolvedExhibits = impoundedExhibits.length ? impoundedExhibits : fetchedExhibits; // 🟢 Resolved Exhibits
 
   const [activeDomain, setActiveDomain] = useState('CRIME');
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
@@ -143,7 +149,6 @@ const AnalyticsDashboard = ({
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : (currentUser?.region || 'KMP HEADQUARTERS'));
   const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : (currentUser?.station || 'KMP HEADQUARTERS'));
 
-  // 🟢 DYNAMIC MANPOWER ANALYSIS MATRIX
   const manpowerAnalysis = useMemo(() => {
     const rolls = Array.isArray(resolvedNominalRolls) ? resolvedNominalRolls : [];
     
@@ -151,7 +156,6 @@ const AnalyticsDashboard = ({
     const reasonsSet = new Set();
     const regionMap = {};
 
-    // Initialize Hierarchy
     Object.keys(REGIONAL_HIERARCHY).forEach(reg => {
       regionMap[reg] = { region: reg, units: {}, reasons: {}, totalDeployable: 0, totalNonDeployable: 0, stations: {} };
     });
@@ -173,7 +177,6 @@ const AnalyticsDashboard = ({
       }
       const targetStn = targetReg.stations[stn];
 
-      // 🟢 Determine Deployability & Casualty Logic
       const depStr = String(o.deployability || o.deployable_status || '').toUpperCase();
       const statStr = String(o.status || '').toUpperCase();
       const casStr = String(o.casualty || o.casualty_type || o.reason || '').toUpperCase();
@@ -185,14 +188,12 @@ const AnalyticsDashboard = ({
           (casStr !== '' && casStr !== 'NIL' && casStr !== 'N/A' && casStr !== 'NONE');
 
       if (isNonDeployable) {
-          // Identify the reason (e.g. SICK, COURSE, MATERNITY)
           let reason = casStr && casStr !== 'NIL' && casStr !== 'N/A' && casStr !== 'NONE' 
               ? casStr 
               : (depStr.includes('NON') ? statStr || 'UNSPECIFIED' : statStr);
           
           if (!reason || reason === 'NIL' || reason === 'NON DEPLOYABLE') reason = 'UNSPECIFIED';
           
-          // Format specific casualty headers
           if (reason.includes('ANNUAL')) reason = 'ANN/LEAVE';
           else if (reason.includes('MATERNITY')) reason = 'MATERNITY';
           else if (reason.includes('SICK')) reason = 'SICK';
@@ -210,7 +211,6 @@ const AnalyticsDashboard = ({
           grandTotals.reasons[reason] = (grandTotals.reasons[reason] || 0) + 1;
           grandTotals.nonDeployableTotal += 1;
       } else {
-          // Identify the Unit / Directorate (e.g. GD, CID, CI, TAR)
           let unit = (o.section || o.dir || o.unit || 'GD').toUpperCase();
           
           if (unit.includes('GENERAL DUTIES')) unit = 'GD';
@@ -230,11 +230,9 @@ const AnalyticsDashboard = ({
       }
     });
 
-    // Sort column headers alphabetically for standard display
     const uniqueUnits = Array.from(unitsSet).sort();
     const uniqueReasons = Array.from(reasonsSet).sort();
 
-    // Map rows and remove empty structures
     const rows = Object.values(regionMap).filter(r => r.totalDeployable > 0 || r.totalNonDeployable > 0).map(item => ({
       ...item,
       stationList: Object.values(item.stations).filter(s => s.totalDeployable > 0 || s.totalNonDeployable > 0).sort((a,b) => a.station.localeCompare(b.station))
@@ -249,6 +247,7 @@ const AnalyticsDashboard = ({
     else if (activeDomain === 'MANPOWER_DEEP') baseData = resolvedNominalRolls;
     else if (activeDomain === 'SUCCESS') baseData = resolvedSuccessStories;
     else if (activeDomain === 'OPERATIONS') baseData = resolvedOperationalStats;
+    else if (activeDomain === 'EXHIBITS') baseData = resolvedExhibits; // 🟢 Load Exhibits Dataset
 
     baseData = baseData.filter(item => {
       let stn = (item.station || '').trim().toUpperCase();
@@ -267,7 +266,8 @@ const AnalyticsDashboard = ({
     if (activeDomain !== 'MANPOWER_DEEP' && activeDomain !== 'RELATIONAL' && dateFilter !== 'ALL') {
       const now = new Date();
       baseData = baseData.filter(item => {
-        const itemDateStr = item.date || item.createdAt || item.timestamp;
+        // 🟢 Includes support for 'date_impounded' for the exhibits ledger
+        const itemDateStr = item.date || item.createdAt || item.timestamp || item.date_impounded;
         if (!itemDateStr) return true; 
         const itemDate = new Date(itemDateStr);
         if (isNaN(itemDate)) return true;
@@ -284,7 +284,7 @@ const AnalyticsDashboard = ({
       });
     }
     return baseData;
-  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, dateFilter, selectedRegion, selectedStation, canViewGlobalActive]);
+  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, resolvedExhibits, dateFilter, selectedRegion, selectedStation, canViewGlobalActive]);
 
   const aggregatedData = useMemo(() => {
     const grouped = {};
@@ -298,6 +298,8 @@ const AnalyticsDashboard = ({
         key = (item.impact_type || item.category || 'COMMUNITY RECOVERY').toUpperCase();
       } else if (activeDomain === 'OPERATIONS') {
         key = (item.operation_type || item.outcome || item.category || 'SNAP OPERATION / DISRUPTIVE SWEEP').toUpperCase();
+      } else if (activeDomain === 'EXHIBITS') {
+        key = (item.status || 'UNSPECIFIED STATUS').toUpperCase(); // 🟢 Group Exhibits by Status natively
       }
 
       if (!grouped[key]) grouped[key] = { label: key, count: 0 };
@@ -358,17 +360,19 @@ const AnalyticsDashboard = ({
     return `${target.getFullYear()}-W${String(weekNr).padStart(2, '0')}`;
   };
 
+  // 🟢 RELATIONAL MATRIX (Now including Exhibits)
   const relationalImpactMatrix = useMemo(() => {
     const reports = Array.isArray(resolvedCrimeRegistry) ? resolvedCrimeRegistry.filter(r => !isLockupLog(r)) : [];
     const ops = Array.isArray(resolvedOperationalStats) ? resolvedOperationalStats : [];
     const successes = Array.isArray(resolvedSuccessStories) ? resolvedSuccessStories : [];
+    const exhibitsList = Array.isArray(resolvedExhibits) ? resolvedExhibits : []; // 🟢 Added Exhibits Array
 
     const regionMap = {};
 
     Object.keys(REGIONAL_HIERARCHY).forEach(reg => {
-      regionMap[reg] = { region: reg, stations: {}, totalArrests: 0, totalSuccesses: 0, crimeCount: 0 };
+      regionMap[reg] = { region: reg, stations: {}, totalArrests: 0, totalSuccesses: 0, crimeCount: 0, totalExhibits: 0 };
       REGIONAL_HIERARCHY[reg].forEach(stn => {
-        regionMap[reg].stations[stn] = { station: stn, arrests: 0, successes: 0, crimes: 0 };
+        regionMap[reg].stations[stn] = { station: stn, arrests: 0, successes: 0, crimes: 0, exhibits: 0 };
       });
     });
 
@@ -407,6 +411,18 @@ const AnalyticsDashboard = ({
       }
     });
 
+    // 🟢 Injecting Exhibits Data into Matrix
+    exhibitsList.forEach(e => {
+      let stn = (e.station || '').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+
+      const reg = getOfficialRegionForStation(stn, e.region);
+      if (regionMap[reg] && regionMap[reg].stations[stn]) {
+        regionMap[reg].stations[stn].exhibits += 1;
+        regionMap[reg].totalExhibits += 1;
+      }
+    });
+
     const rows = [];
     Object.values(regionMap).forEach(regObj => {
       if (selectedRegion !== 'ALL REGIONS' && regObj.region !== selectedRegion) return;
@@ -416,7 +432,9 @@ const AnalyticsDashboard = ({
 
       Object.values(regObj.stations).forEach(stnObj => {
         if (selectedStation !== 'ALL STATIONS' && stnObj.station !== selectedStation) return;
-        if (stnObj.arrests > 0 || stnObj.successes > 0 || stnObj.crimes > 0) {
+        
+        // 🟢 Trigger rendering if a station has ANY exhibits, arrests, successes, or crimes
+        if (stnObj.arrests > 0 || stnObj.successes > 0 || stnObj.crimes > 0 || stnObj.exhibits > 0) {
           hasMatchingStation = true;
           stationRows.push({
             isRegionHeader: false,
@@ -425,7 +443,9 @@ const AnalyticsDashboard = ({
             arrests: stnObj.arrests,
             successes: stnObj.successes,
             crimes: stnObj.crimes,
-            disruptionRating: stnObj.arrests >= stnObj.crimes ? 'POSITIVE IMPACT (CRIME SUPPRESSED)' : 'ACTIVE SWEEP'
+            exhibits: stnObj.exhibits, // 🟢 Passed to Row
+            // 🟢 Disruption logic upgraded to factor in Arrests + Impounded Exhibits
+            disruptionRating: (stnObj.arrests + stnObj.exhibits) >= stnObj.crimes ? 'POSITIVE IMPACT (CRIME SUPPRESSED)' : 'ACTIVE SWEEP'
           });
         }
       });
@@ -438,6 +458,7 @@ const AnalyticsDashboard = ({
           arrests: regObj.totalArrests,
           successes: regObj.totalSuccesses,
           crimes: regObj.crimeCount,
+          exhibits: regObj.totalExhibits, // 🟢 Passed to Region Header
           disruptionRating: regObj.totalArrests > 10 ? 'HIGH DISRUPTION' : 'MODERATE'
         });
         rows.push(...stationRows);
@@ -445,7 +466,7 @@ const AnalyticsDashboard = ({
     });
 
     return rows;
-  }, [resolvedCrimeRegistry, resolvedOperationalStats, resolvedSuccessStories, selectedRegion, selectedStation]);
+  }, [resolvedCrimeRegistry, resolvedOperationalStats, resolvedSuccessStories, resolvedExhibits, selectedRegion, selectedStation]);
 
   const operationsTrendsData = useMemo(() => {
     const ops = Array.isArray(resolvedOperationalStats) ? resolvedOperationalStats : [];
@@ -550,12 +571,13 @@ const AnalyticsDashboard = ({
       )}
 
       {/* Tabs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-1.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-1.5">
         {[
           { id: 'OPERATIONS', label: '⚡ Disruptive Ops' },
           { id: 'RELATIONAL', label: '🔗 Relational Matrix' },
           { id: 'MANPOWER_DEEP', label: '🛡️ Manpower Analysis' },
           { id: 'SUCCESS', label: '🌟 Success Stories' },
+          { id: 'EXHIBITS', label: '🚚 Exhibits' }, // 🟢 Newly injected tab for Exhibits
           { id: 'CRIME', label: '📊 Crime Categories' },
           { id: 'CRIME_SUMMARY', label: '📋 Summary Table' },
           { id: 'TRENDS', label: '📈 Ops Trends' }
@@ -563,7 +585,7 @@ const AnalyticsDashboard = ({
           <button
             key={tab.id}
             onClick={() => { setActiveDomain(tab.id); setMetricCategory('CATEGORY'); }}
-            className={`px-2.5 py-2 rounded-lg font-bold text-[11px] transition border text-left shadow-xs cursor-pointer truncate ${
+            className={`px-2.5 py-2 rounded-lg font-bold text-[11px] transition border text-center shadow-xs cursor-pointer truncate ${
               activeDomain === tab.id ? 'bg-[#3a3225] text-[#f4eee2] border-[#3a3225]' : 'bg-[#fbf8f3] text-[#594d3c] border-[#e2d6c3] hover:bg-[#f1ebd9]'
             }`}
           >
@@ -643,7 +665,7 @@ const AnalyticsDashboard = ({
               <Network className="mr-2 text-[#C5A880] w-4 h-4" /> Operations ➔ Intelligence ➔ Crime Suppression Dependency Matrix
             </h2>
             <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
-              Demonstrating operational impact: Snap sweeps in crime hotspots generate arrests, answer pending cases, and recover stolen property.
+              Demonstrating operational impact: Snap sweeps in crime hotspots generate arrests, secure impounded exhibits, and suppress active crimes.
             </p>
           </div>
 
@@ -656,6 +678,7 @@ const AnalyticsDashboard = ({
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Station / Hotspot Division</th>
                     <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Snap Arrests</th>
                     <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Recoveries</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Impounds</th> {/* 🟢 New Header */}
                     <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Active Crime</th>
                     <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Impact Status</th>
                   </tr>
@@ -668,6 +691,7 @@ const AnalyticsDashboard = ({
                           <td className="px-3 py-2 text-[11px] uppercase tracking-wider" colSpan="2">🛡️ {row.station}</td>
                           <td className="px-3 py-2 text-center font-black text-[#596E47] text-[11px]">{row.arrests} Arrests</td>
                           <td className="px-3 py-2 text-center font-black text-amber-800 text-[11px]">{row.successes} Breakthroughs</td>
+                          <td className="px-3 py-2 text-center font-black text-teal-800 text-[11px]">{row.exhibits} Impounds</td> {/* 🟢 New Data Cell */}
                           <td className="px-3 py-2 text-center font-bold text-[11px]">{row.crimes} Crimes</td>
                           <td className="px-3 py-2 text-center">
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#3a3225] text-[#f4eee2]">{row.disruptionRating}</span>
@@ -681,9 +705,10 @@ const AnalyticsDashboard = ({
                         <td className="px-3 py-1.5 text-[11px] font-bold text-[#594d3c]">— {row.station}</td>
                         <td className="px-3 py-1.5 text-[11px] text-center font-bold text-[#596E47]">{row.arrests}</td>
                         <td className="px-3 py-1.5 text-[11px] text-center font-bold text-amber-800">{row.successes}</td>
+                        <td className="px-3 py-1.5 text-[11px] text-center font-bold text-teal-700">{row.exhibits}</td> {/* 🟢 New Data Cell */}
                         <td className="px-3 py-1.5 text-[11px] text-center font-bold text-[#3a3225]">{row.crimes}</td>
                         <td className="px-3 py-1.5 text-center text-[11px]">
-                          <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-[#e9eedf] text-[#3b4c2e]">{row.disruptionRating}</span>
+                          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${row.disruptionRating.includes('POSITIVE') ? 'bg-[#e9eedf] text-[#3b4c2e]' : 'bg-slate-200 text-slate-700'}`}>{row.disruptionRating}</span>
                         </td>
                       </tr>
                     );
