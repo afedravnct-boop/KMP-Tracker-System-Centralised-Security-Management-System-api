@@ -167,13 +167,16 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-  // 🟢 READ PATH FIX: Utilizes Microsoft Office Viewer for Excel and Word
+  // 🟢 READ PATH: Reverted to Google Docs Viewer to ensure Forensic Stamp is Visible
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document', categoryKey = 'weekly_report') => {
     setActionLoading(`read-${docId}`);
+    
+    // Open the tab instantly BEFORE the network request to bypass popup blockers
     const mobileSafeWindow = window.open('about:blank', '_blank');
 
     try {
       let endpoint = `/api/v1/reports/download/${docId}?stamp=true&return_url=true&category=${categoryKey}`;
+      
       if (categoryKey === 'general_doc') {
         endpoint = `/api/v1/general-docs/download/${docId}?stamp=true&return_url=true&category=${categoryKey}`;
       } else if (categoryKey === 'templates' || isTemplate) {
@@ -181,6 +184,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       }
         
       const response = await authFetch(endpoint, { method: "GET" });
+      
       if (!response.ok) {
         const errJson = await response.json().catch(() => ({}));
         throw new Error(errJson.detail || "Could not retrieve document viewer link.");
@@ -188,21 +192,30 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
       const data = await response.json();
       const s3Url = data.url || data.s3_url || data.file_url || data.view_url;
+      
       if (!s3Url) throw new Error("Pre-signed S3 URL missing from backend response.");
 
       const lowerName = (docName || '').toLowerCase();
       
-      if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
-        // Native browser rendering for PDFs and Images
-        mobileSafeWindow.location.href = s3Url;
-      } else if (lowerName.match(/\.(doc|docx|xls|xlsx|ppt|pptx)$/)) {
-        // 🟢 THE FIX: Microsoft Office Web Viewer instantly renders Excel/Word files (No "Open With" screen)
-        const msViewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(s3Url)}`;
-        mobileSafeWindow.location.href = msViewerUrl;
-      } else {
-        // Fallback for everything else
-        const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
-        mobileSafeWindow.location.href = googleViewerUrl;
+      // 🟢 Force Templates into Google Viewer to prevent downloading and ensure the Stamp renders
+      if (categoryKey === 'templates' || isTemplate) {
+        if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
+          mobileSafeWindow.location.href = s3Url;
+        } else {
+          const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
+          mobileSafeWindow.location.href = googleViewerUrl;
+        }
+      } 
+      // 🟢 ORIGINAL LOGIC: Kept untouched for weekly reports and general docs
+      else {
+        if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
+          mobileSafeWindow.location.href = s3Url;
+        } else if (lowerName.endsWith('.xls') || lowerName.endsWith('.xlsx')) {
+          mobileSafeWindow.location.href = s3Url;
+        } else {
+          const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
+          mobileSafeWindow.location.href = googleViewerUrl;
+        }
       }
     } catch (err) {
       if (mobileSafeWindow) mobileSafeWindow.close();
@@ -265,6 +278,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       );
     }
     
+    // Sort by latest
     result.sort((a, b) => {
       const dateA = new Date(a.date || a.created_at || 0).getTime();
       const dateB = new Date(b.date || b.created_at || 0).getTime();
@@ -294,7 +308,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
         <button 
           type="button"
           onClick={() => {
-            // 🟢 SAFELY NAVIGATE HOME
+            // 🟢 SAFELY NAVIGATE HOME WITHOUT REFRESHING
             if (typeof setCurrentPage === 'function') {
               setCurrentPage('home');
             } else if (typeof onBack === 'function') {
