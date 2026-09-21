@@ -2920,6 +2920,7 @@ const App = () => {
             generalDocs={generalDocs}
             setGeneralDocs={setGeneralDocs}
             isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
+            setCurrentPage={handlePageChange} // 🟢 ADD THIS LINE TO FIX THE BACK BUTTON
           />
         ) : (
           <HomeDashboard 
