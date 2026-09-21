@@ -225,7 +225,7 @@ async def upload_word_report(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to process document intake: {str(e)}")
 
-# 🟢 MASTER DOWNLOAD & FORENSIC STAMPING ROUTER
+
 @router.get("/reports/download/{doc_id}")
 @router.get("/templates/download/{doc_id}")
 @router.get("/general-docs/download/{doc_id}") 
@@ -304,9 +304,10 @@ def download_archive_file(
             core_props.comments = comments_str
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
-            # 🟢 VML Injection for Floating Vertical Text on the Left Margin
-            # This appends a completely invisible shape to the header that floats down into the left margin.
-            # It will NOT alter, touch, or move your existing document titles or headers.
+            # 🟢 True Vertical Left Margin Stamp via VML
+            # The width is intentionally wide (600pt) and the height is short (12pt) to form a single line of text.
+            # We then rotate it 270 degrees so it stands up perfectly straight on the left margin.
+            # Absolutely no text is added to the header space itself.
             section = word_doc.sections[0]
             header = section.header
             if not header.paragraphs:
@@ -326,9 +327,9 @@ def download_archive_file(
                             <o:lock v:ext="edit" text="t" shapetype="t"/>
                         </v:shapetype>
                         <v:shape id="VerticalStamp" type="#_x0000_t136" 
-                                 style="position:absolute;left:0;text-align:center;margin-left:15pt;margin-top:0pt;width:15pt;height:550pt;rotation:270;z-index:-251657216;mso-position-horizontal:left;mso-position-vertical:center;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                 style="position:absolute;left:10pt;top:150pt;width:600pt;height:12pt;rotation:270;z-index:-251657216;mso-position-horizontal:left;mso-position-vertical:center;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                  fillcolor="#8B0000" stroked="f">
-                            <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
+                            <v:textpath style="font-family:'Courier New';font-size:7.5pt;font-weight:bold" string="{vertical_stamp_text}"/>
                         </v:shape>
                     </w:pict>
                 </w:r>
@@ -349,8 +350,6 @@ def download_archive_file(
             wb.properties.description = comments_str
             wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
             
-            # Excel doesn't support floating margins easily. We just use the standard left footer.
-            # We do NOT touch the headers so your document structure remains intact.
             for ws in wb.worksheets:
                 if hasattr(ws, 'sheet_footer'): 
                     ws.sheet_footer.left.text = vertical_stamp_text
@@ -391,9 +390,9 @@ def download_archive_file(
                 pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
                 for page in pdf_doc:
                     rect = page.rect
-                    # 🟢 Rotated 90-degrees upward on Left Margin, perfectly centered vertically
+                    # 🟢 Rotated 90-degrees upward on Left Margin, perfectly aligned
                     page.insert_text(
-                        pymupdf.Point(20, rect.height - 100),
+                        pymupdf.Point(20, rect.height - 50),
                         vertical_stamp_text,
                         fontsize=7,
                         fontname="courier-bold",
@@ -414,7 +413,6 @@ def download_archive_file(
         output_stream.seek(0)
         final_bytes = output_stream.getvalue()
 
-        # 🟢 CACHE S3 URL FOR WEB VIEWERS
         if return_url:
             temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
             
