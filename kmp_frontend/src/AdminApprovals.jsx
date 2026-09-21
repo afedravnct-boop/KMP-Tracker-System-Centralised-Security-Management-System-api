@@ -7,7 +7,6 @@ import {
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
 
-// 🟢 Corrected paths: pointing directly to files in the same (src) folder
 import { 
   REGIONAL_HIERARCHY, TOP_TIER_ROLES, getRoleWeight, canModifyUser, 
   grantExpressAccess, CLEARANCE_MATRIX_COLS, formatOfficerHeader 
@@ -48,7 +47,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [lockdownRegionFilter, setLockdownRegionFilter] = useState("KMP NORTH");
   const [lockdownData, setLockdownData] = useState({ system: false, regions: {}, stations: {} });
   
-  // 🟢 Search bar query state
   const [searchTerm, setSearchTerm] = useState('');
 
   const [revokePrompt, setRevokePrompt] = useState({
@@ -63,7 +61,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     return list;
   }, [lockdownData]);
 
-  // 🟢 DUAL GLOBAL SCOPE SUPPORT
   const canViewGlobalActive = canViewGlobal || 
     ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || 
     currentUser?.permissions?.view_global_roster === true || 
@@ -74,7 +71,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
 
-  // 🟢 STRICT READ-ONLY GUARD
   const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && 
     !currentUser?.permissions?.global_open && 
     !isSuperAdmin;
@@ -87,11 +83,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     userPosClean.includes('STAFF OFFICER ADMIN') ||
     userPosClean.includes('SO ADMIN')
   );
-
-  const isExplicitHighCommand = [
-    'IGP', 'DEPUTY IGP', 'DIRECTOR OPERATIONS', 'DEPUTY DIRECTOR OPERATIONS', 
-    'KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN'
-  ].some(pos => userPosClean.includes(pos)) || isSuperAdmin;
 
   const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
   const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
@@ -261,7 +252,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     if (typeof fetchLockdownStatus === 'function') fetchLockdownStatus();
   }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
 
-  // 🟢 UNIVERSAL SEARCH & REGIONAL FILTER HELPER
   const matchesSearch = (item, fields) => {
     if (!searchTerm.trim()) return true;
     const term = searchTerm.toLowerCase();
@@ -379,7 +369,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       return;
     }
 
-    // 🟢 HIERARCHICAL ENFORCEMENT: RPC (Regional Admin) can modify Assistant Regional Admin, but Assistant cannot modify RPC
     const currentRoleClean = (currentUser?.role || '').toUpperCase();
     if (currentRoleClean === 'ASSISTANT_REGIONAL_ADMIN' && newRole === 'REGIONAL_ADMIN') {
       alert("SECURITY RESTRICTION: Assistant Regional Admin cannot modify Regional Admin roles.");
@@ -498,9 +487,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   return (
-    <div className="p-4 max-w-[1800px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
+    <div className="dark p-4 max-w-[1800px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300 text-slate-100">
       
-      <div className="bg-slate-900 text-white px-6 py-5 rounded-2xl shadow-lg flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="bg-slate-900 dark:bg-slate-950 text-white dark:text-slate-100 px-6 py-5 rounded-2xl shadow-lg border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
           <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 object-contain contrast-200 brightness-110 drop-shadow-md" onError={(e) => e.target.style.display = 'none'} />
           <div>
@@ -514,37 +503,36 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       </div>
 
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5 relative z-20">
-        <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-100 w-full xl:w-auto">
-          <span className="text-xs font-extrabold text-blue-900 uppercase flex items-center tracking-wider mr-1">
-            <Filter size={14} className="mr-1.5 text-blue-600" /> Filter Scope:
-        </span>
-          <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border border-slate-300 rounded-md p-2 text-xs shadow-sm bg-white font-bold text-slate-700 outline-none cursor-pointer min-w-[180px]">
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5 relative z-20">
+        <div className="flex flex-wrap items-center gap-3 bg-slate-50 dark:bg-slate-800/80 p-2 rounded-lg border border-slate-100 dark:border-slate-700 w-full xl:w-auto">
+          <span className="text-xs font-extrabold text-blue-900 dark:text-blue-300 uppercase flex items-center tracking-wider mr-1">
+            <Filter size={14} className="mr-1.5 text-blue-600 dark:text-blue-400" /> Filter Scope:
+          </span>
+          <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border border-slate-300 dark:border-slate-700 rounded-md p-2 text-xs shadow-sm bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer min-w-[180px]">
             {canViewGlobalActive ? (<><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY || {}).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>) : <option value={currentUser?.region}>{stripHtmlTags(currentUser?.region)}</option>}
           </select>
-          <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive && !['RPC', 'Deputy Commander'].includes(currentUser?.role)} className="border border-slate-300 rounded-md p-2 text-xs shadow-sm bg-white font-bold text-slate-700 outline-none cursor-pointer min-w-[200px]">
+          <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive && !['RPC', 'Deputy Commander'].includes(currentUser?.role)} className="border border-slate-300 dark:border-slate-700 rounded-md p-2 text-xs shadow-sm bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer min-w-[200px]">
             {canViewGlobalActive || ['RPC', 'Deputy Commander'].includes(currentUser?.role) ? (<><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
           </select>
           
-          {/* 🟢 SEARCH BAR INPUT */}
           <div className="relative flex items-center min-w-[220px]">
-            <Search size={14} className="absolute left-3 text-slate-400" />
+            <Search size={14} className="absolute left-3 text-slate-400 dark:text-slate-500" />
             <input 
               type="text" 
               value={searchTerm} 
               onChange={(e) => setSearchTerm(e.target.value)} 
               placeholder="Search FNUM, name, action..." 
-              className="w-full pl-9 pr-3 py-1.5 border border-slate-300 rounded-md text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="w-full pl-9 pr-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-bold text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-950"
             />
             {searchTerm && (
-              <button onClick={() => setSearchTerm('')} className="absolute right-2 text-slate-400 hover:text-slate-600 text-xs font-bold">×</button>
+              <button onClick={() => setSearchTerm('')} className="absolute right-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 text-xs font-bold">×</button>
             )}
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
-          <button onClick={() => { fetchPendingUsers(); fetchAllSystemUsers(); fetchModRequests(); fetchAuditLogs(); fetchResets(); fetchLockdownStatus(); }} className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm">
-            <RefreshCw size={14} className="mr-2 text-blue-600" /> Sync Queue
+          <button onClick={() => { fetchPendingUsers(); fetchAllSystemUsers(); fetchModRequests(); fetchAuditLogs(); fetchResets(); fetchLockdownStatus(); }} className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm">
+            <RefreshCw size={14} className="mr-2 text-blue-600 dark:text-blue-400" /> Sync Queue
           </button>
           {isSuperAdmin && (
             <button onClick={() => { fetchLockdownStatus(); setShowLockdownModal(true); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${activeLockdownCount > 0 ? 'bg-red-950 border-red-500 text-red-200 animate-pulse' : 'bg-amber-950/60 border-amber-600/50 text-amber-300'}`}>
@@ -552,270 +540,292 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             </button>
           )}
           {isSuperAdmin && (
-            <button onClick={handleKillSwitchToggle} disabled={loadingKillSwitch} className={`font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm border ${isDbKillActive ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : 'bg-red-50 border-red-400 text-red-800'}`}>
-              {loadingKillSwitch ? <Loader2 size={14} className="mr-2 animate-spin text-slate-500" /> : <ShieldAlert size={14} className={`mr-2 ${isDbKillActive ? 'text-emerald-600' : 'text-red-600'}`} />}
+            <button onClick={handleKillSwitchToggle} disabled={loadingKillSwitch} className={`font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm border ${isDbKillActive ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-600 text-emerald-800 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-950/40 border-red-400 dark:border-red-600 text-red-800 dark:text-red-300'}`}>
+              {loadingKillSwitch ? <Loader2 size={14} className="mr-2 animate-spin text-slate-500" /> : <ShieldAlert size={14} className={`mr-2 ${isDbKillActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`} />}
               {isDbKillActive ? 'AI DB Query: ON' : 'AI DB Query: KILLED'}
             </button>
           )}
         </div>
       </div>
 
-      {/* 🟢 TAB NAVIGATION BAR (Exhibits tab removed; accessed via sidebar now) */}
-      <div className="flex border-b border-slate-200 bg-white rounded-t-xl shadow-sm overflow-x-auto custom-scrollbar">
-        <button onClick={() => setActiveTab('approvals')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'approvals' ? 'bg-slate-50 border-b-[3px] border-blue-600 text-blue-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50'}`}>
+      {/* TAB NAVIGATION BAR */}
+      <div className="flex border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-t-xl shadow-sm overflow-x-auto custom-scrollbar">
+        <button onClick={() => setActiveTab('approvals')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'approvals' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-blue-600 text-blue-700 dark:text-blue-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
           <UserPlus className="w-4 h-4 mr-2"/> Authorizations ({loadingPending ? '...' : filteredPending.length})
         </button>
-        <button onClick={() => setActiveTab('matrix')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'matrix' ? 'bg-slate-50 border-b-[3px] border-indigo-600 text-indigo-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50'}`}>
+        <button onClick={() => setActiveTab('matrix')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'matrix' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-indigo-600 text-indigo-700 dark:text-indigo-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
           <Shield className="w-4 h-4 mr-2"/> Clearance Matrix ({filteredSystemUsers.length})
         </button>
-        <button onClick={() => setActiveTab('roster')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'roster' ? 'bg-slate-50 border-b-[3px] border-cyan-600 text-cyan-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50'}`}>
+        <button onClick={() => setActiveTab('roster')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'roster' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-cyan-600 text-cyan-700 dark:text-cyan-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
           <Users className="w-4 h-4 mr-2"/> Directory Roster ({filteredSystemUsers.length})
         </button>
-        <button onClick={() => setActiveTab('requests')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'requests' ? 'bg-slate-50 border-b-[3px] border-amber-500 text-amber-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50'}`}>
+        <button onClick={() => setActiveTab('requests')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'requests' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-amber-500 text-amber-700 dark:text-amber-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
           <RefreshCw className="w-4 h-4 mr-2"/> HR Transfers ({filteredRequests.length})
         </button>
-        <button onClick={() => setActiveTab('logs')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'logs' ? 'bg-slate-50 border-b-[3px] border-emerald-600 text-emerald-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50'}`}>
+        <button onClick={() => setActiveTab('logs')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'logs' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-emerald-600 text-emerald-700 dark:text-emerald-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
           <FileText className="w-4 h-4 mr-2"/> Audit Logs ({filteredLogs.length})
         </button>
-        <button onClick={() => setActiveTab('resets')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'resets' ? 'bg-slate-50 border-b-[3px] border-red-600 text-red-700 shadow-inner' : 'text-slate-500 hover:bg-slate-50/50'}`}>
+        <button onClick={() => setActiveTab('resets')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'resets' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-red-600 text-red-700 dark:text-red-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
           <KeyRound className="w-4 h-4 mr-2"/> Password Resets ({filteredResets.length})
         </button>
       </div>
 
+      {/* 🟢 1. AUTHORIZATIONS TAB WITH HORIZONTAL SCROLL WRAPPER */}
       {activeTab === 'approvals' && (
-        <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden max-w-6xl mx-auto">
           {loadingPending ? (
-            <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs">Syncing with Command Database...</div>
+            <div className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium animate-pulse text-xs">Syncing with Command Database...</div>
           ) : filteredPending.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 font-medium text-xs">No active unapproved access requests pending.</div>
+            <div className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium text-xs">No active unapproved access requests pending.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-xs">
-                <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px] tracking-wider">
+            <div className="w-full overflow-x-auto custom-scrollbar">
+              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
+                <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px] tracking-wider">
                   <tr><th className="px-4 py-3.5 text-left">Officer Details</th><th className="px-4 py-3.5 text-left">Command Post</th><th className="px-4 py-3.5 text-left">Derived Role Tier</th><th className="px-4 py-3.5 text-right">Action</th></tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
+                <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
                   {filteredPending.map((user) => (
-                    <tr key={user.fnum} onClick={() => setSelectedPendingUser(user)} className="hover:bg-blue-50/50 cursor-pointer transition-colors group">
-                      <td className="px-4 py-3 whitespace-nowrap"><div className="font-extrabold text-slate-900">{formatOfficerHeader(user)}</div></td>
-                      <td className="px-4 py-3 whitespace-nowrap"><div className="font-bold text-blue-700 uppercase">{stripHtmlTags(user.station)}</div></td>
-                      <td className="px-4 py-3 whitespace-nowrap"><span className="px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full border bg-slate-100 text-slate-800">{user.role}</span></td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right"><button type="button" onClick={() => setSelectedPendingUser(user)} className="bg-slate-100 hover:bg-slate-200 font-bold py-1.5 px-3 rounded-md text-[11px]">Review</button></td>
+                    <tr key={user.fnum} onClick={() => setSelectedPendingUser(user)} className="hover:bg-blue-50/50 dark:hover:bg-slate-800 cursor-pointer transition-colors group">
+                      <td className="px-4 py-3"><div className="font-extrabold text-slate-900 dark:text-slate-100">{formatOfficerHeader(user)}</div></td>
+                      <td className="px-4 py-3"><div className="font-bold text-blue-700 dark:text-blue-400 uppercase">{stripHtmlTags(user.station)}</div></td>
+                      <td className="px-4 py-3"><span className="px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full border bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700">{user.role}</span></td>
+                      <td className="px-4 py-3 text-right"><button type="button" onClick={() => setSelectedPendingUser(user)} className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold py-1.5 px-3 rounded-md text-[11px]">Review</button></td>
                     </tr>
                   ))}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 2. CLEARANCE MATRIX WITH MOMENTUM SCROLL WRAPPER */}
+      {activeTab === 'matrix' && (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
+          <div className="bg-slate-900 dark:bg-slate-950 text-white p-3 text-xs font-extrabold uppercase tracking-wider flex justify-between">
+            <span>Super Control Panel - Active Roster Matrix</span>
           </div>
-        )}
-      </div>
-    )}
-
-    {activeTab === 'matrix' && (
-      <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden w-full">
-        <div className="bg-slate-900 text-white p-3 text-xs font-extrabold uppercase tracking-wider flex justify-between">
-          <span>Super Control Panel - Active Roster Matrix</span>
-        </div>
-        {loadingUsers ? (
-          <div className="p-8 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
-        ) : (
-          <div className="overflow-x-auto w-full custom-scrollbar">
-            <table className="min-w-max divide-y divide-slate-200 text-xs table-fixed">
-              <thead className="bg-slate-900 text-white uppercase font-black text-[10px]">
-                <tr>
-                  <th className="p-2.5 text-left sticky left-0 z-20 bg-slate-900 text-blue-100 w-[240px] min-w-[240px]">Officer Details</th>
-                  <th className="p-2.5 text-center sticky left-[240px] z-20 bg-slate-900 text-blue-100 w-[120px] min-w-[120px]">Administrative Tier</th>
-                  <th className="p-2.5 text-center sticky left-[360px] z-20 bg-slate-900 text-blue-100 w-[100px] min-w-[100px]">Quick Actions</th>
-                  {CLEARANCE_MATRIX_COLS.map((col, idx) => (
-                    <th key={idx} className="p-2 border-l border-slate-700 bg-slate-900 w-20 min-w-[80px] align-middle">
-                      <div className="w-20 min-w-[80px] text-[9px] text-blue-100 font-bold whitespace-normal break-words leading-tight text-center px-0.5" title={col.label}>
-                        {col.label}
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                {filteredSystemUsers.map(u => {
-                  const p = u.permissions || {};
-                  const isSelf = u.fnum === currentUser?.fnum;
-                  return (
-                    <tr key={u.fnum} className="hover:bg-slate-50">
-                      <td className="p-2.5 sticky left-0 z-10 bg-white font-extrabold text-[11px] w-[240px] min-w-[240px] truncate" title={formatOfficerHeader(u)}>{formatOfficerHeader(u)}</td>
-                      <td className="p-2.5 text-center sticky left-[240px] z-10 bg-white w-[120px] min-w-[120px]">
-                        <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf} className="border rounded-md px-1.5 py-1 font-bold outline-none uppercase text-[10px] w-full truncate bg-white">
-                          <option value="USER">USER</option>
-                          <option value="STATION_ADMIN">STN ADMIN</option>
-                          <option value="DIVISION_USER">DIV USER</option>
-                          <option value="DIVISION_ADMIN">DIV ADMIN</option>
-                          <option value="REGIONAL_USER">REG USER</option>
-                          <option value="REGIONAL_ADMIN">REG ADMIN</option>
-                          <option value="ASSISTANT_REGIONAL_ADMIN">ASST REG ADMIN</option>
-                          <option value="ADMIN">ADMIN</option>
-                          <option value="SUPER_ADMIN">SUPER ADMIN</option>
-                          <option value="ASSISTANT_SUPER_ADMIN">ASST SUPER ADMIN</option>
-                          <option value="REVOKED">REVOKED</option>
-                      </select>
-                    </td>
-                    <td className="p-2.5 text-center sticky left-[360px] z-10 bg-white w-[100px] min-w-[100px]">
-                        <div className="flex items-center justify-center space-x-1">
-                          <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 text-emerald-700 border cursor-pointer"><CheckSquare size={12} /></button>
-                          <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 text-red-700 border cursor-pointer"><Square size={12} /></button>
-                          {isSuperAdmin && (
-                            <button onClick={() => handleForcePassword(u.fnum, u.name)} title="Force Password" className="p-1 rounded bg-amber-50 text-amber-700 border cursor-pointer"><KeyRound size={12} /></button>
-                          )}
-                        </div>
-                    </td>
-                    {CLEARANCE_MATRIX_COLS.map((col, idx) => {
-                      const isObserverCol = col.key === 'global_observer';
-                      const isOpenCol = col.key === 'global_open';
-                      
-                      const isMutuallyDisabled = (isObserverCol && Boolean(p.global_open)) || (isOpenCol && Boolean(p.global_observer));
-                      const isDisabled = isSelf || isMutuallyDisabled || u.role === 'SUPER_ADMIN';
-
+          {loadingUsers ? (
+            <div className="p-8 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
+          ) : (
+            <div className="w-full overflow-x-auto custom-scrollbar">
+              <div className="min-w-[1200px]">
+                <table className="w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs table-fixed">
+                  <thead className="bg-slate-900 dark:bg-slate-950 text-white uppercase font-black text-[10px]">
+                    <tr>
+                      <th className="p-2.5 text-left sticky left-0 z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[240px] min-w-[240px]">Officer Details</th>
+                      <th className="p-2.5 text-center sticky left-[240px] z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[120px] min-w-[120px]">Administrative Tier</th>
+                      <th className="p-2.5 text-center sticky left-[360px] z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[100px] min-w-[100px]">Quick Actions</th>
+                      {CLEARANCE_MATRIX_COLS.map((col, idx) => (
+                        <th key={idx} className="p-2 border-l border-slate-700 dark:border-slate-800 bg-slate-900 dark:bg-slate-950 w-20 min-w-[80px] align-middle">
+                          <div className="w-20 min-w-[80px] text-[9px] text-blue-100 font-bold whitespace-normal break-words leading-tight text-center px-0.5" title={col.label}>
+                            {col.label}
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium text-slate-700 dark:text-slate-300">
+                    {filteredSystemUsers.map(u => {
+                      const p = u.permissions || {};
+                      const isSelf = u.fnum === currentUser?.fnum;
                       return (
-                          <td key={idx} className="p-2 text-center border-l border-slate-100 w-20 min-w-[80px]">
-                            <input 
-                              type="checkbox" 
-                              checked={u.role === 'SUPER_ADMIN' || Boolean(p[col.key])} 
-                              disabled={isDisabled}
-                              onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
-                              className={`w-3.5 h-3.5 rounded ${isDisabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`} 
-                            />
+                        <tr key={u.fnum} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <td className="p-2.5 sticky left-0 z-10 bg-white dark:bg-slate-900 font-extrabold text-[11px] text-slate-900 dark:text-slate-100 w-[240px] min-w-[240px] truncate" title={formatOfficerHeader(u)}>{formatOfficerHeader(u)}</td>
+                          <td className="p-2.5 text-center sticky left-[240px] z-10 bg-white dark:bg-slate-900 w-[120px] min-w-[120px]">
+                            <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf} className="border border-slate-300 dark:border-slate-700 rounded-md px-1.5 py-1 font-bold outline-none uppercase text-[10px] w-full truncate bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200">
+                              <option value="USER">USER</option>
+                              <option value="STATION_ADMIN">STN ADMIN</option>
+                              <option value="DIVISION_USER">DIV USER</option>
+                              <option value="DIVISION_ADMIN">DIV ADMIN</option>
+                              <option value="REGIONAL_USER">REG USER</option>
+                              <option value="REGIONAL_ADMIN">REG ADMIN</option>
+                              <option value="ASSISTANT_REGIONAL_ADMIN">ASST REG ADMIN</option>
+                              <option value="ADMIN">ADMIN</option>
+                              <option value="SUPER_ADMIN">SUPER ADMIN</option>
+                              <option value="ASSISTANT_SUPER_ADMIN">ASST SUPER ADMIN</option>
+                              <option value="REVOKED">REVOKED</option>
+                            </select>
                           </td>
-                      );
-                  })}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    )}
-  </div>
-)}
+                          <td className="p-2.5 text-center sticky left-[360px] z-10 bg-white dark:bg-slate-900 w-[100px] min-w-[100px]">
+                            <div className="flex items-center justify-center space-x-1">
+                              <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 cursor-pointer"><CheckSquare size={12} /></button>
+                              <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 cursor-pointer"><Square size={12} /></button>
+                              {isSuperAdmin && (
+                                <button onClick={() => handleForcePassword(u.fnum, u.name)} title="Force Password" className="p-1 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 cursor-pointer"><KeyRound size={12} /></button>
+                              )}
+                            </div>
+                          </td>
+                          {CLEARANCE_MATRIX_COLS.map((col, idx) => {
+                            const isObserverCol = col.key === 'global_observer';
+                            const isOpenCol = col.key === 'global_open';
+                            
+                            const isMutuallyDisabled = (isObserverCol && Boolean(p.global_open)) || (isOpenCol && Boolean(p.global_observer));
+                            const isDisabled = isSelf || isMutuallyDisabled || u.role === 'SUPER_ADMIN';
 
-    {activeTab === 'roster' && (
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
-        <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 text-white font-semibold text-xs uppercase">
-          Command Directory & System Roster
+                            return (
+                              <td key={idx} className="p-2 text-center border-l border-slate-100 dark:border-slate-800 w-20 min-w-[80px]">
+                                <input 
+                                  type="checkbox" 
+                                  checked={u.role === 'SUPER_ADMIN' || Boolean(p[col.key])} 
+                                  disabled={isDisabled}
+                                  onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
+                                  className={`w-3.5 h-3.5 rounded ${isDisabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'} accent-blue-600`} 
+                                />
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
-        {loadingUsers ? (
-          <div className="p-8 text-center text-slate-500 font-medium animate-pulse text-xs">Compiling roster...</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-xs">
-              <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px]">
-                <tr><th className="px-4 py-3.5 text-left">Officer Details</th><th className="px-4 py-3.5 text-left">Identifiers</th><th className="px-4 py-3.5 text-left">Contact Data</th><th className="px-4 py-3.5 text-right">Actions</th></tr>
+      )}
+
+      {/* 🟢 3. DIRECTORY ROSTER WITH HORIZONTAL SCROLL WRAPPER */}
+      {activeTab === 'roster' && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden max-w-6xl mx-auto">
+          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 border-b border-slate-800 text-white font-semibold text-xs uppercase">
+            Command Directory & System Roster
+          </div>
+          {loadingUsers ? (
+            <div className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium animate-pulse text-xs">Compiling roster...</div>
+          ) : (
+            <div className="w-full overflow-x-auto custom-scrollbar">
+              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
+                <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px]">
+                  <tr><th className="px-4 py-3.5 text-left">Officer Details</th><th className="px-4 py-3.5 text-left">Identifiers</th><th className="px-4 py-3.5 text-left">Contact Data</th><th className="px-4 py-3.5 text-right">Actions</th></tr>
+                </thead>
+                <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
+                  {filteredSystemUsers.map((user) => (
+                    <tr key={user.fnum} className="hover:bg-cyan-50/50 dark:hover:bg-slate-800">
+                      <td className="px-4 py-3"><div className="font-extrabold text-slate-900 dark:text-slate-100">{formatOfficerHeader(user)}</div></td>
+                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">IPPS: {user.ipps || 'N/A'}</td>
+                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{user.phone || 'N/A'}</td>
+                      <td className="px-4 py-3 text-right">
+                        {isSuperAdmin && (
+                          <button onClick={() => handleForcePassword(user.fnum, user.name)} className="px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-bold text-[10px] cursor-pointer"><KeyRound size={12} className="inline mr-1" /> Force Password</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 🟢 4. HR TRANSFERS TAB WITH HORIZONTAL SCROLL WRAPPER */}
+      {activeTab === 'requests' && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-amber-200 dark:border-amber-900/50 overflow-hidden max-w-6xl mx-auto">
+          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">HR Modification Requests</div>
+          <div className="w-full overflow-x-auto custom-scrollbar">
+            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
+              <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px]">
+                <tr><th className="px-4 py-3.5 text-left">Officer</th><th className="px-4 py-3.5 text-left">Requested Changes</th><th className="px-4 py-3.5 text-right">Action</th></tr>
               </thead>
-              <tbody className="bg-white divide-y divide-slate-200">
-                {filteredSystemUsers.map((user) => (
-                  <tr key={user.fnum} className="hover:bg-cyan-50/50">
-                    <td className="px-4 py-3 whitespace-nowrap"><div className="font-extrabold">{formatOfficerHeader(user)}</div></td>
-                    <td className="px-4 py-3 whitespace-nowrap">IPPS: {user.ipps || 'N/A'}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">{user.phone || 'N/A'}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-right">
-                      {isSuperAdmin && (
-                        <button onClick={() => handleForcePassword(user.fnum, user.name)} className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 font-bold text-[10px]"><KeyRound size={12} className="inline mr-1" /> Force Password</button>
-                      )}
+              <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
+                {filteredRequests.map((req) => (
+                  <tr key={req.id || req.sn} className="hover:bg-amber-50/50 dark:hover:bg-slate-800">
+                    <td className="px-4 py-2.5 text-slate-900 dark:text-slate-100">{formatOfficerHeader({ fnum: req.fnum, rank: req.current_rank, name: req.current_name })}</td>
+                    <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300">Station: {req.requested_station || req.current_station}</td>
+                    <td className="px-4 py-2.5 text-right space-x-2">
+                      <button onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Approve</button>
+                      <button onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className="bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Reject</button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        )}
-      </div>
-    )}
-
-    {activeTab === 'requests' && (
-      <div className="bg-white rounded-xl shadow-xs border border-amber-200 overflow-hidden max-w-6xl mx-auto">
-        <div className="bg-slate-900 px-4 py-2.5 text-white font-semibold text-xs uppercase">HR Modification Requests</div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-xs">
-            <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px]">
-              <tr><th className="px-4 py-3.5 text-left">Officer</th><th className="px-4 py-3.5 text-left">Requested Changes</th><th className="px-4 py-3.5 text-right">Action</th></tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-slate-200">
-              {filteredRequests.map((req) => (
-                <tr key={req.id || req.sn} className="hover:bg-amber-50/50">
-                  <td className="px-4 py-2.5">{formatOfficerHeader({ fnum: req.fnum, rank: req.current_rank, name: req.current_name })}</td>
-                  <td className="px-4 py-2.5">Station: {req.requested_station || req.current_station}</td>
-                  <td className="px-4 py-2.5 text-right space-x-2">
-                    <button onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className="bg-emerald-600 text-white font-bold py-1 px-2.5 rounded text-[11px]">Approve</button>
-                    <button onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className="bg-red-50 text-red-600 font-bold py-1 px-2.5 rounded text-[11px]">Reject</button>
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-          </table>
         </div>
-    </div>
-  )}
+      )}
 
-    {activeTab === 'logs' && (
-  <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden max-w-6xl mx-auto">
-    <div className="bg-slate-900 px-4 py-2.5 text-white font-semibold text-xs uppercase">System Audit Logs</div>
-    <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-slate-200 text-xs">
-        <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px]">
-          <tr><th className="px-4 py-3.5 text-left">Timestamp</th><th className="px-4 py-3.5 text-left">User</th><th className="px-4 py-3.5 text-left">Event</th><th className="px-4 py-3.5 text-left">Details</th></tr>
-        </thead>
-        <tbody className="bg-white divide-y divide-slate-200">
-          {filteredLogs.map((log) => (
-            <tr key={log.id} className="hover:bg-slate-50">
-              <td className="px-4 py-2 font-mono text-[10px]">{log.created_at}</td>
-              {/* 🟢 Render user_fnum combined with user_name */}
-              <td className="px-4 py-2 font-extrabold text-blue-700">
-                {log.user_fnum} {log.user_name ? `- ${log.user_name}` : ''}
-              </td>
-              <td className="px-4 py-2 uppercase font-extrabold text-[10px]">{log.event_type}</td>
-              <td className="px-4 py-2 text-[11px]">{log.details}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  </div>
-)}
+      {/* 🟢 5. AUDIT LOGS TAB WITH HORIZONTAL SCROLL WRAPPER & CLEAN KEY EVENTS */}
+      {activeTab === 'logs' && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden max-w-6xl mx-auto">
+          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">System Audit Logs</div>
+          <div className="w-full overflow-x-auto custom-scrollbar">
+            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
+              <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px]">
+                <tr><th className="px-4 py-3.5 text-left">Timestamp</th><th className="px-4 py-3.5 text-left">User</th><th className="px-4 py-3.5 text-left">Event</th><th className="px-4 py-3.5 text-left">Details</th></tr>
+              </thead>
+              <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
+                {filteredLogs.map((log) => (
+                  <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <td className="px-4 py-2 font-mono text-[10px] text-slate-500 dark:text-slate-400">{log.created_at}</td>
+                    
+                    <td className="px-4 py-2 font-extrabold text-blue-700 dark:text-blue-400">
+                      {log.user_fnum} {log.user_name ? `- ${log.user_name}` : ''}
+                    </td>
 
-    {activeTab === 'resets' && (        
-      <div className="bg-white rounded-xl shadow-xs border border-red-200 overflow-hidden max-w-6xl mx-auto">
-        <div className="bg-slate-900 px-4 py-2.5 text-white font-semibold text-xs uppercase">Authorized Password Recovery</div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-xs">
-            <thead className="bg-slate-900 text-blue-100 uppercase font-black text-[11px]">
-              <tr><th className="px-4 py-3.5 text-left">Date</th><th className="px-4 py-3.5 text-left">Officer</th><th className="px-4 py-3.5 text-right">Action</th></tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-slate-200">
-              {filteredResets.map((req) => (
-                <tr key={req.id} className="hover:bg-red-50/50">
-                  <td className="px-4 py-2.5 font-bold text-[10px]">{req.request_date}</td>
-                  <td className="px-4 py-2.5 font-extrabold text-blue-700">{formatOfficerHeader({ fnum: req.fnum, rank: req.rank, name: req.name })}</td>
-                  <td className="px-4 py-2.5 text-right space-x-2">
-                    <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 text-white font-bold py-1 px-2.5 rounded text-[11px]">Authorize Reset</button>
-                    <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-slate-100 text-slate-700 font-bold py-1 px-2.5 rounded text-[11px]">Reject</button>
-                  </td>
-                </tr>
-              ))}
-        </tbody>
-      </table>
-    </div>
-  </div>
-)}
+                    <td className="px-4 py-2 uppercase font-extrabold text-[10px]">
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                        log.event_type?.includes('AUTH') ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' :
+                        log.event_type?.includes('SUBMIT') || log.event_type?.includes('CREATE') ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' :
+                        'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
+                      }`}>
+                        {log.event_type}
+                      </span>
+                    </td>
 
-  {/* MODALS */}
-  <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} canModifyUser={canModifyUser} />
-  <HRModificationModal req={selectedModRequest} onClose={() => setSelectedModRequest(null)} currentUser={currentUser} isProcessingAction={isProcessingAction} handleReviewRequest={handleReviewRequest} />
-  <LockdownMatrixModal isOpen={showLockdownModal} onClose={() => setShowLockdownModal(false)} activeLockdownSummary={activeLockdownSummary} lockdownData={lockdownData} handleToggleLockdown={handleToggleLockdown} lockdownRegionFilter={lockdownRegionFilter} setLockdownRegionFilter={setLockdownRegionFilter} />
-  <RevocationModal prompt={revokePrompt} setPrompt={setRevokePrompt} executeRoleChange={() => {}} executePermissionChange={() => {}} />
+                    <td className="px-4 py-2 text-[11px] text-slate-700 dark:text-slate-300 font-medium whitespace-normal min-w-[300px]">
+                      {log.details?.includes('Target: SYSTEM | Changes: | Remarks:') 
+                        ? 'Standard System Authentication / Session Init' 
+                        : log.details}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
-  {viewingPhotoModal && (
-    <div className="fixed inset-0 bg-black/90 z-[400] flex justify-center items-center p-4" onClick={() => setViewingPhotoModal(null)}>
-      <button className="absolute top-6 right-6 text-white bg-white/10 p-2 rounded-full"><X size={24}/></button>
-      <img src={viewingPhotoModal} alt="Enlarged" className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()} />
-    </div>
-  )}
-</div>  
+      {/* 🟢 6. PASSWORD RESETS TAB WITH HORIZONTAL SCROLL WRAPPER */}
+      {activeTab === 'resets' && (      
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-red-200 dark:border-red-900/50 overflow-hidden max-w-6xl mx-auto">
+          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">Authorized Password Recovery</div>
+          <div className="w-full overflow-x-auto custom-scrollbar">
+            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
+              <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px]">
+                <tr><th className="px-4 py-3.5 text-left">Date</th><th className="px-4 py-3.5 text-left">Officer</th><th className="px-4 py-3.5 text-right">Action</th></tr>
+              </thead>
+              <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
+                {filteredResets.map((req) => (
+                  <tr key={req.id} className="hover:bg-red-50/50 dark:hover:bg-slate-800">
+                    <td className="px-4 py-2.5 font-bold text-[10px] text-slate-500 dark:text-slate-400">{req.request_date}</td>
+                    <td className="px-4 py-2.5 font-extrabold text-blue-700 dark:text-blue-400">{formatOfficerHeader({ fnum: req.fnum, rank: req.rank, name: req.name })}</td>
+                    <td className="px-4 py-2.5 text-right space-x-2">
+                      <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Authorize Reset</button>
+                      <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Reject</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODALS */}
+      <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} canModifyUser={canModifyUser} />
+      <HRModificationModal req={selectedModRequest} onClose={() => setSelectedModRequest(null)} currentUser={currentUser} isProcessingAction={isProcessingAction} handleReviewRequest={handleReviewRequest} />
+      <LockdownMatrixModal isOpen={showLockdownModal} onClose={() => setShowLockdownModal(false)} activeLockdownSummary={activeLockdownSummary} lockdownData={lockdownData} handleToggleLockdown={handleToggleLockdown} lockdownRegionFilter={lockdownRegionFilter} setLockdownRegionFilter={setLockdownRegionFilter} />
+      <RevocationModal prompt={revokePrompt} setPrompt={setRevokePrompt} executeRoleChange={() => {}} executePermissionChange={() => {}} />
+
+      {viewingPhotoModal && (
+        <div className="fixed inset-0 bg-black/90 z-[400] flex justify-center items-center p-4" onClick={() => setViewingPhotoModal(null)}>
+          <button className="absolute top-6 right-6 text-white bg-white/10 p-2 rounded-full"><X size={24}/></button>
+          <img src={viewingPhotoModal} alt="Enlarged" className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+    </div>  
   );
 };
 
