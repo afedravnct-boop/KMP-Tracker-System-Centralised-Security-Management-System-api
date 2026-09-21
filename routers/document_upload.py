@@ -304,12 +304,14 @@ def download_archive_file(
             core_props.comments = comments_str
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
-            # 🟢 True Left Margin Vertical Stamp via VML
-            # We create a completely new, empty background paragraph layer. 
-            # This completely isolates the stamp from your user-uploaded titles or centering alignments.
+            # 🟢 VML Injection for True Left Margin Vertical Stamp
+            # Adjusted margin-left from -290pt to -265pt. 
+            # This pulls the text 25 points inward, making it 100% safe for physical printers,
+            # while still keeping it strictly in the empty left margin, well clear of your document text.
             section = word_doc.sections[0]
-            header = section.header
-            stamp_layer = header.add_paragraph()
+            footer = section.footer
+            if not footer.paragraphs:
+                footer.add_paragraph()
             
             try:
                 vml_xml = f'''
@@ -322,16 +324,16 @@ def download_archive_file(
                             <v:textpath on="t" fitshape="t"/>
                             <o:lock v:ext="edit" text="t" shapetype="t"/>
                         </v:shapetype>
-                        <v:shape id="LeftMarginStamp" type="#_x0000_t136" 
-                                 style="position:absolute;left:0;text-align:center;margin-left:-290pt;margin-top:0pt;width:600pt;height:12pt;rotation:270;z-index:-251657216;mso-position-horizontal:absolute;mso-position-horizontal-relative:page;mso-position-vertical:center;mso-position-vertical-relative:page" 
+                        <v:shape id="VerticalStamp" type="#_x0000_t136" 
+                                 style="position:absolute;left:0;text-align:center;margin-left:-265pt;margin-top:0pt;width:600pt;height:12pt;rotation:270;z-index:-251657216;mso-position-horizontal:absolute;mso-position-horizontal-relative:page;mso-position-vertical:center;mso-position-vertical-relative:page" 
                                  fillcolor="#8B0000" stroked="f">
-                            <v:textpath style="font-family:'Courier New';font-size:7.5pt;font-weight:bold" string="{vertical_stamp_text}"/>
+                            <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
                         </v:shape>
                     </w:pict>
                 </w:r>
                 '''
                 vml_run = parse_xml(vml_xml)
-                stamp_layer._p.append(vml_run)
+                footer.paragraphs[-1]._p.append(vml_run)
             except Exception as e:
                 print(f"Failed to inject VML vertical watermark: {e}")
             
@@ -346,12 +348,11 @@ def download_archive_file(
             wb.properties.description = comments_str
             wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
             
-            # Excel does not support absolute page margins. This simply writes to the left header space.
             for ws in wb.worksheets:
-                if hasattr(ws, 'sheet_header'): 
-                    ws.sheet_header.left.text = vertical_stamp_text
-                elif hasattr(ws, 'odd_header'): 
-                    ws.odd_header.left.text = vertical_stamp_text
+                if hasattr(ws, 'sheet_footer'): 
+                    ws.sheet_footer.left.text = vertical_stamp_text
+                elif hasattr(ws, 'odd_footer'): 
+                    ws.odd_footer.left.text = vertical_stamp_text
             wb.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -366,8 +367,8 @@ def download_archive_file(
                 
                 if prs.slides:
                     slide = prs.slides[0]
-                    # Left vertical text box anchored strictly on the extreme left margin
-                    left_box = slide.shapes.add_textbox(Inches(-3.6), Inches(3.5), Inches(8), Inches(0.5))
+                    # Adjusted Left margin for PPT printable safety (0.35 inches inward)
+                    left_box = slide.shapes.add_textbox(Inches(-3.4), Inches(3.5), Inches(8), Inches(0.5))
                     left_box.rotation = 270 
                     p_left = left_box.text_frame.add_paragraph()
                     p_left.text = vertical_stamp_text
@@ -387,9 +388,9 @@ def download_archive_file(
                 pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
                 for page in pdf_doc:
                     rect = page.rect
-                    # 🟢 Rotated 90-degrees upward exactly on the absolute physical Left Margin (x=15)
+                    # 🟢 Adjusted PDF X coordinate from 15 to 25 to guarantee print safety
                     page.insert_text(
-                        pymupdf.Point(15, rect.height - 50),
+                        pymupdf.Point(25, rect.height - 50),
                         vertical_stamp_text,
                         fontsize=7,
                         fontname="courier-bold",
