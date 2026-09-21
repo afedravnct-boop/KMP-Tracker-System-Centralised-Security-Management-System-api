@@ -34,7 +34,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
   const [templateCustomName, setTemplateCustomName] = useState('');
-  
   const [searchQuery, setSearchQuery] = useState('');
 
   const canViewGlobalActive = canViewGlobal || 
@@ -168,8 +167,11 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
+  // 🟢 STRICT ROUTING READ PATH: Fixed Command Templates download confusion
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document', categoryKey = 'weekly_report') => {
     setActionLoading(`read-${docId}`);
+    
+    // Open the tab instantly BEFORE the network request to bypass popup blockers
     const mobileSafeWindow = window.open('about:blank', '_blank');
 
     try {
@@ -195,13 +197,28 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
       const lowerName = (docName || '').toLowerCase();
       
-      if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
-        mobileSafeWindow.location.href = s3Url;
-      } else if (lowerName.endsWith('.xls') || lowerName.endsWith('.xlsx')) {
-        mobileSafeWindow.location.href = s3Url;
-      } else {
-        const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
-        mobileSafeWindow.location.href = googleViewerUrl;
+      // 🟢 ISOLATED FIX: Force Templates to route via Google Viewer so they read instead of downloading
+      if (categoryKey === 'templates' || isTemplate) {
+        if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
+          mobileSafeWindow.location.href = s3Url;
+        } else {
+          // Force Excel and Word templates into the viewer to stop auto-downloads on "Read"
+          const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
+          mobileSafeWindow.location.href = googleViewerUrl;
+        }
+      } 
+      // 🟢 ORIGINAL LOGIC: Kept entirely untouched for weekly reports and general docs
+      else {
+        if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
+          mobileSafeWindow.location.href = s3Url;
+        } else if (lowerName.endsWith('.xls') || lowerName.endsWith('.xlsx')) {
+          // Excel native live view handler (Original behavior)
+          mobileSafeWindow.location.href = s3Url;
+        } else {
+          // Word and general documents: Route via Google Docs Viewer
+          const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
+          mobileSafeWindow.location.href = googleViewerUrl;
+        }
       }
     } catch (err) {
       if (mobileSafeWindow) mobileSafeWindow.close();
@@ -248,30 +265,29 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const filteredDocuments = useMemo(() => {
     let result = documents.filter(doc => {
       if (doc.categoryKey !== activeCategory) return false;
-      
       const stn = (doc.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, doc.region);
-      if (!canViewGlobalActive || filterRegion !== 'ALL REGIONS' || filterStation !== 'ALL STATIONS') {
-        if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return false;
-        if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return false;
-      }
-      
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        const docName = (doc.name || '').toLowerCase();
-        const docType = (doc.type || '').toLowerCase();
-        if (!docName.includes(q) && !docType.includes(q)) return false;
-      }
-
+      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
+      if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return false;
+      if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return false;
       return true;
     });
 
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(doc => 
+        (doc.name || '').toLowerCase().includes(q) || 
+        (doc.type || '').toLowerCase().includes(q)
+      );
+    }
+    
+    // Sort by latest
     result.sort((a, b) => {
       const dateA = new Date(a.date || a.created_at || 0).getTime();
       const dateB = new Date(b.date || b.created_at || 0).getTime();
       return (isNaN(dateB) ? 0 : dateB) - (isNaN(dateA) ? 0 : dateA);
     });
-
+    
     return result;
   }, [documents, activeCategory, filterRegion, filterStation, canViewGlobalActive, searchQuery]);
 
@@ -279,7 +295,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     <div className="max-w-[1600px] mx-auto space-y-6 font-sans mb-8 p-4 md:p-6 animate-in fade-in duration-300">
       
       {/* 🟢 MODERN SKY-BLUE TOUCH PROFESSIONAL HEADER & BACK BUTTON */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gradient-to-r from-sky-900 via-blue-900 to-sky-950 text-white px-6 py-5 rounded-2xl shadow-xl border border-sky-400/30">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gradient-to-r from-sky-900 via-blue-900 to-sky-950 text-white px-6 py-5 rounded-2xl shadow-xl border border-sky-400/35">
         <div className="flex items-center space-x-3.5">
           <div className="w-12 h-12 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center shrink-0 shadow-inner">
             <Server className="w-6 h-6 text-sky-400" />
@@ -293,14 +309,11 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
         </div>
 
         <button 
+          type="button"
           onClick={() => {
-            if (typeof onBack === 'function') {
-              onBack();
-            } else if (typeof setCurrentPage === 'function') {
-              setCurrentPage('home');
-            } else {
-              window.location.href = '/';
-            }
+            if (typeof onBack === 'function') onBack();
+            else if (typeof setCurrentPage === 'function') setCurrentPage('home');
+            else window.location.href = '/';
           }} 
           className="flex items-center text-xs font-black uppercase tracking-wider text-sky-950 bg-sky-400 hover:bg-sky-300 active:bg-sky-500 px-5 py-3 rounded-xl shadow-lg border border-sky-300 transition-all cursor-pointer shrink-0"
         >
@@ -459,23 +472,23 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                     <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400 font-mono font-bold">{doc.size}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex justify-end space-x-2">
-                        <button onClick={() => handleReadDoc(doc.id, doc.isTemplate, doc.name, doc.categoryKey)} disabled={actionLoading === `read-${doc.id}`} className="text-sky-800 dark:text-sky-200 bg-sky-50 dark:bg-slate-800 hover:bg-sky-100 dark:hover:bg-slate-700 border border-sky-200 dark:border-slate-700 px-3 py-1.5 rounded-xl transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50 shadow-xs">
+                        <button type="button" onClick={() => handleReadDoc(doc.id, doc.isTemplate, doc.name, doc.categoryKey)} disabled={actionLoading === `read-${doc.id}`} className="text-sky-800 dark:text-sky-200 bg-white dark:bg-slate-800 hover:bg-sky-100 dark:hover:bg-slate-700 border border-sky-200 dark:border-slate-700 px-3 py-1.5 rounded-xl transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50 shadow-xs">
                           {actionLoading === `read-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <ExternalLink className="w-3 h-3 mr-1.5 text-sky-600 dark:text-sky-400" />} Read
                         </button>
 
                         {hasDownloadClearance ? (
                           <>
-                            <button onClick={() => handleDownloadDoc(doc.id, doc.isTemplate, doc.name, doc.categoryKey)} disabled={actionLoading === `download-${doc.id}`} className="text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-900 px-3 py-1.5 rounded-xl transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50 shadow-xs">
+                            <button type="button" onClick={() => handleDownloadDoc(doc.id, doc.isTemplate, doc.name, doc.categoryKey)} disabled={actionLoading === `download-${doc.id}`} className="text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-900 px-3 py-1.5 rounded-xl transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50 shadow-xs">
                               {actionLoading === `download-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1.5" />} Download
                             </button>
                             {hasUploadClearance && (
-                              <button onClick={() => handleDeleteDoc(doc.id)} disabled={actionLoading === `delete-${doc.id}`} className="text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-900 px-3 py-1.5 rounded-xl transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50 shadow-xs">
+                              <button type="button" onClick={() => handleDeleteDoc(doc.id)} disabled={actionLoading === `delete-${doc.id}`} className="text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-900 px-3 py-1.5 rounded-xl transition flex items-center text-xs font-bold cursor-pointer disabled:opacity-50 shadow-xs">
                                 {actionLoading === `delete-${doc.id}` ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Trash2 className="w-3 h-3 mr-1.5" />} Delete
                               </button>
                             )}
                           </>
                         ) : (
-                          <button disabled className="text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-xl flex items-center text-xs font-bold cursor-not-allowed opacity-60" title="Command Clearance Required to Download"><Lock className="w-3 h-3 mr-1" /> Restricted</button>
+                          <button type="button" disabled className="text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-xl flex items-center text-xs font-bold cursor-not-allowed opacity-60" title="Command Clearance Required to Download"><Lock className="w-3 h-3 mr-1" /> Restricted</button>
                         )}
                       </div>
                     </td>
