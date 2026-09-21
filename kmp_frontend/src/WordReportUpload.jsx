@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {  
   UploadCloud, FileText, Download, CheckCircle, AlertTriangle,  
-  Loader2, FolderOpen, Clock, FileArchive, Lock, Server, Trash2, Filter, ExternalLink, Search, X, ArrowLeft
+  Loader2, FolderOpen, Clock, FileArchive, Lock, Server, Trash2, Filter, ExternalLink, Search, X, ArrowLeft, Maximize2
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { authFetch } from './api';
 
 const REGIONAL_HIERARCHY = {
@@ -35,6 +36,9 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const [actionLoading, setActionLoading] = useState(null);
   const [templateCustomName, setTemplateCustomName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // 🟢 Template Live Sheet Modal State
+  const [sheetModal, setSheetModal] = useState(null);
 
   const canViewGlobalActive = canViewGlobal || 
     ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
@@ -167,12 +171,17 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-  // 🟢 STRICT ROUTING READ PATH: Fixed Command Templates download confusion
+  // 🟢 STRICT ROUTING: Targets ONLY Command Templates without touching weekly reports or general docs
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document', categoryKey = 'weekly_report') => {
     setActionLoading(`read-${docId}`);
-    
-    // Open the tab instantly BEFORE the network request to bypass popup blockers
-    const mobileSafeWindow = window.open('about:blank', '_blank');
+    const lowerName = (docName || '').toLowerCase();
+    const isExcelTemplate = (categoryKey === 'templates' || isTemplate) && (lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls'));
+
+    // Only open a blank window if it's NOT an in-app Excel template
+    let mobileSafeWindow = null;
+    if (!isExcelTemplate) {
+      mobileSafeWindow = window.open('about:blank', '_blank');
+    }
 
     try {
       let endpoint = `/api/v1/reports/download/${docId}?stamp=true&return_url=true&category=${categoryKey}`;
@@ -195,27 +204,30 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       
       if (!s3Url) throw new Error("Pre-signed S3 URL missing from backend response.");
 
-      const lowerName = (docName || '').toLowerCase();
-      
-      // 🟢 ISOLATED FIX: Force Templates to route via Google Viewer so they read instead of downloading
-      if (categoryKey === 'templates' || isTemplate) {
+      // 🟢 ISOLATED FIX ONLY FOR COMMAND TEMPLATES (EXCEL)
+      if (isExcelTemplate) {
+        const fileRes = await fetch(s3Url);
+        const arrayBuffer = await fileRes.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheetHtml = XLSX.utils.sheet_to_html(workbook.Sheets[sheetName]);
+        setSheetModal({ name: docName, html: sheetHtml });
+      } 
+      // 🟢 OTHER TEMPLATES (PDFs, Images, Word)
+      else if (categoryKey === 'templates' || isTemplate) {
         if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
           mobileSafeWindow.location.href = s3Url;
         } else {
-          // Force Excel and Word templates into the viewer to stop auto-downloads on "Read"
-          const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
-          mobileSafeWindow.location.href = googleViewerUrl;
+          mobileSafeWindow.location.href = s3Url;
         }
       } 
-      // 🟢 ORIGINAL LOGIC: Kept entirely untouched for weekly reports and general docs
+      // 🟢 ORIGINAL CODE UNTOUCHED FOR WEEKLY REPORTS & GENERAL DOCS
       else {
         if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
           mobileSafeWindow.location.href = s3Url;
         } else if (lowerName.endsWith('.xls') || lowerName.endsWith('.xlsx')) {
-          // Excel native live view handler (Original behavior)
           mobileSafeWindow.location.href = s3Url;
         } else {
-          // Word and general documents: Route via Google Docs Viewer
           const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
           mobileSafeWindow.location.href = googleViewerUrl;
         }
@@ -281,7 +293,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       );
     }
     
-    // Sort by latest
     result.sort((a, b) => {
       const dateA = new Date(a.date || a.created_at || 0).getTime();
       const dateB = new Date(b.date || b.created_at || 0).getTime();
@@ -294,7 +305,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   return (
     <div className="max-w-[1600px] mx-auto space-y-6 font-sans mb-8 p-4 md:p-6 animate-in fade-in duration-300">
       
-      {/* 🟢 MODERN SKY-BLUE TOUCH PROFESSIONAL HEADER & BACK BUTTON */}
+      {/* 🟢 MODERN SKY-BLUE TOUCH PROFESSIONAL HEADER & ACTIONABLE BACK BUTTON */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gradient-to-r from-sky-900 via-blue-900 to-sky-950 text-white px-6 py-5 rounded-2xl shadow-xl border border-sky-400/35">
         <div className="flex items-center space-x-3.5">
           <div className="w-12 h-12 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center shrink-0 shadow-inner">
@@ -499,6 +510,34 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
           </div>
         </div>
       </div>
+
+      {/* 🟢 IN-APP EXCEL SHEET MODAL: PREVENTS S3 TOKEN BLOCKING AND GOOGLE PREVIEW ERRORS */}
+      {sheetModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[1000] flex flex-col animate-in fade-in duration-200">
+          <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shadow-lg shrink-0 border-b border-sky-900">
+            <h3 className="font-black text-sm uppercase tracking-wider flex items-center text-sky-300">
+              <FileText className="mr-2 text-sky-400 w-5 h-5" /> 
+              Template Spreadsheet View: {sheetModal.name}
+            </h3>
+            <button 
+              onClick={() => setSheetModal(null)} 
+              className="hover:bg-slate-800 text-slate-300 hover:text-white p-2 rounded-xl transition-colors bg-slate-800 border border-slate-700 cursor-pointer flex items-center text-xs font-bold"
+            >
+              <X size={16} className="mr-2 text-red-400" /> Close View
+            </button>
+          </div>
+          
+          <div className="flex-1 bg-slate-100 dark:bg-slate-950 overflow-auto p-4 md:p-8 flex justify-center">
+            <div className="bg-white text-slate-900 p-6 rounded-2xl shadow-2xl w-full max-w-6xl overflow-x-auto border border-slate-200">
+              <div 
+                className="prose max-w-none text-xs"
+                dangerouslySetInnerHTML={{ __html: sheetModal.html }} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
