@@ -304,16 +304,13 @@ def download_archive_file(
             core_props.comments = comments_str
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
-            # 🟢 True Vertical Left Margin Stamp via VML
-            # The width is intentionally wide (600pt) and the height is short (12pt) to form a single line of text.
-            # We then rotate it 270 degrees so it stands up perfectly straight on the left margin.
-            # Absolutely no text is added to the header space itself.
+            # 🟢 True Left Margin Vertical Stamp via VML
+            # Placed invisibly in the FOOTER so it does not interact with your centered headers at all.
+            # margin-left:-285pt mathematically aligns the center of the rotated text box to exactly 15pt from the physical left edge of the page.
             section = word_doc.sections[0]
-            header = section.header
-            if not header.paragraphs:
-                header_p = header.add_paragraph()
-            else:
-                header_p = header.paragraphs[0]
+            footer = section.footer
+            if not footer.paragraphs:
+                footer.add_paragraph()
             
             try:
                 vml_xml = f'''
@@ -327,7 +324,7 @@ def download_archive_file(
                             <o:lock v:ext="edit" text="t" shapetype="t"/>
                         </v:shapetype>
                         <v:shape id="VerticalStamp" type="#_x0000_t136" 
-                                 style="position:absolute;left:10pt;top:150pt;width:600pt;height:12pt;rotation:270;z-index:-251657216;mso-position-horizontal:left;mso-position-vertical:center;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                 style="position:absolute;left:0;text-align:center;margin-left:-285pt;margin-top:0pt;width:600pt;height:10pt;rotation:270;z-index:-251657216;mso-position-horizontal:left;mso-position-vertical:center;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                  fillcolor="#8B0000" stroked="f">
                             <v:textpath style="font-family:'Courier New';font-size:7.5pt;font-weight:bold" string="{vertical_stamp_text}"/>
                         </v:shape>
@@ -335,7 +332,7 @@ def download_archive_file(
                 </w:r>
                 '''
                 vml_run = parse_xml(vml_xml)
-                header_p._p.append(vml_run)
+                footer.paragraphs[-1]._p.append(vml_run)
             except Exception as e:
                 print(f"Failed to inject VML vertical watermark: {e}")
             
@@ -350,6 +347,7 @@ def download_archive_file(
             wb.properties.description = comments_str
             wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
             
+            # Excel does not support absolute page-margin drawing natively, so we default to the left footer.
             for ws in wb.worksheets:
                 if hasattr(ws, 'sheet_footer'): 
                     ws.sheet_footer.left.text = vertical_stamp_text
@@ -369,8 +367,8 @@ def download_archive_file(
                 
                 if prs.slides:
                     slide = prs.slides[0]
-                    # Left vertical text box on the margin
-                    left_box = slide.shapes.add_textbox(Inches(0.1), Inches(1.5), Inches(8), Inches(0.5))
+                    # Left vertical text box anchored on the margin (x=0.2 inches)
+                    left_box = slide.shapes.add_textbox(Inches(-3.5), Inches(3.5), Inches(8), Inches(0.5))
                     left_box.rotation = 270 
                     p_left = left_box.text_frame.add_paragraph()
                     p_left.text = vertical_stamp_text
@@ -390,9 +388,9 @@ def download_archive_file(
                 pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
                 for page in pdf_doc:
                     rect = page.rect
-                    # 🟢 Rotated 90-degrees upward on Left Margin, perfectly aligned
+                    # 🟢 Rotated 90-degrees upward exactly on Left Margin (x=15)
                     page.insert_text(
-                        pymupdf.Point(20, rect.height - 50),
+                        pymupdf.Point(15, rect.height - 50),
                         vertical_stamp_text,
                         fontsize=7,
                         fontname="courier-bold",
@@ -413,6 +411,7 @@ def download_archive_file(
         output_stream.seek(0)
         final_bytes = output_stream.getvalue()
 
+        # 🟢 CACHE S3 URL FOR WEB VIEWERS
         if return_url:
             temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
             
