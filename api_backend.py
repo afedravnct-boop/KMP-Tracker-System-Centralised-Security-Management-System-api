@@ -180,7 +180,7 @@ def sanitize_df_for_excel(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = df[col].astype(str)
     for col in df.select_dtypes(include=['object']).columns:
         df[col] = df[col].apply(lambda x: x.replace(tzinfo=None) if isinstance(x, datetime) and x.tzinfo is not None else x)
-        if col in ['narrative', 'comment', 'message', 'details', 'archive_reason']:
+        if col in ['narrative', 'comment', 'message', 'details', 'archive_reason', 'reason', 'assorted_items']:
             df[col] = df[col].apply(clean_html_for_export)
     return df
 
@@ -1148,6 +1148,7 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
             perms.get("global_open") is True
         )
         
+        # 🟢 Include all your existing models plus the newly added Exhibits Model
         CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
         StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', getattr(models, 'Stats', None)))
         StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', getattr(models, 'Stories', None)))
@@ -1158,6 +1159,9 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         AIModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
         ArcModel = getattr(models, 'NominalRollArchive', getattr(models, 'Nominal_Roll_Archive', None))
         AgricStatsModel = getattr(models, 'AgricStats', getattr(models, 'agric_stats', getattr(models, 'Agric_Stats', None)))
+        
+        # 🟢 Pulling the exact Exhibits Model
+        ExhibitsModel = getattr(models, 'Exhibits', getattr(models, 'exhibits', getattr(models, 'Exhibit', getattr(models, 'ImpoundedExhibits', None))))
 
         def get_full_dataframe(ModelClass):
             if not ModelClass: 
@@ -1178,7 +1182,8 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
                         val = getattr(r, col, '')
                         if isinstance(val, datetime):
                             val = val.strftime("%Y-%m-%d %H:%M")
-                        elif isinstance(val, str) and col in ['narrative', 'comment', 'message', 'details', 'archive_reason', 'status', 'agric_crime_report', 'recovery_report']:
+                        # Include new exhibit text columns in the clean-up list to strip any frontend HTML formatting
+                        elif isinstance(val, str) and col in ['narrative', 'comment', 'message', 'details', 'archive_reason', 'status', 'agric_crime_report', 'recovery_report', 'reason', 'assorted_items']:
                             val = clean_html_for_export(val)
                         row_dict[col] = val if val is not None else ''
                     data.append(row_dict)
@@ -1195,6 +1200,8 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         df_est = get_full_dataframe(EstModel)
         df_docs = get_full_dataframe(DocsModel)
         df_arc = get_full_dataframe(ArcModel)
+        # 🟢 Generate DataFrame for Impounded Exhibits
+        df_exhibits = get_full_dataframe(ExhibitsModel)
 
         ai_rows = []
         if AIModel:
@@ -1263,6 +1270,9 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         write_wrapped_sheet(df_arc, "Archived Personnel", ['archive_reason'])
         write_wrapped_sheet(df_docs, "Documents & Reports", ['file_name'])
         write_wrapped_sheet(df_ai, "AI Command Logs", ['Details'])
+        
+        # 🟢 The Impounded Exhibits worksheet is seamlessly injected into the final exported workbook
+        write_wrapped_sheet(df_exhibits, "Impounded Exhibits", ['reason', 'assorted_items', 'comment', 'case_no'])
 
         eat_tz = pytz.timezone("Africa/Nairobi")
         eat_time = datetime.now(eat_tz).replace(tzinfo=None)
