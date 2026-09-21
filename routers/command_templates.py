@@ -144,11 +144,12 @@ async def upload_command_template(
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
 
-# 🟢 ADDED: Master Download & Forensic Stamping for Templates
 @router.get("/download/{doc_id}")
 def download_template_file(
     doc_id: int, 
     return_url: bool = False,
+    download: bool = False,
+    category: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -191,7 +192,6 @@ def download_template_file(
         keywords_str = f"KMP_AUDIT;{encoded_token}"[:250]
         comments_str = f"Export: {officer_signature} [{command_post}]. ID: {stamp_id}"
 
-        # 🟢 Vertical Left Margin Stamp Text
         vertical_stamp_text = f"SECURE ACCESS BY: {officer_signature}  |  CLEARANCE: {current_user.role}  |  STAMP ID: {stamp_id}  |  TIMESTAMP: {timestamp_eat}"
 
         output_stream = io.BytesIO()
@@ -206,7 +206,6 @@ def download_template_file(
             core_props.comments = comments_str
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
-            # 🟢 VML Injection for Floating Vertical Text on the Left Margin
             section = word_doc.sections[0]
             header = section.header
             if not header.paragraphs:
@@ -288,7 +287,6 @@ def download_template_file(
                 pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
                 for page in pdf_doc:
                     rect = page.rect
-                    # 🟢 Rotated 90-degrees upward on Left Margin
                     page.insert_text(
                         pymupdf.Point(20, rect.height - 100),
                         vertical_stamp_text,
@@ -310,7 +308,7 @@ def download_template_file(
         output_stream.seek(0)
         final_bytes = output_stream.getvalue()
 
-        # 🟢 If it's a "Read" request, return the JSON URL so the frontend can open it in the viewer
+        # 🟢 If it's a "Read" request, return JSON with inline disposition URL for viewing in browser tab
         if return_url:
             temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
             
@@ -322,14 +320,20 @@ def download_template_file(
                 ServerSideEncryption="AES256"
             )
             
+            # 🟢 Added 'ResponseContentDisposition': 'inline' so browser displays it instead of downloading
             presigned_url = s3_client.generate_presigned_url(
                 'get_object',
-                Params={'Bucket': BUCKET_NAME, 'Key': temp_s3_key},
+                Params={
+                    'Bucket': BUCKET_NAME, 
+                    'Key': temp_s3_key,
+                    'ResponseContentDisposition': 'inline',
+                    'ResponseContentType': content_type
+                },
                 ExpiresIn=3600
             )
             return JSONResponse(content={"url": presigned_url})
 
-        # 🟢 If it's a "Download" request, return the streaming attachment
+        # 🟢 If it's a "Download" request, force streaming attachment
         return StreamingResponse(
             io.BytesIO(final_bytes),
             media_type=content_type,
