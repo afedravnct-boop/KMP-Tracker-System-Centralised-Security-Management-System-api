@@ -332,20 +332,17 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
 @router.post("/nominal-roll/bulk-upload")
 @router.post("/nominal-roll/upload")
 async def bulk_upload_nominal_roll(
-    request: Request,
+    file: Optional[UploadFile] = File(None),
+    files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     ActiveModel = get_active_model()
     ArchiveModel = get_archive_model()
     
-    # 🟢 Collect ALL files dynamically using multi_items() to fully support multiple file uploads
-    form_data = await request.form()
     file_list = []
-    
-    for key, value in form_data.multi_items():
-        if isinstance(value, UploadFile):
-            file_list.append(value)
+    if files: file_list.extend(files)
+    if file: file_list.append(file)
 
     if not file_list:
         raise HTTPException(status_code=400, detail="No valid file uploaded.")
@@ -385,7 +382,7 @@ async def bulk_upload_nominal_roll(
                 rank_val = aggressive_clean_text(row.get("rank"))
                 name_val = aggressive_clean_text(row.get("name"))
 
-                # 🟢 1. STRICT SECTION HEADER & JUNK ROW REJECTION FILTER
+                # 🟢 STRICT SECTION HEADER & JUNK ROW REJECTION FILTER
                 row_text_signature = f"{fnum_val or ''} {rank_val or ''} {name_val or ''}".upper()
                 if (
                     not fnum_val and not rank_val and (not name_val or name_val == "UNKNOWN")
@@ -769,7 +766,6 @@ def update_Nominal_Roll(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update officer record: {str(e)}")
 
-# 🟢 Added /nominal-roll/archive alias alongside /nominal-roll-archive to fix frontend 404 errors
 @router.get("/nominal-roll/archive")
 @router.get("/nominal-roll-archive")
 def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -1081,7 +1077,7 @@ def export_station_nominal_roll(
             ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 40)
 
         officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
-        stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
+        stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')})"
         encoded_token = base64.b64encode(json.dumps({"f": officer_fnum, "s": stamp_id}).encode('utf-8')).decode('utf-8')
         
         wb.properties.keywords = f"KMP_AUDIT;{encoded_token}"
