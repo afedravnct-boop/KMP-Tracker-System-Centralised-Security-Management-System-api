@@ -22,8 +22,6 @@ def get_exhibits(
 ):
     # Local import to avoid circular dependency
     from api_backend import get_current_user, serialize_model_row
-    # Re-evaluate user properly using the real dependency function
-    # (or you can call get_current_user directly inside the dependency chain)
     return _get_exhibits_impl(region, station, search, limit, db, current_user)
 
 def _get_exhibits_impl(region, station, search, limit, db, current_user):
@@ -51,13 +49,25 @@ def _get_exhibits_impl(region, station, search, limit, db, current_user):
             
         if search:
             term = f"%{search.strip().upper()}%"
-            query = query.filter(or_(
-                Model.reg_no.ilike(term),
-                Model.type_make.ilike(term),
-                Model.case_no.ilike(term),
-                Model.reason.ilike(term),
-                Model.status.ilike(term)
-            ))
+            
+            # 🟢 Check if category column exists for querying
+            if hasattr(Model, 'category'):
+                query = query.filter(or_(
+                    Model.reg_no.ilike(term),
+                    Model.category.ilike(term),
+                    Model.type_make.ilike(term),
+                    Model.case_no.ilike(term),
+                    Model.reason.ilike(term),
+                    Model.status.ilike(term)
+                ))
+            else:
+                query = query.filter(or_(
+                    Model.reg_no.ilike(term),
+                    Model.type_make.ilike(term),
+                    Model.case_no.ilike(term),
+                    Model.reason.ilike(term),
+                    Model.status.ilike(term)
+                ))
             
         records = query.order_by(Model.id.desc()).limit(limit).all()
         return [serialize_model_row(r) for r in records]
@@ -71,30 +81,40 @@ def create_exhibit(
     db: Session = Depends(get_db), 
     current_user = Depends(lambda: None)
 ):
-    from api_backend import get_current_user, serialize_model_row
+    from api_backend import serialize_model_row
     try:
         Model = getattr(models, 'Impounded_Exhibits', getattr(models, 'ImpoundedExhibits', None))
         if not Model: raise HTTPException(status_code=500, detail="Exhibits model not initialized.")
         
-        new_item = Model(
-            reg_no=data.get("reg_no"),
-            type_make=data.get("type_make"),
-            colour=data.get("colour"),
-            case_no=data.get("case_no"),
-            reason=data.get("reason"),
-            status=data.get("status", "COURT"),
-            unit_responsible=data.get("unit_responsible", "CID"),
-            assorted_items=data.get("assorted_items", "NIL"),
-            comment=data.get("comment", "NIL"),
-            region=data.get("region"),
-            station=data.get("station"),
-            date_impounded=data.get("date_impounded"),
-            impounded_by_fnum=data.get("impounded_by_fnum"),
-            impounded_by_rank=data.get("impounded_by_rank"),
-            impounded_by_name=data.get("impounded_by_name"),
-            date_cleared=data.get("date_cleared"),
-            entered_by=data.get("entered_by")
-        )
+        model_kwargs = {
+            "reg_no": data.get("reg_no", "NIL"),
+            "type_make": data.get("type_make", "UNKNOWN"),
+            "colour": data.get("colour"),
+            "case_no": data.get("case_no"),
+            "reason": data.get("reason"),
+            "status": data.get("status", "COURT"),
+            "unit_responsible": data.get("unit_responsible", "CID"),
+            "assorted_items": data.get("assorted_items", "NIL"),
+            "comment": data.get("comment", "NIL"),
+            "region": data.get("region"),
+            "station": data.get("station"),
+            "date_impounded": data.get("date_impounded"),
+            "impounded_by_fnum": data.get("impounded_by_fnum"),
+            "impounded_by_rank": data.get("impounded_by_rank"),
+            "impounded_by_name": data.get("impounded_by_name"),
+            "date_cleared": data.get("date_cleared"),
+            "entered_by": data.get("entered_by")
+        }
+
+        # 🟢 Graceful Category Injection
+        cat = data.get("category", "MOTOR VEHICLE")
+        if hasattr(Model, 'category'):
+            model_kwargs['category'] = cat
+        else:
+            # If the database doesn't have a category column yet, safely prepend it to the description
+            model_kwargs["type_make"] = f"{cat} - {model_kwargs['type_make']}"
+
+        new_item = Model(**model_kwargs)
         db.add(new_item)
         db.commit()
         db.refresh(new_item)
@@ -116,8 +136,15 @@ def update_exhibit(
         item = db.query(Model).filter(Model.id == item_id).first()
         if not item: raise HTTPException(status_code=404, detail="Exhibit record not found.")
         
+        # 🟢 Graceful Category Injection for Updates
+        cat = data.get("category", "MOTOR VEHICLE")
+        if hasattr(Model, 'category'):
+            setattr(item, 'category', cat)
+        else:
+            data['type_make'] = f"{cat} - {data.get('type_make', 'UNKNOWN')}"
+        
         for k, v in data.items():
-            if hasattr(item, k) and k != 'id':
+            if hasattr(item, k) and k not in ['id', 'category']:
                 setattr(item, k, v)
                 
         db.commit()

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, 
-  Filter, Save, Truck, Loader2, Lock, RefreshCw
+  Filter, Save, Truck, Loader2, Lock, RefreshCw, Box
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -14,13 +14,20 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 Standardized Dropdown Options with Colons Appended
+// 🟢 Standardized Dropdowns
 const CASE_REF_TYPES = ['SD REF:', 'CRB:', 'TAR:', 'GEF:', 'DEF:'];
 const STATUS_OPTIONS = ['UNDER INVESTIGATION', 'PENDING COURT', 'IN COURT', 'UNCLAIMED', 'FORFEITED', 'CLEARED', 'DISPOSED BY COURT', 'CUSTOM'];
 const POLICE_UNITS = [
   '1ST DIV', '999 ERU', 'ASTU', 'CI', 'CID', 'CT', 'DIS', 'EPPU', 'FFU', 'FIRE', 'FLYING SQUAD', 'FSU', 
   'G/DUTIES', 'IHP', 'JAT', 'MILITARY POLICE', 'MINERAL POLICE', 'MOTORCYCLE SQUAD', 'PARLIAMENTARY POLICE', 'PPG', 'SFC', 'SHACU', 'TRAFFIC'
 ].sort();
+
+// 🟢 NEW: Broadened Exhibit Categories
+const EXHIBIT_CATEGORIES = [
+  'MOTOR VEHICLE', 'MOTORCYCLE', 'BICYCLE', 'WATERCRAFT/BOAT', 
+  'ELECTRONICS/COMPUTER', 'CURRENCY/MONEY', 'CLOTHING/APPAREL', 
+  'DOCUMENTS/IDs', 'WEAPON/FIREARM', 'CONTRABAND/DRUGS', 'OTHER'
+];
 
 const getOfficialRegionForStation = (stationName, dbRegion) => {
   const cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
@@ -48,7 +55,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
       {expanded && <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9990] animate-in fade-in" />}
       <div className={expanded ? "fixed inset-4 sm:inset-10 z-[9999] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-emerald-500 flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden" : "bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-emerald-200 dark:border-slate-700 overflow-hidden flex flex-col"}>
         <div className="bg-emerald-900 dark:bg-slate-950 px-5 py-3.5 border-b border-emerald-800 flex justify-between items-center shrink-0 text-white">
-          <h3 className="font-extrabold text-xs uppercase tracking-wider flex items-center"><Truck size={16} className="mr-2 text-emerald-400"/> {stripHtmlTags(title)}</h3>
+          <h3 className="font-extrabold text-xs uppercase tracking-wider flex items-center"><Box size={16} className="mr-2 text-emerald-400"/> {stripHtmlTags(title)}</h3>
           <button onClick={(e) => { e.stopPropagation(); const nextState = !expanded; setExpanded(nextState); if (onToggle) onToggle(nextState); }} className="text-[11px] text-emerald-300 hover:text-white font-bold transition flex items-center bg-emerald-950 px-3 py-1 rounded-lg border border-emerald-700 cursor-pointer">
             {expanded ? 'Collapse View ↙' : 'Expand View ↗'}
           </button>
@@ -88,8 +95,9 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
   const [formData, setFormData] = useState({
     id: null,
+    category: 'MOTOR VEHICLE', // 🟢 New Field
     reg_no: '',
-    type_make: 'BAJAJI',
+    type_make: '',
     colour: '',
     date_impounded: getTodayString(),
     case_no_prefix: '',
@@ -143,8 +151,9 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     setOperation('new');
     setFormData({
       id: null,
+      category: 'MOTOR VEHICLE',
       reg_no: '',
-      type_make: 'BAJAJI',
+      type_make: '',
       colour: '',
       date_impounded: getTodayString(),
       case_no_prefix: '',
@@ -189,14 +198,15 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       ? `${formData.case_no_prefix} ${formData.case_no_value}`.trim() 
       : formData.case_no_value.trim();
 
-    if (!formData.reg_no || !finalCaseNo) {
-      return setNotification({ type: 'error', text: 'Registration Number and Case Number are required.' });
+    if (!finalCaseNo || !formData.type_make) {
+      return setNotification({ type: 'error', text: 'Item Description and Case Number are required.' });
     }
 
     const finalStatus = formData.status === 'CUSTOM' ? customStatusInput.toUpperCase() : formData.status;
 
     const payload = {
       ...formData,
+      reg_no: formData.reg_no.trim() || 'NIL', // Default to NIL if blank
       case_no: finalCaseNo,
       status: finalStatus,
       region: getOfficialRegionForStation(formData.station, formData.region),
@@ -238,7 +248,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     let extractedPrefix = '';
     let extractedValue = item.case_no || '';
     
-    // 🟢 Smart Parser: Handles older database entries that might not have colons yet
     const basePrefixes = ['SD REF', 'CRB', 'TAR', 'GEF', 'DEF'];
     const matchingBase = basePrefixes.find(p => extractedValue.toUpperCase().startsWith(p));
     
@@ -250,9 +259,23 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       }
     }
 
+    // 🟢 Smart Fallback Parsing: If DB doesn't have a category column, try to split it from type_make
+    let extractedCategory = item.category || 'MOTOR VEHICLE';
+    let extractedTypeMake = item.type_make || '';
+    
+    if (!item.category && extractedTypeMake.includes(' - ')) {
+      const parts = extractedTypeMake.split(' - ');
+      if (EXHIBIT_CATEGORIES.includes(parts[0].trim())) {
+        extractedCategory = parts[0].trim();
+        extractedTypeMake = parts.slice(1).join(' - ').trim();
+      }
+    }
+
     setFormData({
       ...item,
       id: item.id || item.sn,
+      category: extractedCategory,
+      type_make: extractedTypeMake,
       status: isStandardStatus ? item.status : 'CUSTOM',
       date_cleared: item.date_cleared || '',
       case_no_prefix: extractedPrefix,
@@ -276,7 +299,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       else if (dateFilter === 'LAST 30 DAYS' && diffDays > 30) return false;
       else if (dateFilter === 'LAST 90 DAYS' && diffDays > 90) return false;
 
-      // 🟢 Filter accommodates with or without colon for backward compatibility
       if (filterCaseType !== 'ALL') {
         const baseCaseType = filterCaseType.replace(':', '');
         if (!(item.case_no || '').toUpperCase().startsWith(baseCaseType)) return false;
@@ -312,6 +334,15 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     };
   }, [filteredExhibits]);
 
+  // 🟢 Dynamic Placeholders based on category
+  const getRegPlaceholder = () => {
+    if (['MOTOR VEHICLE', 'MOTORCYCLE'].includes(formData.category)) return "e.g. UGH 190C";
+    if (formData.category === 'ELECTRONICS/COMPUTER') return "e.g. SERIAL NUMBER / MAC ADDRESS";
+    if (formData.category === 'CURRENCY/MONEY') return "e.g. BATCH NO / TRACE ID (Or type NIL)";
+    if (formData.category === 'WATERCRAFT/BOAT') return "e.g. REGISTRATION NO / HULL ID";
+    return "e.g. SERIAL NO OR 'NIL'";
+  };
+
   return (
     <div className="p-4 max-w-[1800px] mx-auto space-y-6 relative z-10 font-sans">
       
@@ -320,10 +351,10 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
           <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 object-contain contrast-200 brightness-110 drop-shadow-md" onError={(e) => e.target.style.display = 'none'} />
           <div>
             <h1 className="text-xl font-black tracking-wide uppercase flex items-center">
-              <Truck className="w-5 h-5 mr-2 text-emerald-400" /> Impounded Fleet & Exhibits Register
+              <Box className="w-5 h-5 mr-2 text-emerald-400" /> Impounded Fleet & Exhibits Register
             </h1>
             <p className="text-xs text-emerald-300 mt-1 uppercase tracking-wider font-semibold">
-              Command accounting and ledger for impounded motor vehicles, motorcycles, and property exhibits.
+              Command accounting and ledger for all impounded vehicles, electronics, currency, and property exhibits.
             </p>
           </div>
         </div>
@@ -370,26 +401,36 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
               )}
 
               <form onSubmit={handleFormSubmit} className="p-4 space-y-3 text-xs">
+                
+                {/* 🟢 NEW CATEGORY FIELD */}
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Reg No *</label>
-                    <input type="text" name="reg_no" required value={formData.reg_no} onChange={handleInputChange} placeholder="e.g. UGH 190C" className="w-full border rounded-lg p-2 uppercase font-black text-emerald-800 bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Type (Make) *</label>
-                    <input type="text" name="type_make" required value={formData.type_make} onChange={handleInputChange} placeholder="e.g. BAJAJI / NOAH" className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Colour *</label>
-                    <input type="text" name="colour" required value={formData.colour} onChange={handleInputChange} placeholder="e.g. RED / BLACK" className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
+                  <div className="col-span-1">
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Exhibit Category *</label>
+                    <select name="category" value={formData.category} onChange={handleInputChange} className="w-full border rounded-lg p-2 font-bold bg-emerald-50 dark:bg-slate-800 text-emerald-900 dark:text-emerald-100 border-emerald-300 dark:border-slate-600 outline-none focus:ring-2 focus:ring-emerald-500">
+                      {EXHIBIT_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
                   </div>
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Date In *</label>
                     <input type="date" name="date_impounded" required value={formData.date_impounded} onChange={handleInputChange} className="w-full border rounded-lg p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
                   </div>
+                </div>
+
+                {/* 🟢 BROADENED ITEM IDENTIFICATION */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1" title="Leave blank or type NIL if no identifier exists">Identifier (Reg / Serial) </label>
+                    <input type="text" name="reg_no" value={formData.reg_no} onChange={handleInputChange} placeholder={getRegPlaceholder()} className="w-full border rounded-lg p-2 uppercase font-black text-emerald-800 bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Item Desc (Make/Type) *</label>
+                    <input type="text" name="type_make" required value={formData.type_make} onChange={handleInputChange} placeholder="e.g. DELL LAPTOP / 50K NOTES" className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Colour / Physical Features *</label>
+                  <input type="text" name="colour" required value={formData.colour} onChange={handleInputChange} placeholder="e.g. SILVER WITH CRACKED SCREEN / RED" className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -443,8 +484,8 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Assorted Items</label>
-                  <input type="text" name="assorted_items" value={formData.assorted_items} onChange={handleInputChange} className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Assorted Items / Accessories</label>
+                  <input type="text" name="assorted_items" value={formData.assorted_items} onChange={handleInputChange} placeholder="e.g. KEYS / CHARGER" className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -499,7 +540,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                   type="text" 
                   value={searchQuery} 
                   onChange={(e) => setSearchQuery(e.target.value)} 
-                  placeholder="Search Reg No, Type, Case No, Reason..." 
+                  placeholder="Search Reg No, Category, Serial, Case No, Reason..." 
                   className="w-full pl-9 pr-3 py-2 border dark:border-slate-700 rounded-xl text-xs font-bold outline-none focus:border-emerald-500 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100" 
                 />
                 {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">×</button>}
@@ -557,9 +598,11 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                 <thead className="bg-emerald-900 text-white sticky top-0 z-10 font-black text-[10px]">
                   <tr>
                     <th className="px-3 py-3 text-center w-12">S/NO</th>
-                    <th className="px-3 py-3 text-left">REG NO</th>
-                    <th className="px-3 py-3 text-left">TYPE (MAKE)</th>
-                    <th className="px-3 py-3 text-left">COLOUR</th>
+                    {/* 🟢 Updated Table Headers to reflect categories */}
+                    <th className="px-3 py-3 text-left">IDENTIFIER (REG/SERIAL)</th>
+                    <th className="px-3 py-3 text-left">CATEGORY</th>
+                    <th className="px-3 py-3 text-left">DESCRIPTION</th>
+                    <th className="px-3 py-3 text-left">COLOUR/FEATURES</th>
                     <th className="px-3 py-3 text-center">DATE IN</th>
                     <th className="px-3 py-3 text-left">CASE NO.</th>
                     <th className="px-3 py-3 text-left">REASON</th>
@@ -573,15 +616,32 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-700 font-medium">
                   {isFetching ? (
-                    <tr><td colSpan="13" className="text-center py-8 text-slate-500 animate-pulse"><Loader2 className="w-6 h-6 mx-auto animate-spin mb-2 text-emerald-600" /> Syncing exhibit records...</td></tr>
+                    <tr><td colSpan="14" className="text-center py-8 text-slate-500 animate-pulse"><Loader2 className="w-6 h-6 mx-auto animate-spin mb-2 text-emerald-600" /> Syncing exhibit records...</td></tr>
                   ) : filteredExhibits.length === 0 ? (
-                    <tr><td colSpan="13" className="text-center py-8 text-slate-400 font-bold">No impounded fleet or exhibits found matching your filters.</td></tr>
+                    <tr><td colSpan="14" className="text-center py-8 text-slate-400 font-bold">No impounded fleet or exhibits found matching your filters.</td></tr>
                   ) : (
-                    filteredExhibits.map((item, index) => (
+                    filteredExhibits.map((item, index) => {
+                      
+                      // 🟢 Safe Display parsing for Category & Description
+                      let displayCategory = item.category || 'MOTOR VEHICLE';
+                      let displayType = stripHtmlTags(item.type_make);
+                      if (!item.category && displayType.includes(' - ')) {
+                        const parts = displayType.split(' - ');
+                        if (EXHIBIT_CATEGORIES.includes(parts[0].trim())) {
+                          displayCategory = parts[0].trim();
+                          displayType = parts.slice(1).join(' - ').trim();
+                        }
+                      }
+
+                      return (
                       <tr key={item.id || item.sn || index} onClick={() => populateEditForm(item)} title="Click to edit this record" className="hover:bg-amber-50 dark:hover:bg-slate-800 transition-colors cursor-pointer group">
                         <td className="px-3 py-2.5 text-center font-black">{index + 1}</td>
                         <td className="px-3 py-2.5 font-extrabold text-emerald-800 dark:text-emerald-400 group-hover:text-amber-700">{stripHtmlTags(item.reg_no)}</td>
-                        <td className="px-3 py-2.5 font-bold uppercase">{stripHtmlTags(item.type_make)}</td>
+                        
+                        {/* 🟢 Render Category and Description */}
+                        <td className="px-3 py-2.5 font-black text-[10px] text-slate-500">{displayCategory}</td>
+                        <td className="px-3 py-2.5 font-bold uppercase">{displayType}</td>
+                        
                         <td className="px-3 py-2.5 uppercase">{stripHtmlTags(item.colour)}</td>
                         <td className="px-3 py-2.5 text-center font-mono">{stripHtmlTags(item.date_impounded)}</td>
                         <td className="px-3 py-2.5 font-extrabold text-blue-700 dark:text-blue-400">{stripHtmlTags(item.case_no)}</td>
@@ -604,7 +664,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                         <td className="px-3 py-2.5 text-[10px] text-slate-500">{stripHtmlTags(item.entered_by)}</td>
                         <td className="px-3 py-2.5 italic text-slate-600 dark:text-slate-400">{stripHtmlTags(item.comment || 'NIL')}</td>
                       </tr>
-                    ))
+                    )})
                   )}
                 </tbody>
               </table>
