@@ -36,6 +36,7 @@ Standing by for commander queries across all system modules. Here is an architec
 • **Crime / Incident Registry:** Core investigative ledger managing Station Diary (SD) references, offense categories, narratives, suspect demographics, and integrated lock-up population matrices.
 • **Disruptive OPS Statistics:** Statistical tracking interface for operational metrics including arrests, police bonds given, cautioned cases, court committals, remands, convictions, and specialized agricultural crime summaries.
 • **Success Stories:** Dedicated archive logging high-impact operational breakthroughs, recoveries, and successful public safety missions.
+• **Impounded Exhibits:** Secure tracking ledger for confiscated vehicles, motorcycles, and miscellaneous property, detailing exhibit reference numbers, holding locations, and current release or auction status.
 • **Establishments:** Structural command registry monitoring authorized personnel allocations versus actual deployment numbers across main stations, sub-stations, police posts, and security booths.
 • **Nominal Roll & HR Transfers:** Comprehensive personnel database tracking force/file numbers, ranks, IPPS/NIN records, biographical details, archival logs, and strict jurisdictional transfer modification request queues.
   - *Data Ingestion Protocol:* Full-spectrum Excel uploads successfully process and store all **29 columns** of the NeonDB nominal roll schema (including biographical, financial, and identification metrics). No upload fields are restricted or truncated.
@@ -133,6 +134,7 @@ const chatEndRef = useRef(null);
   };
 
   const quickPrompts = [
+    "What is the status of recently impounded vehicles?",
     "Summarize agricultural thefts and recoveries",
     "What are the rules for data classification and AES-256 exports?",
     "How do I resolve login lockouts or reset my security key?",
