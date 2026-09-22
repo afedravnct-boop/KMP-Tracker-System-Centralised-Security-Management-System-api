@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Users, PlusCircle, Edit, AlertTriangle, CheckCircle, Upload, 
-  BarChart3, PieChart, ArrowRight, Shield, Archive, Eye, Search, X
+  BarChart3, PieChart, ArrowRight, Shield, Archive, Eye, Search, X, Download
 } from 'lucide-react';
 import { authFetch } from './api';
 import BulkNominalRollUpload from './BulkNominalRollUpload';
@@ -15,9 +15,14 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+const cleanStr = (str) => {
+  if (!str) return '';
+  return String(str).replace(/\s+/g, ' ').trim().toUpperCase();
+};
+
 const getOfficialRegionForStation = (stationName, dbRegion) => {
-  const cleanStation = (stationName || '').trim().toUpperCase();
-  const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
+  const cleanStation = cleanStr(stationName);
+  const cleanDbRegion = cleanStr(dbRegion);
 
   if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) return cleanDbRegion;
 
@@ -27,22 +32,24 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   return cleanDbRegion || 'KMP HEADQUARTERS';
 };
 
-// 🟢 TIER 1: COMMAND POSITION OVERRIDE
+// 🟢 TIER 1: COMMAND & REGIONAL POSITION HIERARCHY OVERRIDE
 const getCommandWeight = (officer) => {
   if (!officer) return 99;
-  const pos = (officer.position || '').toUpperCase().trim();
-  const rank = (officer.rank || '').toUpperCase().trim();
+  const pos = cleanStr(officer.position);
+  const rank = cleanStr(officer.rank);
   
   if (pos === 'RPC' || rank === 'RPC') return 0;
   if (pos === 'D/RPC' || pos === 'DEPUTY RPC' || rank === 'D/RPC') return 1;
+  if (pos.startsWith('R/')) return 2; // R/LEGAL, R/CID, R/CI, R/CLO, etc.
+  if (pos === 'OC' || pos.startsWith('OC ')) return 3;
   
-  return 99; // Standard Officer
+  return 99; 
 };
 
 // 🟢 TIER 2: RANK HIERARCHY ENGINE
 const getRankWeight = (rank) => {
   if (!rank) return 99;
-  let r = rank.toUpperCase().trim();
+  let r = cleanStr(rank);
   let modifier = 0;
 
   if (r === 'DC') {
@@ -94,7 +101,7 @@ const getRankWeight = (rank) => {
 
 const parseEducationLevel = (educ) => {
   if (!educ) return 'UNKNOWN';
-  const e = educ.toUpperCase().trim();
+  const e = cleanStr(educ);
   
   if (e.includes('DEGREE') || e.includes('BACHELOR') || e.includes('MASTER') || e.includes('PHD')) return 'DEGREE / POSTGRAD';
   if (e.includes('DIPLOMA')) return 'DIPLOMA';
@@ -245,6 +252,53 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       setCustomReason('');
       setPreviousFnum('');
     }
+  };
+
+  // 🟢 AUDIT METHOD FOR MISSING FIELDS (EXCLUDING DO_PRO FOR PC, DC, D/C, C/DRV)
+  const handleAuditMissingFields = () => {
+    const activeList = Array.isArray(Nominal_Rolls) ? Nominal_Rolls : [];
+    const missingInfoList = activeList.filter(n => {
+      const rank = cleanStr(n.rank);
+      const isConstableTier = ['PC', 'DC', 'D/C', 'CONSTABLE', 'C/DRV', 'DRV'].includes(rank) || rank.includes('DRV');
+      
+      const missingDob = !n.dob;
+      const missingDoe = !n.doe;
+      const missingContact = !n.contact;
+      const missingNin = !n.nin;
+      const missingIpps = !n.ipps;
+      const missingDopro = !isConstableTier && !n.do_pro; // Required for ranks higher than PC
+
+      return missingDob || missingDoe || missingContact || missingNin || missingIpps || missingDopro;
+    });
+
+    if (missingInfoList.length === 0) {
+      alert("✅ Audit Complete: All personnel records have complete demographic, contact, and promotion data!");
+      return;
+    }
+
+    // Generate CSV download content for missing data
+    let csvContent = "data:text/csv;charset=utf-8,Force Number,Rank,Name,Station,Missing Fields\n";
+    missingInfoList.forEach(n => {
+      const rank = cleanStr(n.rank);
+      const isConstableTier = ['PC', 'DC', 'D/C', 'CONSTABLE', 'C/DRV', 'DRV'].includes(rank) || rank.includes('DRV');
+      const missingFields = [];
+      if (!n.dob) missingFields.push("DOB");
+      if (!n.doe) missingFields.push("DOE");
+      if (!n.contact) missingFields.push("Contact");
+      if (!n.nin) missingFields.push("NIN");
+      if (!n.ipps) missingFields.push("IPPS");
+      if (!isConstableTier && !n.do_pro) missingFields.push("DO_PRO");
+
+      csvContent += `"${cleanStr(n.f_num || n.fnum)}","${rank}","${cleanStr(n.name)}","${cleanStr(n.station)}","${missingFields.join(' | ')}"\n`;
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Personnel_Missing_Info_Audit_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleArchivePersonnel = async () => {
@@ -420,26 +474,26 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
   const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
-      const statusStr = (n.status || '').trim().toUpperCase();
+      const statusStr = cleanStr(n.status);
       if (statusStr === 'ARCHIVED' || n.is_archived === true) return false;
 
-      const stn = (n.station || '').trim().toUpperCase();
-      const reg = getOfficialRegionForStation(stn, n.region);
+      const stn = cleanStr(n.station);
+      const reg = getOfficialRegionForStation(stn, cleanStr(n.region));
 
-      const selRegion = (filterRegion || '').trim().toUpperCase();
-      const selStation = (filterStation || '').trim().toUpperCase();
+      const selRegion = cleanStr(filterRegion);
+      const selStation = cleanStr(filterStation);
 
       if (selRegion && selRegion !== 'ALL REGIONS' && reg !== selRegion) return false;
       if (selStation && selStation !== 'ALL STATIONS' && stn !== selStation) return false;
 
       if (searchTerm.trim()) {
         const query = searchTerm.trim().toLowerCase();
-        const fnum = (n.f_num || n.fnum || '').toLowerCase();
-        const name = (n.name || '').toLowerCase();
-        const rank = (n.rank || '').toLowerCase();
-        const ipps = String(n.ipps || '').toLowerCase();
-        const station = (n.station || '').toLowerCase();
-        const nin = String(n.nin || '').toLowerCase();
+        const fnum = cleanStr(n.f_num || n.fnum).toLowerCase();
+        const name = cleanStr(n.name).toLowerCase();
+        const rank = cleanStr(n.rank).toLowerCase();
+        const ipps = cleanStr(n.ipps).toLowerCase();
+        const station = cleanStr(n.station).toLowerCase();
+        const nin = cleanStr(n.nin).toLowerCase();
         
         if (!fnum.includes(query) && !name.includes(query) && !rank.includes(query) && !ipps.includes(query) && !station.includes(query) && !nin.includes(query)) {
           return false;
@@ -447,7 +501,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return true;
     }).sort((a, b) => {
-      // 🟢 1. PRIMARY SORT: Commander Positions (RPC -> D/RPC)
+      // 🟢 1. PRIMARY SORT: Command Positions (RPC -> D/RPC -> R/xxx -> OC)
       const cmdA = getCommandWeight(a);
       const cmdB = getCommandWeight(b);
       if (cmdA !== cmdB) return cmdA - cmdB;
@@ -458,7 +512,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       if (weightA !== weightB) return weightA - weightB;
 
       // 🟢 3. TERTIARY SORT: Force Number Seniority
-      return (a.f_num || a.fnum || '').localeCompare(b.f_num || b.fnum || '', undefined, { numeric: true, sensitivity: 'base' });
+      return cleanStr(a.f_num || a.fnum).localeCompare(cleanStr(b.f_num || b.fnum), undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [Nominal_Rolls, filterRegion, filterStation, searchTerm]);
 
@@ -466,24 +520,24 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     if (!Array.isArray(Nominal_Roll_archives)) return [];
 
     return Nominal_Roll_archives.filter(n => {
-      const stn = (n.station || '').trim().toUpperCase();
-      const reg = getOfficialRegionForStation(stn, n.region);
+      const stn = cleanStr(n.station);
+      const reg = getOfficialRegionForStation(stn, cleanStr(n.region));
 
-      const selRegion = (filterRegion || '').trim().toUpperCase();
-      const selStation = (filterStation || '').trim().toUpperCase();
+      const selRegion = cleanStr(filterRegion);
+      const selStation = cleanStr(filterStation);
 
       if (selRegion && selRegion !== 'ALL REGIONS' && reg !== selRegion) return false;
       if (selStation && selStation !== 'ALL STATIONS' && stn !== selStation) return false;
 
       if (searchTerm.trim()) {
         const query = searchTerm.trim().toLowerCase();
-        const fnum = (n.f_num || n.fnum || '').toLowerCase();
-        const name = (n.name || '').toLowerCase();
-        const rank = (n.rank || '').toLowerCase();
-        const ipps = String(n.ipps || '').toLowerCase();
-        const station = (n.station || '').toLowerCase();
-        const nin = String(n.nin || '').toLowerCase();
-        const reason = (n.archive_reason || '').toLowerCase();
+        const fnum = cleanStr(n.f_num || n.fnum).toLowerCase();
+        const name = cleanStr(n.name).toLowerCase();
+        const rank = cleanStr(n.rank).toLowerCase();
+        const ipps = cleanStr(n.ipps).toLowerCase();
+        const station = cleanStr(n.station).toLowerCase();
+        const nin = cleanStr(n.nin).toLowerCase();
+        const reason = cleanStr(n.archive_reason).toLowerCase();
         
         if (!fnum.includes(query) && !name.includes(query) && !rank.includes(query) && !ipps.includes(query) && !station.includes(query) && !nin.includes(query) && !reason.includes(query)) {
           return false;
@@ -499,7 +553,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const weightB = getRankWeight(b.rank);
       if (weightA !== weightB) return weightA - weightB;
 
-      return (a.f_num || a.fnum || '').localeCompare(b.f_num || b.fnum || '', undefined, { numeric: true, sensitivity: 'base' });
+      return cleanStr(a.f_num || a.fnum).localeCompare(cleanStr(b.f_num || b.fnum), undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [Nominal_Roll_archives, filterRegion, filterStation, searchTerm]);
 
@@ -509,13 +563,13 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
   const availableUpdateRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
-      const fNumVal = n.fnum || n.f_num || '';
-      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && !canViewGlobal && n.region !== currentUser.region) return false;
+      const fNumVal = cleanStr(n.fnum || n.f_num);
+      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && !canViewGlobal && cleanStr(n.region) !== cleanStr(currentUser.region)) return false;
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
-        return (fNumVal && fNumVal.toLowerCase().includes(query)) || 
-               (n.name && n.name.toLowerCase().includes(query)) || 
-               (n.ipps && String(n.ipps).includes(query));
+        return fNumVal.toLowerCase().includes(query) || 
+               cleanStr(n.name).toLowerCase().includes(query) || 
+               cleanStr(n.ipps).toLowerCase().includes(query);
       }
       return true;
     });
@@ -526,24 +580,24 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
        
       currentRollDataset.forEach(n => {
           let key = 'Unknown';
-          const sexStr = (n.sex || '').trim().toUpperCase();
-          const ninStr = (n.nin || '').trim().toUpperCase();
+          const sexStr = cleanStr(n.sex);
+          const ninStr = cleanStr(n.nin);
           const isFemale = sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF');
           const isMale = sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM');
            
-          const homeDistrict = n.homedist || n.home_dist || n.district || n.home_district || '';
-          const bankBranch = n.bankbranch || n.bank_branch || n.bank || n.bank_name || '';
-          const educLevel = n.educlevel || n.educ_level || n.education || '';
+          const homeDistrict = cleanStr(n.homedist || n.home_dist || n.district || n.home_district);
+          const bankBranch = cleanStr(n.bankbranch || n.bank_branch || n.bank || n.bank_name);
+          const educLevel = cleanStr(n.educlevel || n.educ_level || n.education);
            
-          const stationStr = (n.station || '').trim().toUpperCase() || 'UNKNOWN';
-          const sectionStr = (n.section || '').trim().toUpperCase();
+          const stationStr = cleanStr(n.station) || 'UNKNOWN';
+          const sectionStr = cleanStr(n.section);
 
-          if (metricCategory === 'RANK') key = n.rank ? n.rank.trim().toUpperCase() : 'UNRANKED';
+          if (metricCategory === 'RANK') key = cleanStr(n.rank) || 'UNRANKED';
           else if (metricCategory === 'UNIT') key = `${stationStr} ${sectionStr ? '- ' + sectionStr : ''}`.trim();
           else if (metricCategory === 'SEX') key = isFemale ? 'FEMALE' : (isMale ? 'MALE' : 'UNSPECIFIED');
-          else if (metricCategory === 'BANK') key = bankBranch ? bankBranch.trim().toUpperCase() : 'BANK UNKNOWN';
-          else if (metricCategory === 'DISTRICT') key = homeDistrict ? homeDistrict.trim().toUpperCase() : 'DISTRICT UNKNOWN';
-          else if (metricCategory === 'TRIBE') key = n.tribe ? n.tribe.trim().toUpperCase() : 'TRIBE UNKNOWN';
+          else if (metricCategory === 'BANK') key = bankBranch || 'BANK UNKNOWN';
+          else if (metricCategory === 'DISTRICT') key = homeDistrict || 'DISTRICT UNKNOWN';
+          else if (metricCategory === 'TRIBE') key = cleanStr(n.tribe) || 'TRIBE UNKNOWN';
           else if (metricCategory === 'EDUCATION') key = parseEducationLevel(educLevel);
           else if (metricCategory === 'AGE') {
               if (n.dob) {
@@ -565,7 +619,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const resultsArray = Object.values(grouped);
 
       if (metricCategory === 'RANK') {
-          // 🟢 Sort the analytics table using the primary position weight as a fallback for RPC
           return resultsArray.sort((a, b) => {
              const weightA = getRankWeight(a.category);
              const weightB = getRankWeight(b.category);
@@ -584,8 +637,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     const uniqueStations = {};
 
     currentRollDataset.forEach(n => {
-      const sexStr = (n.sex || '').trim().toUpperCase();
-      const ninStr = (n.nin || '').trim().toUpperCase();
+      const sexStr = cleanStr(n.sex);
+      const ninStr = cleanStr(n.nin);
        
       if (sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF')) {
         femaleCount++;
@@ -594,7 +647,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
 
       if (n.station) {
-        const cleanStation = n.station.trim().toUpperCase();
+        const cleanStation = cleanStr(n.station);
         if (cleanStation) uniqueStations[cleanStation] = true;
       }
     });
@@ -622,28 +675,40 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             <BarChart3 className="w-4 h-4 mr-1.5 text-blue-600 shrink-0"/> 
             Personnel Metrics Dashboard ({viewMode === 'archive' ? 'Archived Records' : 'Active Roll'})
           </h4>
-          <div className="inline-flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-inner shrink-0">
-             <button 
+          <div className="flex items-center gap-2">
+            {/* 🟢 AUDIT MISSING FIELDS BUTTON */}
+            {canEditRecords && viewMode === 'active' && (
+              <button
                 type="button"
-                onClick={() => { setViewMode('active'); setShowAnalytics(false); setBulkSelectMode(false); }} 
-                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${viewMode === 'active' && !showAnalytics ? 'bg-slate-900 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
-             >
-                Active Roll
-             </button>
-             <button 
-                type="button"
-                onClick={() => { setViewMode('archive'); setShowAnalytics(false); setBulkSelectMode(false); }} 
-                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${viewMode === 'archive' && !showAnalytics ? 'bg-red-700 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
-             >
-                Archived
-             </button>
-             <button 
-                type="button"
-                onClick={() => setShowAnalytics(!showAnalytics)} 
-                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${showAnalytics ? 'bg-indigo-700 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
-             >
-                {showAnalytics ? 'Close Analytics' : 'Analytics Breakdown'}
-             </button>
+                onClick={handleAuditMissingFields}
+                className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 text-xs font-bold rounded-md shadow transition-all cursor-pointer flex items-center"
+              >
+                <Download className="w-3.5 h-3.5 mr-1" /> Audit Missing Info
+              </button>
+            )}
+            <div className="inline-flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-inner shrink-0">
+               <button 
+                  type="button"
+                  onClick={() => { setViewMode('active'); setShowAnalytics(false); setBulkSelectMode(false); }} 
+                  className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${viewMode === 'active' && !showAnalytics ? 'bg-slate-900 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
+               >
+                  Active Roll
+               </button>
+               <button 
+                  type="button"
+                  onClick={() => { setViewMode('archive'); setShowAnalytics(false); setBulkSelectMode(false); }} 
+                  className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${viewMode === 'archive' && !showAnalytics ? 'bg-red-700 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
+               >
+                  Archived
+               </button>
+               <button 
+                  type="button"
+                  onClick={() => setShowAnalytics(!showAnalytics)} 
+                  className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${showAnalytics ? 'bg-indigo-700 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
+               >
+                  {showAnalytics ? 'Close Analytics' : 'Analytics Breakdown'}
+               </button>
+            </div>
           </div>
         </div>
 
@@ -731,7 +796,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       <div className="max-h-32 overflow-y-auto bg-white border border-blue-100 rounded custom-scrollbar">
                         {availableUpdateRolls.length === 0 ? <div className="p-2 text-[11px] text-gray-500 text-center">No personnel found.</div> : availableUpdateRolls.map(n => (
                             <div key={n.sn || n.fnum} onClick={() => populateUpdateForm(n)} className={`p-1.5 text-[11px] border-b cursor-pointer transition-colors ${formData.sn === n.sn ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 text-gray-700'}`}>
-                              <span className={formData.sn === n.sn ? 'text-blue-200' : 'text-gray-400'}>F/NO: {n.fnum || n.f_num}</span> | <span className={formData.sn === n.sn ? 'text-white' : 'font-bold text-blue-700'}>{n.name}</span>
+                              <span className={formData.sn === n.sn ? 'text-blue-200' : 'text-gray-400'}>F/NO: {cleanStr(n.fnum || n.f_num)}</span> | <span className={formData.sn === n.sn ? 'text-white' : 'font-bold text-blue-700'}>{cleanStr(n.name)}</span>
                             </div>
                           ))}
                       </div>
@@ -968,12 +1033,12 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             <div className="flex flex-col sm:flex-row gap-2.5 flex-1">
               <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobal} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
                 {canViewGlobal ? (
-                  <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(filteredRolls || []).map(n => n.region).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+                  <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(filteredRolls || []).map(n => cleanStr(n.region)).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
                 ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
               </select>
               <select value={filterStation} onChange={(e) => setFilterStation(e.target.value) } disabled={!(isCommandOrHR || canViewGlobal)} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
                 {(isCommandOrHR || canViewGlobal) ? (
-                  <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(filteredRolls || []).filter(n => filterRegion === 'ALL REGIONS' || n.region === filterRegion).map(n => n.station).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
+                  <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(filteredRolls || []).filter(n => filterRegion === 'ALL REGIONS' || cleanStr(n.region) === filterRegion).map(n => cleanStr(n.station)).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
                 ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
               </select>
             </div>
@@ -1134,34 +1199,34 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                               </td>
                           )}
                           <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-gray-900">{index + 1}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800">{n.f_num || n.fnum || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-slate-800">{n.rank || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-medium uppercase text-slate-800">{n.name || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.sex || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">{n.position || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-800">{cleanStr(n.f_num || n.fnum)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-slate-800">{cleanStr(n.rank)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-medium uppercase text-slate-800">{cleanStr(n.name)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.sex)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">{cleanStr(n.position)}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.dob || ''}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.doe || ''}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.do_post || n.dopost || n.dop || ''}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.do_pro || n.dopro || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.contact || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.educ_level || n.educlevel || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-mono text-slate-700">{n.ipps || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.tin || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.nin || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.home_dist || n.homedist || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.tribe || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.acc_no || n.accno || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.bank_branch || n.bankbranch || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-700">{n.station || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.district || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.region || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.section || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{n.dir || ''}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-green-700">{n.status || 'ACTIVE'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.contact)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.educ_level || n.educlevel)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-mono text-slate-700">{cleanStr(n.ipps)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.tin)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.nin)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.home_dist || n.homedist)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.tribe)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.acc_no || n.accno)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.bank_branch || n.bankbranch)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-700">{cleanStr(n.station)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.district)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.region)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.section)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.dir)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-green-700">{cleanStr(n.status) || 'ACTIVE'}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.last_updated_by || ''}</td>
                           {viewMode === 'archive' && (
                             <>
-                              <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-red-700 bg-red-50/50">{n.archive_reason || ''}</td>
+                              <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-red-700 bg-red-50/50">{cleanStr(n.archive_reason)}</td>
                               <td className="px-3 py-2 whitespace-nowrap text-xs text-red-500 bg-red-50/50">{n.archive_date || ''}</td>
                             </>
                           )}

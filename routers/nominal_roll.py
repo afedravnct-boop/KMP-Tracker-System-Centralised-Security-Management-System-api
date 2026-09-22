@@ -30,11 +30,8 @@ def aggressive_clean_text(val):
     s = str(val)
     if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
     
-    # Erase commas, exclamation marks, and quotes
     s = re.sub(r"[,!?'\"]", "", s)
-    # Squeeze accidental double/triple spaces into a single space
     s = re.sub(r'\s+', ' ', s)
-    # Strip stray dots, hyphens, or slashes hanging off the edges
     s = s.strip('. -/\\')
     
     if not s: return None
@@ -50,24 +47,18 @@ def clean_numeric(val):
     return s
 
 def format_phone_number(val):
-    """
-    Extracts ALL valid numbers, strips spaces/letters, formats to standard, 
-    and recombines them with a slash if there are multiple.
-    """
+    """Extracts ALL valid numbers, formats to standard, recombines with a slash."""
     if pd.isna(val) or val is None: return None
     s = str(val).strip()
     if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
     
-    # Split by common separators (/, comma, &, ;) to capture multiple numbers
     parts = re.split(r'[,/&|;]|\band\b', s, flags=re.IGNORECASE)
-    
     valid_numbers = []
     
     for part in parts:
         cleaned = re.sub(r'[^\d]', '', part)
         if not cleaned: continue
         
-        # Standardize Ugandan prefixes
         if cleaned.startswith('256'):
             cleaned = '0' + cleaned[3:]
         elif cleaned.startswith('7') and len(cleaned) == 9:
@@ -87,7 +78,6 @@ def normalize_sex(val):
     return clean_val
 
 def normalize_education_level(educ_str):
-    """Normalizes high school levels: keeps uncertified s1-s3 as entered, maps others to UCE or UACE."""
     cleaned = aggressive_clean_text(educ_str)
     if not cleaned: return None
     
@@ -98,7 +88,6 @@ def normalize_education_level(educ_str):
     return cleaned
 
 def is_uniformed_rank(rank_str: str) -> bool:
-    """Returns True if the rank falls within official UPF uniformed ranks (SPC to IGP)."""
     if not rank_str: return False
     r = str(rank_str).strip().upper()
     uniformed_ranks = {
@@ -109,7 +98,6 @@ def is_uniformed_rank(rank_str: str) -> bool:
     return r in uniformed_ranks
 
 def parse_safe_date(val) -> Optional[date]:
-    """Strictly coerces dates, automatically fixing year.month.date full stop formats."""
     if pd.isna(val) or val is None: return None
     if isinstance(val, date) and not isinstance(val, datetime):
         return val if 1900 <= val.year <= 2100 else None
@@ -138,7 +126,6 @@ def parse_safe_date(val) -> Optional[date]:
                 except Exception: pass
     except Exception: pass
 
-    # 🟢 AGGRESSIVE FIX: Converts YYYY.MM.DD into standard hyphens instantly
     clean_str = re.sub(r'[\./\\]', '-', val_str)
     parts = clean_str.split('-')
 
@@ -236,9 +223,6 @@ def auto_infer_geography(station_name, current_region=None, current_district=Non
             inferred_district = geo_info["district"]
     return inferred_region or "KMP HEADQUARTERS", inferred_district or "KAMPALA"
 
-# ====================================================================
-# 1. RETRIEVE ACTIVE AND ARCHIVED NOMINAL ROLL
-# ====================================================================
 @router.get("/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     ActiveModel = get_active_model()
@@ -322,9 +306,6 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         
     return clean_results
 
-# ====================================================================
-# 2. BULK NOMINAL ROLL IMPORT / EXCEL BATCH PROCESSING 
-# ====================================================================
 @router.post("/nominal-roll/bulk-upload")
 @router.post("/nominal-roll/upload")
 async def bulk_upload_nominal_roll(
@@ -341,7 +322,7 @@ async def bulk_upload_nominal_roll(
     if file: file_list.append(file)
 
     if not file_list:
-        raise HTTPException(status_code=400, detail="No valid file uploaded. Please supply at least one Excel or CSV file.")
+        raise HTTPException(status_code=400, detail="No valid file uploaded.")
 
     inserted_count = 0
     updated_count = 0
@@ -372,7 +353,6 @@ async def bulk_upload_nominal_roll(
                     df[col] = df[col].apply(parse_safe_date)
 
             for idx, row in df.iterrows():
-                # 🟢 APPLY AGGRESSIVE CLEANING TO ALL INCOMING ROWS
                 fnum_val = aggressive_clean_text(row.get("fnum") or row.get("forceno") or row.get("forcenumber") or row.get("fileno") or row.get("fno"))
                 ipps_val = clean_numeric(row.get("ipps") or row.get("ippsno") or row.get("ippsnumber"))
                 nin_val = clean_numeric(row.get("nin") or row.get("nationalid") or row.get("ninno"))
@@ -381,12 +361,12 @@ async def bulk_upload_nominal_roll(
 
                 if not fnum_val:
                     if is_uniformed_rank(rank_val):
-                        skipped_blank.append(f"Row {idx+2}: {rank_val} {name_val} (Uniformed rank missing F/No. Cannot assign civilian number)")
+                        skipped_blank.append(f"Row {idx+2}: {rank_val} {name_val} (Missing F/No)")
                         continue
                     elif ipps_val: fnum_val = f"CIV-IPPS-{ipps_val}"
                     elif nin_val: fnum_val = f"CIV-NIN-{nin_val}"
                     else: 
-                        skipped_blank.append(f"Row {idx+2}: {name_val or 'Unknown Person'} (Missing F/No, IPPS, & NIN)")
+                        skipped_blank.append(f"Row {idx+2}: {name_val or 'Unknown'} (Missing F/No, IPPS, & NIN)")
                         continue 
 
                 clean_fnum = fnum_val
@@ -398,7 +378,6 @@ async def bulk_upload_nominal_roll(
                 dopost_val = row.get("dopost") if isinstance(row.get("dopost"), date) else parse_safe_date(row.get("dopost") or row.get("dop"))
                 dopro_val = row.get("dopro") if isinstance(row.get("dopro"), date) else parse_safe_date(row.get("dopro") or row.get("dateofpromotion"))
 
-                # 🟢 MAP SANITIZED PAYLOAD
                 officer_payload = {
                     "rank": rank_val or "CIVILIAN",
                     "name": name_val or "UNKNOWN",
@@ -408,7 +387,7 @@ async def bulk_upload_nominal_roll(
                     "doe": doe_val,
                     "do_post": dopost_val,
                     "do_pro": dopro_val,
-                    "contact": format_phone_number(row.get("contact") or row.get("phone") or row.get("phonenumber")), # Multi-phone logic applied
+                    "contact": format_phone_number(row.get("contact") or row.get("phone") or row.get("phonenumber")),
                     "educ_level": normalize_education_level(row.get("educ_level") or row.get("educlevel") or row.get("education")),
                     "ipps": ipps_val,
                     "tin": clean_numeric(row.get("tin") or row.get("tinno") or row.get("tinnumber")),
@@ -489,9 +468,6 @@ async def bulk_upload_nominal_roll(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Bulk Nominal Roll Upload Failed: {str(e)}")
 
-# ====================================================================
-# 3. SINGLE OFFICER REGISTRATION & RE-INTEGRATION
-# ====================================================================
 @router.post("/nominal-roll")
 def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     ActiveModel = get_active_model()
@@ -521,7 +497,6 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             clean_data["region"] = current_user.region
             clean_data["station"] = current_user.station
 
-        # 🟢 Apply Aggressive Sanitization to Single Uploads Too
         if 'contact' in clean_data and clean_data['contact']:
             clean_data['contact'] = format_phone_number(clean_data['contact'])
             
@@ -547,16 +522,12 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             raise HTTPException(status_code=400, detail="Force/File number is mandatory.")
 
         clean_fnum = aggressive_clean_text(target_fnum)
-        if hasattr(ActiveModel, 'f_num'):
-            clean_data['f_num'] = clean_fnum
-        if hasattr(ActiveModel, 'fnum'):
-            clean_data['fnum'] = clean_fnum
+        if hasattr(ActiveModel, 'f_num'): clean_data['f_num'] = clean_fnum
+        if hasattr(ActiveModel, 'fnum'): clean_data['fnum'] = clean_fnum
 
         fnum_filter = []
-        if hasattr(ActiveModel, 'f_num'):
-            fnum_filter.append(func.trim(func.upper(ActiveModel.f_num)) == clean_fnum)
-        if hasattr(ActiveModel, 'fnum'):
-            fnum_filter.append(func.trim(func.upper(ActiveModel.fnum)) == clean_fnum)
+        if hasattr(ActiveModel, 'f_num'): fnum_filter.append(func.trim(func.upper(ActiveModel.f_num)) == clean_fnum)
+        if hasattr(ActiveModel, 'fnum'): fnum_filter.append(func.trim(func.upper(ActiveModel.fnum)) == clean_fnum)
 
         active_officer = db.query(ActiveModel).filter(or_(*fnum_filter)).first()
         if active_officer:
@@ -564,10 +535,8 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
 
         search_fnum = aggressive_clean_text(previous_fnum) if previous_fnum else clean_fnum
         arc_filter = []
-        if hasattr(ArchiveModel, 'fnum'):
-            arc_filter.append(func.trim(func.upper(ArchiveModel.fnum)) == search_fnum)
-        if hasattr(ArchiveModel, 'f_num'):
-            arc_filter.append(func.trim(func.upper(ArchiveModel.f_num)) == search_fnum)
+        if hasattr(ArchiveModel, 'fnum'): arc_filter.append(func.trim(func.upper(ArchiveModel.fnum)) == search_fnum)
+        if hasattr(ArchiveModel, 'f_num'): arc_filter.append(func.trim(func.upper(ArchiveModel.f_num)) == search_fnum)
 
         archived_officer = db.query(ArchiveModel).filter(or_(*arc_filter)).first()
         
@@ -620,9 +589,6 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-# ====================================================================
-# 5. ARCHIVE PERSONNEL (VIA REQUEST BODY - PLACED BEFORE WILDCARD PATH)
-# ====================================================================
 @router.put("/nominal-roll/archive-record")
 def archive_personnel(
     payload: dict, 
@@ -666,10 +632,8 @@ def archive_personnel(
         record_data.pop("id", None) 
         record_data.pop("sn", None) 
         
-        if hasattr(ArchiveModel, 'fnum'):
-            record_data["fnum"] = fnum_clean
-        if hasattr(ArchiveModel, 'f_num'):
-            record_data["f_num"] = fnum_clean
+        if hasattr(ArchiveModel, 'fnum'): record_data["fnum"] = fnum_clean
+        if hasattr(ArchiveModel, 'f_num'): record_data["f_num"] = fnum_clean
             
         record_data["status"] = "ARCHIVED"
         record_data["archive_reason"] = aggressive_clean_text(archive_reason)
@@ -692,9 +656,6 @@ def archive_personnel(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to migrate record: {str(e)}")
 
-# ====================================================================
-# 4. SINGLE OFFICER UPDATE ENDPOINT
-# ====================================================================
 @router.put("/nominal-roll/{identifier:path}")
 def update_Nominal_Roll(
     identifier: str, 
@@ -775,9 +736,6 @@ def update_Nominal_Roll(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update officer record: {str(e)}")
 
-# ====================================================================
-# 6. GET ARCHIVED PERSONNEL (DESCENDING ORDER)
-# ====================================================================
 @router.get("/nominal-roll-archive")
 def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
