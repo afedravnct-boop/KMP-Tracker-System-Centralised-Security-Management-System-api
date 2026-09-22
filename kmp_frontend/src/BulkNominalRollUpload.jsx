@@ -62,7 +62,7 @@ const ReintegrationHelper = ({ skipped, onDismiss }) => {
   }
 
   return (
-    <div className="bg-amber-100/60 dark:bg-amber-900/40 p-2.5 rounded-lg border border-amber-300 dark:border-amber-700/50">
+    <div className="bg-amber-100/60 dark:bg-amber-900/40 p-2.5 rounded-lg border border-amber-300 dark:border-amber-700/50 w-full">
       <div className="mb-2">
         <p className="font-bold text-red-700 dark:text-red-400 text-[12px] uppercase">
           ⚠️ {skipped.length} Officers Found In Archive
@@ -79,7 +79,7 @@ const ReintegrationHelper = ({ skipped, onDismiss }) => {
         />
       </div>
       
-      <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded p-1.5 max-h-32 overflow-y-auto custom-scrollbar mb-2">
+      <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded p-1.5 max-h-32 overflow-y-auto custom-scrollbar mb-2 w-full">
         <ul className="space-y-1">
           {skipped.map((off, i) => (
             <li key={i} className="flex items-center space-x-2 text-[10px] font-mono font-bold text-red-800 dark:text-red-400">
@@ -165,7 +165,7 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
         if (hasArchived || hasBlanks) {
           setMessage(
             <div className="flex flex-col space-y-3 w-full">
-              <div className="flex justify-between items-start border-b pb-1 border-amber-300 dark:border-amber-700">
+              <div className="flex justify-between items-start border-b pb-1 border-amber-300 dark:border-amber-700 w-full">
                 <p className="font-bold text-amber-900 dark:text-amber-300 text-xs pr-4">{data.message}</p>
                 <button 
                   onClick={() => {
@@ -188,13 +188,15 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
                 />
               )}
 
+              {/* 🟢 EXPANDED WIDE SCROLLABLE BOX FOR REJECTED ROWS */}
               {hasBlanks && (
-                <div className="bg-slate-100 dark:bg-slate-800 p-2.5 rounded-lg border border-slate-300 dark:border-slate-600">
-                  <p className="font-bold text-slate-700 dark:text-slate-300 text-[11px] mb-1">🚫 {data.skipped_blank.length} ROWS REJECTED (Missing Identifiers):</p>
-                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded p-1.5 max-h-24 overflow-y-auto custom-scrollbar">
-                    <ul className="list-disc pl-4 space-y-0.5 text-slate-800 dark:text-slate-400 text-[10px] font-mono">
-                      {data.skipped_blank.slice(0, 15).map((row, i) => <li key={i}>{row}</li>)}
-                      {data.skipped_blank.length > 15 && <li className="italic text-slate-500">...and {data.skipped_blank.length - 15} more.</li>}
+                <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-lg border border-slate-300 dark:border-slate-600 w-full">
+                  <p className="font-bold text-slate-700 dark:text-slate-300 text-[11px] mb-1.5 uppercase">
+                    🚫 {data.skipped_blank.length} ROWS REJECTED (Missing Identifiers):
+                  </p>
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 max-h-72 overflow-y-auto custom-scrollbar w-full shadow-inner">
+                    <ul className="list-disc pl-4 space-y-1 text-slate-800 dark:text-slate-400 text-xs font-mono">
+                      {data.skipped_blank.map((row, i) => <li key={i}>{row}</li>)}
                     </ul>
                   </div>
                 </div>
@@ -249,19 +251,21 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
       </div>
 
       {message && (
-        <div className={`p-4 rounded-xl border text-xs leading-relaxed font-medium shadow-sm max-h-48 overflow-y-auto custom-scrollbar break-words flex items-start transition-colors ${
+        <div className={`p-4 rounded-xl border text-xs leading-relaxed font-medium shadow-sm w-full overflow-hidden transition-colors ${
           status === 'error' ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-900/50 text-red-800 dark:text-red-300' : 
           status === 'warning' ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-300' : 
           status === 'success' ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-emerald-900/50 text-green-800 dark:text-emerald-300' : 
           'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-900/50 text-blue-800 dark:text-blue-300'
         }`}>
-          <div className="mt-0.5 mr-2 shrink-0">
-            {status === 'error' ? <AlertTriangle size={16} className="text-red-500 dark:text-red-400" /> : 
-             status === 'warning' ? <AlertTriangle size={16} className="text-amber-500 dark:text-amber-400" /> : 
-             status === 'success' ? <CheckCircle size={16} className="text-green-500 dark:text-emerald-400" /> : 
-             <Loader2 size={16} className="text-blue-500 dark:text-blue-400 animate-spin" />}
+          <div className="flex items-start w-full">
+            <div className="mt-0.5 mr-2 shrink-0">
+              {status === 'error' ? <AlertTriangle size={16} className="text-red-500 dark:text-red-400" /> : 
+               status === 'warning' ? <AlertTriangle size={16} className="text-amber-500 dark:text-amber-400" /> : 
+               status === 'success' ? <CheckCircle size={16} className="text-green-500 dark:text-emerald-400" /> : 
+               <Loader2 size={16} className="text-blue-500 dark:text-blue-400 animate-spin" />}
+            </div>
+            <div className="flex-1 font-mono tracking-tight w-full">{message}</div>
           </div>
-          <div className="flex-1 font-mono tracking-tight">{message}</div>
         </div>
       )}
     </div>

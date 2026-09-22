@@ -6,7 +6,7 @@ import html
 import uuid
 import asyncio
 import secrets  
-import string    
+import string   
 import json
 import base64
 from datetime import datetime, timedelta
@@ -311,14 +311,12 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
 
     return user
 
-# 🟢 ORIGINAL STRICT ADMIN CHECK (For PUT/POST/DELETE/PATCH Write Actions)
 def require_admin(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     if "ADMIN" not in user_role and "RPC" not in user_role:
         raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
     return current_user
 
-# 🟢 NEW: OBSERVER-ENABLED CHECK (For GET / Read-Only Data Routes)
 def require_admin_or_observer(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     if "ADMIN" in user_role or "RPC" in user_role:
@@ -358,7 +356,6 @@ def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, chang
             [f"{k}: {v[0]} -> {v[1]}" for k, v in changes.items()]
         ) + f" | Remarks: {remarks}"
         
-        # Look up user name by fnum
         user_name_val = ""
         if fnum and fnum != "SYSTEM":
             user_obj = db.query(models.Users).filter(func.upper(models.Users.fnum) == fnum.upper()).first()
@@ -373,7 +370,7 @@ def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, chang
                 status="SUCCESS",
                 details=formatted_details,
                 user_fnum=fnum,
-                user_name=user_name_val, # 🟢 Save user name natively
+                user_name=user_name_val,
                 created_at=get_eat_time()
             )
             db.add(new_audit)
@@ -477,7 +474,6 @@ def get_weekly_reports_list(db: Session = Depends(get_db), current_user = Depend
         print(f"Weekly Reports Fetch Error: {e}")
         return []
 
-# 🟢 FIXED: USES require_admin_or_observer SO GLOBAL OBSERVERS CAN SEE THE PENDING USERS QUEUE
 @app.get("/api/v1/admin/pending-users")
 def get_pending_users(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin_or_observer)):
     try:
@@ -504,7 +500,6 @@ def get_pending_users(db: Session = Depends(get_db), current_user: models.Users 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# 🟢 FIXED: USES require_admin_or_observer SO OBSERVERS CAN SEE HR MODIFICATIONS
 @app.get("/api/v1/requests")
 def get_system_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin_or_observer)):
     try:
@@ -578,7 +573,6 @@ def create_system_request(data: dict, db: Session = Depends(get_db), current_use
 @app.patch("/api/v1/requests/{req_id}")
 @app.put("/api/v1/requests/{req_id}")
 def review_system_request(req_id: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
-    # 🟢 STILL SECURE: Requires strict ADMIN to approve/reject HR modification
     ReqModel = getattr(models, 'Modification_Requests', getattr(models, 'modification_requests', None))
     req = db.query(ReqModel).filter(ReqModel.id == req_id).first()
     
@@ -625,7 +619,7 @@ def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = D
                 "status": getattr(log, 'status', 'SUCCESS'),
                 "details": getattr(log, 'details', ''),
                 "user_fnum": getattr(log, 'user_fnum', ''),
-                "user_name": getattr(log, 'user_name', ''), # 🟢 Expose user_name to frontend
+                "user_name": getattr(log, 'user_name', ''), 
                 "created_at": str(getattr(log, 'created_at', ''))
             } for log in logs
         ]
@@ -640,7 +634,7 @@ def update_user_access(
     data: dict, 
     fnum: Optional[str] = None, 
     db: Session = Depends(get_db), 
-    current_user: models.Users = Depends(require_admin) # 🟢 STILL SECURE: Strict ADMIN for write
+    current_user: models.Users = Depends(require_admin)
 ):
     target_fnum = fnum or data.get("fnum") or data.get("user_fnum")
     if not target_fnum:
@@ -725,7 +719,6 @@ def force_user_password(
     db.commit()
     return {"status": "success", "message": f"Password forcibly updated for {target_fnum}"}
 
-# 🟢 FIXED: USES require_admin_or_observer SO OBSERVERS CAN SEE RESET QUEUE
 @app.get("/api/v1/admin/reset-requests")
 def get_reset_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin_or_observer)):
     try:
@@ -742,7 +735,7 @@ def execute_password_reset(
     req_id: int,
     action: str = Form(...),
     db: Session = Depends(get_db),
-    current_user: models.Users = Depends(require_admin) # 🟢 STILL SECURE: Strict ADMIN for write
+    current_user: models.Users = Depends(require_admin)
 ):
     TargetModel = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
     if not TargetModel:
@@ -856,7 +849,6 @@ def get_online_users(db: Session = Depends(get_db), current_user: models.Users =
         } for u in active_users
     ]
 
-# 🟢 FIXED: USES require_admin_or_observer SO OBSERVERS CAN VIEW ACTIVITY LOGS
 @app.get("/api/v1/activity-logs")
 def get_system_activity_logs(db: Session = Depends(get_logs_db), current_user: models.Users = Depends(require_admin_or_observer)):
     try:
@@ -995,7 +987,6 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Command Audit Logs"
-        # 🟢 Include the new column header in your Excel sheet layout
         ws.append(["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM", "User Name"])
 
         header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
@@ -1008,14 +999,12 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
         for log in logs:
             details_clean = clean_html_for_export(getattr(log, 'details', ''))
             
-            # Format Timestamp cleanly (stripping timezone text)
             raw_time = getattr(log, 'created_at', '')
             if hasattr(raw_time, 'strftime'):
                 formatted_time = raw_time.strftime("%Y-%m-%d %H:%M:%S")
             else:
                 formatted_time = str(raw_time).replace("+00:00", "").replace("T", " ")
 
-            # 🟢 Pull FNUM and the new User Name column directly from the model
             user_fnum = str(getattr(log, 'user_fnum', '') or getattr(log, 'fnum', '')).strip()
             user_name = str(getattr(log, 'user_name', '')).strip().upper()
 
@@ -1148,7 +1137,6 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
             perms.get("global_open") is True
         )
         
-        # 🟢 Include all your existing models plus the newly added Exhibits Model
         CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
         StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', getattr(models, 'Stats', None)))
         StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', getattr(models, 'Stories', None)))
@@ -1160,7 +1148,6 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         ArcModel = getattr(models, 'NominalRollArchive', getattr(models, 'Nominal_Roll_Archive', None))
         AgricStatsModel = getattr(models, 'AgricStats', getattr(models, 'agric_stats', getattr(models, 'Agric_Stats', None)))
         
-        # 🟢 Pulling the exact Exhibits Model
         ExhibitsModel = getattr(models, 'Exhibits', getattr(models, 'exhibits', getattr(models, 'Exhibit', getattr(models, 'ImpoundedExhibits', None))))
 
         def get_full_dataframe(ModelClass):
@@ -1182,7 +1169,6 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
                         val = getattr(r, col, '')
                         if isinstance(val, datetime):
                             val = val.strftime("%Y-%m-%d %H:%M")
-                        # Include new exhibit text columns in the clean-up list to strip any frontend HTML formatting
                         elif isinstance(val, str) and col in ['narrative', 'comment', 'message', 'details', 'archive_reason', 'status', 'agric_crime_report', 'recovery_report', 'reason', 'assorted_items']:
                             val = clean_html_for_export(val)
                         row_dict[col] = val if val is not None else ''
@@ -1200,7 +1186,6 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         df_est = get_full_dataframe(EstModel)
         df_docs = get_full_dataframe(DocsModel)
         df_arc = get_full_dataframe(ArcModel)
-        # 🟢 Generate DataFrame for Impounded Exhibits
         df_exhibits = get_full_dataframe(ExhibitsModel)
 
         ai_rows = []
@@ -1270,8 +1255,6 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         write_wrapped_sheet(df_arc, "Archived Personnel", ['archive_reason'])
         write_wrapped_sheet(df_docs, "Documents & Reports", ['file_name'])
         write_wrapped_sheet(df_ai, "AI Command Logs", ['Details'])
-        
-        # 🟢 The Impounded Exhibits worksheet is seamlessly injected into the final exported workbook
         write_wrapped_sheet(df_exhibits, "Impounded Exhibits", ['reason', 'assorted_items', 'comment', 'case_no'])
 
         eat_tz = pytz.timezone("Africa/Nairobi")
@@ -1444,8 +1427,15 @@ def run_weekly_tactical_briefing_job():
                 crime_filter = "" if is_global else f" AND station = '{station}'"
                 stats_filter = "" if is_global else f" AND station = '{station}'"
                 
-                crimes = db.execute(text(f"SELECT offence, narrative, status FROM reports WHERE created_at >= :start {crime_filter}"), {"start": one_week_ago}).fetchall()
-                ops_stats = db.execute(text(f"SELECT arrests, given_bond, cautioned, remanded, convicted FROM stats WHERE date >= :start {stats_filter}"), {"start": one_week_ago.date()}).fetchall()
+                try:
+                    crimes = db.execute(text(f"SELECT offence, narrative, status FROM reports WHERE created_at >= :start {crime_filter}"), {"start": one_week_ago}).fetchall()
+                except Exception:
+                    crimes = []
+
+                try:
+                    ops_stats = db.execute(text(f"SELECT arrests, given_bond, cautioned, remanded, convicted FROM stats WHERE date >= :start {stats_filter}"), {"start": one_week_ago.date()}).fetchall()
+                except Exception:
+                    ops_stats = []
                 
                 total_arrests = sum(row.arrests or 0 for row in ops_stats)
                 all_text = " ".join([f"{r.offence} {r.narrative}" for r in crimes]).upper()
@@ -1493,7 +1483,19 @@ def run_weekly_tactical_briefing_job():
                 except Exception as mail_err:
                     print(f"Failed to dispatch to {user.email}: {mail_err}")
 
-        asyncio.run(process_and_send_emails())
+        # 🟢 SECURE ASYNC RUNNER FOR APSCHEDULER THREAD
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.run_coroutine_threadsafe(process_and_send_emails(), loop)
+            else:
+                asyncio.run(process_and_send_emails())
+        except Exception as loop_err:
+            print(f"Scheduler event loop error: {loop_err}")
+            try:
+                asyncio.run(process_and_send_emails())
+            except Exception as inner_err:
+                print(f"Secondary scheduler dispatch failed: {inner_err}")
 
     except Exception as e:
         print(f"Dynamic scheduler error: {e}")

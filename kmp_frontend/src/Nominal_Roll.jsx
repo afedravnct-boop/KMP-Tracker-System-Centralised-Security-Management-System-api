@@ -720,9 +720,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
            <MetricCard title="Male Officers" value={metricsData.male} colorClass="text-indigo-600" />
            <MetricCard title="Female Officers" value={metricsData.female} colorClass="text-pink-600" />
            <MetricCard title="Unassigned Sex" value={metricsData.unassigned} colorClass="text-slate-400" />
-           <MetricCard title="Stations" value={metricsData.stations} colorClass="text-emerald-600" />
+           <MetricCard title="Regions/Divs/Stations/Posts" value={metricsData.stations} colorClass="text-emerald-600" />
         </div>
-      </div>
 
       {/* 🟢 SCOPED EXPORT & AUDIT MODAL WITH ALL SUBMITTED STATIONS & POSTS */}
       {showModal && (

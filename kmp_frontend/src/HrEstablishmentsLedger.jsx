@@ -54,21 +54,49 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     return [];
   };
 
+  // 🟢 DYNAMIC ESTABLISHMENTS BUILDER: Aggregates stations and posts directly from the Nominal Roll
   const getEstData = () => {
-    let rawEst = [];
-    if (Array.isArray(data)) {
-      if (data.length > 0 && (data[0].personnel_in_station !== undefined || data[0].pers_stn !== undefined)) rawEst = data;
-    } else if (data && typeof data === 'object') {
-      const keys = ['establishments', 'Establishments', 'estData', 'establishmentsData'];
-      for (let key of keys) {
-        if (Array.isArray(data[key])) {
-          rawEst = data[key];
-          break;
-        }
-      }
-    }
+    const rawRoll = getRawRoll().filter(p => {
+      const statusStr = stripHtml(String(p.status || '')).trim().toUpperCase();
+      if (statusStr === 'ARCHIVED' || p.is_archived === true) return false;
+      return true;
+    });
 
-    return rawEst.filter(e => {
+    // Group nominal roll personnel by Region -> Station -> Post/Section
+    const groupMap = {};
+
+    rawRoll.forEach(p => {
+      const stn = stripHtml(p.station || 'HQ').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, p.region);
+      const div = stripHtml(p.dir || p.division || 'GENERAL DUTIES').trim().toUpperCase();
+      const pst = stripHtml(p.section || p.post || '-').trim().toUpperCase();
+
+      const mapKey = `${reg}|${div}|${stn}|${pst}`;
+
+      if (!groupMap[mapKey]) {
+        groupMap[mapKey] = {
+          region: reg,
+          division: div,
+          station: stn,
+          post: pst !== '-' ? pst : '',
+          personnel_in_station: 0,
+          personnel_in_post: 0
+        };
+      }
+
+      // Check if attached to post or main station
+      const pos = stripHtml(p.position || '').toUpperCase();
+      if (pos.includes('POST') || (pst && pst !== '-')) {
+        groupMap[mapKey].personnel_in_post += 1;
+      } else {
+        groupMap[mapKey].personnel_in_station += 1;
+      }
+    });
+
+    let aggregatedEst = Object.values(groupMap);
+
+    // Filter by selected region and station if active
+    return aggregatedEst.filter(e => {
       const stn = stripHtml(e.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, e.region);
 
@@ -226,7 +254,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       });
     }
 
-    // 🟢 STRICT REGION FILTER: If a specific region is selected, completely filter out all other rows so they vanish
     if (selectedRegion && selectedRegion !== 'ALL REGIONS') {
       const cleanSelected = selectedRegion.trim().toUpperCase();
       aggregatedRegions = aggregatedRegions.filter(row => {
@@ -502,7 +529,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px]">
           <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
              <h3 className="font-extrabold text-green-900 text-sm uppercase tracking-wider flex items-center">
-                <Building className="mr-2 w-5 h-5" /> Police Establishments
+                <Building className="mr-2 w-5 h-5" /> Police Establishments (Dynamic Nominal Roll Extraction)
              </h3>
           </div>
           <div className="overflow-x-auto w-full max-h-[500px] custom-scrollbar">
@@ -511,22 +538,19 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                    <tr>
                       <th className="p-3 text-left text-[10px] font-black text-slate-600 uppercase">SN</th>
                       <th className="p-3 text-left text-[11px] font-black text-slate-600 uppercase bg-slate-100">REGION</th>
-                      <th className="p-3 text-left text-[10px] font-black text-slate-600 uppercase">DIVISION</th>
+                      <th className="p-3 text-left text-[10px] font-black text-slate-600 uppercase">DIVISION / DIR</th>
                       <th className="p-3 text-left text-[10px] font-black text-slate-600 uppercase bg-slate-100">STATION</th>
                       <th className="p-3 text-center text-[10px] font-black text-slate-600 uppercase">PERS<br/>(STN)</th>
-                      <th className="p-3 text-left text-[10px] font-black text-slate-600 uppercase bg-slate-100">SUB-STATION</th>
-                      <th className="p-3 text-left text-[10px] font-black text-slate-600 uppercase">POST</th>
-                      <th className="p-3 text-center text-[10px] font-black text-slate-600 uppercase bg-slate-100">PERS<br/>(POST)</th>
+                      <th className="p-3 text-left text-[10px] font-black text-slate-600 uppercase bg-slate-100">POST / SECTION</th>
+                      <th className="p-3 text-center text-[10px] font-black text-slate-600 uppercase bg-slate-50">PERS<br/>(POST)</th>
                       <th className="p-3 text-center text-[11px] font-black text-white uppercase bg-emerald-800 shadow-inner">TOTAL<br/>PERSONNEL</th>
                    </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                    {estData.map((e, idx) => {
-                      const stn = parseInt(e.personnel_in_station ?? e.pers_stn, 10) || 0;
-                      const sub = parseInt(e.personnel_in_sub_station ?? 0, 10) || 0;
-                      const pst = parseInt(e.personnel_in_post ?? e.pers_post, 10) || 0;
-                      const bth = parseInt(e.personnel_in_booth ?? e.booths, 10) || 0;
-                      const totalPerLocation = stn + sub + pst + bth;
+                      const stn = parseInt(e.personnel_in_station, 10) || 0;
+                      const pst = parseInt(e.personnel_in_post, 10) || 0;
+                      const totalPerLocation = stn + pst;
                       
                       return (
                          <tr key={idx} className="hover:bg-emerald-50/40 transition-colors">
@@ -535,24 +559,26 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                             <td className="p-3 text-xs font-bold text-slate-600 uppercase">{stripHtml(e.division || '-')}</td>
                             <td className="p-3 text-xs font-bold text-slate-600 bg-slate-50/50 uppercase">{stripHtml(e.station || '-')}</td>
                             <td className="p-3 text-center text-sm font-extrabold text-green-700">{stn > 0 ? stn : '-'}</td>
-                            <td className="p-3 text-xs font-medium text-slate-600 bg-slate-50/50 capitalize">{stripHtml(e.sub_station || '-')}</td>
-                            <td className="p-3 text-xs font-medium text-slate-600 capitalize">{stripHtml(e.post || '-')}</td>
+                            <td className="p-3 text-xs font-medium text-slate-600 bg-slate-50/50 uppercase">{stripHtml(e.post || '-')}</td>
                             <td className="p-3 text-center text-sm font-bold text-emerald-600 bg-slate-50/50">{pst > 0 ? pst : '-'}</td>
                             <td className="p-3 text-center text-sm font-black text-emerald-900 bg-emerald-50 shadow-inner border-l border-emerald-100">{totalPerLocation > 0 ? totalPerLocation : '-'}</td>
                          </tr>
                       );
                    })}
-                   {estData.length === 0 && <tr><td colSpan="9" className="p-6 text-center text-slate-500 font-medium">No establishments data available.</td></tr>}
+                   {estData.length === 0 && <tr><td colSpan="8" className="p-6 text-center text-slate-500 font-medium">No establishments data available from the nominal roll.</td></tr>}
                    
                    <tr className="bg-slate-800 border-t-4 border-slate-900">
                       <td colSpan="4" className="p-4 text-right text-[11px] font-black text-white uppercase tracking-widest shadow-inner border-r border-slate-700">
                           TOTALS:
                       </td>
-                      <td className="p-4 text-center text-base font-black text-green-400 border-r border-slate-700">{estTotals.station > 0 ? estTotals.station : '-'}</td>
-                      <td colSpan="2" className="p-4 text-center border-r border-slate-700 bg-slate-900/50"></td>
-                      <td className="p-4 text-center text-base font-black text-emerald-300 border-r border-slate-700">{estTotals.post > 0 ? estTotals.post : '-'}</td>
+                      <td className="p-4 text-center text-base font-black text-green-400 border-r border-slate-700">
+                        {estData.reduce((sum, curr) => sum + (parseInt(curr.personnel_in_station, 10) || 0), 0)}
+                      </td>
+                      <td colSpan="2" className="p-4 text-center border-r border-slate-700 bg-slate-900/50">
+                        {estData.reduce((sum, curr) => sum + (parseInt(curr.personnel_in_post, 10) || 0), 0)}
+                      </td>
                       <td className="p-4 text-center text-lg font-black text-yellow-400 bg-slate-950 shadow-inner">
-                         {estTotals.station + estTotals.sub + estTotals.post + estTotals.booth}
+                         {estData.reduce((sum, curr) => sum + (parseInt(curr.personnel_in_station, 10) || 0) + (parseInt(curr.personnel_in_post, 10) || 0), 0)}
                       </td>
                    </tr>
                 </tbody>
