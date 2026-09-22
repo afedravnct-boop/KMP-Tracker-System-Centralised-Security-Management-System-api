@@ -21,96 +21,112 @@ from auth import get_current_user
 router = APIRouter(prefix="/api/v1", tags=["Nominal Roll & HR"])
 
 # ====================================================================
-# GLOBAL HELPER FUNCTIONS
+# GLOBAL HELPER FUNCTIONS (AGGRESSIVE SANITIZATION UPGRADED)
 # ====================================================================
-def normalize_sex(val):
-    if not val:
-        return "MALE"
-    cleaned = str(val).strip().upper()
-    if cleaned.startswith('F'):
-        return "FEMALE"
-    elif cleaned.startswith('M'):
-        return "MALE"
-    return cleaned
 
-def normalize_education_level(educ_str):
-    """Normalizes high school levels: keeps uncertified s1-s3 as entered, maps others to UCE or UACE."""
-    if not educ_str or str(educ_str).strip().lower() in ['nan', 'none', 'null', '']:
-        return None
-    cleaned = str(educ_str).strip().upper()
+def aggressive_clean_text(val):
+    """Vaporizes junk punctuation, extra spaces, and trailing dots."""
+    if pd.isna(val) or val is None: return None
+    s = str(val)
+    if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
     
-    if any(term in cleaned for term in ['S.1', 'S1', 'S.2', 'S2', 'S.3', 'S3', 'SENIOR 1', 'SENIOR 2', 'SENIOR 3']):
-        return cleaned
-        
-    if any(term in cleaned for term in ['UACE', 'A-LEVEL', 'A LEVEL', 'S.6', 'S6', 'SENIOR 6']):
-        return "UACE"
-    if any(term in cleaned for term in ['UCE', 'O-LEVEL', 'O LEVEL', 'S.4', 'S4', 'SENIOR 4', 'PLE', 'P.7']):
-        return "UCE"
-        
-    return cleaned
+    # Erase commas, exclamation marks, and quotes
+    s = re.sub(r"[,!?'\"]", "", s)
+    # Squeeze accidental double/triple spaces into a single space
+    s = re.sub(r'\s+', ' ', s)
+    # Strip stray dots, hyphens, or slashes hanging off the edges
+    s = s.strip('. -/\\')
+    
+    if not s: return None
+    return s.upper()
 
 def clean_numeric(val):
     """Cleans numeric strings and removes trailing .0 from Excel floats."""
     if pd.isna(val) or val is None: return None
     s = str(val).strip()
     if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
+    s = re.sub(r'[^\d.]', '', s) 
     if s.endswith('.0'): s = s[:-2]
     return s
 
 def format_phone_number(val):
-    """Ensures phone numbers start with a 0 if they are 9 digits and start with 7."""
-    cleaned = clean_numeric(val)
+    """
+    Extracts ALL valid numbers, strips spaces/letters, formats to standard, 
+    and recombines them with a slash if there are multiple.
+    """
+    if pd.isna(val) or val is None: return None
+    s = str(val).strip()
+    if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
+    
+    # Split by common separators (/, comma, &, ;) to capture multiple numbers
+    parts = re.split(r'[,/&|;]|\band\b', s, flags=re.IGNORECASE)
+    
+    valid_numbers = []
+    
+    for part in parts:
+        cleaned = re.sub(r'[^\d]', '', part)
+        if not cleaned: continue
+        
+        # Standardize Ugandan prefixes
+        if cleaned.startswith('256'):
+            cleaned = '0' + cleaned[3:]
+        elif cleaned.startswith('7') and len(cleaned) == 9:
+            cleaned = '0' + cleaned
+            
+        if len(cleaned) >= 10:
+            valid_numbers.append(cleaned)
+            
+    if not valid_numbers: return None
+    return ' / '.join(valid_numbers)
+
+def normalize_sex(val):
+    clean_val = aggressive_clean_text(val)
+    if not clean_val: return "MALE"
+    if clean_val.startswith('F'): return "FEMALE"
+    if clean_val.startswith('M'): return "MALE"
+    return clean_val
+
+def normalize_education_level(educ_str):
+    """Normalizes high school levels: keeps uncertified s1-s3 as entered, maps others to UCE or UACE."""
+    cleaned = aggressive_clean_text(educ_str)
     if not cleaned: return None
-    if cleaned.startswith('+'):
-        cleaned = cleaned[1:]
-    if cleaned.startswith('7') and len(cleaned) == 9:
-        cleaned = '0' + cleaned
+    
+    if any(term in cleaned for term in ['S.1', 'S1', 'S.2', 'S2', 'S.3', 'S3', 'SENIOR 1', 'SENIOR 2', 'SENIOR 3']): return cleaned
+    if any(term in cleaned for term in ['UACE', 'A-LEVEL', 'A LEVEL', 'S.6', 'S6', 'SENIOR 6']): return "UACE"
+    if any(term in cleaned for term in ['UCE', 'O-LEVEL', 'O LEVEL', 'S.4', 'S4', 'SENIOR 4', 'PLE', 'P.7', 'P7']): return "UCE"
+        
     return cleaned
 
 def is_uniformed_rank(rank_str: str) -> bool:
     """Returns True if the rank falls within official UPF uniformed ranks (SPC to IGP)."""
-    if not rank_str:
-        return False
-    r = rank_str.strip().upper()
+    if not rank_str: return False
+    r = str(rank_str).strip().upper()
     uniformed_ranks = {
         'IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'SASP', 'ASP',
         'IP', 'AIP', 'HCM', 'HC', 'S/SGT', 'SSGT', 'SGT', 'CPL', 'L/CPL', 'LCPL',
-        'PC', 'PPC', 'SPC'
+        'PC', 'PPC', 'SPC', 'DC', 'D/C'
     }
     return r in uniformed_ranks
 
 def parse_safe_date(val) -> Optional[date]:
-    """Strictly coerces incoming date values into a Python date object or None without triggering OutOfBoundsDatetime."""
-    if pd.isna(val) or val is None:
-        return None
+    """Strictly coerces dates, automatically fixing year.month.date full stop formats."""
+    if pd.isna(val) or val is None: return None
     if isinstance(val, date) and not isinstance(val, datetime):
-        if 1900 <= val.year <= 2100:
-            return val
-        return None
+        return val if 1900 <= val.year <= 2100 else None
     if isinstance(val, datetime):
-        if 1900 <= val.year <= 2100:
-            return val.date()
-        return None
+        return val.date() if 1900 <= val.year <= 2100 else None
     if type(val).__name__ == 'Timestamp':
-        try:
-            if 1900 <= val.year <= 2100:
-                return val.date()
-        except Exception:
-            return None
-        return None
+        try: return val.date() if 1900 <= val.year <= 2100 else None
+        except Exception: return None
 
     val_str = str(val).strip()
-    if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-', 'n/a', 'nil', '0', 'undefined']:
-        return None
+    if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-', 'n/a', 'nil', '0', 'undefined']: return None
 
-    if ' ' in val_str:
-        val_str = val_str.split(' ')[0]
-    if 'T' in val_str:
-        val_str = val_str.split('T')[0]
+    if ' ' in val_str: val_str = val_str.split(' ')[0]
+    if 'T' in val_str: val_str = val_str.split('T')[0]
 
     val_str = val_str.strip()
-    if not val_str:
-        return None
+    if not val_str: return None
 
     try:
         if val_str.replace('.', '', 1).isdigit():
@@ -118,13 +134,11 @@ def parse_safe_date(val) -> Optional[date]:
             if 1000 < float_val < 73050:
                 try:
                     dt = pd.to_datetime(float_val, unit='D', origin='1899-12-30', errors='coerce')
-                    if pd.notna(dt) and 1900 <= dt.year <= 2100:
-                        return dt.date()
-                except Exception:
-                    pass
-    except Exception:
-        pass
+                    if pd.notna(dt) and 1900 <= dt.year <= 2100: return dt.date()
+                except Exception: pass
+    except Exception: pass
 
+    # 🟢 AGGRESSIVE FIX: Converts YYYY.MM.DD into standard hyphens instantly
     clean_str = re.sub(r'[\./\\]', '-', val_str)
     parts = clean_str.split('-')
 
@@ -132,55 +146,41 @@ def parse_safe_date(val) -> Optional[date]:
         p0, p1, p2 = parts[0].strip(), parts[1].strip(), parts[2].strip()
         if p0.isdigit() and p1.isdigit() and p2.isdigit():
             if len(p0) == 4:
-                y, m, d = int(p0), int(p1), int(p2)
                 try:
-                    res_date = date(y, m, d)
-                    if 1900 <= res_date.year <= 2100:
-                        return res_date
-                except Exception:
-                    pass
+                    res_date = date(int(p0), int(p1), int(p2))
+                    if 1900 <= res_date.year <= 2100: return res_date
+                except Exception: pass
             elif len(p2) == 4:
-                d, m, y = int(p0), int(p1), int(p2)
                 try:
-                    res_date = date(y, m, d)
-                    if 1900 <= res_date.year <= 2100:
-                        return res_date
-                except Exception:
-                    pass
+                    res_date = date(int(p2), int(p1), int(p0))
+                    if 1900 <= res_date.year <= 2100: return res_date
+                except Exception: pass
             elif len(p0) <= 2 and len(p2) <= 2:
                 for (day_val, month_val, year_val) in [(int(p0), int(p1), int(p2)), (int(p2), int(p1), int(p0))]:
                     y = year_val
-                    if y < 100:
-                        y = 1900 + y if y > 40 else 2000 + y
+                    if y < 100: y = 1900 + y if y > 40 else 2000 + y
                     try:
                         res_date = date(y, month_val, day_val)
-                        if 1900 <= res_date.year <= 2100:
-                            return res_date
-                    except Exception:
-                        continue
+                        if 1900 <= res_date.year <= 2100: return res_date
+                    except Exception: continue
 
     for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y', '%Y/%m/%d', '%d.%m.%Y', '%m/%d/%Y', '%m-%d-%Y'):
         try:
             d = datetime.strptime(val_str, fmt).date()
-            if 1900 <= d.year <= 2100:
-                return d
-        except Exception:
-            continue
+            if 1900 <= d.year <= 2100: return d
+        except Exception: continue
 
     try:
         parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
         if pd.notna(parsed):
             py_dt = parsed.to_pydatetime()
-            if 1900 <= py_dt.year <= 2100:
-                return py_dt.date()
-    except Exception:
-        pass
+            if 1900 <= py_dt.year <= 2100: return py_dt.date()
+    except Exception: pass
 
     return None
 
 def get_officer_signature(user):
-    if not user:
-        return "UNKNOWN COMMANDER"
+    if not user: return "UNKNOWN COMMANDER"
     fnum = (user.fnum or "").strip()
     rank = (user.rank or "").strip()
     name = (user.name or "").strip()
@@ -188,14 +188,12 @@ def get_officer_signature(user):
 
 def get_active_model():
     model = getattr(models, 'NominalRoll', getattr(models, 'Nominal_Roll', getattr(models, 'nominal_roll', None)))
-    if not model:
-        raise HTTPException(status_code=500, detail="Nominal Roll database model not configured.")
+    if not model: raise HTTPException(status_code=500, detail="Nominal Roll database model not configured.")
     return model
 
 def get_archive_model():
     model = getattr(models, 'NominalRollArchive', getattr(models, 'Nominal_Roll_Archive', getattr(models, 'nominal_roll_archive', None)))
-    if not model:
-        raise HTTPException(status_code=500, detail="Nominal Roll Archive database model not configured.")
+    if not model: raise HTTPException(status_code=500, detail="Nominal Roll Archive database model not configured.")
     return model
 
 STATION_GEO_MAP = {
@@ -225,11 +223,10 @@ STATION_GEO_MAP = {
 }
 
 def auto_infer_geography(station_name, current_region=None, current_district=None):
-    if not station_name:
-        return current_region or "KMP HEADQUARTERS", current_district or "KAMPALA"
-    stat_upper = str(station_name).strip().upper()
-    inferred_region = current_region
-    inferred_district = current_district
+    if not station_name: return current_region or "KMP HEADQUARTERS", current_district or "KAMPALA"
+    stat_upper = aggressive_clean_text(station_name)
+    inferred_region = aggressive_clean_text(current_region)
+    inferred_district = aggressive_clean_text(current_district)
 
     if stat_upper in STATION_GEO_MAP:
         geo_info = STATION_GEO_MAP[stat_upper]
@@ -238,7 +235,6 @@ def auto_infer_geography(station_name, current_region=None, current_district=Non
         if not inferred_district or str(inferred_district).upper() in ["", "NONE", "NAN", "ALL REGIONS"]:
             inferred_district = geo_info["district"]
     return inferred_region or "KMP HEADQUARTERS", inferred_district or "KAMPALA"
-
 
 # ====================================================================
 # 1. RETRIEVE ACTIVE AND ARCHIVED NOMINAL ROLL
@@ -341,10 +337,8 @@ async def bulk_upload_nominal_roll(
     ArchiveModel = get_archive_model()
     
     file_list = []
-    if files:
-        file_list.extend(files)
-    if file:
-        file_list.append(file)
+    if files: file_list.extend(files)
+    if file: file_list.append(file)
 
     if not file_list:
         raise HTTPException(status_code=400, detail="No valid file uploaded. Please supply at least one Excel or CSV file.")
@@ -360,12 +354,9 @@ async def bulk_upload_nominal_roll(
             contents = await single_file.read()
             filename = single_file.filename.lower()
 
-            if filename.endswith(".csv"):
-                df = pd.read_csv(io.BytesIO(contents))
-            elif filename.endswith((".xls", ".xlsx")):
-                df = pd.read_excel(io.BytesIO(contents))
-            else:
-                continue
+            if filename.endswith(".csv"): df = pd.read_csv(io.BytesIO(contents))
+            elif filename.endswith((".xls", ".xlsx")): df = pd.read_excel(io.BytesIO(contents))
+            else: continue
 
             def standardize_header(h):
                 h = str(h).lower().strip()
@@ -381,13 +372,14 @@ async def bulk_upload_nominal_roll(
                     df[col] = df[col].apply(parse_safe_date)
 
             for idx, row in df.iterrows():
-                fnum_val = row.get("fnum") or row.get("forceno") or row.get("forcenumber") or row.get("fileno") or row.get("fno")
+                # 🟢 APPLY AGGRESSIVE CLEANING TO ALL INCOMING ROWS
+                fnum_val = aggressive_clean_text(row.get("fnum") or row.get("forceno") or row.get("forcenumber") or row.get("fileno") or row.get("fno"))
                 ipps_val = clean_numeric(row.get("ipps") or row.get("ippsno") or row.get("ippsnumber"))
                 nin_val = clean_numeric(row.get("nin") or row.get("nationalid") or row.get("ninno"))
-                rank_val = str(row.get("rank") or "").strip().upper()
-                name_val = str(row.get("name") or "").strip().upper()
+                rank_val = aggressive_clean_text(row.get("rank"))
+                name_val = aggressive_clean_text(row.get("name"))
 
-                if not fnum_val or str(fnum_val).strip().lower() in ['nan', 'nat', 'none', 'null', '']:
+                if not fnum_val:
                     if is_uniformed_rank(rank_val):
                         skipped_blank.append(f"Row {idx+2}: {rank_val} {name_val} (Uniformed rank missing F/No. Cannot assign civilian number)")
                         continue
@@ -397,58 +389,55 @@ async def bulk_upload_nominal_roll(
                         skipped_blank.append(f"Row {idx+2}: {name_val or 'Unknown Person'} (Missing F/No, IPPS, & NIN)")
                         continue 
 
-                clean_fnum = str(fnum_val).strip().upper()
-                stn_val = str(row.get("station") or current_user.station or "HQ").strip().upper()
-                reg_val, dist_val = auto_infer_geography(stn_val, row.get("region"), row.get("district"))
+                clean_fnum = fnum_val
+                stn_val = aggressive_clean_text(row.get("station") or current_user.station or "HQ")
+                reg_val, dist_val = auto_infer_geography(stn_val, aggressive_clean_text(row.get("region")), aggressive_clean_text(row.get("district")))
 
                 dob_val = row.get("dob") if isinstance(row.get("dob"), date) else parse_safe_date(row.get("dob") or row.get("dateofbirth"))
                 doe_val = row.get("doe") if isinstance(row.get("doe"), date) else parse_safe_date(row.get("doe") or row.get("dateofenlistment"))
                 dopost_val = row.get("dopost") if isinstance(row.get("dopost"), date) else parse_safe_date(row.get("dopost") or row.get("dop"))
                 dopro_val = row.get("dopro") if isinstance(row.get("dopro"), date) else parse_safe_date(row.get("dopro") or row.get("dateofpromotion"))
 
+                # 🟢 MAP SANITIZED PAYLOAD
                 officer_payload = {
                     "rank": rank_val or "CIVILIAN",
                     "name": name_val or "UNKNOWN",
                     "sex": normalize_sex(row.get("sex") or row.get("gender")),
-                    "position": str(row.get("position") or row.get("title") or "GENERAL DUTIES").strip().upper(),
+                    "position": aggressive_clean_text(row.get("position") or row.get("title") or "GENERAL DUTIES"),
                     "dob": dob_val,
                     "doe": doe_val,
                     "do_post": dopost_val,
                     "do_pro": dopro_val,
-                    "contact": format_phone_number(row.get("contact") or row.get("phone") or row.get("phonenumber")),
+                    "contact": format_phone_number(row.get("contact") or row.get("phone") or row.get("phonenumber")), # Multi-phone logic applied
                     "educ_level": normalize_education_level(row.get("educ_level") or row.get("educlevel") or row.get("education")),
                     "ipps": ipps_val,
                     "tin": clean_numeric(row.get("tin") or row.get("tinno") or row.get("tinnumber")),
                     "nin": nin_val,
-                    "home_dist": str(row.get("homedist") or row.get("homedistrict") or "") or None,
-                    "tribe": str(row.get("tribe") or "") or None,
+                    "home_dist": aggressive_clean_text(row.get("homedist") or row.get("homedistrict")),
+                    "tribe": aggressive_clean_text(row.get("tribe")),
                     "acc_no": clean_numeric(row.get("accno") or row.get("accountno") or row.get("accountnumber")),
-                    "bank_branch": str(row.get("bankbranch") or row.get("bank") or "") or None,
+                    "bank_branch": aggressive_clean_text(row.get("bankbranch") or row.get("bank")),
                     "station": stn_val,
                     "district": dist_val,
                     "region": reg_val,
-                    "section": str(row.get("section") or "") or None,
-                    "dir": str(row.get("dir") or row.get("directorate") or "") or None,
-                    "status": str(row.get("status") or "ACTIVE").strip().upper(),
+                    "section": aggressive_clean_text(row.get("section")),
+                    "dir": aggressive_clean_text(row.get("dir") or row.get("directorate")),
+                    "status": aggressive_clean_text(row.get("status") or "ACTIVE"),
                     "last_updated_by": officer_sig
                 }
 
                 for key, value in list(officer_payload.items()):
-                    if isinstance(value, str) and value.strip().lower() in ['nan', 'nat', 'none', 'null', '']:
+                    if isinstance(value, str) and not value.strip():
                         officer_payload[key] = None
                     elif isinstance(value, float) and math.isnan(value):
                         officer_payload[key] = None
 
-                if hasattr(ActiveModel, 'f_num'):
-                    officer_payload['f_num'] = clean_fnum
-                if hasattr(ActiveModel, 'fnum'):
-                    officer_payload['fnum'] = clean_fnum
+                if hasattr(ActiveModel, 'f_num'): officer_payload['f_num'] = clean_fnum
+                if hasattr(ActiveModel, 'fnum'): officer_payload['fnum'] = clean_fnum
 
                 fnum_filter = []
-                if hasattr(ActiveModel, 'f_num'):
-                    fnum_filter.append(func.trim(func.upper(ActiveModel.f_num)) == clean_fnum)
-                if hasattr(ActiveModel, 'fnum'):
-                    fnum_filter.append(func.trim(func.upper(ActiveModel.fnum)) == clean_fnum)
+                if hasattr(ActiveModel, 'f_num'): fnum_filter.append(func.trim(func.upper(ActiveModel.f_num)) == clean_fnum)
+                if hasattr(ActiveModel, 'fnum'): fnum_filter.append(func.trim(func.upper(ActiveModel.fnum)) == clean_fnum)
 
                 existing = db.query(ActiveModel).filter(or_(*fnum_filter)).first()
 
@@ -467,10 +456,8 @@ async def bulk_upload_nominal_roll(
                     if is_archived:
                         safe_payload_json = {}
                         for k, v in officer_payload.items():
-                            if isinstance(v, (date, datetime)):
-                                safe_payload_json[k] = v.isoformat()
-                            else:
-                                safe_payload_json[k] = v
+                            if isinstance(v, (date, datetime)): safe_payload_json[k] = v.isoformat()
+                            else: safe_payload_json[k] = v
                                 
                         entry_obj = {
                             "display": f"{officer_payload['rank']} {officer_payload['name']} ({clean_fnum})",
@@ -534,17 +521,22 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             clean_data["region"] = current_user.region
             clean_data["station"] = current_user.station
 
+        # 🟢 Apply Aggressive Sanitization to Single Uploads Too
         if 'contact' in clean_data and clean_data['contact']:
             clean_data['contact'] = format_phone_number(clean_data['contact'])
             
         if 'name' in clean_data and clean_data['name']:
-            clean_data['name'] = str(clean_data['name']).strip().upper()
+            clean_data['name'] = aggressive_clean_text(clean_data['name'])
 
         if 'sex' in clean_data:
             clean_data['sex'] = normalize_sex(clean_data['sex'])
             
         if 'educ_level' in clean_data:
             clean_data['educ_level'] = normalize_education_level(clean_data['educ_level'])
+
+        for text_field in ['position', 'home_dist', 'tribe', 'bank_branch', 'section', 'dir']:
+            if text_field in clean_data and clean_data[text_field]:
+                clean_data[text_field] = aggressive_clean_text(clean_data[text_field])
 
         for date_field in ['dob', 'doe', 'do_post', 'do_pro']:
             if date_field in clean_data and clean_data[date_field]:
@@ -554,7 +546,7 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         if not target_fnum:
             raise HTTPException(status_code=400, detail="Force/File number is mandatory.")
 
-        clean_fnum = str(target_fnum).strip().upper()
+        clean_fnum = aggressive_clean_text(target_fnum)
         if hasattr(ActiveModel, 'f_num'):
             clean_data['f_num'] = clean_fnum
         if hasattr(ActiveModel, 'fnum'):
@@ -570,7 +562,7 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         if active_officer:
             raise HTTPException(status_code=400, detail="Duplicate Entry: This Force Number or File Number is currently active.")
 
-        search_fnum = str(previous_fnum).strip().upper() if previous_fnum else clean_fnum
+        search_fnum = aggressive_clean_text(previous_fnum) if previous_fnum else clean_fnum
         arc_filter = []
         if hasattr(ArchiveModel, 'fnum'):
             arc_filter.append(func.trim(func.upper(ArchiveModel.fnum)) == search_fnum)
@@ -680,7 +672,7 @@ def archive_personnel(
             record_data["f_num"] = fnum_clean
             
         record_data["status"] = "ARCHIVED"
-        record_data["archive_reason"] = archive_reason
+        record_data["archive_reason"] = aggressive_clean_text(archive_reason)
         record_data["archive_date"] = datetime.now().date()
         record_data["last_updated_by"] = get_officer_signature(current_user)
 
@@ -746,7 +738,11 @@ def update_Nominal_Roll(
         data['contact'] = format_phone_number(data['contact'])
         
     if 'name' in data and data['name']:
-        data['name'] = str(data['name']).strip().upper()
+        data['name'] = aggressive_clean_text(data['name'])
+
+    for text_field in ['position', 'home_dist', 'tribe', 'bank_branch', 'section', 'dir']:
+        if text_field in data and data[text_field]:
+            data[text_field] = aggressive_clean_text(data[text_field])
 
     for date_field in ['dob', 'doe', 'do_post', 'do_pro']:
         if date_field in data and data[date_field]:
@@ -856,7 +852,7 @@ def bulk_archive_personnel(
                 if hasattr(ArchiveModel, 'f_num'): record_data["f_num"] = fnum_clean
                 
                 record_data["status"] = "ARCHIVED"
-                record_data["archive_reason"] = archive_reason
+                record_data["archive_reason"] = aggressive_clean_text(archive_reason)
                 record_data["archive_date"] = datetime.now().date()
                 record_data["last_updated_by"] = officer_sig
 

@@ -15,7 +15,6 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 Auto-infer official region from station if region is blank in uploaded data
 const getOfficialRegionForStation = (stationName, dbRegion) => {
   const cleanStation = (stationName || '').trim().toUpperCase();
   const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
@@ -28,19 +27,33 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   return cleanDbRegion || 'KMP HEADQUARTERS';
 };
 
-// 🟢 HIERARCHY ENGINE: RPC First, Detective/Driver Grouping, Numeric Seniority
+// 🟢 TIER 1: COMMAND POSITION OVERRIDE
+const getCommandWeight = (officer) => {
+  if (!officer) return 99;
+  const pos = (officer.position || '').toUpperCase().trim();
+  const rank = (officer.rank || '').toUpperCase().trim();
+  
+  if (pos === 'RPC' || rank === 'RPC') return 0;
+  if (pos === 'D/RPC' || pos === 'DEPUTY RPC' || rank === 'D/RPC') return 1;
+  
+  return 99; // Standard Officer
+};
+
+// 🟢 TIER 2: RANK HIERARCHY ENGINE
 const getRankWeight = (rank) => {
   if (!rank) return 99;
   let r = rank.toUpperCase().trim();
   let modifier = 0;
 
-  // Handle Detective Prefix
-  if (r.startsWith('D/') || r.startsWith('D-') || r.startsWith('D ')) {
+  if (r === 'DC') {
+    modifier += 0.1;
+    r = 'PC';
+  } else if (r.startsWith('D/') || r.startsWith('D-') || r.startsWith('D ')) {
     modifier += 0.1;
     r = r.replace(/^D[\/\- ]/, '').trim();
+    if (r === 'C') r = 'PC';
   }
 
-  // Handle Driver Modifiers
   if (r.includes('/DRV') || r.includes('-DRV') || r.includes(' DRV') || r === 'DRV' || r.includes('C/DRV')) {
     modifier += 0.2;
     if (r === 'C/DRV' || r === 'DRV') {
@@ -53,8 +66,7 @@ const getRankWeight = (rank) => {
   if (!r) r = 'PC';
 
   let baseWeight = 50;
-  if (r === 'RPC') baseWeight = 0;
-  else if (r === 'IGP') baseWeight = 1;
+  if (r === 'IGP') baseWeight = 1;
   else if (r === 'DIGP') baseWeight = 2;
   else if (r === 'AIGP') baseWeight = 3;
   else if (r === 'SCP') baseWeight = 4;
@@ -406,7 +418,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
-  // 🟢 FIXED FILTERING: Auto-infers region from station so uploaded rows aren't rejected
   const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const statusStr = (n.status || '').trim().toUpperCase();
@@ -418,13 +429,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const selRegion = (filterRegion || '').trim().toUpperCase();
       const selStation = (filterStation || '').trim().toUpperCase();
 
-      if (selRegion && selRegion !== 'ALL REGIONS' && reg !== selRegion) {
-        return false;
-      }
-
-      if (selStation && selStation !== 'ALL STATIONS' && stn !== selStation) {
-        return false;
-      }
+      if (selRegion && selRegion !== 'ALL REGIONS' && reg !== selRegion) return false;
+      if (selStation && selStation !== 'ALL STATIONS' && stn !== selStation) return false;
 
       if (searchTerm.trim()) {
         const query = searchTerm.trim().toLowerCase();
@@ -439,14 +445,19 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           return false;
         }
       }
-
       return true;
     }).sort((a, b) => {
+      // 🟢 1. PRIMARY SORT: Commander Positions (RPC -> D/RPC)
+      const cmdA = getCommandWeight(a);
+      const cmdB = getCommandWeight(b);
+      if (cmdA !== cmdB) return cmdA - cmdB;
+
+      // 🟢 2. SECONDARY SORT: Calculated Rank Weight
       const weightA = getRankWeight(a.rank);
       const weightB = getRankWeight(b.rank);
-      if (weightA !== weightB) {
-        return weightA - weightB;
-      }
+      if (weightA !== weightB) return weightA - weightB;
+
+      // 🟢 3. TERTIARY SORT: Force Number Seniority
       return (a.f_num || a.fnum || '').localeCompare(b.f_num || b.fnum || '', undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [Nominal_Rolls, filterRegion, filterStation, searchTerm]);
@@ -461,13 +472,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const selRegion = (filterRegion || '').trim().toUpperCase();
       const selStation = (filterStation || '').trim().toUpperCase();
 
-      if (selRegion && selRegion !== 'ALL REGIONS' && reg !== selRegion) {
-        return false;
-      }
-
-      if (selStation && selStation !== 'ALL STATIONS' && stn !== selStation) {
-        return false;
-      }
+      if (selRegion && selRegion !== 'ALL REGIONS' && reg !== selRegion) return false;
+      if (selStation && selStation !== 'ALL STATIONS' && stn !== selStation) return false;
 
       if (searchTerm.trim()) {
         const query = searchTerm.trim().toLowerCase();
@@ -483,14 +489,16 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           return false;
         }
       }
-
       return true;
     }).sort((a, b) => {
+      const cmdA = getCommandWeight(a);
+      const cmdB = getCommandWeight(b);
+      if (cmdA !== cmdB) return cmdA - cmdB;
+
       const weightA = getRankWeight(a.rank);
       const weightB = getRankWeight(b.rank);
-      if (weightA !== weightB) {
-        return weightA - weightB;
-      }
+      if (weightA !== weightB) return weightA - weightB;
+
       return (a.f_num || a.fnum || '').localeCompare(b.f_num || b.fnum || '', undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [Nominal_Roll_archives, filterRegion, filterStation, searchTerm]);
@@ -513,7 +521,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     });
   }, [Nominal_Rolls, currentUser, updateSearch, canViewGlobal]);
 
-  // 🟢 FIXED ANALYTICS: Calculates metrics continuously without UI race conditions
   const calculatedMetrics = useMemo(() => {
       const grouped = {};
        
@@ -528,26 +535,24 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           const bankBranch = n.bankbranch || n.bank_branch || n.bank || n.bank_name || '';
           const educLevel = n.educlevel || n.educ_level || n.education || '';
            
+          const stationStr = (n.station || '').trim().toUpperCase() || 'UNKNOWN';
+          const sectionStr = (n.section || '').trim().toUpperCase();
+
           if (metricCategory === 'RANK') key = n.rank ? n.rank.trim().toUpperCase() : 'UNRANKED';
-          else if (metricCategory === 'UNIT') key = `${n.station || 'UNKNOWN'} ${n.section ? '- ' + n.section : ''}`.trim();
+          else if (metricCategory === 'UNIT') key = `${stationStr} ${sectionStr ? '- ' + sectionStr : ''}`.trim();
           else if (metricCategory === 'SEX') key = isFemale ? 'FEMALE' : (isMale ? 'MALE' : 'UNSPECIFIED');
           else if (metricCategory === 'BANK') key = bankBranch ? bankBranch.trim().toUpperCase() : 'BANK UNKNOWN';
           else if (metricCategory === 'DISTRICT') key = homeDistrict ? homeDistrict.trim().toUpperCase() : 'DISTRICT UNKNOWN';
           else if (metricCategory === 'TRIBE') key = n.tribe ? n.tribe.trim().toUpperCase() : 'TRIBE UNKNOWN';
           else if (metricCategory === 'EDUCATION') key = parseEducationLevel(educLevel);
-
           else if (metricCategory === 'AGE') {
               if (n.dob) {
                   const birthYear = new Date(n.dob).getFullYear();
                   if (!isNaN(birthYear)) {
                       const age = new Date().getFullYear() - birthYear;
                       key = age < 30 ? '18-29 Years' : age < 40 ? '30-39 Years' : age < 50 ? '40-49 Years' : '50+ Years';
-                  } else {
-                      key = 'Age Not Recorded';
-                  }
-              } else { 
-                  key = 'Age Not Recorded'; 
-              }
+                  } else key = 'Age Not Recorded';
+              } else key = 'Age Not Recorded'; 
           }
            
           if (!grouped[key]) grouped[key] = { category: key, total: 0, male: 0, female: 0, unknown: 0 };
@@ -560,7 +565,14 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const resultsArray = Object.values(grouped);
 
       if (metricCategory === 'RANK') {
-          return resultsArray.sort((a, b) => getRankWeight(a.category) - getRankWeight(b.category));
+          // 🟢 Sort the analytics table using the primary position weight as a fallback for RPC
+          return resultsArray.sort((a, b) => {
+             const weightA = getRankWeight(a.category);
+             const weightB = getRankWeight(b.category);
+             if (weightA === 50 && a.category === 'RPC') return -1;
+             if (weightB === 50 && b.category === 'RPC') return 1;
+             return weightA - weightB;
+          });
       } else {
           return resultsArray.sort((a, b) => b.total - a.total);
       }
@@ -582,7 +594,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
 
       if (n.station) {
-        uniqueStations[n.station] = true;
+        const cleanStation = n.station.trim().toUpperCase();
+        if (cleanStation) uniqueStations[cleanStation] = true;
       }
     });
 
@@ -603,7 +616,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         <h3 className="text-xs sm:text-sm text-blue-700 mt-0.5 font-semibold uppercase tracking-wider">Man-Power Auditing & Deployment Registry</h3>
       </div>
        
-      {/* 🟢 PERSONNEL METRICS DASHBOARD - CARDS REMAIN PERMANENTLY VISIBLE */}
       <div className="bg-white/90 backdrop-blur p-3.5 rounded-xl border border-slate-200 shadow-sm relative">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
           <h4 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider flex items-center">
@@ -635,7 +647,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           </div>
         </div>
 
-        {/* 🟢 ALWAYS VISIBLE METRIC SUMMARY */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
            <MetricCard title="Total Personnel" value={metricsData.total} colorClass={viewMode === 'archive' ? "text-red-700" : "text-blue-700"} />
            <MetricCard title="Male Officers" value={metricsData.male} colorClass="text-indigo-600" />
