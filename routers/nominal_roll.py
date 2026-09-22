@@ -28,8 +28,24 @@ from auth import get_current_user
 router = APIRouter(prefix="/api/v1", tags=["Nominal Roll & HR"])
 
 # ====================================================================
-# GLOBAL HELPER FUNCTIONS (AGGRESSIVE SANITIZATION UPGRADED)
+# GLOBAL HELPER FUNCTIONS (AGGRESSIVE SANITIZATION & SECURITY)
 # ====================================================================
+
+def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+        
+    if (
+        user_role not in ["ADMIN", "SUPER_ADMIN", "RPC"] and 
+        not perms.get("export_data", False) and 
+        not perms.get("global_observer", False) and
+        not perms.get("view_global_roster", False)
+    ):
+        raise HTTPException(status_code=403, detail="Clearance Denied: Data Export Privileges Required.")
+    return current_user
 
 def aggressive_clean_text(val):
     """Vaporizes junk punctuation, extra spaces, and trailing dots."""
