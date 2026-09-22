@@ -40,7 +40,7 @@ const getCommandWeight = (officer) => {
   
   if (pos === 'RPC' || rank === 'RPC') return 0;
   if (pos === 'D/RPC' || pos === 'DEPUTY RPC' || rank === 'D/RPC') return 1;
-  if (pos.startsWith('R/')) return 2; // RHRO, R/LEGAL, R/CID, R/CI, R/CLO, R/TRAINING, RTO, R/EPPU, MTO, etc.
+  if (pos.startsWith('R/')) return 2; // RHRO, R/LEGAL, R/CID, R/CI, R/CLO, etc.
   if (pos === 'OC' || pos.startsWith('OC ')) return 3;
   
   return 99; 
@@ -229,6 +229,22 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
   });
 
+  // 🟢 DYNAMIC LIST OF ALL AVAILABLE STATIONS & POSTS FROM DATABASE RECORDS
+  const availableStationsList = useMemo(() => {
+    const list = new Set();
+    (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).forEach(n => {
+      if (n.station) {
+        const cleaned = cleanStr(n.station);
+        if (cleaned) list.add(cleaned);
+      }
+    });
+    // Fallback to static hierarchy if database is empty
+    if (list.size === 0) {
+      Object.values(REGIONAL_HIERARCHY).forEach(arr => arr.forEach(stn => list.add(stn)));
+    }
+    return Array.from(list).sort();
+  }, [Nominal_Rolls]);
+
   const populateUpdateForm = (data) => setFormData({ ...data, fnum: data.fnum || data.f_num || '' });
 
   const handleInputChange = (e) => {
@@ -258,7 +274,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
-  // 🟢 TRIGGER BACKEND ENDPOINT FOR EXCEL EXPORT OR MISSING INFO AUDIT
   const handleExecuteExportModal = async () => {
     try {
       const endpoint = modalMode === 'audit' 
@@ -273,8 +288,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const a = document.createElement('a');
       a.href = url;
       a.download = modalMode === 'audit' 
-        ? `Missing_Info_Audit_${targetStation.replace(/\s+/g, '_')}.xlsx` 
-        : `Station_Personnel_List_${targetStation.replace(/\s+/g, '_')}.xlsx`;
+        ? `Missing_Info_Audit_${targetStation.replace(/\s+/g, '_')}.zip` 
+        : `Station_Nominal_Roll_${targetStation.replace(/\s+/g, '_')}.zip`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -484,17 +499,14 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return true;
     }).sort((a, b) => {
-      // 🟢 1. PRIMARY SORT: Commanding & Special Positions (RPC -> D/RPC -> R/xxx -> OC)
       const cmdA = getCommandWeight(a);
       const cmdB = getCommandWeight(b);
       if (cmdA !== cmdB) return cmdA - cmdB;
 
-      // 🟢 2. SECONDARY SORT: Calculated Rank Weight
       const weightA = getRankWeight(a.rank);
       const weightB = getRankWeight(b.rank);
       if (weightA !== weightB) return weightA - weightB;
 
-      // 🟢 3. TERTIARY SORT: Force Number Seniority
       return cleanStr(a.f_num || a.fnum).localeCompare(cleanStr(b.f_num || b.fnum), undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [Nominal_Rolls, filterRegion, filterStation, searchTerm]);
@@ -712,14 +724,14 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         </div>
       </div>
 
-      {/* 🟢 SCOPED EXPORT & AUDIT MODAL */}
+      {/* 🟢 SCOPED EXPORT & AUDIT MODAL WITH ALL SUBMITTED STATIONS & POSTS */}
       {showModal && (
         <div className="fixed inset-0 z-[999999] bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md p-5 space-y-4">
             <div className="flex justify-between items-center border-b pb-2">
               <h3 className="text-sm font-extrabold text-slate-800 uppercase flex items-center">
                 <Filter className="w-4 h-4 mr-1.5 text-blue-600" /> 
-                {modalMode === 'audit' ? 'Scoped Missing Info Audit' : 'Station Nominal Roll Export'}
+                {modalMode === 'audit' ? 'Scoped Missing Info Audit' : 'Station & Post Nominal List Export'}
               </h3>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
                 <X size={16} />
@@ -727,8 +739,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
               {modalMode === 'audit' 
-                ? 'Generate an Excel audit report identifying missing personnel information for a specific region or station.' 
-                : 'Download a clean, fully formatted complete Excel nominal list for a specific station.'}
+                ? 'Generate an Excel audit report identifying missing personnel information for a specific station or post.' 
+                : 'Download a complete, perfectly formatted nominal list for any selected station, division, or police post (e.g., BUGOLOBI).'}
             </p>
             <div className="space-y-3">
               <div>
@@ -743,14 +755,14 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                 </select>
               </div>
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">Target Station / Division</label>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Target Station, Division or Post</label>
                 <select 
                   value={targetStation} 
                   onChange={(e) => setTargetStation(e.target.value)}
                   className="w-full text-xs border rounded p-2 bg-white font-bold text-slate-800 outline-none"
                 >
-                  <option value="ALL STATIONS">ALL STATIONS</option>
-                  {(REGIONAL_HIERARCHY[targetRegion] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                  <option value="ALL STATIONS">ALL STATIONS (Full Region / Global)</option>
+                  {availableStationsList.map(stn => <option key={stn} value={stn}>{stn}</option>)}
                 </select>
               </div>
             </div>
