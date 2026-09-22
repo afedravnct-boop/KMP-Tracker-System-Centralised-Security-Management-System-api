@@ -339,7 +339,7 @@ async def bulk_upload_nominal_roll(
     ActiveModel = get_active_model()
     ArchiveModel = get_archive_model()
     
-    # 🟢 Collect ALL files dynamically from multi_items() so multiple file uploads work
+    # 🟢 Collect ALL files dynamically using multi_items() to fully support multiple file uploads
     form_data = await request.form()
     file_list = []
     
@@ -385,7 +385,7 @@ async def bulk_upload_nominal_roll(
                 rank_val = aggressive_clean_text(row.get("rank"))
                 name_val = aggressive_clean_text(row.get("name"))
 
-                # 🟢 STRICT SECTION HEADER & JUNK ROW REJECTION FILTER
+                # 🟢 1. STRICT SECTION HEADER & JUNK ROW REJECTION FILTER
                 row_text_signature = f"{fnum_val or ''} {rank_val or ''} {name_val or ''}".upper()
                 if (
                     not fnum_val and not rank_val and (not name_val or name_val == "UNKNOWN")
@@ -500,6 +500,375 @@ async def bulk_upload_nominal_roll(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Bulk Nominal Roll Upload Failed: {str(e)}")
+
+@router.post("/nominal-roll")
+def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    ActiveModel = get_active_model()
+    ArchiveModel = get_archive_model()
+    
+    try:
+        reintegration_reason = data.pop('reintegration_reason', None)
+        previous_fnum = data.pop('previous_fnum', None)
+        
+        data.pop('sn', None) 
+        data.pop('id', None)
+        
+        clean_data = {}
+        for k, v in data.items():
+            clean_data[k] = None if v == "" else v
+
+        perms = current_user.permissions or {}
+        user_role = (current_user.role or "").upper()
+        is_global_user = (
+            user_role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
+            "HR" in (current_user.position or "").upper() or
+            perms.get("view_global_roster") is True or
+            perms.get("global_observer") is True
+        )
+
+        if not is_global_user:
+            clean_data["region"] = current_user.region
+            clean_data["station"] = current_user.station
+
+        if 'contact' in clean_data and clean_data['contact']:
+            clean_data['contact'] = format_phone_number(clean_data['contact'])
+            
+        if 'name' in clean_data and clean_data['name']:
+            clean_data['name'] = aggressive_clean_text(clean_data['name'])
+
+        if 'sex' in clean_data:
+            clean_data['sex'] = normalize_sex(clean_data['sex'])
+            
+        if 'educ_level' in clean_data:
+            clean_data['educ_level'] = normalize_education_level(clean_data['educ_level'])
+
+        for text_field in ['position', 'home_dist', 'tribe', 'bank_branch', 'section', 'dir']:
+            if text_field in clean_data and clean_data[text_field]:
+                clean_data[text_field] = aggressive_clean_text(clean_data[text_field])
+
+        for date_field in ['dob', 'doe', 'do_post', 'do_pro']:
+            if date_field in clean_data and clean_data[date_field]:
+                clean_data[date_field] = parse_safe_date(clean_data[date_field])
+
+        target_fnum = clean_data.get('f_num') or clean_data.get('fnum')
+        if not target_fnum:
+            raise HTTPException(status_code=400, detail="Force/File number is mandatory.")
+
+        clean_fnum = aggressive_clean_text(target_fnum)
+        if hasattr(ActiveModel, 'f_num'): clean_data['f_num'] = clean_fnum
+        if hasattr(ActiveModel, 'fnum'): clean_data['fnum'] = clean_fnum
+
+        fnum_filter = []
+        if hasattr(ActiveModel, 'f_num'): fnum_filter.append(func.trim(func.upper(ActiveModel.f_num)) == clean_fnum)
+        if hasattr(ActiveModel, 'fnum'): fnum_filter.append(func.trim(func.upper(ActiveModel.fnum)) == clean_fnum)
+
+        active_officer = db.query(ActiveModel).filter(or_(*fnum_filter)).first()
+        if active_officer:
+            raise HTTPException(status_code=400, detail="Duplicate Entry: This Force Number or File Number is currently active.")
+
+        search_fnum = aggressive_clean_text(previous_fnum) if previous_fnum else clean_fnum
+        arc_filter = []
+        if hasattr(ArchiveModel, 'fnum'): arc_filter.append(func.trim(func.upper(ArchiveModel.fnum)) == search_fnum)
+        if hasattr(ArchiveModel, 'f_num'): arc_filter.append(func.trim(func.upper(ArchiveModel.f_num)) == search_fnum)
+
+        archived_officer = db.query(ArchiveModel).filter(or_(*arc_filter)).first()
+        
+        if archived_officer:
+            if not reintegration_reason:
+                return JSONResponse(
+                    status_code=409, 
+                    content={
+                        "detail": "Officer history found in the archive. Please authorize re-entry.", 
+                        "is_archived_returnee": True,
+                        "old_rank": getattr(archived_officer, 'rank', 'N/A'),
+                        "old_fnum": getattr(archived_officer, 'fnum', getattr(archived_officer, 'f_num', search_fnum))
+                    }
+                )
+            
+            clean_data['dob'] = getattr(archived_officer, 'dob', clean_data.get('dob'))
+            clean_data['doe'] = getattr(archived_officer, 'doe', clean_data.get('doe'))
+            clean_data['ipps'] = getattr(archived_officer, 'ipps', clean_data.get('ipps'))
+            clean_data['status'] = "ACTIVE"
+            
+            valid_cols = [c.key for c in ActiveModel.__table__.columns]
+            safe_payload = {k: v for k, v in clean_data.items() if k in valid_cols}
+            
+            new_record = ActiveModel(**safe_payload)
+            new_record.last_updated_by = get_officer_signature(current_user)
+            
+            db.add(new_record)
+            db.commit()
+            
+            assigned_id = getattr(new_record, 'id', getattr(new_record, 'sn', 1))
+            return {"status": "success", "message": f"Officer re-integrated successfully as {clean_data.get('rank')}", "id": assigned_id}
+
+        valid_cols = [c.key for c in ActiveModel.__table__.columns]
+        safe_payload = {k: v for k, v in clean_data.items() if k in valid_cols}
+        
+        new_record = ActiveModel(**safe_payload)
+        new_record.last_updated_by = get_officer_signature(current_user)
+        
+        db.add(new_record)
+        db.commit()
+        db.refresh(new_record)
+        
+        assigned_id = getattr(new_record, 'id', getattr(new_record, 'sn', 1))
+        return {"status": "success", "message": "Officer recorded successfully.", "id": assigned_id}
+        
+    except IntegrityError:
+        db.rollback() 
+        raise HTTPException(status_code=400, detail="Duplicate Entry: Force Number or IPPS already exists in active database.")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@router.put("/nominal-roll/archive-record")
+def archive_personnel(
+    payload: dict, 
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
+    ActiveModel = get_active_model()
+    ArchiveModel = get_archive_model()
+    
+    try:
+        raw_fnum = payload.get("fnum") or payload.get("f_num")
+        archive_reason = payload.get("archive_reason", "ADMINISTRATIVE")
+        
+        if not raw_fnum:
+            raise HTTPException(status_code=400, detail="Missing Force Number identifier for archiving.")
+
+        fnum_clean = str(raw_fnum).split('/ARCHIVE')[0].replace('/ARCHIVE', '').strip().upper()
+        alt_fnum = fnum_clean.replace('/', '')
+        
+        query_filters = []
+        if hasattr(ActiveModel, 'f_num'):
+            query_filters.extend([
+                func.trim(func.upper(ActiveModel.f_num)) == fnum_clean,
+                func.trim(func.upper(ActiveModel.f_num)) == alt_fnum
+            ])
+        if hasattr(ActiveModel, 'fnum'):
+            query_filters.extend([
+                func.trim(func.upper(ActiveModel.fnum)) == fnum_clean,
+                func.trim(func.upper(ActiveModel.fnum)) == alt_fnum
+            ])
+        if hasattr(ActiveModel, 'ipps'):
+            query_filters.append(func.trim(func.upper(ActiveModel.ipps)) == fnum_clean)
+            
+        active_record = db.query(ActiveModel).filter(or_(*query_filters)).first()
+
+        if not active_record:
+            raise HTTPException(status_code=404, detail=f"Officer record '{fnum_clean}' not found in active roll.")
+
+        record_data = active_record.__dict__.copy()
+        record_data.pop("_sa_instance_state", None) 
+        record_data.pop("id", None) 
+        record_data.pop("sn", None) 
+        
+        if hasattr(ArchiveModel, 'fnum'): record_data["fnum"] = fnum_clean
+        if hasattr(ArchiveModel, 'f_num'): record_data["f_num"] = fnum_clean
+            
+        record_data["status"] = "ARCHIVED"
+        record_data["archive_reason"] = aggressive_clean_text(archive_reason)
+        record_data["archive_date"] = datetime.now().date()
+        record_data["last_updated_by"] = get_officer_signature(current_user)
+
+        valid_archive_columns = [c.key for c in ArchiveModel.__table__.columns]
+        safe_record_data = {k: v for k, v in record_data.items() if k in valid_archive_columns}
+
+        archived_record = ArchiveModel(**safe_record_data)
+        db.add(archived_record)
+        db.delete(active_record)
+        db.commit()
+        
+        return {"status": "success", "message": "Officer successfully moved to archives."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to migrate record: {str(e)}")
+
+@router.put("/nominal-roll/{identifier:path}")
+def update_Nominal_Roll(
+    identifier: str, 
+    data: dict, 
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
+    ActiveModel = get_active_model()
+    clean_id = unquote(unquote(identifier)).strip().upper()
+    
+    query_filters = []
+    
+    if hasattr(ActiveModel, 'fnum'):
+        query_filters.append(func.trim(func.upper(ActiveModel.fnum)) == clean_id)
+    if hasattr(ActiveModel, 'f_num'):
+        query_filters.append(func.trim(func.upper(ActiveModel.f_num)) == clean_id)
+        
+    alt_id = clean_id.replace('/', '')
+    if hasattr(ActiveModel, 'fnum'):
+        query_filters.append(func.trim(func.upper(ActiveModel.fnum)) == alt_id)
+    if hasattr(ActiveModel, 'f_num'):
+        query_filters.append(func.trim(func.upper(ActiveModel.f_num)) == alt_id)
+
+    if clean_id.isdigit():
+        pk_col = getattr(ActiveModel, 'id', getattr(ActiveModel, 'sn', None))
+        if pk_col is not None:
+            query_filters.append(pk_col == int(clean_id))
+
+    officer = db.query(ActiveModel).filter(or_(*query_filters)).first()
+    
+    if not officer:
+        raise HTTPException(status_code=404, detail=f"Officer record '{clean_id}' not found in active Nominal Roll.")
+
+    data.pop('id', None)
+    data.pop('sn', None)
+    
+    if 'educ_level' in data:
+        data['educ_level'] = normalize_education_level(data['educ_level'])
+        
+    if 'contact' in data and data['contact']:
+        data['contact'] = format_phone_number(data['contact'])
+        
+    if 'name' in data and data['name']:
+        data['name'] = aggressive_clean_text(data['name'])
+
+    for text_field in ['position', 'home_dist', 'tribe', 'bank_branch', 'section', 'dir']:
+        if text_field in data and data[text_field]:
+            data[text_field] = aggressive_clean_text(data[text_field])
+
+    for date_field in ['dob', 'doe', 'do_post', 'do_pro']:
+        if date_field in data and data[date_field]:
+            data[date_field] = parse_safe_date(data[date_field])
+    
+    perms = current_user.permissions or {}
+    user_role = (current_user.role or "").upper()
+    is_global_user = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        "HR" in (current_user.position or "").upper() or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True
+    )
+
+    if not is_global_user:
+        data.pop('region', None)
+        data.pop('station', None)
+
+    for key, value in data.items():
+        if hasattr(officer, key):
+            setattr(officer, key, value if value != "" else None)
+
+    officer.last_updated_by = get_officer_signature(current_user)
+    
+    try:
+        db.commit()
+        db.refresh(officer)
+        return {"status": "success", "message": f"Officer record updated successfully."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update officer record: {str(e)}")
+
+# 🟢 Added /nominal-roll/archive alias alongside /nominal-roll-archive to fix frontend 404 errors
+@router.get("/nominal-roll/archive")
+@router.get("/nominal-roll-archive")
+def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    try:
+        ArchiveModel = get_archive_model()
+        
+        sort_col = getattr(ArchiveModel, 'archive_date', getattr(ArchiveModel, 'id', None))
+        query = db.query(ArchiveModel)
+        if sort_col is not None:
+            query = query.order_by(sort_col.desc())
+            
+        archives = query.all()
+        clean_list = []
+        for a in archives:
+            d = a.__dict__.copy()
+            d.pop("_sa_instance_state", None)
+            d['educ_level'] = normalize_education_level(d.get('educlevel') or d.get('educ_level'))
+            for k, v in d.items():
+                if hasattr(v, 'isoformat'):
+                    d[k] = str(v)
+            clean_list.append(d)
+        return clean_list
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch archives: {str(e)}")
+
+@router.post("/nominal-roll/bulk-archive")
+def bulk_archive_personnel(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    ActiveModel = get_active_model()
+    ArchiveModel = get_archive_model()
+    
+    fnums = payload.get("fnums", [])
+    archive_reason = payload.get("archive_reason", "ADMINISTRATIVE")
+    
+    if not fnums:
+        raise HTTPException(status_code=400, detail="No officers specified for bulk archive.")
+        
+    success_count = 0
+    fail_count = 0
+    officer_sig = get_officer_signature(current_user)
+
+    try:
+        for fnum in fnums:
+            fnum_clean = unquote(unquote(str(fnum))).strip().upper()
+            
+            query_filters = []
+            if hasattr(ActiveModel, 'f_num'):
+                query_filters.append(func.trim(func.upper(ActiveModel.f_num)) == fnum_clean)
+            if hasattr(ActiveModel, 'fnum'):
+                query_filters.append(func.trim(func.upper(ActiveModel.fnum)) == fnum_clean)
+            if hasattr(ActiveModel, 'ipps'):
+                query_filters.append(func.trim(func.upper(ActiveModel.ipps)) == fnum_clean)
+                
+            active_record = db.query(ActiveModel).filter(or_(*query_filters)).first()
+            
+            if not active_record:
+                alt_fnum = fnum_clean.replace('/', '')
+                query_filters_alt = []
+                if hasattr(ActiveModel, 'f_num'): query_filters_alt.append(func.trim(func.upper(ActiveModel.f_num)) == alt_fnum)
+                if hasattr(ActiveModel, 'fnum'): query_filters_alt.append(func.trim(func.upper(ActiveModel.fnum)) == alt_fnum)
+                active_record = db.query(ActiveModel).filter(or_(*query_filters_alt)).first()
+
+            if active_record:
+                record_data = active_record.__dict__.copy()
+                record_data.pop("_sa_instance_state", None)
+                record_data.pop("id", None)
+                record_data.pop("sn", None)
+                
+                if hasattr(ArchiveModel, 'fnum'): record_data["fnum"] = fnum_clean
+                if hasattr(ArchiveModel, 'f_num'): record_data["f_num"] = fnum_clean
+                
+                record_data["status"] = "ARCHIVED"
+                record_data["archive_reason"] = aggressive_clean_text(archive_reason)
+                record_data["archive_date"] = datetime.now().date()
+                record_data["last_updated_by"] = officer_sig
+
+                valid_archive_columns = [c.key for c in ArchiveModel.__table__.columns]
+                safe_record_data = {k: v for k, v in record_data.items() if k in valid_archive_columns}
+
+                archived_record = ArchiveModel(**safe_record_data)
+                db.add(archived_record)
+                db.delete(active_record)
+                success_count += 1
+            else:
+                fail_count += 1
+
+        db.commit()
+        return {
+            "status": "success", 
+            "success_count": success_count, 
+            "fail_count": fail_count,
+            "message": f"Bulk archive complete: {success_count} succeeded, {fail_count} failed."
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Bulk archive transaction failed: {str(e)}")
 
 
 # ====================================================================
