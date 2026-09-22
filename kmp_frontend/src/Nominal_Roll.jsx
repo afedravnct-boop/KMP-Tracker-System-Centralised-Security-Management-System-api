@@ -15,33 +15,69 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+// 🟢 Auto-infer official region from station if region is blank in uploaded data
+const getOfficialRegionForStation = (stationName, dbRegion) => {
+  const cleanStation = (stationName || '').trim().toUpperCase();
+  const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
+
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) return cleanDbRegion;
+
+  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
+    if (stationsList.includes(cleanStation)) return regionName;
+  }
+  return cleanDbRegion || 'KMP HEADQUARTERS';
+};
+
+// 🟢 HIERARCHY ENGINE: RPC First, Detective/Driver Grouping, Numeric Seniority
 const getRankWeight = (rank) => {
   if (!rank) return 99;
-  const r = rank.toUpperCase().trim();
-   
-  if (r === 'IGP') return 1;
-  if (r === 'DIGP') return 2;
-  if (r === 'AIGP') return 3;
-  if (r === 'SCP') return 4;
-  if (r === 'CP') return 5;
-  if (r === 'ACP') return 6;
-  if (r === 'SSP') return 7;
-  if (r === 'SP') return 8;
-  if (r === 'SASP') return 9;
-  if (r === 'ASP') return 10;
-  if (r === 'IP') return 11;
-  if (r === 'AIP') return 12;
-  if (r === 'HCM') return 13;
-  if (r === 'HC') return 14;
-  if (r === 'S/SGT' || r === 'SSGT') return 15;
-  if (r === 'SGT') return 16;
-  if (r === 'CPL') return 17;
-  if (r === 'L/CPL' || r === 'LCPL') return 18;
-  if (r === 'PC') return 19;
-  if (r === 'PPC') return 20;
-  if (r === 'SPC') return 21;
-   
-  return 50;
+  let r = rank.toUpperCase().trim();
+  let modifier = 0;
+
+  // Handle Detective Prefix
+  if (r.startsWith('D/') || r.startsWith('D-') || r.startsWith('D ')) {
+    modifier += 0.1;
+    r = r.replace(/^D[\/\- ]/, '').trim();
+  }
+
+  // Handle Driver Modifiers
+  if (r.includes('/DRV') || r.includes('-DRV') || r.includes(' DRV') || r === 'DRV' || r.includes('C/DRV')) {
+    modifier += 0.2;
+    if (r === 'C/DRV' || r === 'DRV') {
+      r = 'PC';
+    } else {
+      r = r.replace(/\/DRV|-DRV| DRV|DRV/g, '').trim();
+    }
+  }
+
+  if (!r) r = 'PC';
+
+  let baseWeight = 50;
+  if (r === 'RPC') baseWeight = 0;
+  else if (r === 'IGP') baseWeight = 1;
+  else if (r === 'DIGP') baseWeight = 2;
+  else if (r === 'AIGP') baseWeight = 3;
+  else if (r === 'SCP') baseWeight = 4;
+  else if (r === 'CP') baseWeight = 5;
+  else if (r === 'ACP') baseWeight = 6;
+  else if (r === 'SSP') baseWeight = 7;
+  else if (r === 'SP') baseWeight = 8;
+  else if (r === 'SASP') baseWeight = 9;
+  else if (r === 'ASP') baseWeight = 10;
+  else if (r === 'IP') baseWeight = 11;
+  else if (r === 'AIP') baseWeight = 12;
+  else if (r === 'HCM') baseWeight = 13;
+  else if (r === 'HC') baseWeight = 14;
+  else if (r === 'S/SGT' || r === 'SSGT') baseWeight = 15;
+  else if (r === 'SGT') baseWeight = 16;
+  else if (r === 'CPL') baseWeight = 17;
+  else if (r === 'L/CPL' || r === 'LCPL') baseWeight = 18;
+  else if (r === 'PC' || r === 'CONSTABLE') baseWeight = 19;
+  else if (r === 'PPC') baseWeight = 20;
+  else if (r === 'SPC') baseWeight = 21;
+  else if (r === 'CIVILIAN') baseWeight = 98;
+
+  return baseWeight + modifier;
 };
 
 const parseEducationLevel = (educ) => {
@@ -370,25 +406,23 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
+  // 🟢 FIXED FILTERING: Auto-infers region from station so uploaded rows aren't rejected
   const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const statusStr = (n.status || '').trim().toUpperCase();
       if (statusStr === 'ARCHIVED' || n.is_archived === true) return false;
 
-      const dbRegion = (n.region || '').trim().toUpperCase();
-      const dbStation = (n.station || '').trim().toUpperCase();
+      const stn = (n.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, n.region);
+
       const selRegion = (filterRegion || '').trim().toUpperCase();
       const selStation = (filterStation || '').trim().toUpperCase();
 
-      if (canViewGlobal && selRegion === 'ALL REGIONS') {
-        // Global viewing active
-      } else if (selRegion !== 'ALL REGIONS' && selRegion !== '' && dbRegion !== selRegion) {
+      if (selRegion && selRegion !== 'ALL REGIONS' && reg !== selRegion) {
         return false;
       }
 
-      if (canViewGlobal && selRegion === 'ALL REGIONS' && selStation === 'ALL STATIONS') {
-        // pass
-      } else if (selStation !== 'ALL STATIONS' && selStation !== '' && dbStation !== selStation) {
+      if (selStation && selStation !== 'ALL STATIONS' && stn !== selStation) {
         return false;
       }
 
@@ -415,26 +449,23 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return (a.f_num || a.fnum || '').localeCompare(b.f_num || b.fnum || '', undefined, { numeric: true, sensitivity: 'base' });
     });
-  }, [Nominal_Rolls, filterRegion, filterStation, canViewGlobal, searchTerm]);
+  }, [Nominal_Rolls, filterRegion, filterStation, searchTerm]);
 
   const filteredNominal_Roll_archives = useMemo(() => {
     if (!Array.isArray(Nominal_Roll_archives)) return [];
 
     return Nominal_Roll_archives.filter(n => {
-      const dbRegion = (n.region || '').trim().toUpperCase();
-      const dbStation = (n.station || '').trim().toUpperCase();
+      const stn = (n.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, n.region);
+
       const selRegion = (filterRegion || '').trim().toUpperCase();
       const selStation = (filterStation || '').trim().toUpperCase();
 
-      if (canViewGlobal && selRegion === 'ALL REGIONS') {
-        // Global viewing active
-      } else if (selRegion !== 'ALL REGIONS' && selRegion !== '' && dbRegion !== selRegion) {
+      if (selRegion && selRegion !== 'ALL REGIONS' && reg !== selRegion) {
         return false;
       }
 
-      if (canViewGlobal && selRegion === 'ALL REGIONS' && selStation === 'ALL STATIONS') {
-        // pass
-      } else if (selStation !== 'ALL STATIONS' && selStation !== '' && dbStation !== selStation) {
+      if (selStation && selStation !== 'ALL STATIONS' && stn !== selStation) {
         return false;
       }
 
@@ -462,9 +493,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return (a.f_num || a.fnum || '').localeCompare(b.f_num || b.fnum || '', undefined, { numeric: true, sensitivity: 'base' });
     });
-  }, [Nominal_Roll_archives, filterRegion, filterStation, canViewGlobal, searchTerm]);
-
-  
+  }, [Nominal_Roll_archives, filterRegion, filterStation, searchTerm]);
 
   const currentRollDataset = useMemo(() => {
     return viewMode === 'archive' ? filteredNominal_Roll_archives : filteredRolls;
@@ -484,8 +513,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     });
   }, [Nominal_Rolls, currentUser, updateSearch, canViewGlobal]);
 
+  // 🟢 FIXED ANALYTICS: Calculates metrics continuously without UI race conditions
   const calculatedMetrics = useMemo(() => {
-      if (!showAnalytics) return [];
       const grouped = {};
        
       currentRollDataset.forEach(n => {
@@ -535,7 +564,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       } else {
           return resultsArray.sort((a, b) => b.total - a.total);
       }
-  }, [currentRollDataset, metricCategory, showAnalytics]);
+  }, [currentRollDataset, metricCategory]);
 
   const metricsData = useMemo(() => {
     let maleCount = 0;
@@ -574,7 +603,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         <h3 className="text-xs sm:text-sm text-blue-700 mt-0.5 font-semibold uppercase tracking-wider">Man-Power Auditing & Deployment Registry</h3>
       </div>
        
-      {/* 🟢 SLEEK COMPACT PERSONNEL METRICS DASHBOARD */}
+      {/* 🟢 PERSONNEL METRICS DASHBOARD - CARDS REMAIN PERMANENTLY VISIBLE */}
       <div className="bg-white/90 backdrop-blur p-3.5 rounded-xl border border-slate-200 shadow-sm relative">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
           <h4 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider flex items-center">
@@ -601,20 +630,19 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                 onClick={() => setShowAnalytics(!showAnalytics)} 
                 className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${showAnalytics ? 'bg-indigo-700 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
              >
-                {showAnalytics ? 'Close Analytics' : 'Analytics'}
+                {showAnalytics ? 'Close Analytics' : 'Analytics Breakdown'}
              </button>
           </div>
         </div>
 
-        {!showAnalytics && (
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-             <MetricCard title="Total Personnel" value={metricsData.total} colorClass={viewMode === 'archive' ? "text-red-700" : "text-blue-700"} />
-             <MetricCard title="Male Officers" value={metricsData.male} colorClass="text-indigo-600" />
-             <MetricCard title="Female Officers" value={metricsData.female} colorClass="text-pink-600" />
-             <MetricCard title="Unassigned Sex" value={metricsData.unassigned} colorClass="text-slate-400" />
-             <MetricCard title="Stations" value={metricsData.stations} colorClass="text-emerald-600" />
-          </div>
-        )}
+        {/* 🟢 ALWAYS VISIBLE METRIC SUMMARY */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+           <MetricCard title="Total Personnel" value={metricsData.total} colorClass={viewMode === 'archive' ? "text-red-700" : "text-blue-700"} />
+           <MetricCard title="Male Officers" value={metricsData.male} colorClass="text-indigo-600" />
+           <MetricCard title="Female Officers" value={metricsData.female} colorClass="text-pink-600" />
+           <MetricCard title="Unassigned Sex" value={metricsData.unassigned} colorClass="text-slate-400" />
+           <MetricCard title="Stations" value={metricsData.stations} colorClass="text-emerald-600" />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -631,17 +659,14 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                   </span>
                 </div>
                  
-                {/* 🟢 HOVER-TRIGGERED TOOLTIP POPUP FOR FULL NEONDB HEADERS */}
                 <div className="relative group inline-block w-full">
                   <div className="w-full">
                     <BulkNominalRollUpload multiple onUploadSuccess={() => window.location.reload()} />
                   </div>
 
-                  {/* Wide tooltip box that centers above the upload block */}
                   <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block z-50 bg-slate-900 text-white p-4 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 duration-150 pointer-events-none w-[460px] sm:w-[520px]">
                     <p className="text-xs font-extrabold text-blue-400 uppercase tracking-wider mb-2 border-b border-slate-800 pb-1.5 flex items-center justify-between">
-                      <span>📋 Ensure your column headers are exactly like these from first column to the last</span>
-                      <span className="text-[10px] text-slate-400 font-normal">Exact match required</span>
+                      <span>📋 Ensure your column headers match these exactly:</span>
                     </p>
                     <div className="flex flex-wrap gap-1.5 text-xs font-mono">
                       <span className="bg-slate-800 px-2 py-1 rounded text-slate-100 border border-slate-700 font-bold">sn</span>
@@ -701,7 +726,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       </div>
                     </div>
                   )}
-                   
+                    
                   <form onSubmit={handleFormSubmit} className="space-y-3">
                     {operation === 'update' && (formData.sn || formData.fnum) && (
                       <div className="bg-red-50 p-3 rounded-lg border border-red-200 space-y-2 mb-3 shadow-xs">
@@ -749,7 +774,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                     )}
 
                     {operation === 'update' && (formData.sn || formData.fnum) && <div className="bg-slate-800 text-white text-[11px] font-bold px-2.5 py-1.5 rounded">Editing: {formData.fnum}</div>}
-                     
+                      
                     <div className="bg-gray-50 p-2.5 rounded-lg border border-gray-200 space-y-2">
                       <h4 className="text-[10px] font-bold text-gray-500 uppercase border-b pb-0.5">1. Identifiers</h4>
                       <div className="grid grid-cols-2 gap-2">
@@ -927,7 +952,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             </div>
           )}
 
-          {/* 🟢 DUAL DROPDOWNS + REAL-TIME SEARCH BAR */}
+          {/* 🟢 JURISDICTION DROPDOWNS & SEARCH */}
           <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
             <div className="flex flex-col sm:flex-row gap-2.5 flex-1">
               <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobal} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
@@ -963,6 +988,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             </div>
           </div>
 
+          {/* 🟢 ANALYTICS BREAKDOWN OR TABLE LEDGER VIEW */}
           {showAnalytics ? (
             <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs animate-in fade-in zoom-in-95 duration-200">
                 <div className="flex justify-between items-center mb-4 border-b border-gray-200 pb-3">
@@ -1000,7 +1026,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                                   <td className="px-3 py-2.5 text-xs text-center font-medium text-pink-600">{m.female}</td>
                               </tr>
                           ))}
-                          {calculatedMetrics.length === 0 && <tr><td colSpan="4" className="text-center p-4 text-xs text-gray-500 font-medium">No data available for this filter constraint.</td></tr>}
+                          {calculatedMetrics.length === 0 && <tr><td colSpan="4" className="text-center p-4 text-xs text-gray-500 font-medium">No records match the current filter constraint.</td></tr>}
                       </tbody>
                   </table>
                 </div>
