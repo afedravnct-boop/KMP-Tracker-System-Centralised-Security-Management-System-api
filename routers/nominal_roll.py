@@ -382,6 +382,14 @@ async def bulk_upload_nominal_roll(
                 rank_val = aggressive_clean_text(row.get("rank"))
                 name_val = aggressive_clean_text(row.get("name"))
 
+                # 🟢 1. STRICT SECTION HEADER & JUNK ROW REJECTION FILTER
+                # If the row is a department/station title header or contains placeholder text, skip it entirely
+                row_text_signature = f"{fnum_val or ''} {rank_val or ''} {name_val or ''}".upper()
+                if (
+                    not fnum_val and not rank_val and (not name_val or name_val == "UNKNOWN")
+                ) or any(term in row_text_signature for term in ["DEPARTMENT", "POL. POST", "POLICE POST", "SECTION", "DIV HEADQUARTERS"]):
+                    continue
+
                 if not fnum_val:
                     if is_uniformed_rank(rank_val):
                         skipped_blank.append(f"Row {idx+2}: {rank_val} {name_val} (Missing F/No)")

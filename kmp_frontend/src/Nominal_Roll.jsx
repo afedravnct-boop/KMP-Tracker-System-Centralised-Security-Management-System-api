@@ -24,15 +24,17 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   const cleanStation = cleanStr(stationName);
   const cleanDbRegion = cleanStr(dbRegion);
 
+  if (!cleanStation && !cleanDbRegion) return 'UNASSIGNED';
+
   if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) return cleanDbRegion;
 
   for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
     if (stationsList.includes(cleanStation)) return regionName;
   }
-  return cleanDbRegion || 'KMP HEADQUARTERS';
+  return cleanDbRegion || cleanStation || 'UNASSIGNED';
 };
 
-// 🟢 STATION PRIORITY: KMP HEADQUARTERS COMES FIRST WITHIN RANKS
+// 🟢 1. STATION PRIORITY: KMP HEADQUARTERS COMES FIRST WITHIN EACH RANK
 const getStationPriorityWeight = (station, region) => {
   const stn = cleanStr(station);
   const reg = cleanStr(region);
@@ -46,19 +48,18 @@ const getStationPriorityWeight = (station, region) => {
   return 2;
 };
 
-// 🟢 COMMAND LEADERSHIP OVERRIDE: EXACT TOP-DOWN FLOW FOR KMP LEADERSHIP (ALL ACPs)
+// 🟢 2. COMMAND LEADERSHIP PRECEDENCE (ALL ACPs: Commander, Deputy, Admin)
 const getCommandWeight = (officer) => {
   if (!officer) return 99;
   const pos = cleanStr(officer.position);
   const rank = cleanStr(officer.rank);
   const name = cleanStr(officer.name);
   
-  // Catch any variation of KMP Commander / Comdr (Rank ACP)
-  if (pos.includes('COMMANDER') || pos.includes('COMDR') || name.includes('COMMANDER')) {
+  if (pos.includes('COMMANDER KMP') || pos.includes('COMDR KMP') || pos.includes('KMP COMMANDER') || name.includes('COMMANDER KMP')) {
     if (pos.includes('DEPUTY') || pos.includes('D/COMDR') || pos.includes('D/COMMANDER')) {
-      return 1; // Deputy Commander KMP
+      return 1; // Deputy Commander KMP (ACP)
     }
-    return 0; // Commander KMP
+    return 0; // Commander KMP (ACP)
   }
   
   if (pos.includes('ADMIN OFFICER') || pos.includes('ADMINISTRATIVE OFFICER')) return 2;
@@ -70,7 +71,7 @@ const getCommandWeight = (officer) => {
   return 99; 
 };
 
-// 🟢 TIER 2: RANK HIERARCHY ENGINE
+// 🟢 3. RANK HIERARCHY ENGINE
 const getRankWeight = (rank) => {
   if (!rank) return 99;
   let r = cleanStr(rank);
