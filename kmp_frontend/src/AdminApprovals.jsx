@@ -248,7 +248,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     else if (activeTab === 'requests') fetchModRequests();
     else if (activeTab === 'logs') { fetchAuditLogs(); fetchAllSystemUsers(); }
     else if (activeTab === 'resets') fetchResets();
-     
+      
     if (typeof fetchLockdownStatus === 'function') fetchLockdownStatus();
   }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
 
@@ -570,9 +570,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </button>
       </div>
 
-      {/* 🟢 1. AUTHORIZATIONS TAB WITH HORIZONTAL SCROLL WRAPPER */}
+      {/* 🟢 1. AUTHORIZATIONS TAB */}
       {activeTab === 'approvals' && (
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden max-w-6xl mx-auto">
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
           {loadingPending ? (
             <div className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium animate-pulse text-xs">Syncing with Command Database...</div>
           ) : filteredPending.length === 0 ? (
@@ -599,7 +599,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 2. CLEARANCE MATRIX WITH MOMENTUM SCROLL WRAPPER */}
+      {/* 🟢 2. CLEARANCE MATRIX TAB */}
       {activeTab === 'matrix' && (
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
           <div className="bg-slate-900 dark:bg-slate-950 text-white p-3 text-xs font-extrabold uppercase tracking-wider flex justify-between">
@@ -613,9 +613,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 <table className="w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs table-fixed">
                   <thead className="bg-slate-900 dark:bg-slate-950 text-white uppercase font-black text-[10px]">
                     <tr>
-                      <th className="p-2.5 text-left sticky left-0 z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[240px] min-w-[240px]">Officer Details</th>
-                      <th className="p-2.5 text-center sticky left-[240px] z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[120px] min-w-[120px]">Administrative Tier</th>
-                      <th className="p-2.5 text-center sticky left-[360px] z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[100px] min-w-[100px]">Quick Actions</th>
+                      <th className="p-2.5 text-left md:sticky md:left-0 z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[240px] min-w-[240px]">Officer Details</th>
+                      <th className="p-2.5 text-center md:sticky md:left-[240px] z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[120px] min-w-[120px]">Administrative Tier</th>
+                      <th className="p-2.5 text-center md:sticky md:left-[360px] z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[100px] min-w-[100px]">Quick Actions</th>
                       {CLEARANCE_MATRIX_COLS.map((col, idx) => (
                         <th key={idx} className="p-2 border-l border-slate-700 dark:border-slate-800 bg-slate-900 dark:bg-slate-950 w-20 min-w-[80px] align-middle">
                           <div className="w-20 min-w-[80px] text-[9px] text-blue-100 font-bold whitespace-normal break-words leading-tight text-center px-0.5" title={col.label}>
@@ -631,8 +631,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                       const isSelf = u.fnum === currentUser?.fnum;
                       return (
                         <tr key={u.fnum} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                          <td className="p-2.5 sticky left-0 z-10 bg-white dark:bg-slate-900 font-extrabold text-[11px] text-slate-900 dark:text-slate-100 w-[240px] min-w-[240px] truncate" title={formatOfficerHeader(u)}>{formatOfficerHeader(u)}</td>
-                          <td className="p-2.5 text-center sticky left-[240px] z-10 bg-white dark:bg-slate-900 w-[120px] min-w-[120px]">
+                          <td className="p-2.5 md:sticky md:left-0 z-10 bg-white dark:bg-slate-900 font-extrabold text-[11px] text-slate-900 dark:text-slate-100 w-[240px] min-w-[240px] truncate" title={formatOfficerHeader(u)}>{formatOfficerHeader(u)}</td>
+                          <td className="p-2.5 text-center md:sticky md:left-[240px] z-10 bg-white dark:bg-slate-900 w-[120px] min-w-[120px]">
                             <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf} className="border border-slate-300 dark:border-slate-700 rounded-md px-1.5 py-1 font-bold outline-none uppercase text-[10px] w-full truncate bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200">
                               <option value="USER">USER</option>
                               <option value="STATION_ADMIN">STN ADMIN</option>
@@ -647,7 +647,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                               <option value="REVOKED">REVOKED</option>
                             </select>
                           </td>
-                          <td className="p-2.5 text-center sticky left-[360px] z-10 bg-white dark:bg-slate-900 w-[100px] min-w-[100px]">
+                          <td className="p-2.5 text-center md:sticky md:left-[360px] z-10 bg-white dark:bg-slate-900 w-[100px] min-w-[100px]">
                             <div className="flex items-center justify-center space-x-1">
                               <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 cursor-pointer"><CheckSquare size={12} /></button>
                               <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 cursor-pointer"><Square size={12} /></button>
@@ -686,9 +686,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 3. DIRECTORY ROSTER WITH HORIZONTAL SCROLL WRAPPER */}
+      {/* 🟢 3. DIRECTORY ROSTER TAB */}
       {activeTab === 'roster' && (
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden max-w-6xl mx-auto">
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
           <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 border-b border-slate-800 text-white font-semibold text-xs uppercase">
             Command Directory & System Roster
           </div>
@@ -720,9 +720,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 4. HR TRANSFERS TAB WITH HORIZONTAL SCROLL WRAPPER */}
+      {/* 🟢 4. HR TRANSFERS TAB */}
       {activeTab === 'requests' && (
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-amber-200 dark:border-amber-900/50 overflow-hidden max-w-6xl mx-auto">
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-amber-200 dark:border-amber-900/50 overflow-hidden w-full">
           <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">HR Modification Requests</div>
           <div className="w-full overflow-x-auto custom-scrollbar">
             <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
@@ -746,25 +746,31 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 5. AUDIT LOGS TAB WITH HORIZONTAL SCROLL WRAPPER & CLEAN KEY EVENTS */}
+      {/* 🟢 5. AUDIT LOGS TAB WITH MASSIVE DETAILS WRAPPER */}
       {activeTab === 'logs' && (
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden max-w-6xl mx-auto">
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
           <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">System Audit Logs</div>
           <div className="w-full overflow-x-auto custom-scrollbar">
-            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
-              <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px]">
-                <tr><th className="px-4 py-3.5 text-left">Timestamp</th><th className="px-4 py-3.5 text-left">User</th><th className="px-4 py-3.5 text-left">Event</th><th className="px-4 py-3.5 text-left">Details</th></tr>
+            {/* 🟢 Removed global whitespace-nowrap from table to allow text wrapping */}
+            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs">
+              <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px] whitespace-nowrap">
+                <tr>
+                  <th className="px-4 py-3.5 text-left w-32">Timestamp</th>
+                  <th className="px-4 py-3.5 text-left w-48">User</th>
+                  <th className="px-4 py-3.5 text-left w-40">Event</th>
+                  <th className="px-4 py-3.5 text-left">Details</th>
+                </tr>
               </thead>
               <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
                 {filteredLogs.map((log) => (
                   <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800">
-                    <td className="px-4 py-2 font-mono text-[10px] text-slate-500 dark:text-slate-400">{log.created_at}</td>
+                    <td className="px-4 py-2.5 font-mono text-[10px] text-slate-500 dark:text-slate-400 whitespace-nowrap">{log.created_at}</td>
                     
-                    <td className="px-4 py-2 font-extrabold text-blue-700 dark:text-blue-400">
+                    <td className="px-4 py-2.5 font-extrabold text-blue-700 dark:text-blue-400 whitespace-nowrap">
                       {log.user_fnum} {log.user_name ? `- ${log.user_name}` : ''}
                     </td>
 
-                    <td className="px-4 py-2 uppercase font-extrabold text-[10px]">
+                    <td className="px-4 py-2.5 uppercase font-extrabold text-[10px] whitespace-nowrap">
                       <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
                         log.event_type?.includes('AUTH') ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' :
                         log.event_type?.includes('SUBMIT') || log.event_type?.includes('CREATE') ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' :
@@ -774,7 +780,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                       </span>
                     </td>
 
-                    <td className="px-4 py-2 text-[11px] text-slate-700 dark:text-slate-300 font-medium whitespace-normal min-w-[300px]">
+                    {/* 🟢 Expanded details cell to take up all remaining width and break words naturally */}
+                    <td className="px-4 py-2.5 text-[11px] text-slate-700 dark:text-slate-300 font-medium whitespace-normal break-words min-w-[500px] w-full">
                       {log.details?.includes('Target: SYSTEM | Changes: | Remarks:') 
                         ? 'Standard System Authentication / Session Init' 
                         : log.details}
@@ -787,9 +794,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 6. PASSWORD RESETS TAB WITH HORIZONTAL SCROLL WRAPPER */}
+      {/* 🟢 6. PASSWORD RESETS TAB */}
       {activeTab === 'resets' && (      
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-red-200 dark:border-red-900/50 overflow-hidden max-w-6xl mx-auto">
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-red-200 dark:border-red-900/50 overflow-hidden w-full">
           <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">Authorized Password Recovery</div>
           <div className="w-full overflow-x-auto custom-scrollbar">
             <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
