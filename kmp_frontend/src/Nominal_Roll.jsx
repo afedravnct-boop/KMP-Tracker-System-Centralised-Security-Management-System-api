@@ -32,16 +32,40 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   return cleanDbRegion || 'KMP HEADQUARTERS';
 };
 
-// 🟢 TIER 1: COMMAND & SPECIAL POSITION HIERARCHY OVERRIDE
+// 🟢 STATION PRIORITY: KMP HEADQUARTERS COMES FIRST WITHIN RANKS
+const getStationPriorityWeight = (station, region) => {
+  const stn = cleanStr(station);
+  const reg = cleanStr(region);
+  
+  if (stn.includes('KMP HEADQUARTERS') || reg.includes('KMP HEADQUARTERS') || stn === 'HQ') {
+    return 0;
+  }
+  if (stn.includes('HEADQUARTERS') || stn.includes('RPC')) {
+    return 1;
+  }
+  return 2;
+};
+
+// 🟢 COMMAND LEADERSHIP OVERRIDE: EXACT TOP-DOWN FLOW FOR KMP LEADERSHIP (ALL ACPs)
 const getCommandWeight = (officer) => {
   if (!officer) return 99;
   const pos = cleanStr(officer.position);
   const rank = cleanStr(officer.rank);
+  const name = cleanStr(officer.name);
   
-  if (pos === 'RPC' || rank === 'RPC') return 0;
-  if (pos === 'D/RPC' || pos === 'DEPUTY RPC' || rank === 'D/RPC') return 1;
-  if (pos.startsWith('R/')) return 2; // RHRO, R/LEGAL, R/CID, R/CI, R/CLO, etc.
-  if (pos === 'OC' || pos.startsWith('OC ')) return 3;
+  // Catch any variation of KMP Commander / Comdr (Rank ACP)
+  if (pos.includes('COMMANDER') || pos.includes('COMDR') || name.includes('COMMANDER')) {
+    if (pos.includes('DEPUTY') || pos.includes('D/COMDR') || pos.includes('D/COMMANDER')) {
+      return 1; // Deputy Commander KMP
+    }
+    return 0; // Commander KMP
+  }
+  
+  if (pos.includes('ADMIN OFFICER') || pos.includes('ADMINISTRATIVE OFFICER')) return 2;
+  if (pos === 'RPC' || rank === 'RPC') return 3;
+  if (pos === 'D/RPC' || pos === 'DEPUTY RPC' || rank === 'D/RPC') return 4;
+  if (pos.startsWith('R/')) return 5; 
+  if (pos === 'OC' || pos.startsWith('OC ')) return 6;
   
   return 99; 
 };
@@ -169,7 +193,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [selectedOfficer, setSelectedOfficer] = useState(null);
   const [updateSearch, setUpdateSearch] = useState(''); 
   const [showModal, setShowModal] = useState(false);
-  const [modalMode, setModalMode] = useState('audit'); // 'audit' or 'station_list'
+  const [modalMode, setModalMode] = useState('audit'); 
   const [targetRegion, setTargetRegion] = useState('ALL REGIONS');
   const [targetStation, setTargetStation] = useState('ALL STATIONS');
 
@@ -229,7 +253,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
   });
 
-  // 🟢 DYNAMIC LIST OF ALL AVAILABLE STATIONS & POSTS FROM DATABASE RECORDS
   const availableStationsList = useMemo(() => {
     const list = new Set();
     (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).forEach(n => {
@@ -238,7 +261,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         if (cleaned) list.add(cleaned);
       }
     });
-    // Fallback to static hierarchy if database is empty
     if (list.size === 0) {
       Object.values(REGIONAL_HIERARCHY).forEach(arr => arr.forEach(stn => list.add(stn)));
     }
@@ -499,10 +521,17 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return true;
     }).sort((a, b) => {
+      // 1. KMP Headquarters Station/Region Priority
+      const prioA = getStationPriorityWeight(a.station, a.region);
+      const prioB = getStationPriorityWeight(b.station, b.region);
+      if (prioA !== prioB) return prioA - prioB;
+
+      // 2. Command Leadership Precedence (Commander KMP -> Deputy Comdr -> Admin Officer -> RPC)
       const cmdA = getCommandWeight(a);
       const cmdB = getCommandWeight(b);
       if (cmdA !== cmdB) return cmdA - cmdB;
 
+      // 3. Standard Rank Chronology (IGP down to PC)
       const weightA = getRankWeight(a.rank);
       const weightB = getRankWeight(b.rank);
       if (weightA !== weightB) return weightA - weightB;
@@ -540,10 +569,17 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return true;
     }).sort((a, b) => {
+      // 1. KMP Headquarters Station/Region Priority
+      const prioA = getStationPriorityWeight(a.station, a.region);
+      const prioB = getStationPriorityWeight(b.station, b.region);
+      if (prioA !== prioB) return prioA - prioB;
+
+      // 2. Command Leadership Precedence
       const cmdA = getCommandWeight(a);
       const cmdB = getCommandWeight(b);
       if (cmdA !== cmdB) return cmdA - cmdB;
 
+      // 3. Standard Rank Chronology
       const weightA = getRankWeight(a.rank);
       const weightB = getRankWeight(b.rank);
       if (weightA !== weightB) return weightA - weightB;
@@ -720,11 +756,10 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
            <MetricCard title="Male Officers" value={metricsData.male} colorClass="text-indigo-600" />
            <MetricCard title="Female Officers" value={metricsData.female} colorClass="text-pink-600" />
            <MetricCard title="Unassigned Sex" value={metricsData.unassigned} colorClass="text-slate-400" />
-           <MetricCard title="Regions/Divs/Stations/Posts" value={metricsData.stations} colorClass="text-emerald-600" />
+           <MetricCard title="Stations" value={metricsData.stations} colorClass="text-emerald-600" />
         </div>
-      </div>    
+      </div>
 
-      {/* 🟢 SCOPED EXPORT & AUDIT MODAL WITH ALL SUBMITTED STATIONS & POSTS */}
       {showModal && (
         <div className="fixed inset-0 z-[999999] bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md p-5 space-y-4">
@@ -1286,7 +1321,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                           <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.district)}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.region)}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.section)}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700">{cleanStr(n.dir)}</td>
+                          <td className="px-3 py-2 text-xs text-slate-700 max-w-[130px] truncate" title={cleanStr(n.dir)}>{cleanStr(n.dir)}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-green-700">{cleanStr(n.status) || 'ACTIVE'}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">{n.last_updated_by || ''}</td>
                           {viewMode === 'archive' && (
