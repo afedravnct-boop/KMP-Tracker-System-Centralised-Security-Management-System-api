@@ -2,14 +2,21 @@ import io
 import os
 import math
 import re
+import json
+import base64
 from datetime import datetime, date
 from typing import Optional, List, Union
 from urllib.parse import unquote
 
 import numpy as np
 import pandas as pd
+import pytz
+import pyzipper
+import openpyxl
+from openpyxl.styles import Alignment, PatternFill, Font
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_
 from sqlalchemy.exc import IntegrityError
@@ -834,3 +841,246 @@ def bulk_archive_personnel(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Bulk archive transaction failed: {str(e)}")
+
+
+# ====================================================================
+# 7. SECURE EXCEL EXPORTS (MISSING INFO AUDIT & STATION LEDGER)
+# ====================================================================
+
+@router.get("/nominal-roll/export-missing-audit")
+def export_missing_info_audit(
+    region: str = "ALL REGIONS",
+    station: str = "ALL STATIONS",
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(require_export_privilege)
+):
+    try:
+        ActiveModel = get_active_model()
+        query = db.query(ActiveModel)
+        
+        region_clean = region.strip().upper()
+        station_clean = station.strip().upper()
+
+        records = query.all()
+        missing_rows = []
+
+        for r in records:
+            r_stn = str(getattr(r, 'station', '')).strip().upper()
+            r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
+
+            if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
+            if station_clean != "ALL STATIONS" and r_stn != station_clean: continue
+
+            rank = str(getattr(r, 'rank', '')).strip().upper()
+            is_constable_tier = rank in ['PC', 'DC', 'D/C', 'CONSTABLE', 'C/DRV', 'DRV'] or 'DRV' in rank
+
+            dob = getattr(r, 'dob', None)
+            doe = getattr(r, 'doe', None)
+            contact = getattr(r, 'contact', None)
+            nin = getattr(r, 'nin', None)
+            ipps = getattr(r, 'ipps', None)
+            dopro = getattr(r, 'do_pro', None)
+
+            missing_fields = []
+            if not dob: missing_fields.append("DOB")
+            if not doe: missing_fields.append("DOE")
+            if not contact: missing_fields.append("Contact")
+            if not nin: missing_fields.append("NIN")
+            if not ipps: missing_fields.append("IPPS")
+            if not is_constable_tier and not dopro: missing_fields.append("DO_PRO")
+
+            if missing_fields:
+                missing_rows.append({
+                    "Force Number": getattr(r, 'f_num', getattr(r, 'fnum', '')),
+                    "Rank": rank,
+                    "Name": getattr(r, 'name', ''),
+                    "Region": r_reg,
+                    "Station": r_stn,
+                    "Missing Fields": " | ".join(missing_fields)
+                })
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Missing Info Audit"
+
+        eat_tz = pytz.timezone("Africa/Nairobi")
+        eat_time = datetime.now(eat_tz).replace(tzinfo=None)
+        
+        ws.append([f"UGANDA POLICE FORCE - MANPOWER AUDIT: MISSING INFORMATION REPORT"])
+        ws.append([f"Station / Unit: {station_clean} (Region: {region_clean})"])
+        ws.append([f"Audit Timestamp: {eat_time.strftime('%Y-%m-%d %H:%M:%S EAT')} | Authorized By: {current_user.fnum}"])
+        ws.append([]) 
+
+        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        
+        ws.append(["SN", "Force Number", "Rank", "Name", "Region", "Station", "Missing Fields"])
+        
+        for cell in ws[5]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        for idx, row in enumerate(missing_rows, 1):
+            ws.append([
+                idx,
+                row["Force Number"],
+                row["Rank"],
+                row["Name"],
+                row["Region"],
+                row["Station"],
+                row["Missing Fields"]
+            ])
+
+        for col in ws.columns:
+            col_letter = col[0].column_letter
+            max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 45)
+
+        officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
+        stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
+        encoded_token = base64.b64encode(json.dumps({"f": officer_fnum, "s": stamp_id}).encode('utf-8')).decode('utf-8')
+        
+        wb.properties.keywords = f"KMP_AUDIT;{encoded_token}"
+        wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
+
+        excel_stream = io.BytesIO()
+        wb.save(excel_stream)
+        excel_stream.seek(0)
+
+        zip_stream = io.BytesIO()
+        zip_password = str(current_user.fnum).strip().encode('utf-8')
+        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
+        excel_filename = f"{fnum_clean}_Missing_Info_Audit_{eat_time.strftime('%Y%m%d')}.xlsx"
+        zip_filename = f"SECURE_MISSING_AUDIT_{eat_time.strftime('%Y%m%d')}.zip"
+
+        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(zip_password)
+            zf.writestr(excel_filename, excel_stream.getvalue())
+
+        zip_stream.seek(0)
+        return StreamingResponse(
+            zip_stream,
+            media_type="application/zip",
+            headers={
+                'Content-Disposition': f'attachment; filename="{zip_filename}"',
+                'Access-Control-Expose-Headers': 'Content-Disposition'
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Audit Export Failed: {str(e)}")
+
+
+@router.get("/nominal-roll/export-station-ledger")
+def export_station_nominal_roll(
+    region: str = "ALL REGIONS",
+    station: str = "ALL STATIONS",
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(require_export_privilege)
+):
+    try:
+        ActiveModel = get_active_model()
+        query = db.query(ActiveModel)
+        
+        region_clean = region.strip().upper()
+        station_clean = station.strip().upper()
+
+        records = query.all()
+        station_rows = []
+
+        for r in records:
+            r_stn = str(getattr(r, 'station', '')).strip().upper()
+            r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
+
+            if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
+            if station_clean != "ALL STATIONS" and r_stn != station_clean: continue
+
+            station_rows.append({
+                "Force Number": getattr(r, 'f_num', getattr(r, 'fnum', '')),
+                "Rank": getattr(r, 'rank', ''),
+                "Name": getattr(r, 'name', ''),
+                "Sex": getattr(r, 'sex', ''),
+                "Position": getattr(r, 'position', ''),
+                "Contact": getattr(r, 'contact', ''),
+                "IPPS": getattr(r, 'ipps', ''),
+                "NIN": getattr(r, 'nin', ''),
+                "Station": r_stn,
+                "Region": r_reg,
+                "Status": getattr(r, 'status', 'ACTIVE')
+            })
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = f"Nominal Roll - {station_clean}"
+
+        eat_tz = pytz.timezone("Africa/Nairobi")
+        eat_time = datetime.now(eat_tz).replace(tzinfo=None)
+        
+        ws.append([f"UGANDA POLICE FORCE - MASTER NOMINAL ROLL LEDGER"])
+        ws.append([f"Station / Unit: {station_clean} (Region: {region_clean})"])
+        ws.append([f"Export Timestamp: {eat_time.strftime('%Y-%m-%d %H:%M:%S EAT')} | Authorized By: {current_user.fnum}"])
+        ws.append([]) 
+
+        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        
+        ws.append(["SN", "Force Number", "Rank", "Name", "Sex", "Position", "Contact", "IPPS", "NIN", "Station", "Region", "Status"])
+        
+        for cell in ws[5]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        for idx, row in enumerate(station_rows, 1):
+            ws.append([
+                idx,
+                row["Force Number"],
+                row["Rank"],
+                row["Name"],
+                row["Sex"],
+                row["Position"],
+                row["Contact"],
+                row["IPPS"],
+                row["NIN"],
+                row["Station"],
+                row["Region"],
+                row["Status"]
+            ])
+
+        for col in ws.columns:
+            col_letter = col[0].column_letter
+            max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 40)
+
+        officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
+        stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
+        encoded_token = base64.b64encode(json.dumps({"f": officer_fnum, "s": stamp_id}).encode('utf-8')).decode('utf-8')
+        
+        wb.properties.keywords = f"KMP_AUDIT;{encoded_token}"
+        wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
+
+        excel_stream = io.BytesIO()
+        wb.save(excel_stream)
+        excel_stream.seek(0)
+
+        zip_stream = io.BytesIO()
+        zip_password = str(current_user.fnum).strip().encode('utf-8')
+        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
+        excel_filename = f"{fnum_clean}_Nominal_Roll_{station_clean.replace(' ', '_')}_{eat_time.strftime('%Y%m%d')}.xlsx"
+        zip_filename = f"SECURE_STATION_LEDGER_{eat_time.strftime('%Y%m%d')}.zip"
+
+        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(zip_password)
+            zf.writestr(excel_filename, excel_stream.getvalue())
+
+        zip_stream.seek(0)
+        return StreamingResponse(
+            zip_stream,
+            media_type="application/zip",
+            headers={
+                'Content-Disposition': f'attachment; filename="{zip_filename}"',
+                'Access-Control-Expose-Headers': 'Content-Disposition'
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Station Ledger Export Failed: {str(e)}")

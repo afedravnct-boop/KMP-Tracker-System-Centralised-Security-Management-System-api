@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Users, PlusCircle, Edit, AlertTriangle, CheckCircle, Upload, 
-  BarChart3, PieChart, ArrowRight, Shield, Archive, Eye, Search, X, Download
+  BarChart3, PieChart, ArrowRight, Shield, Archive, Eye, Search, X, Download, Filter
 } from 'lucide-react';
 import { authFetch } from './api';
 import BulkNominalRollUpload from './BulkNominalRollUpload';
@@ -32,7 +32,7 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   return cleanDbRegion || 'KMP HEADQUARTERS';
 };
 
-// 🟢 TIER 1: COMMAND & REGIONAL POSITION HIERARCHY OVERRIDE
+// 🟢 TIER 1: COMMAND & SPECIAL POSITION HIERARCHY OVERRIDE
 const getCommandWeight = (officer) => {
   if (!officer) return 99;
   const pos = cleanStr(officer.position);
@@ -40,7 +40,7 @@ const getCommandWeight = (officer) => {
   
   if (pos === 'RPC' || rank === 'RPC') return 0;
   if (pos === 'D/RPC' || pos === 'DEPUTY RPC' || rank === 'D/RPC') return 1;
-  if (pos.startsWith('R/')) return 2; // R/LEGAL, R/CID, R/CI, R/CLO, etc.
+  if (pos.startsWith('R/')) return 2; // RHRO, R/LEGAL, R/CID, R/CI, R/CLO, R/TRAINING, RTO, R/EPPU, MTO, etc.
   if (pos === 'OC' || pos.startsWith('OC ')) return 3;
   
   return 99; 
@@ -168,6 +168,10 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [notification, setNotification] = useState(null);
   const [selectedOfficer, setSelectedOfficer] = useState(null);
   const [updateSearch, setUpdateSearch] = useState(''); 
+  const [showModal, setShowModal] = useState(false);
+  const [modalMode, setModalMode] = useState('audit'); // 'audit' or 'station_list'
+  const [targetRegion, setTargetRegion] = useState('ALL REGIONS');
+  const [targetStation, setTargetStation] = useState('ALL STATIONS');
 
   const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||                         
                         (currentUser?.position || '').toUpperCase().includes('HR') ||
@@ -254,51 +258,30 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
-  // 🟢 AUDIT METHOD FOR MISSING FIELDS (EXCLUDING DO_PRO FOR PC, DC, D/C, C/DRV)
-  const handleAuditMissingFields = () => {
-    const activeList = Array.isArray(Nominal_Rolls) ? Nominal_Rolls : [];
-    const missingInfoList = activeList.filter(n => {
-      const rank = cleanStr(n.rank);
-      const isConstableTier = ['PC', 'DC', 'D/C', 'CONSTABLE', 'C/DRV', 'DRV'].includes(rank) || rank.includes('DRV');
-      
-      const missingDob = !n.dob;
-      const missingDoe = !n.doe;
-      const missingContact = !n.contact;
-      const missingNin = !n.nin;
-      const missingIpps = !n.ipps;
-      const missingDopro = !isConstableTier && !n.do_pro; // Required for ranks higher than PC
+  // 🟢 TRIGGER BACKEND ENDPOINT FOR EXCEL EXPORT OR MISSING INFO AUDIT
+  const handleExecuteExportModal = async () => {
+    try {
+      const endpoint = modalMode === 'audit' 
+        ? `/api/v1/nominal-roll/export-missing-audit?region=${encodeURIComponent(targetRegion)}&station=${encodeURIComponent(targetStation)}`
+        : `/api/v1/nominal-roll/export-station-ledger?region=${encodeURIComponent(targetRegion)}&station=${encodeURIComponent(targetStation)}`;
 
-      return missingDob || missingDoe || missingContact || missingNin || missingIpps || missingDopro;
-    });
+      const response = await authFetch(endpoint, { method: 'GET' });
+      if (!response.ok) throw new Error("Export generation failed.");
 
-    if (missingInfoList.length === 0) {
-      alert("✅ Audit Complete: All personnel records have complete demographic, contact, and promotion data!");
-      return;
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = modalMode === 'audit' 
+        ? `Missing_Info_Audit_${targetStation.replace(/\s+/g, '_')}.xlsx` 
+        : `Station_Personnel_List_${targetStation.replace(/\s+/g, '_')}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      setShowModal(false);
+    } catch (err) {
+      alert(`Export Error: ${err.message}`);
     }
-
-    // Generate CSV download content for missing data
-    let csvContent = "data:text/csv;charset=utf-8,Force Number,Rank,Name,Station,Missing Fields\n";
-    missingInfoList.forEach(n => {
-      const rank = cleanStr(n.rank);
-      const isConstableTier = ['PC', 'DC', 'D/C', 'CONSTABLE', 'C/DRV', 'DRV'].includes(rank) || rank.includes('DRV');
-      const missingFields = [];
-      if (!n.dob) missingFields.push("DOB");
-      if (!n.doe) missingFields.push("DOE");
-      if (!n.contact) missingFields.push("Contact");
-      if (!n.nin) missingFields.push("NIN");
-      if (!n.ipps) missingFields.push("IPPS");
-      if (!isConstableTier && !n.do_pro) missingFields.push("DO_PRO");
-
-      csvContent += `"${cleanStr(n.f_num || n.fnum)}","${rank}","${cleanStr(n.name)}","${cleanStr(n.station)}","${missingFields.join(' | ')}"\n`;
-    });
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Personnel_Missing_Info_Audit_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   const handleArchivePersonnel = async () => {
@@ -501,7 +484,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return true;
     }).sort((a, b) => {
-      // 🟢 1. PRIMARY SORT: Command Positions (RPC -> D/RPC -> R/xxx -> OC)
+      // 🟢 1. PRIMARY SORT: Commanding & Special Positions (RPC -> D/RPC -> R/xxx -> OC)
       const cmdA = getCommandWeight(a);
       const cmdB = getCommandWeight(b);
       if (cmdA !== cmdB) return cmdA - cmdB;
@@ -676,15 +659,23 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             Personnel Metrics Dashboard ({viewMode === 'archive' ? 'Archived Records' : 'Active Roll'})
           </h4>
           <div className="flex items-center gap-2">
-            {/* 🟢 AUDIT MISSING FIELDS BUTTON */}
             {canEditRecords && viewMode === 'active' && (
-              <button
-                type="button"
-                onClick={handleAuditMissingFields}
-                className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 text-xs font-bold rounded-md shadow transition-all cursor-pointer flex items-center"
-              >
-                <Download className="w-3.5 h-3.5 mr-1" /> Audit Missing Info
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => { setModalMode('audit'); setShowModal(true); }}
+                  className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 text-xs font-bold rounded-md shadow transition-all cursor-pointer flex items-center"
+                >
+                  <Download className="w-3.5 h-3.5 mr-1" /> Audit Missing Info
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setModalMode('station_list'); setShowModal(true); }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 text-xs font-bold rounded-md shadow transition-all cursor-pointer flex items-center"
+                >
+                  <Download className="w-3.5 h-3.5 mr-1" /> Station Nominal List
+                </button>
+              </div>
             )}
             <div className="inline-flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-inner shrink-0">
                <button 
@@ -720,6 +711,68 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
            <MetricCard title="Stations" value={metricsData.stations} colorClass="text-emerald-600" />
         </div>
       </div>
+
+      {/* 🟢 SCOPED EXPORT & AUDIT MODAL */}
+      {showModal && (
+        <div className="fixed inset-0 z-[999999] bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md p-5 space-y-4">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="text-sm font-extrabold text-slate-800 uppercase flex items-center">
+                <Filter className="w-4 h-4 mr-1.5 text-blue-600" /> 
+                {modalMode === 'audit' ? 'Scoped Missing Info Audit' : 'Station Nominal Roll Export'}
+              </h3>
+              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X size={16} />
+              </button>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {modalMode === 'audit' 
+                ? 'Generate an Excel audit report identifying missing personnel information for a specific region or station.' 
+                : 'Download a clean, fully formatted complete Excel nominal list for a specific station.'}
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Target Region</label>
+                <select 
+                  value={targetRegion} 
+                  onChange={(e) => { setTargetRegion(e.target.value); setTargetStation('ALL STATIONS'); }}
+                  className="w-full text-xs border rounded p-2 bg-white font-bold text-slate-800 outline-none"
+                >
+                  <option value="ALL REGIONS">ALL REGIONS</option>
+                  {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Target Station / Division</label>
+                <select 
+                  value={targetStation} 
+                  onChange={(e) => setTargetStation(e.target.value)}
+                  className="w-full text-xs border rounded p-2 bg-white font-bold text-slate-800 outline-none"
+                >
+                  <option value="ALL STATIONS">ALL STATIONS</option>
+                  {(REGIONAL_HIERARCHY[targetRegion] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="flex space-x-2 pt-2">
+              <button 
+                type="button" 
+                onClick={() => setShowModal(false)} 
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded text-xs font-bold transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                type="button" 
+                onClick={handleExecuteExportModal} 
+                className="flex-1 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded text-xs font-bold shadow transition cursor-pointer flex items-center justify-center"
+              >
+                <Download className="w-3.5 h-3.5 mr-1" /> Download Excel File
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-5 space-y-4">
