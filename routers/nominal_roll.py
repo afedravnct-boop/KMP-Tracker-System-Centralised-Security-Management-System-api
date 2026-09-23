@@ -378,13 +378,18 @@ async def bulk_upload_nominal_roll(
     officer_sig = get_officer_signature(current_user)
 
     try:
+        # 🟢 Accumulate dataframes from all uploaded files
+        all_dfs = []
         for single_file in file_list:
             contents = await single_file.read()
             filename = (single_file.filename or "").lower()
 
-            if filename.endswith(".csv"): df = pd.read_csv(io.BytesIO(contents))
-            elif filename.endswith((".xls", ".xlsx")): df = pd.read_excel(io.BytesIO(contents))
-            else: continue
+            if filename.endswith(".csv"): 
+                df = pd.read_csv(io.BytesIO(contents))
+            elif filename.endswith((".xls", ".xlsx")): 
+                df = pd.read_excel(io.BytesIO(contents))
+            else: 
+                continue
 
             def standardize_header(h):
                 h = str(h).lower().strip()
@@ -393,123 +398,131 @@ async def bulk_upload_nominal_roll(
                 return re.sub(r'[^a-z0-9]', '', h)
                 
             df.columns = [standardize_header(col) for col in df.columns]
-            
-            date_columns = ['dob', 'dateofbirth', 'doe', 'dateofenlistment', 'dopost', 'dop', 'dopro', 'dateofpromotion']
-            for col in date_columns:
-                if col in df.columns:
-                    df[col] = df[col].apply(parse_safe_date)
+            df['__source_file'] = single_file.filename
+            all_dfs.append(df)
 
-            for idx, row in df.iterrows():
-                fnum_val = aggressive_clean_text(row.get("fnum") or row.get("forceno") or row.get("forcenumber") or row.get("fileno") or row.get("fno"))
-                ipps_val = clean_numeric(row.get("ipps") or row.get("ippsno") or row.get("ippsnumber"))
-                nin_val = clean_numeric(row.get("nin") or row.get("nationalid") or row.get("ninno"))
-                rank_val = aggressive_clean_text(row.get("rank"))
-                name_val = aggressive_clean_text(row.get("name"))
+        if not all_dfs:
+            raise HTTPException(status_code=400, detail="No valid CSV or Excel files found in upload batch.")
 
-                # 🟢 BULLETPROOF JUNK & PLACEHOLDER REJECTION FILTER
-                row_text_signature = f"{fnum_val or ''} {rank_val or ''} {name_val or ''}".upper()
+        # Combine all files into one master dataframe
+        combined_df = pd.concat(all_dfs, ignore_index=True)
 
-                # 1. Reject if missing a legitimate Force Number or has placeholder names like UNKNOWN/NIL
-                if not fnum_val or not name_val or name_val in ["UNKNOWN", "N/A", "NIL", "NAN", "NONE", ""]:
-                    skipped_blank.append(f"[{single_file.filename}] Row {idx+2}: Rejected (Missing valid Force Number or genuine Name)")
+        date_columns = ['dob', 'dateofbirth', 'doe', 'dateofenlistment', 'dopost', 'dop', 'dopro', 'dateofpromotion']
+        for col in date_columns:
+            if col in combined_df.columns:
+                combined_df[col] = combined_df[col].apply(parse_safe_date)
+
+        for idx, row in combined_df.iterrows():
+            fnum_val = aggressive_clean_text(row.get("fnum") or row.get("forceno") or row.get("forcenumber") or row.get("fileno") or row.get("fno"))
+            ipps_val = clean_numeric(row.get("ipps") or row.get("ippsno") or row.get("ippsnumber"))
+            nin_val = clean_numeric(row.get("nin") or row.get("nationalid") or row.get("ninno"))
+            rank_val = aggressive_clean_text(row.get("rank"))
+            name_val = aggressive_clean_text(row.get("name"))
+            source_filename = row.get("__source_file", "Batch Upload")
+
+            # 🟢 STRICT SECTION HEADER & JUNK ROW REJECTION FILTER
+            row_text_signature = f"{fnum_val or ''} {rank_val or ''} {name_val or ''}".upper()
+            if (
+                not fnum_val and not rank_val and (not name_val or name_val == "UNKNOWN")
+            ) or any(term in row_text_signature for term in ["DEPARTMENT", "POL. POST", "POLICE POST", "SECTION", "DIV HEADQUARTERS", "OC STATION"]):
+                continue
+
+            if not fnum_val:
+                if is_uniformed_rank(rank_val):
+                    skipped_blank.append(f"[{source_filename}] Row {idx+2}: {rank_val} {name_val} (Missing F/No)")
                     continue
-
-                # 2. Reject section headers, station titles, or structural junk rows (e.g., "OC STATION")
-                if any(term in row_text_signature for term in ["DEPARTMENT", "POL. POST", "POLICE POST", "SECTION", "DIV HEADQUARTERS", "OC STATION", "STATION"]):
-                    skipped_blank.append(f"[{single_file.filename}] Row {idx+2}: Rejected structural section header [{name_val}]")
-                    continue
-
-                # 3. Ensure rank is either a recognized uniformed rank or a valid authorized category
-                if not is_uniformed_rank(rank_val) and rank_val not in ["CIVILIAN", "DRV", "C/DRV", "CONSTABLE"]:
-                    skipped_blank.append(f"[{single_file.filename}] Row {idx+2}: Rejected unrecognized rank category [{rank_val}]")
+                elif ipps_val: fnum_val = f"CIV-IPPS-{ipps_val}"
+                elif nin_val: fnum_val = f"CIV-NIN-{nin_val}"
+                else: 
+                    skipped_blank.append(f"[{source_filename}] Row {idx+2}: {name_val or 'Unknown'} (Missing F/No, IPPS, & NIN)")
                     continue 
 
-                clean_fnum = fnum_val
-                stn_val = aggressive_clean_text(row.get("station") or current_user.station or "HQ")
-                reg_val, dist_val = auto_infer_geography(stn_val, aggressive_clean_text(row.get("region")), aggressive_clean_text(row.get("district")))
+            clean_fnum = fnum_val
+            stn_val = aggressive_clean_text(row.get("station") or current_user.station or "HQ")
+            reg_val, dist_val = auto_infer_geography(stn_val, aggressive_clean_text(row.get("region")), aggressive_clean_text(row.get("district")))
 
-                dob_val = row.get("dob") if isinstance(row.get("dob"), date) else parse_safe_date(row.get("dob") or row.get("dateofbirth"))
-                doe_val = row.get("doe") if isinstance(row.get("doe"), date) else parse_safe_date(row.get("doe") or row.get("dateofenlistment"))
-                dopost_val = row.get("dopost") if isinstance(row.get("dopost"), date) else parse_safe_date(row.get("dopost") or row.get("dop"))
-                dopro_val = row.get("dopro") if isinstance(row.get("dopro"), date) else parse_safe_date(row.get("dopro") or row.get("dateofpromotion"))
+            dob_val = row.get("dob") if isinstance(row.get("dob"), date) else parse_safe_date(row.get("dob") or row.get("dateofbirth"))
+            doe_val = row.get("doe") if isinstance(row.get("doe"), date) else parse_safe_date(row.get("doe") or row.get("dateofenlistment"))
+            dopost_val = row.get("dopost") if isinstance(row.get("dopost"), date) else parse_safe_date(row.get("dopost") or row.get("dop"))
+            dopro_val = row.get("dopro") if isinstance(row.get("dopro"), date) else parse_safe_date(row.get("dopro") or row.get("dateofpromotion"))
 
-                officer_payload = {
-                    "rank": rank_val or "CIVILIAN",
-                    "name": name_val or "UNKNOWN",
-                    "sex": normalize_sex(row.get("sex") or row.get("gender")),
-                    "position": aggressive_clean_text(row.get("position") or row.get("title") or "GENERAL DUTIES"),
-                    "dob": dob_val,
-                    "doe": doe_val,
-                    "do_post": dopost_val,
-                    "do_pro": dopro_val,
-                    "contact": format_phone_number(row.get("contact") or row.get("phone") or row.get("phonenumber")),
-                    "educ_level": normalize_education_level(row.get("educ_level") or row.get("educlevel") or row.get("education")),
-                    "ipps": ipps_val,
-                    "tin": clean_numeric(row.get("tin") or row.get("tinno") or row.get("tinnumber")),
-                    "nin": nin_val,
-                    "home_dist": aggressive_clean_text(row.get("homedist") or row.get("homedistrict")),
-                    "tribe": aggressive_clean_text(row.get("tribe")),
-                    "acc_no": clean_numeric(row.get("accno") or row.get("accountno") or row.get("accountnumber")),
-                    "bank_branch": aggressive_clean_text(row.get("bankbranch") or row.get("bank")),
-                    "station": stn_val,
-                    "district": dist_val,
-                    "region": reg_val,
-                    "section": aggressive_clean_text(row.get("section")),
-                    "dir": aggressive_clean_text(row.get("dir") or row.get("directorate")),
-                    "status": aggressive_clean_text(row.get("status") or "ACTIVE"),
-                    "last_updated_by": officer_sig
-                }
+            officer_payload = {
+                "rank": rank_val or "CIVILIAN",
+                "name": name_val or "UNKNOWN",
+                "sex": normalize_sex(row.get("sex") or row.get("gender")),
+                "position": aggressive_clean_text(row.get("position") or row.get("title") or "GENERAL DUTIES"),
+                "dob": dob_val,
+                "doe": doe_val,
+                "do_post": dopost_val,
+                "do_pro": dopro_val,
+                "contact": format_phone_number(row.get("contact") or row.get("phone") or row.get("phonenumber")),
+                "educ_level": normalize_education_level(row.get("educ_level") or row.get("educlevel") or row.get("education")),
+                "ipps": ipps_val,
+                "tin": clean_numeric(row.get("tin") or row.get("tinno") or row.get("tinnumber")),
+                "nin": nin_val,
+                "home_dist": aggressive_clean_text(row.get("homedist") or row.get("homedistrict")),
+                "tribe": aggressive_clean_text(row.get("tribe")),
+                "acc_no": clean_numeric(row.get("accno") or row.get("accountno") or row.get("accountnumber")),
+                "bank_branch": aggressive_clean_text(row.get("bankbranch") or row.get("bank")),
+                "station": stn_val,
+                "district": dist_val,
+                "region": reg_val,
+                "section": aggressive_clean_text(row.get("section")),
+                "dir": aggressive_clean_text(row.get("dir") or row.get("directorate")),
+                "status": aggressive_clean_text(row.get("status") or "ACTIVE"),
+                "last_updated_by": officer_sig
+            }
 
-                for key, value in list(officer_payload.items()):
-                    if isinstance(value, str) and not value.strip():
-                        officer_payload[key] = None
-                    elif isinstance(value, float) and math.isnan(value):
-                        officer_payload[key] = None
+            for key, value in list(officer_payload.items()):
+                if isinstance(value, str) and not value.strip():
+                    officer_payload[key] = None
+                elif isinstance(value, float) and math.isnan(value):
+                    officer_payload[key] = None
 
-                if hasattr(ActiveModel, 'f_num'): officer_payload['f_num'] = clean_fnum
-                if hasattr(ActiveModel, 'fnum'): officer_payload['fnum'] = clean_fnum
+            if hasattr(ActiveModel, 'f_num'): officer_payload['f_num'] = clean_fnum
+            if hasattr(ActiveModel, 'fnum'): officer_payload['fnum'] = clean_fnum
 
-                fnum_filter = []
-                if hasattr(ActiveModel, 'f_num'): fnum_filter.append(func.trim(func.upper(ActiveModel.f_num)) == clean_fnum)
-                if hasattr(ActiveModel, 'fnum'): fnum_filter.append(func.trim(func.upper(ActiveModel.fnum)) == clean_fnum)
+            fnum_filter = []
+            if hasattr(ActiveModel, 'f_num'): fnum_filter.append(func.trim(func.upper(ActiveModel.f_num)) == clean_fnum)
+            if hasattr(ActiveModel, 'fnum'): fnum_filter.append(func.trim(func.upper(ActiveModel.fnum)) == clean_fnum)
 
-                existing = db.query(ActiveModel).filter(or_(*fnum_filter)).first()
+            existing = db.query(ActiveModel).filter(or_(*fnum_filter)).first()
 
-                if existing:
-                    for k, v in officer_payload.items():
-                        if hasattr(existing, k) and v is not None:
-                            setattr(existing, k, v)
-                    updated_count += 1
-                else:
-                    arc_filter = []
-                    if hasattr(ArchiveModel, 'f_num'): arc_filter.append(func.trim(func.upper(ArchiveModel.f_num)) == clean_fnum)
-                    if hasattr(ArchiveModel, 'fnum'): arc_filter.append(func.trim(func.upper(ArchiveModel.fnum)) == clean_fnum)
-                    
-                    is_archived = db.query(ArchiveModel).filter(or_(*arc_filter)).first()
-                    
-                    if is_archived:
-                        safe_payload_json = {}
-                        for k, v in officer_payload.items():
-                            if isinstance(v, (date, datetime)): safe_payload_json[k] = v.isoformat()
-                            else: safe_payload_json[k] = v
-                            
-                        entry_obj = {
-                            "display": f"{officer_payload['rank']} {officer_payload['name']} ({clean_fnum})",
-                            "fnum": clean_fnum,
-                            "payload": safe_payload_json
-                        }
-                        
-                        if not any(isinstance(x, dict) and x.get('fnum') == clean_fnum for x in skipped_archived):
-                            skipped_archived.append(entry_obj)
-                        continue
-                        
-                    valid_cols = [c.key for c in ActiveModel.__table__.columns]
-                    safe_payload = {k: v for k, v in officer_payload.items() if k in valid_cols}
-                    new_entry = ActiveModel(**safe_payload)
-                    db.add(new_entry)
-                    inserted_count += 1
+            if existing:
+                for k, v in officer_payload.items():
+                    if hasattr(existing, k) and v is not None:
+                        setattr(existing, k, v)
+                updated_count += 1
+            else:
+                arc_filter = []
+                if hasattr(ArchiveModel, 'f_num'): arc_filter.append(func.trim(func.upper(ArchiveModel.f_num)) == clean_fnum)
+                if hasattr(ArchiveModel, 'fnum'): arc_filter.append(func.trim(func.upper(ArchiveModel.fnum)) == clean_fnum)
                 
-                db.flush()
+                is_archived = db.query(ArchiveModel).filter(or_(*arc_filter)).first()
+                
+                if is_archived:
+                    safe_payload_json = {}
+                    for k, v in officer_payload.items():
+                        if isinstance(v, (date, datetime)): safe_payload_json[k] = v.isoformat()
+                        else: safe_payload_json[k] = v
+                        
+                    entry_obj = {
+                        "display": f"{officer_payload['rank']} {officer_payload['name']} ({clean_fnum})",
+                        "fnum": clean_fnum,
+                        "payload": safe_payload_json
+                    }
+                    
+                    if not any(isinstance(x, dict) and x.get('fnum') == clean_fnum for x in skipped_archived):
+                        skipped_archived.append(entry_obj)
+                    continue
+                    
+                valid_cols = [c.key for c in ActiveModel.__table__.columns]
+                safe_payload = {k: v for k, v in officer_payload.items() if k in valid_cols}
+                new_entry = ActiveModel(**safe_payload)
+                db.add(new_entry)
+                inserted_count += 1
+            
+            db.flush()
 
         db.commit()
         return {
