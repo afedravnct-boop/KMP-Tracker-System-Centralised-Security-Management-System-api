@@ -265,6 +265,9 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     
     user_role = (current_user.role or "").upper()
     perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
     
     is_global = (
         user_role in ["ADMIN", "SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
@@ -274,9 +277,21 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     )
 
     if not is_global:
+        # Check if explicitly cleared via admin approval
+        has_explicit_access = perms.get("view_nominal_roll", False) or perms.get("acc_hr", False) or current_user.is_approved is True
+        
         user_station = (current_user.station or "").strip().upper()
-        active_query = active_query.filter(func.upper(ActiveModel.station) == user_station)
-        archive_query = archive_query.filter(func.upper(ArchiveModel.station) == user_station)
+        user_region = (current_user.region or "").strip().upper()
+        
+        if user_role in ["REGIONAL_ADMIN", "REGIONAL_USER", "ASSISTANT_REGIONAL_ADMIN"] and user_region:
+            active_query = active_query.filter(func.upper(ActiveModel.region) == user_region)
+            archive_query = archive_query.filter(func.upper(ArchiveModel.region) == user_region)
+        elif user_station:
+            active_query = active_query.filter(func.upper(ActiveModel.station) == user_station)
+            archive_query = archive_query.filter(func.upper(ArchiveModel.station) == user_station)
+        elif not has_explicit_access:
+            active_query = active_query.filter(ActiveModel.id == -1)
+            archive_query = archive_query.filter(ArchiveModel.id == -1)
         
     sort_act = getattr(ActiveModel, 'created_at', getattr(ActiveModel, 'id', getattr(ActiveModel, 'sn', None)))
     if sort_act is not None:
@@ -391,22 +406,23 @@ async def bulk_upload_nominal_roll(
                 rank_val = aggressive_clean_text(row.get("rank"))
                 name_val = aggressive_clean_text(row.get("name"))
 
-                # 🟢 STRICT SECTION HEADER & JUNK ROW REJECTION FILTER
+                # 🟢 BULLETPROOF JUNK & PLACEHOLDER REJECTION FILTER
                 row_text_signature = f"{fnum_val or ''} {rank_val or ''} {name_val or ''}".upper()
-                if (
-                    not fnum_val and not rank_val and (not name_val or name_val == "UNKNOWN")
-                ) or any(term in row_text_signature for term in ["DEPARTMENT", "POL. POST", "POLICE POST", "SECTION", "DIV HEADQUARTERS"]):
+
+                # 1. Reject if missing a legitimate Force Number or has placeholder names like UNKNOWN/NIL
+                if not fnum_val or not name_val or name_val in ["UNKNOWN", "N/A", "NIL", "NAN", "NONE", ""]:
+                    skipped_blank.append(f"[{single_file.filename}] Row {idx+2}: Rejected (Missing valid Force Number or genuine Name)")
                     continue
 
-                if not fnum_val:
-                    if is_uniformed_rank(rank_val):
-                        skipped_blank.append(f"[{single_file.filename}] Row {idx+2}: {rank_val} {name_val} (Missing F/No)")
-                        continue
-                    elif ipps_val: fnum_val = f"CIV-IPPS-{ipps_val}"
-                    elif nin_val: fnum_val = f"CIV-NIN-{nin_val}"
-                    else: 
-                        skipped_blank.append(f"[{single_file.filename}] Row {idx+2}: {name_val or 'Unknown'} (Missing F/No, IPPS, & NIN)")
-                        continue 
+                # 2. Reject section headers, station titles, or structural junk rows (e.g., "OC STATION")
+                if any(term in row_text_signature for term in ["DEPARTMENT", "POL. POST", "POLICE POST", "SECTION", "DIV HEADQUARTERS", "OC STATION", "STATION"]):
+                    skipped_blank.append(f"[{single_file.filename}] Row {idx+2}: Rejected structural section header [{name_val}]")
+                    continue
+
+                # 3. Ensure rank is either a recognized uniformed rank or a valid authorized category
+                if not is_uniformed_rank(rank_val) and rank_val not in ["CIVILIAN", "DRV", "C/DRV", "CONSTABLE"]:
+                    skipped_blank.append(f"[{single_file.filename}] Row {idx+2}: Rejected unrecognized rank category [{rank_val}]")
+                    continue 
 
                 clean_fnum = fnum_val
                 stn_val = aggressive_clean_text(row.get("station") or current_user.station or "HQ")
@@ -1028,6 +1044,7 @@ def export_station_nominal_roll(
             if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
             if station_clean != "ALL STATIONS" and r_stn != station_clean: continue
 
+            # 🟢 Extract ALL fields from the model instance dynamically
             station_rows.append({
                 "Force Number": getattr(r, 'f_num', getattr(r, 'fnum', '')),
                 "Rank": getattr(r, 'rank', ''),
@@ -1037,9 +1054,23 @@ def export_station_nominal_roll(
                 "Contact": getattr(r, 'contact', ''),
                 "IPPS": getattr(r, 'ipps', ''),
                 "NIN": getattr(r, 'nin', ''),
+                "TIN": getattr(r, 'tin', ''),
+                "DOB": getattr(r, 'dob', ''),
+                "DOE": getattr(r, 'doe', ''),
+                "Date of Post": getattr(r, 'do_post', getattr(r, 'dopost', '')),
+                "Date of Promotion": getattr(r, 'do_pro', getattr(r, 'dopro', '')),
+                "Education Level": getattr(r, 'educ_level', getattr(r, 'educlevel', '')),
+                "Home District": getattr(r, 'home_dist', getattr(r, 'homedist', '')),
+                "Tribe": getattr(r, 'tribe', ''),
+                "Bank Branch": getattr(r, 'bank_branch', getattr(r, 'bankbranch', '')),
+                "Account Number": getattr(r, 'acc_no', getattr(r, 'accno', '')),
+                "Section": getattr(r, 'section', ''),
+                "Directorate": getattr(r, 'dir', ''),
                 "Station": r_stn,
+                "District": getattr(r, 'district', ''),
                 "Region": r_reg,
-                "Status": getattr(r, 'status', 'ACTIVE')
+                "Status": getattr(r, 'status', 'ACTIVE'),
+                "Last Updated By": getattr(r, 'last_updated_by', '')
             })
 
         wb = openpyxl.Workbook()
@@ -1049,7 +1080,7 @@ def export_station_nominal_roll(
         eat_tz = pytz.timezone("Africa/Nairobi")
         eat_time = datetime.now(eat_tz).replace(tzinfo=None)
         
-        ws.append([f"UGANDA POLICE FORCE - MASTER NOMINAL ROLL LEDGER"])
+        ws.append([f"UGANDA POLICE FORCE - MASTER NOMINAL ROLL LEDGER (FULL DETAILS)"])
         ws.append([f"Station / Unit: {station_clean} (Region: {region_clean})"])
         ws.append([f"Export Timestamp: {eat_time.strftime('%Y-%m-%d %H:%M:%S EAT')} | Authorized By: {current_user.fnum}"])
         ws.append([]) 
@@ -1057,7 +1088,14 @@ def export_station_nominal_roll(
         header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
         
-        ws.append(["SN", "Force Number", "Rank", "Name", "Sex", "Position", "Contact", "IPPS", "NIN", "Station", "Region", "Status"])
+        # 🟢 Full comprehensive list of column headers matching the dict keys above
+        headers = [
+            "SN", "Force Number", "Rank", "Name", "Sex", "Position", "Contact", 
+            "IPPS", "NIN", "TIN", "DOB", "DOE", "Date of Post", "Date of Promotion", 
+            "Education Level", "Home District", "Tribe", "Bank Branch", "Account Number", 
+            "Section", "Directorate", "Station", "District", "Region", "Status", "Last Updated By"
+        ]
+        ws.append(headers)
         
         for cell in ws[5]:
             cell.fill = header_fill
@@ -1075,9 +1113,23 @@ def export_station_nominal_roll(
                 row["Contact"],
                 row["IPPS"],
                 row["NIN"],
+                row["TIN"],
+                str(row["DOB"]) if row["DOB"] else "",
+                str(row["DOE"]) if row["DOE"] else "",
+                str(row["Date of Post"]) if row["Date of Post"] else "",
+                str(row["Date of Promotion"]) if row["Date of Promotion"] else "",
+                row["Education Level"],
+                row["Home District"],
+                row["Tribe"],
+                row["Bank Branch"],
+                row["Account Number"],
+                row["Section"],
+                row["Directorate"],
                 row["Station"],
+                row["District"],
                 row["Region"],
-                row["Status"]
+                row["Status"],
+                row["Last Updated By"]
             ])
 
         for col in ws.columns:
@@ -1086,7 +1138,6 @@ def export_station_nominal_roll(
             ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 40)
 
         officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
-        
         stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
         encoded_token = base64.b64encode(json.dumps({"f": officer_fnum, "s": stamp_id}).encode('utf-8')).decode('utf-8')
         
@@ -1100,8 +1151,8 @@ def export_station_nominal_roll(
         zip_stream = io.BytesIO()
         zip_password = str(current_user.fnum).strip().encode('utf-8')
         fnum_clean = str(current_user.fnum).replace('/', '_').upper()
-        excel_filename = f"{fnum_clean}_Nominal_Roll_{station_clean.replace(' ', '_')}_{eat_time.strftime('%Y%m%d')}.xlsx"
-        zip_filename = f"SECURE_STATION_LEDGER_{eat_time.strftime('%Y%m%d')}.zip"
+        excel_filename = f"{fnum_clean}_Full_Nominal_Roll_{station_clean.replace(' ', '_')}_{eat_time.strftime('%Y%m%d')}.xlsx"
+        zip_filename = f"SECURE_FULL_STATION_LEDGER_{eat_time.strftime('%Y%m%d')}.zip"
 
         with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
@@ -1117,4 +1168,4 @@ def export_station_nominal_roll(
             }
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Station Ledger Export Failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Full Station Ledger Export Failed: {str(e)}")
