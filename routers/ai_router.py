@@ -91,7 +91,6 @@ async def process_tactical_query(
         client = genai.Client(api_key=api_key)
         db_queries_allowed = is_db_query_globally_enabled(db)
 
-        # 🟢 Use unified check_global_view function for consistent scoping
         is_global_viewer = check_global_view(current_user)
 
         user_perms = current_user.permissions or {}
@@ -126,7 +125,6 @@ async def process_tactical_query(
                 agric_query = db.query(AgricModel) if AgricModel else None
                 stats_query = db.query(StatsModel) if StatsModel else None
 
-                # 🟢 Restrict extraction queries for non-global users to their default station
                 if not is_global_viewer:
                     if AgricModel and hasattr(AgricModel, 'station'): 
                         agric_query = agric_query.filter(func.upper(AgricModel.station) == str(current_user.station).strip().upper())
@@ -269,7 +267,8 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-        used_model = 'gemini-3.6-flash'
+        # 🟢 Use supported Gemini Flash model identifiers
+        used_model = 'gemini-3.5-flash'
         try:
             response = client.models.generate_content(
                 model=used_model,
@@ -277,25 +276,16 @@ async def process_tactical_query(
                 config=types.GenerateContentConfig(system_instruction=system_rules)
             )
         except Exception as primary_err:
-            print(f"Primary model {used_model} encountered an issue: {primary_err}. Falling back to gemini-3.5-flash...")
-            used_model = 'gemini-3.5-flash'
+            print(f"Primary model {used_model} encountered an issue: {primary_err}. Falling back to gemini-2.5-flash...")
+            used_model = 'gemini-2.5-flash'
             try:
                 response = client.models.generate_content(
                     model=used_model,
                     contents=tactical_context,
                     config=types.GenerateContentConfig(system_instruction=system_rules)
                 )
-            except Exception as secondary_err:
-                print(f"Fallback model gemini-3.5-flash failed: {secondary_err}. Falling back to stable gemini-2.5-flash...")
-                used_model = 'gemini-2.5-flash'
-                try:
-                    response = client.models.generate_content(
-                        model=used_model,
-                        contents=tactical_context,
-                        config=types.GenerateContentConfig(system_instruction=system_rules)
-                    )
-                except Exception as final_err:
-                    raise Exception(f"All Google AI fallback servers are currently unavailable. Details: {str(final_err)}")
+            except Exception as final_err:
+                raise Exception(f"All Google AI fallback servers are currently unavailable. Details: {str(final_err)}")
 
         try:
             LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
