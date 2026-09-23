@@ -267,7 +267,7 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-        # 🟢 Use gemini-3.6-flash exclusively as requested by the API error traceback
+       # 🟢 Use gemini-3.6-flash explicitly as required by your API tier
         used_model = 'gemini-3.6-flash'
         try:
             response = client.models.generate_content(

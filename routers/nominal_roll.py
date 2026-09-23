@@ -277,8 +277,13 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
     )
 
     if not is_global:
-        # Check if explicitly cleared via admin approval
-        has_explicit_access = perms.get("view_nominal_roll", False) or perms.get("acc_hr", False) or current_user.is_approved is True
+        # Check if explicitly cleared via admin approval across any standard permission key
+        has_explicit_access = (
+            perms.get("view_nominal_roll", False) or 
+            perms.get("acc_hr", False) or 
+            perms.get("ai_hr_access", False) or 
+            current_user.is_approved is True
+        )
         
         user_station = (current_user.station or "").strip().upper()
         user_region = (current_user.region or "").strip().upper()
@@ -286,10 +291,11 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         if user_role in ["REGIONAL_ADMIN", "REGIONAL_USER", "ASSISTANT_REGIONAL_ADMIN"] and user_region:
             active_query = active_query.filter(func.upper(ActiveModel.region) == user_region)
             archive_query = archive_query.filter(func.upper(ArchiveModel.region) == user_region)
-        elif user_station:
+        elif user_station and has_explicit_access:
+            # 🟢 Explicitly filters by their station so CPS Kampala users see CPS Kampala data
             active_query = active_query.filter(func.upper(ActiveModel.station) == user_station)
             archive_query = archive_query.filter(func.upper(ArchiveModel.station) == user_station)
-        elif not has_explicit_access:
+        else:
             active_query = active_query.filter(ActiveModel.id == -1)
             archive_query = archive_query.filter(ArchiveModel.id == -1)
         
