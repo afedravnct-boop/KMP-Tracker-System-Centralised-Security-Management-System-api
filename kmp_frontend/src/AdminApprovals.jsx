@@ -385,7 +385,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     } catch (err) { alert(`Role Update Failed: ${err.message}`); fetchAllSystemUsers(); }
   };
 
-  // 🟢 ENHANCED REAL CLEARANCE APPROVAL HANDLER TO BYPASS CATEGORY RESTRICTIONS
+  // 🟢 STATION/REGIONAL SCOPED CLEARANCE APPROVAL HANDLER (PRESERVES LOCAL STATION BOUNDARIES)
   const handleApproveUser = async (userToApprove, customAssignedRole = 'USER', customPermissions = {}) => {
     if (isReadOnlyObserver) {
       alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit approving access requests.");
@@ -397,13 +397,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     try {
       const cleanFnum = stripHtmlTags(fnum);
       
-      // Merge express baseline permissions with custom permissions or overrides so any rank (e.g., PC) gets explicit access flags granted by admin approval
       const baselinePermissions = grantExpressAccess(customAssignedRole, userToApprove.permissions || {});
       const grantedPermissions = {
         ...baselinePermissions,
         ...customPermissions,
-        view_nominal_roll: true,  // Explicit clearance grant
-        export_data: true         // Full administrative bypass clearance granted
+        view_nominal_roll: true,  
+        export_data: true         
       };
 
       await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
@@ -413,11 +412,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           role: customAssignedRole, 
           is_approved: true, 
           permissions: grantedPermissions,
-          clearance_override: true // Signals backend that standard restrictions are bypassed via explicit admin clearance
+          station: userToApprove.station,  
+          region: userToApprove.region     
         })
       });
 
-      alert(`✅ Success: Official clearance granted for ${cleanFnum}. Category restrictions bypassed.`);
+      alert(`✅ Success: Station-level clearance granted for ${cleanFnum} (${userToApprove.station || 'Assigned Station'}).`);
       setSelectedPendingUser(null);
       fetchPendingUsers();
       fetchAllSystemUsers();
@@ -513,7 +513,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               <Shield className="w-5 h-5 mr-2 text-blue-400" /> Access & Command Approvals
             </h1>
             <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider font-semibold">
-              Review officer signups, granular clearance tiers, transfers, and audit logs.
+              Review officer signups, dossier clearances, granular tier matrix, and regional audit logs.
             </p>
           </div>
         </div>
@@ -531,13 +531,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             {canViewGlobalActive || ['RPC', 'Deputy Commander'].includes(currentUser?.role) ? (<><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
           </select>
           
-          <div className="relative flex items-center min-w-[220px]">
+          <div className="relative flex items-center min-w-[240px]">
             <Search size={14} className="absolute left-3 text-slate-400 dark:text-slate-500" />
             <input 
               type="text" 
               value={searchTerm} 
               onChange={(e) => setSearchTerm(e.target.value)} 
-              placeholder="Search FNUM, name, action..." 
+              placeholder="Search individual FNUM, name, IPPS..." 
               className="w-full pl-9 pr-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-bold text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-950"
             />
             {searchTerm && (
@@ -586,7 +586,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </button>
       </div>
 
-      {/* 🟢 1. AUTHORIZATIONS TAB */}
+      {/* 🟢 1. AUTHORIZATIONS TAB WITH INDIVIDUAL DOSSIER REVIEW */}
       {activeTab === 'approvals' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
           {loadingPending ? (
@@ -602,10 +602,19 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
                   {filteredPending.map((user) => (
                     <tr key={user.fnum} onClick={() => setSelectedPendingUser(user)} className="hover:bg-blue-50/50 dark:hover:bg-slate-800 cursor-pointer transition-colors group">
-                      <td className="px-4 py-3"><div className="font-extrabold text-slate-900 dark:text-slate-100">{formatOfficerHeader(user)}</div></td>
-                      <td className="px-4 py-3"><div className="font-bold text-blue-700 dark:text-blue-400 uppercase">{stripHtmlTags(user.station)}</div></td>
+                      <td className="px-4 py-3">
+                        <div className="font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                          <Eye size={14} className="text-blue-500 group-hover:scale-110 transition-transform"/>
+                          {formatOfficerHeader(user)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3"><div className="font-bold text-blue-700 dark:text-blue-400 uppercase">{stripHtmlTags(user.station)} / {stripHtmlTags(user.region)}</div></td>
                       <td className="px-4 py-3"><span className="px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full border bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700">{user.role}</span></td>
-                      <td className="px-4 py-3 text-right"><button type="button" onClick={() => setSelectedPendingUser(user)} className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold py-1.5 px-3 rounded-md text-[11px]">Review</button></td>
+                      <td className="px-4 py-3 text-right">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedPendingUser(user); }} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-md text-[11px] cursor-pointer shadow-sm">
+                          Inspect Dossier
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -762,12 +771,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 5. AUDIT LOGS TAB WITH MASSIVE DETAILS WRAPPER */}
+      {/* 🟢 5. AUDIT LOGS TAB */}
       {activeTab === 'logs' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
           <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">System Audit Logs</div>
           <div className="w-full overflow-x-auto custom-scrollbar">
-            {/* 🟢 Removed global whitespace-nowrap from table to allow text wrapping */}
             <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs">
               <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px] whitespace-nowrap">
                 <tr>
@@ -796,7 +804,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                       </span>
                     </td>
 
-                    {/* 🟢 Expanded details cell to take up all remaining width and break words naturally */}
                     <td className="px-4 py-2.5 text-[11px] text-slate-700 dark:text-slate-300 font-medium whitespace-normal break-words min-w-[500px] w-full">
                       {log.details?.includes('Target: SYSTEM | Changes: | Remarks:') 
                         ? 'Standard System Authentication / Session Init' 
