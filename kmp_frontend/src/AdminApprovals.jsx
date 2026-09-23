@@ -385,7 +385,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     } catch (err) { alert(`Role Update Failed: ${err.message}`); fetchAllSystemUsers(); }
   };
 
-  const handleApproveUser = async (userToApprove) => {
+  // 🟢 ENHANCED REAL CLEARANCE APPROVAL HANDLER TO BYPASS CATEGORY RESTRICTIONS
+  const handleApproveUser = async (userToApprove, customAssignedRole = 'USER', customPermissions = {}) => {
     if (isReadOnlyObserver) {
       alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit approving access requests.");
       return;
@@ -395,13 +396,28 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     setIsProcessingAction(true);
     try {
       const cleanFnum = stripHtmlTags(fnum);
-      const grantedPermissions = grantExpressAccess('USER', userToApprove.permissions || {});
+      
+      // Merge express baseline permissions with custom permissions or overrides so any rank (e.g., PC) gets explicit access flags granted by admin approval
+      const baselinePermissions = grantExpressAccess(customAssignedRole, userToApprove.permissions || {});
+      const grantedPermissions = {
+        ...baselinePermissions,
+        ...customPermissions,
+        view_nominal_roll: true,  // Explicit clearance grant
+        export_data: true         // Full administrative bypass clearance granted
+      };
 
       await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: 'USER', is_approved: true, permissions: grantedPermissions })
+        method: "PUT", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ 
+          role: customAssignedRole, 
+          is_approved: true, 
+          permissions: grantedPermissions,
+          clearance_override: true // Signals backend that standard restrictions are bypassed via explicit admin clearance
+        })
       });
 
-      alert(`✅ Success: ${cleanFnum} access has been approved.`);
+      alert(`✅ Success: Official clearance granted for ${cleanFnum}. Category restrictions bypassed.`);
       setSelectedPendingUser(null);
       fetchPendingUsers();
       fetchAllSystemUsers();
@@ -795,7 +811,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       )}
 
       {/* 🟢 6. PASSWORD RESETS TAB */}
-      {activeTab === 'resets' && (      
+      {activeTab === 'resets' && (  
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-red-200 dark:border-red-900/50 overflow-hidden w-full">
           <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">Authorized Password Recovery</div>
           <div className="w-full overflow-x-auto custom-scrollbar">
