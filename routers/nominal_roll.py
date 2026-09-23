@@ -246,6 +246,15 @@ def auto_infer_geography(station_name, current_region=None, current_district=Non
             inferred_district = geo_info["district"]
     return inferred_region or "KMP HEADQUARTERS", inferred_district or "KAMPALA"
 
+def getOfficialRegionForStation(station_name: str, current_region: Optional[str] = None) -> str:
+    """Resolves the official region for a given station using the geo map."""
+    if not station_name:
+        return current_region or "KMP HEADQUARTERS"
+    stat_upper = aggressive_clean_text(station_name)
+    if stat_upper in STATION_GEO_MAP:
+        return STATION_GEO_MAP[stat_upper]["region"]
+    return current_region or "KMP HEADQUARTERS"
+
 @router.get("/nominal-roll")
 def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     ActiveModel = get_active_model()
@@ -1078,7 +1087,6 @@ def export_station_nominal_roll(
 
         officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
         
-        # 🟢 Cleaned up stamp generation line without any duplicate declarations or extra parentheses
         stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
         encoded_token = base64.b64encode(json.dumps({"f": officer_fnum, "s": stamp_id}).encode('utf-8')).decode('utf-8')
         
