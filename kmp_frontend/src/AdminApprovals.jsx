@@ -385,7 +385,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     } catch (err) { alert(`Role Update Failed: ${err.message}`); fetchAllSystemUsers(); }
   };
 
-  // 🟢 STATION/REGIONAL SCOPED CLEARANCE APPROVAL HANDLER (PRESERVES LOCAL STATION BOUNDARIES)
+  // 🟢 JURISDICTIONAL-AWARE APPROVAL HANDLER (STATION OR REGIONAL SCOPE ENFORCEMENT)
   const handleApproveUser = async (userToApprove, customAssignedRole = 'USER', customPermissions = {}) => {
     if (isReadOnlyObserver) {
       alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit approving access requests.");
@@ -397,7 +397,18 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     try {
       const cleanFnum = stripHtmlTags(fnum);
       
-      const baselinePermissions = grantExpressAccess(customAssignedRole, userToApprove.permissions || {});
+      // Intelligent Role & Scope Derivation based on user post/station (e.g., Regional HQ vs Station Division)
+      const userStationUpper = stripHtmlTags(userToApprove.station || '').toUpperCase();
+      const userRegionUpper = stripHtmlTags(userToApprove.region || '').toUpperCase();
+      
+      let assignedRole = customAssignedRole;
+      if (userStationUpper.includes('HEADQUARTERS') || userStationUpper.includes('HQ') || userStationUpper.includes('REGIONAL')) {
+        assignedRole = 'REGIONAL_ADMIN'; // Grants jurisdiction over entire region
+      } else if (userStationUpper.includes('CPS') || userStationUpper.includes('DIVISION')) {
+        assignedRole = 'STATION_ADMIN'; // Grants jurisdiction over specific station/division
+      }
+
+      const baselinePermissions = grantExpressAccess(assignedRole, userToApprove.permissions || {});
       const grantedPermissions = {
         ...baselinePermissions,
         ...customPermissions,
@@ -409,15 +420,15 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         method: "PUT", 
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ 
-          role: customAssignedRole, 
+          role: assignedRole, 
           is_approved: true, 
           permissions: grantedPermissions,
-          station: userToApprove.station,  
-          region: userToApprove.region     
+          station: userToApprove.station,  // Preserves exact station scope
+          region: userToApprove.region     // Preserves exact region scope
         })
       });
 
-      alert(`✅ Success: Station-level clearance granted for ${cleanFnum} (${userToApprove.station || 'Assigned Station'}).`);
+      alert(`✅ Success: Jurisdictional clearance granted for ${cleanFnum} at [${userToApprove.station || 'Assigned Station'} / ${userToApprove.region || 'Assigned Region'}]. Scope enforced.`);
       setSelectedPendingUser(null);
       fetchPendingUsers();
       fetchAllSystemUsers();
@@ -513,7 +524,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               <Shield className="w-5 h-5 mr-2 text-blue-400" /> Access & Command Approvals
             </h1>
             <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider font-semibold">
-              Review officer signups, dossier clearances, granular tier matrix, and regional audit logs.
+              Review officer signups, jurisdictional clearances, tier matrices, and regional audit logs.
             </p>
           </div>
         </div>
@@ -597,7 +608,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             <div className="w-full overflow-x-auto custom-scrollbar">
               <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
                 <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px] tracking-wider">
-                  <tr><th className="px-4 py-3.5 text-left">Officer Details</th><th className="px-4 py-3.5 text-left">Command Post</th><th className="px-4 py-3.5 text-left">Derived Role Tier</th><th className="px-4 py-3.5 text-right">Action</th></tr>
+                  <tr><th className="px-4 py-3.5 text-left">Officer Details</th><th className="px-4 py-3.5 text-left">Jurisdiction (Station / Region)</th><th className="px-4 py-3.5 text-left">Derived Role Tier</th><th className="px-4 py-3.5 text-right">Action</th></tr>
                 </thead>
                 <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
                   {filteredPending.map((user) => (
