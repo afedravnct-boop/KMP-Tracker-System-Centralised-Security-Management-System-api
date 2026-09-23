@@ -267,8 +267,8 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-        # 🟢 Use supported Gemini Flash model identifiers
-        used_model = 'gemini-3.5-flash'
+        # 🟢 Use gemini-3.6-flash exclusively as requested by the API error traceback
+        used_model = 'gemini-3.6-flash'
         try:
             response = client.models.generate_content(
                 model=used_model,
@@ -276,16 +276,7 @@ async def process_tactical_query(
                 config=types.GenerateContentConfig(system_instruction=system_rules)
             )
         except Exception as primary_err:
-            print(f"Primary model {used_model} encountered an issue: {primary_err}. Falling back to gemini-2.5-flash...")
-            used_model = 'gemini-2.5-flash'
-            try:
-                response = client.models.generate_content(
-                    model=used_model,
-                    contents=tactical_context,
-                    config=types.GenerateContentConfig(system_instruction=system_rules)
-                )
-            except Exception as final_err:
-                raise Exception(f"All Google AI fallback servers are currently unavailable. Details: {str(final_err)}")
+            raise Exception(f"Google AI Model Error ({used_model}): {str(primary_err)}")
 
         try:
             LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
