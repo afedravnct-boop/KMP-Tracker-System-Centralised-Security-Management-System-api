@@ -268,8 +268,8 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-        # 🟢 Robust Multi-Tier Fallback Loop for High-Demand / 503 Spike Protection
-        candidate_models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash']
+        # 🟢 Multi-tier stable model fallback array avoiding retired 2.5/3.6 strings
+        candidate_models = ['gemini-3.6-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
         response = None
         used_model = None
         last_exception = None
@@ -285,12 +285,12 @@ async def process_tactical_query(
                 break
             except Exception as mod_err:
                 last_exception = mod_err
-                print(f">> [AI Model Notice] Model {m} unavailable or busy: {mod_err}. Trying fallback...")
-                time.sleep(0.5)
+                print(f">> [AI Model Notice] Model {m} encountered an issue: {mod_err}. Trying fallback...")
+                time.sleep(0.3)
                 continue
 
         if not response:
-            raise Exception(f"All Google AI servers are currently busy or unavailable (503/High Demand). Details: {str(last_exception)}")
+            raise Exception(f"All Google AI fallback servers are currently busy or unavailable (503). Details: {str(last_exception)}")
 
         try:
             LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
