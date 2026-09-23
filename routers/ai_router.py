@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import time
 import traceback
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -267,16 +268,29 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-       # 🟢 Use gemini-3.6-flash explicitly as required by your API tier
-        used_model = 'gemini-3.6-flash'
-        try:
-            response = client.models.generate_content(
-                model=used_model,
-                contents=tactical_context,
-                config=types.GenerateContentConfig(system_instruction=system_rules)
-            )
-        except Exception as primary_err:
-            raise Exception(f"Google AI Model Error ({used_model}): {str(primary_err)}")
+        # 🟢 Robust Multi-Tier Fallback Loop for High-Demand / 503 Spike Protection
+        candidate_models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash']
+        response = None
+        used_model = None
+        last_exception = None
+
+        for m in candidate_models:
+            try:
+                response = client.models.generate_content(
+                    model=m,
+                    contents=tactical_context,
+                    config=types.GenerateContentConfig(system_instruction=system_rules)
+                )
+                used_model = m
+                break
+            except Exception as mod_err:
+                last_exception = mod_err
+                print(f">> [AI Model Notice] Model {m} unavailable or busy: {mod_err}. Trying fallback...")
+                time.sleep(0.5)
+                continue
+
+        if not response:
+            raise Exception(f"All Google AI servers are currently busy or unavailable (503/High Demand). Details: {str(last_exception)}")
 
         try:
             LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))

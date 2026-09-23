@@ -276,8 +276,12 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         perms.get("global_observer") is True
     )
 
+    # 🟢 Special CID Regional scoping logic
+    user_pos_str = (current_user.position or "").upper()
+    user_stn_str = (current_user.station or "").upper()
+    is_cid_specialist = "CID" in user_role or "CID" in user_pos_str or "CID" in user_stn_str
+
     if not is_global:
-        # Check if explicitly cleared via admin approval across any standard permission key
         has_explicit_access = (
             perms.get("view_nominal_roll", False) or 
             perms.get("acc_hr", False) or 
@@ -288,11 +292,40 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         user_station = (current_user.station or "").strip().upper()
         user_region = (current_user.region or "").strip().upper()
         
-        if user_role in ["REGIONAL_ADMIN", "REGIONAL_USER", "ASSISTANT_REGIONAL_ADMIN"] and user_region:
+        if is_cid_specialist and user_region:
+            # Pull all personnel in the region attached to CID or investigative branches
+            active_query = active_query.filter(
+                and_(
+                    func.upper(ActiveModel.region) == user_region,
+                    or_(
+                        func.upper(ActiveModel.rank).like("D/%"),
+                        func.upper(ActiveModel.section).ilike("%CID%"),
+                        func.upper(ActiveModel.dir).ilike("%CID%"),
+                        func.upper(ActiveModel.position).ilike("%CID%"),
+                        func.upper(ActiveModel.position).ilike("%DETECTIVE%"),
+                        func.upper(ActiveModel.section).ilike("%INVESTIGATION%"),
+                        func.upper(ActiveModel.dir).ilike("%INVESTIGATION%")
+                    )
+                )
+            )
+            archive_query = archive_query.filter(
+                and_(
+                    func.upper(ArchiveModel.region) == user_region,
+                    or_(
+                        func.upper(ArchiveModel.rank).like("D/%"),
+                        func.upper(ArchiveModel.section).ilike("%CID%"),
+                        func.upper(ArchiveModel.dir).ilike("%CID%"),
+                        func.upper(ArchiveModel.position).ilike("%CID%"),
+                        func.upper(ArchiveModel.position).ilike("%DETECTIVE%"),
+                        func.upper(ArchiveModel.section).ilike("%INVESTIGATION%"),
+                        func.upper(ArchiveModel.dir).ilike("%INVESTIGATION%")
+                    )
+                )
+            )
+        elif user_role in ["REGIONAL_ADMIN", "REGIONAL_USER", "ASSISTANT_REGIONAL_ADMIN"] and user_region:
             active_query = active_query.filter(func.upper(ActiveModel.region) == user_region)
             archive_query = archive_query.filter(func.upper(ArchiveModel.region) == user_region)
         elif user_station and has_explicit_access:
-            # 🟢 Explicitly filters by their station so CPS Kampala users see CPS Kampala data
             active_query = active_query.filter(func.upper(ActiveModel.station) == user_station)
             archive_query = archive_query.filter(func.upper(ArchiveModel.station) == user_station)
         else:
@@ -384,7 +417,6 @@ async def bulk_upload_nominal_roll(
     officer_sig = get_officer_signature(current_user)
 
     try:
-        # 🟢 Accumulate dataframes from all uploaded files
         all_dfs = []
         for single_file in file_list:
             contents = await single_file.read()
@@ -410,7 +442,6 @@ async def bulk_upload_nominal_roll(
         if not all_dfs:
             raise HTTPException(status_code=400, detail="No valid CSV or Excel files found in upload batch.")
 
-        # Combine all files into one master dataframe
         combined_df = pd.concat(all_dfs, ignore_index=True)
 
         date_columns = ['dob', 'dateofbirth', 'doe', 'dateofenlistment', 'dopost', 'dop', 'dopro', 'dateofpromotion']
@@ -426,7 +457,6 @@ async def bulk_upload_nominal_roll(
             name_val = aggressive_clean_text(row.get("name"))
             source_filename = row.get("__source_file", "Batch Upload")
 
-            # 🟢 STRICT SECTION HEADER & JUNK ROW REJECTION FILTER
             row_text_signature = f"{fnum_val or ''} {rank_val or ''} {name_val or ''}".upper()
             if (
                 not fnum_val and not rank_val and (not name_val or name_val == "UNKNOWN")
@@ -1063,7 +1093,6 @@ def export_station_nominal_roll(
             if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
             if station_clean != "ALL STATIONS" and r_stn != station_clean: continue
 
-            # 🟢 Extract ALL fields from the model instance dynamically
             station_rows.append({
                 "Force Number": getattr(r, 'f_num', getattr(r, 'fnum', '')),
                 "Rank": getattr(r, 'rank', ''),
@@ -1107,7 +1136,6 @@ def export_station_nominal_roll(
         header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
         
-        # 🟢 Full comprehensive list of column headers matching the dict keys above
         headers = [
             "SN", "Force Number", "Rank", "Name", "Sex", "Position", "Contact", 
             "IPPS", "NIN", "TIN", "DOB", "DOE", "Date of Post", "Date of Promotion", 
