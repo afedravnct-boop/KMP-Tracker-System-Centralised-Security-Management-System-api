@@ -65,7 +65,7 @@ const AnalyticsDashboard = ({
   successStories = [], 
   operationalStats = [], 
   stats = [], 
-  impoundedExhibits = [], // 🟢 Added Exhibits to Props
+  impoundedExhibits = [], 
   currentUser, 
   canViewGlobal = false 
 }) => {
@@ -75,7 +75,7 @@ const AnalyticsDashboard = ({
   const [fetchedCrime, setFetchedCrime] = useState([]);
   const [fetchedSuccess, setFetchedSuccess] = useState([]);
   const [fetchedOps, setFetchedOps] = useState([]);
-  const [fetchedExhibits, setFetchedExhibits] = useState([]); // 🟢 Added Exhibits State
+  const [fetchedExhibits, setFetchedExhibits] = useState([]); 
   const [loading, setLoading] = useState(false);
 
   const [expandedManpowerRegions, setExpandedManpowerRegions] = useState({});
@@ -101,7 +101,7 @@ const AnalyticsDashboard = ({
           authFetch('/api/v1/reports').catch(() => null),
           authFetch('/api/v1/stories').catch(() => null),
           authFetch('/api/v1/stats').catch(() => null),
-          authFetch('/api/v1/exhibits').catch(() => null) // 🟢 Fetch Exhibits
+          authFetch('/api/v1/exhibits').catch(() => null)
         ]);
 
         const rollData = rollRes && rollRes.ok ? await rollRes.json() : [];
@@ -110,7 +110,7 @@ const AnalyticsDashboard = ({
         const crimeData = crimeRes && crimeRes.ok ? await crimeRes.json() : [];
         const storyData = storyRes && storyRes.ok ? await storyRes.json() : [];
         const statsData = statsRes && statsRes.ok ? await statsRes.json() : [];
-        const exhibitsData = exhibitsRes && exhibitsRes.ok ? await exhibitsRes.json() : []; // 🟢 Parse Exhibits
+        const exhibitsData = exhibitsRes && exhibitsRes.ok ? await exhibitsRes.json() : [];
 
         if (isMounted) {
           setFetchedRolls(Array.isArray(rollData) ? rollData : []);
@@ -119,7 +119,7 @@ const AnalyticsDashboard = ({
           setFetchedCrime(Array.isArray(crimeData) ? crimeData : []);
           setFetchedSuccess(Array.isArray(storyData) ? storyData : []);
           setFetchedOps(Array.isArray(statsData) ? statsData : []);
-          setFetchedExhibits(Array.isArray(exhibitsData) ? exhibitsData : []); // 🟢 Set Exhibits State
+          setFetchedExhibits(Array.isArray(exhibitsData) ? exhibitsData : []);
         }
       } catch (err) {
         if (err.message !== 'UNAUTHORIZED') {
@@ -138,7 +138,7 @@ const AnalyticsDashboard = ({
   const resolvedCrimeRegistry = crimeRegistry.length ? crimeRegistry : (reports.length ? reports : fetchedCrime);
   const resolvedSuccessStories = successStories.length ? successStories : fetchedSuccess;
   const resolvedOperationalStats = operationalStats.length ? operationalStats : (stats.length ? stats : fetchedOps);
-  const resolvedExhibits = impoundedExhibits.length ? impoundedExhibits : fetchedExhibits; // 🟢 Resolved Exhibits
+  const resolvedExhibits = impoundedExhibits.length ? impoundedExhibits : fetchedExhibits;
 
   const [activeDomain, setActiveDomain] = useState('CRIME');
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
@@ -181,7 +181,6 @@ const AnalyticsDashboard = ({
       const statStr = String(o.status || '').toUpperCase();
       const casStr = String(o.casualty || o.casualty_type || o.reason || '').toUpperCase();
       
-      // 🟢 Comprehensive detection of non-deployable reasons from status, deployability, or casualty fields
       const nonDeployableKeywords = [
         'DISABLED', 'CHRONICALLY SICK', 'SICK', 'MENTAL', 'MATERNITY', 
         'COURSE', 'INTERDICTED', 'SUSPENDED', 'DISCIPLINARY', 'STUDY', 
@@ -247,6 +246,229 @@ const AnalyticsDashboard = ({
 
     return { rows, uniqueUnits, uniqueReasons, grandTotals };
   }, [resolvedNominalRolls, selectedRegion, selectedStation]);
+
+  const currentDataset = useMemo(() => {
+    let baseData = [];
+    if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') baseData = resolvedCrimeRegistry.filter(r => !isLockupLog(r)); 
+    else if (activeDomain === 'MANPOWER_DEEP') baseData = resolvedNominalRolls;
+    else if (activeDomain === 'SUCCESS') baseData = resolvedSuccessStories;
+    else if (activeDomain === 'OPERATIONS') baseData = resolvedOperationalStats;
+    else if (activeDomain === 'EXHIBITS') baseData = resolvedExhibits;
+
+    baseData = baseData.filter(item => {
+      let stn = (item.station || '').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+      const reg = getOfficialRegionForStation(stn, item.region);
+
+      if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
+        return true;
+      }
+
+      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
+      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation.toUpperCase()) return false;
+      return true;
+    });
+
+    if (activeDomain !== 'MANPOWER_DEEP' && activeDomain !== 'RELATIONAL' && dateFilter !== 'ALL') {
+      const now = new Date();
+      baseData = baseData.filter(item => {
+        const itemDateStr = item.date || item.createdAt || item.timestamp || item.date_impounded;
+        if (!itemDateStr) return true; 
+        const itemDate = new Date(itemDateStr);
+        if (isNaN(itemDate)) return true;
+
+        if (dateFilter === 'TODAY' || dateFilter === 'today') return itemDate.toDateString() === now.toDateString();
+        if (dateFilter === 'WEEK' || dateFilter === 'week') {
+          const weekAgo = new Date();
+          weekAgo.setDate(now.getDate() - 7);
+          return itemDate >= weekAgo && itemDate <= now;
+        }
+        if (dateFilter === 'MONTH') return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
+        if (dateFilter === 'YEAR') return itemDate.getFullYear() === now.getFullYear();
+        return true;
+      });
+    }
+    return baseData;
+  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, resolvedExhibits, dateFilter, selectedRegion, selectedStation, canViewGlobalActive]);
+
+  const aggregatedData = useMemo(() => {
+    const grouped = {};
+    currentDataset.forEach(item => {
+      let key = 'UNCLASSIFIED';
+      if (activeDomain === 'CRIME') {
+        if (metricCategory === 'CATEGORY') key = normalizeOffenceCategory(item.crime_category || item.offence || 'GENERAL CRIME');
+        else if (metricCategory === 'CASES') key = (item.status || 'PENDING').toUpperCase();
+        else if (metricCategory === 'STATION') key = (item.station || 'UNKNOWN STATION').toUpperCase();
+      } else if (activeDomain === 'SUCCESS') {
+        key = (item.impact_type || item.category || 'COMMUNITY RECOVERY').toUpperCase();
+      } else if (activeDomain === 'OPERATIONS') {
+        key = (item.operation_type || item.outcome || item.category || 'SNAP OPERATION / DISRUPTIVE SWEEP').toUpperCase();
+      } else if (activeDomain === 'EXHIBITS') {
+        key = (item.status || 'UNSPECIFIED STATUS').toUpperCase();
+      }
+
+      if (!grouped[key]) grouped[key] = { label: key, count: 0 };
+      grouped[key].count += 1;
+    });
+
+    return Object.values(grouped).sort((a, b) => b.count - a.count);
+  }, [currentDataset, activeDomain, metricCategory]);
+
+  const crimeSummaryData = useMemo(() => {
+    const crimeCounts = {};
+    currentDataset.forEach(report => {
+      const crimeName = report.offence || report.crime_category || "Unspecified";
+      if (crimeCounts[crimeName]) {
+        crimeCounts[crimeName] += 1;
+      } else {
+        crimeCounts[crimeName] = 1;
+      }
+    });
+
+    return Object.keys(crimeCounts).map((crimeName, index) => ({
+      sn: index + 1,
+      incident: crimeName,
+      total: crimeCounts[crimeName]
+    })).sort((a, b) => b.total - a.total);
+  }, [currentDataset]);
+
+  // 🟢 Declared here at the top scope so they are fully available before the filter toolbar renders
+  const totalRecords = useMemo(() => aggregatedData.reduce((acc, curr) => acc + curr.count, 0), [aggregatedData]);
+  const crimeSummaryGrandTotal = useMemo(() => crimeSummaryData.reduce((sum, item) => sum + item.total, 0), [crimeSummaryData]);
+
+  const pieSlices = useMemo(() => {
+    if (totalRecords === 0) return [];
+    let cumulativePercent = 0;
+    return aggregatedData.map((item, index) => {
+      const percent = item.count / totalRecords;
+      const startAngle = cumulativePercent * 360;
+      cumulativePercent += percent;
+      const endAngle = cumulativePercent * 360;
+      const x1 = 50 + 40 * Math.cos((Math.PI * (startAngle - 90)) / 180);
+      const y1 = 50 + 40 * Math.sin((Math.PI * (startAngle - 90)) / 180);
+      const x2 = 50 + 40 * Math.cos((Math.PI * (endAngle - 90)) / 180);
+      const y2 = 50 + 40 * Math.sin((Math.PI * (endAngle - 90)) / 180);
+      const largeArcFlag = percent > 0.5 ? 1 : 0;
+      const pathData = totalRecords === 1 || percent === 1 ? "M 50 10 A 40 40 0 1 1 49.99 10 Z" : `M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArcFlag} 1 ${x2} ${y2} Z`;
+      return { label: item.label, count: item.count, percent: (percent * 100).toFixed(1), color: CHART_COLORS[index % CHART_COLORS.length], pathData };
+    });
+  }, [aggregatedData, totalRecords]);
+
+  const getWeekIdentifier = (dateStr) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    const target = new Date(d.valueOf());
+    const dayNr = (d.getDay() + 6) % 7;
+    target.setDate(target.getDate() - dayNr + 3);
+    const firstThursday = new Date(target.getFullYear(), 0, 4);
+    const weekNr = Math.ceil((((target - firstThursday) / 86400000) + 1) / 7);
+    return `${target.getFullYear()}-W${String(weekNr).padStart(2, '0')}`;
+  };
+
+  const relationalImpactMatrix = useMemo(() => {
+    const reports = Array.isArray(resolvedCrimeRegistry) ? resolvedCrimeRegistry.filter(r => !isLockupLog(r)) : [];
+    const ops = Array.isArray(resolvedOperationalStats) ? resolvedOperationalStats : [];
+    const successes = Array.isArray(resolvedSuccessStories) ? resolvedSuccessStories : [];
+    const exhibitsList = Array.isArray(resolvedExhibits) ? resolvedExhibits : [];
+
+    const regionMap = {};
+
+    Object.keys(REGIONAL_HIERARCHY).forEach(reg => {
+      regionMap[reg] = { region: reg, stations: {}, totalArrests: 0, totalSuccesses: 0, crimeCount: 0, totalExhibits: 0 };
+      REGIONAL_HIERARCHY[reg].forEach(stn => {
+        regionMap[reg].stations[stn] = { station: stn, arrests: 0, successes: 0, crimes: 0, exhibits: 0 };
+      });
+    });
+
+    ops.forEach(o => {
+      let stn = (o.station || '').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+
+      const reg = getOfficialRegionForStation(stn, o.region);
+      const arrestsCount = Number(o.arrests || o.suspects || o.suspects_arrested || 1);
+      
+      if (regionMap[reg] && regionMap[reg].stations[stn]) {
+        regionMap[reg].stations[stn].arrests += arrestsCount;
+        regionMap[reg].totalArrests += arrestsCount;
+      }
+    });
+
+    successes.forEach(s => {
+      let stn = (s.station || '').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+
+      const reg = getOfficialRegionForStation(stn, s.region);
+      if (regionMap[reg] && regionMap[reg].stations[stn]) {
+        regionMap[reg].stations[stn].successes += 1;
+        regionMap[reg].totalSuccesses += 1;
+      }
+    });
+
+    reports.forEach(r => {
+      let stn = (r.station || '').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+
+      const reg = getOfficialRegionForStation(stn, r.region);
+      if (regionMap[reg] && regionMap[reg].stations[stn]) {
+        regionMap[reg].stations[stn].crimes += 1;
+        regionMap[reg].crimeCount += 1;
+      }
+    });
+
+    exhibitsList.forEach(e => {
+      let stn = (e.station || '').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+
+      const reg = getOfficialRegionForStation(stn, e.region);
+      if (regionMap[reg] && regionMap[reg].stations[stn]) {
+        regionMap[reg].stations[stn].exhibits += 1;
+        regionMap[reg].totalExhibits += 1;
+      }
+    });
+
+    const rows = [];
+    Object.values(regionMap).forEach(regObj => {
+      if (selectedRegion !== 'ALL REGIONS' && regObj.region !== selectedRegion) return;
+
+      let hasMatchingStation = false;
+      const stationRows = [];
+
+      Object.values(regObj.stations).forEach(stnObj => {
+        if (selectedStation !== 'ALL STATIONS' && stnObj.station !== selectedStation) return;
+        
+        if (stnObj.arrests > 0 || stnObj.successes > 0 || stnObj.crimes > 0 || stnObj.exhibits > 0) {
+          hasMatchingStation = true;
+          stationRows.push({
+            isRegionHeader: false,
+            region: regObj.region,
+            station: stnObj.station,
+            arrests: stnObj.arrests,
+            successes: stnObj.successes,
+            crimes: stnObj.crimes,
+            exhibits: stnObj.exhibits,
+            disruptionRating: (stnObj.arrests + stnObj.exhibits) >= stnObj.crimes ? 'POSITIVE IMPACT (CRIME SUPPRESSED)' : 'ACTIVE SWEEP'
+          });
+        }
+      });
+
+      if (hasMatchingStation || selectedStation === 'ALL STATIONS') {
+        rows.push({
+          isRegionHeader: true,
+          region: regObj.region,
+          station: `${regObj.region} (REGIONAL COMMAND)`,
+          arrests: regObj.totalArrests,
+          successes: regObj.totalSuccesses,
+          crimes: regObj.crimeCount,
+          exhibits: regObj.totalExhibits,
+          disruptionRating: regObj.totalArrests > 10 ? 'HIGH DISRUPTION' : 'MODERATE'
+        });
+        rows.push(...stationRows);
+      }
+    });
+
+    return rows;
+  }, [resolvedCrimeRegistry, resolvedOperationalStats, resolvedSuccessStories, resolvedExhibits, selectedRegion, selectedStation]);
 
   const operationsTrendsData = useMemo(() => {
     const ops = Array.isArray(resolvedOperationalStats) ? resolvedOperationalStats : [];
@@ -357,7 +579,7 @@ const AnalyticsDashboard = ({
           { id: 'RELATIONAL', label: '🔗 Relational Matrix' },
           { id: 'MANPOWER_DEEP', label: '🛡️ Manpower Analysis' },
           { id: 'SUCCESS', label: '🌟 Success Stories' },
-          { id: 'EXHIBITS', label: '🚚 Exhibits' }, // 🟢 Newly injected tab for Exhibits
+          { id: 'EXHIBITS', label: '🚚 Exhibits' },
           { id: 'CRIME', label: '📊 Crime Categories' },
           { id: 'CRIME_SUMMARY', label: '📋 Summary Table' },
           { id: 'TRENDS', label: '📈 Ops Trends' }
@@ -458,7 +680,7 @@ const AnalyticsDashboard = ({
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Station / Hotspot Division</th>
                     <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Snap Arrests</th>
                     <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Recoveries</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Impounds</th> {/* 🟢 New Header */}
+                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Impounds</th>
                     <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Active Crime</th>
                     <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Impact Status</th>
                   </tr>
@@ -471,7 +693,7 @@ const AnalyticsDashboard = ({
                           <td className="px-3 py-2 text-[11px] uppercase tracking-wider" colSpan="2">🛡️ {row.station}</td>
                           <td className="px-3 py-2 text-center font-black text-[#596E47] text-[11px]">{row.arrests} Arrests</td>
                           <td className="px-3 py-2 text-center font-black text-amber-800 text-[11px]">{row.successes} Breakthroughs</td>
-                          <td className="px-3 py-2 text-center font-black text-teal-800 text-[11px]">{row.exhibits} Impounds</td> {/* 🟢 New Data Cell */}
+                          <td className="px-3 py-2 text-center font-black text-teal-800 text-[11px]">{row.exhibits} Impounds</td>
                           <td className="px-3 py-2 text-center font-bold text-[11px]">{row.crimes} Crimes</td>
                           <td className="px-3 py-2 text-center">
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#3a3225] text-[#f4eee2]">{row.disruptionRating}</span>
@@ -485,7 +707,7 @@ const AnalyticsDashboard = ({
                         <td className="px-3 py-1.5 text-[11px] font-bold text-[#594d3c]">— {row.station}</td>
                         <td className="px-3 py-1.5 text-[11px] text-center font-bold text-[#596E47]">{row.arrests}</td>
                         <td className="px-3 py-1.5 text-[11px] text-center font-bold text-amber-800">{row.successes}</td>
-                        <td className="px-3 py-1.5 text-[11px] text-center font-bold text-teal-700">{row.exhibits}</td> {/* 🟢 New Data Cell */}
+                        <td className="px-3 py-1.5 text-[11px] text-center font-bold text-teal-700">{row.exhibits}</td>
                         <td className="px-3 py-1.5 text-[11px] text-center font-bold text-[#3a3225]">{row.crimes}</td>
                         <td className="px-3 py-1.5 text-center text-[11px]">
                           <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${row.disruptionRating.includes('POSITIVE') ? 'bg-[#e9eedf] text-[#3b4c2e]' : 'bg-slate-200 text-slate-700'}`}>{row.disruptionRating}</span>
@@ -509,7 +731,7 @@ const AnalyticsDashboard = ({
             </p>
           </div>
 
-          {/* 🟢 DEPLOYABLE PERSONNEL (UNITS) TABLE */}
+          {/* DEPLOYABLE PERSONNEL (UNITS) TABLE */}
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
              <div className="bg-[#efece6] px-4 py-2 border-b border-[#d3c2a8] flex items-center justify-between">
                 <h3 className="text-xs font-black text-[#3a3225] uppercase">General Summary (Deployable Personnel)</h3>
@@ -571,7 +793,7 @@ const AnalyticsDashboard = ({
              </div>
           </div>
 
-          {/* 🟢 NON-DEPLOYABLE PERSONNEL (CASUALTIES) TABLE */}
+          {/* NON-DEPLOYABLE PERSONNEL (CASUALTIES) TABLE */}
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
              <div className="bg-[#efece6] px-4 py-2 border-b border-[#d3c2a8] flex items-center justify-between">
                 <h3 className="text-xs font-black text-amber-900 uppercase">Consolidated Casualty / Non-Deployables Summary</h3>
