@@ -385,7 +385,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     } catch (err) { alert(`Role Update Failed: ${err.message}`); fetchAllSystemUsers(); }
   };
 
-  // 🟢 ENHANCED APPROVAL HANDLER: Automatically grants full operational and nominal roll write permissions for their station/region scope
+  // 🟢 ENHANCED APPROVAL HANDLER: Automatically grants full operational and nominal roll write permissions locked strictly to their station/region scope
   const handleApproveUser = async (userToApprove, customAssignedRole = 'STATION_ADMIN', customPermissions = {}) => {
     if (isReadOnlyObserver) {
       alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit approving access requests.");
@@ -398,15 +398,16 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const cleanFnum = stripHtmlTags(fnum);
       
       const userStationUpper = stripHtmlTags(userToApprove.station || '').toUpperCase();
+      const userRegionUpper = stripHtmlTags(userToApprove.region || '').toUpperCase();
       
       let assignedRole = customAssignedRole;
       if (userStationUpper.includes('HEADQUARTERS') || userStationUpper.includes('HQ') || userStationUpper.includes('REGIONAL')) {
         assignedRole = 'REGIONAL_ADMIN'; 
       } else {
-        assignedRole = 'STATION_ADMIN'; // Ensures they have administrative write permissions for their station
+        assignedRole = 'STATION_ADMIN'; // Enforces station-level administrative write permissions (e.g. CPS Kampala)
       }
 
-      // 🟢 Automatically grant all core operational clearances so approved data officers have instant access to their modules
+      // 🟢 Automatically grant all core operational clearances so approved data officers have instant write and view access for their station/region
       const grantedPermissions = {
         view_nominal_roll: true,
         upload_hr: true,
@@ -427,12 +428,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           role: assignedRole, 
           is_approved: true, 
           permissions: grantedPermissions,
-          station: userToApprove.station, 
-          region: userToApprove.region 
+          station: userToApprove.station, // Locks user strictly to their assigned station (e.g. CPS Kampala)
+          region: userToApprove.region   // Locks user to their region
         })
       });
 
-      alert(`✅ Success: Full operational and data entry clearance granted for ${cleanFnum} at [${userToApprove.station || 'Assigned Station'} / ${userToApprove.region || 'Assigned Region'}].`);
+      alert(`✅ Success: Operational clearance granted for ${cleanFnum} locked strictly to station [${userToApprove.station || 'Assigned Station'} / ${userToApprove.region || 'Assigned Region'}].`);
       setSelectedPendingUser(null);
       fetchPendingUsers();
       fetchAllSystemUsers();
