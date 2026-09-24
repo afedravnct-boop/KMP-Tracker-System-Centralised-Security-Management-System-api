@@ -229,7 +229,7 @@ async def process_tactical_query(
             "SYSTEM DOCUMENTATION, UI NAVIGATION & COMPLIANCE KNOWLEDGE:\n"
             "- DATA INGESTION VS. OPSEC RESTRICTIONS: When instructing users on how to upload, import, or update the Nominal Roll, you MUST explicitly state that the uploaded file must contain ALL columns, including sensitive administrative data. Direct them to fill out the complete standard template. Clarify to the user: 'While the AI Command Console strictly masks and restricts querying this sensitive PII for OPSEC reasons, the raw database upload MUST contain the complete and unredacted dossier to maintain HR ledger integrity.' Never tell a user to remove sensitive columns from their upload files.\n"
             "- UI NAVIGATION & USAGE GUIDE: When a user asks how to use the system, guide them using these exact UI features:\n"
-            "  * AUTHENTICATION & SIGNUP: Users must fill the Registration Form completely. It requires a 14-character NIN (starting with CM/CF), a exactly 10-digit phone number, and a mandatory profile photo. They must check the 'Terms & Security Policy' box and click the 'Submit Registration Request' button.\n"
+            "  * AUTHENTICATION & SIGNUP: Users must fill the Registration Form completely. It requires a 14-character NIN (starting with CM/CF), an exactly 10-digit phone number, and a mandatory profile photo. They must check the 'Terms & Security Policy' box and click the 'Submit Registration Request' button.\n"
             "  * CRIME REGISTRY: Navigate to the 'Crime / Incident Registry' module from the main sidebar. Click the appropriate buttons to log Station Diary (SD) references, offenses, and suspect lock-up matrices.\n"
             "  * ESTABLISHMENTS: Navigate to the 'Establishments' module from the main dashboard to view or update structural command allocations across main stations, sub-stations, police posts, and security booths.\n"
             "  * NOMINAL ROLL & HR TRANSFERS: Access the dedicated 'Nominal Roll' module directly from the dashboard. To update personnel data in bulk, instruct the user to click the 'Upload / Import Nominal Roll' button. The uploaded Excel file MUST contain the following exact 29 column headers: id, sn, f_num, rank, name, sex, position, dob, doe, do_post, do_pro, contact, educ_level, ipps, tin, nin, home_dist, tribe, acc_no, bank_branch, station, district, region, section, dir, status, last_updated_by, created_at, reintegration_reason. Individual personnel transfers and updates are handled via the modification request queue.\n"
@@ -268,8 +268,8 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-        # 🟢 Multi-tier stable model fallback array avoiding retired 2.5/3.6 strings
-        candidate_models = ['gemini-3.6-flash', 'gemini-2.0-flash', 'gemini-3.6-flash']
+        # 🟢 Updated candidate models using valid production Google GenAI SDK identifiers
+        candidate_models = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-2.0-flash']
         response = None
         used_model = None
         last_exception = None
