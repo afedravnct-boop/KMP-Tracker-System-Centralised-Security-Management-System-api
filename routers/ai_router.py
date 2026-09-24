@@ -269,7 +269,7 @@ async def process_tactical_query(
         )
 
         # 🟢 Multi-tier stable model fallback array avoiding retired 2.5/3.6 strings
-        candidate_models = ['gemini-3.6-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+        candidate_models = ['gemini-3.6-flash', 'gemini-2.0-flash', 'gemini-2.5-flash']
         response = None
         used_model = None
         last_exception = None
