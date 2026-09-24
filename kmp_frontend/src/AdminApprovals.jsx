@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
-  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search
+  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search, Award
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -18,13 +18,13 @@ import {
 
 const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
-    
+  
   const [modRequests, setModRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
-    
+  
   const [auditLogs, setAuditLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
-    
+  
   const [realPendingUsers, setRealPendingUsers] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
 
@@ -48,51 +48,38 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [lockdownData, setLockdownData] = useState({ system: false, regions: {}, stations: {} });
   
   const [searchTerm, setSearchTerm] = useState('');
+  const [showDelegationModal, setShowDelegationModal] = useState(false);
+  const [selectedDelegateUser, setSelectedDelegateUser] = useState(null);
 
   const [revokePrompt, setRevokePrompt] = useState({
     isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: ''
   });
 
-  const activeLockdownSummary = useMemo(() => {
-    let list = [];
-    if (lockdownData.system) list.push("🚨 SYSTEM-WIDE FULL LOCKDOWN");
-    Object.keys(lockdownData.regions).forEach(r => { if (lockdownData.regions[r]) list.push(`⚠️ REGION: ${r}`); });
-    Object.keys(lockdownData.stations).forEach(s => { if (lockdownData.stations[s]) list.push(`🔒 STATION: ${s}`); });
-    return list;
-  }, [lockdownData]);
-
-  const canViewGlobalActive = canViewGlobal || 
-    ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || 
-    currentUser?.permissions?.view_global_roster === true || 
-    currentUser?.permissions?.global_observer === true ||
-    currentUser?.permissions?.global_open === true;
-
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
 
-  const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && 
-    !currentUser?.permissions?.global_open && 
-    !isSuperAdmin;
+  // 🟢 Role & Hierarchy Calculations
+  const isTopCommand = [
+    'SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'RPC', 'DEPUTY_RPC'
+  ].includes(userRoleClean) || userPosClean.includes('COMMANDER') || userPosClean.includes('RPC') || userPosClean.includes('HR');
 
-  const isSuperAdminOrTopCommand = (
-    canViewGlobalActive ||
-    isSuperAdmin ||
-    userPosClean.includes('KMP COMMANDER') ||
-    userPosClean.includes('DEPUTY KMP COMMANDER') ||
-    userPosClean.includes('STAFF OFFICER ADMIN') ||
-    userPosClean.includes('SO ADMIN')
-  );
+  const hasDelegatedApprovalPower = currentUser?.permissions?.can_approve === true || currentUser?.permissions?.system_admin === true;
+  const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true;
 
-  const [filterRegion, setFilterRegion] = useState(isSuperAdminOrTopCommand ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
-  const [filterStation, setFilterStation] = useState(isSuperAdminOrTopCommand ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
+  const canViewGlobalActive = canViewGlobal || isTopCommand || currentUser?.permissions?.view_global_roster === true;
+
+  const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && !currentUser?.permissions?.global_open && !isSuperAdmin;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
+  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
 
   useEffect(() => {
-    if (canViewGlobalActive || isSuperAdminOrTopCommand) {
+    if (canViewGlobalActive) {
       setFilterRegion('ALL REGIONS');
       setFilterStation('ALL STATIONS');
     }
-  }, [canViewGlobalActive, isSuperAdminOrTopCommand]);
+  }, [canViewGlobalActive]);
 
   const fetchLockdownStatus = useCallback(async () => {
     if (!hasValidSession()) return;
@@ -122,22 +109,15 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const handleToggleLockdown = async (type, name, currentStatus) => {
     if (isReadOnlyObserver) {
-      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit managing system lockdowns.");
+      alert("SECURITY RESTRICTION: Read-only clearance does not permit managing system lockdowns.");
       return;
     }
 
     const isLifting = currentStatus; 
     const actionWord = isLifting ? "LIFT" : "ACTIVATE";
-
     const rawReason = window.prompt(`State official reason to ${actionWord} lockdown on [${type}: ${name}]:`);
     if (rawReason === null) return;
     const reason = stripHtmlTags(rawReason || (isLifting ? "Command Lockdown Lifted" : "Command Maintenance"));
-
-    if (isLifting) {
-      if (!window.confirm(`⚠️ Are you sure you want to LIFT the lockdown for [${type}: ${name}]?`)) return;
-    } else {
-      if (!window.confirm(`🛑 Are you sure you want to LOCK DOWN [${type}: ${name}]? This will instantly restrict access.`)) return;
-    }
 
     try {
       const res = await authFetch('/api/v1/admin/toggle-maintenance', {
@@ -157,11 +137,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleKillSwitchToggle = async () => {
-    if (isReadOnlyObserver) {
-      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit toggling the AI database kill switch.");
-      return;
-    }
-
+    if (isReadOnlyObserver) return;
     setLoadingKillSwitch(true);
     try {
       const res = await authFetch('/api/v1/ai/admin/toggle-db-query', { method: 'POST' });
@@ -171,7 +147,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         alert(data.message);
       } else alert("Failed to toggle AI database kill switch.");
     } catch (err) {
-      alert("Error contacting the server to toggle AI database access.");
+      alert("Error contacting the server.");
     } finally {
       setLoadingKillSwitch(false);
     }
@@ -184,11 +160,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const res = await authFetch("/api/v1/admin/pending-users");
       if (res && res.ok) {
         const data = await res.json();
-        setRealPendingUsers(Array.isArray(data) ? data : []);
+        // Hide Super Admin from list if non-super admin views
+        const filtered = (Array.isArray(data) ? data : []).filter(u => isSuperAdmin || u.role !== 'SUPER_ADMIN');
+        setRealPendingUsers(filtered);
       }
     } catch (err) { console.error("Failed to sync pending users:", err); } 
     finally { setLoadingPending(false); }
-  }, []);
+  }, [isSuperAdmin]);
 
   const fetchResets = useCallback(async () => {
     if (!hasValidSession()) return;
@@ -210,11 +188,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const res = await authFetch("/api/v1/users");
       if (res && res.ok) {
         const data = await res.json();
-        setAllSystemUsers(Array.isArray(data) ? data : []);
+        // Hide Super Admin from everyone except Super Admin
+        const filtered = (Array.isArray(data) ? data : []).filter(u => isSuperAdmin || u.role !== 'SUPER_ADMIN');
+        setAllSystemUsers(filtered);
       }
-    } catch (err) { console.error("Failed to sync system user roster:", err); } 
+    } catch (err) { console.error("Failed to sync roster:", err); } 
     finally { setLoadingUsers(false); }
-  }, []);
+  }, [isSuperAdmin]);
 
   const fetchModRequests = useCallback(async () => {
     if (!hasValidSession()) return;
@@ -238,7 +218,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         const data = await res.json();
         setAuditLogs(Array.isArray(data) ? data : []);
       }
-    } catch (err) { console.error("Failed to sync audit logs:", err); } 
+    } catch (err) { console.error("Failed to sync logs:", err); } 
     finally { setLoadingLogs(false); }
   }, []);
 
@@ -248,7 +228,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     else if (activeTab === 'requests') fetchModRequests();
     else if (activeTab === 'logs') { fetchAuditLogs(); fetchAllSystemUsers(); }
     else if (activeTab === 'resets') fetchResets();
-      
+    
     if (typeof fetchLockdownStatus === 'function') fetchLockdownStatus();
   }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
 
@@ -301,16 +281,25 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     });
   }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
 
-  const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
-    if (isReadOnlyObserver) {
-      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit bulk matrix updates.");
-      return;
-    }
+  // 🟢 Hierarchy Safeguard: Check if currentUser can modify target user
+  const canControlTargetUser = (targetUser) => {
+    if (!targetUser) return false;
+    const targetRole = (targetUser.role || '').toUpperCase();
+    if (targetRole === 'SUPER_ADMIN') return false; // No one modifies Super Admin
+    if (isSuperAdmin) return true; // Super Admin has absolute God mode
 
+    const myRole = userRoleClean;
+    // RPCs / System Managers cannot modify other RPCs/System Managers unless Super Admin
+    if (['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER'].includes(targetRole) && myRole === targetRole) return false;
+    return true;
+  };
+
+  const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
+    if (isReadOnlyObserver) return;
     const cleanFnum = stripHtmlTags(fnum);
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
-    if (!targetUser || !canModifyUser(currentUser, targetUser)) {
-      alert("SECURITY OVERRIDE DENIED: Insufficient clearance.");
+    if (!targetUser || !canControlTargetUser(targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance over this command tier.");
       return;
     }
 
@@ -326,26 +315,16 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
-    if (isReadOnlyObserver) {
-      alert("SECURITY RESTRICTION: Your clearance is Read-Only.");
+    if (isReadOnlyObserver) return;
+    const cleanFnum = stripHtmlTags(fnum);
+    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    if (!targetUser || !canControlTargetUser(targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Cannot alter permissions for senior or equivalent command ranks.");
       return;
     }
 
-    const cleanFnum = stripHtmlTags(fnum);
-    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
-    if (!targetUser) return;
-
     let updatedPermissions = { ...(targetUser.permissions || {}) };
-
-    if (permissionKey === 'global_observer' && value === true) {
-      updatedPermissions.global_observer = true;
-      updatedPermissions.global_open = false; 
-    } else if (permissionKey === 'global_open' && value === true) {
-      updatedPermissions.global_open = true;
-      updatedPermissions.global_observer = false; 
-    } else {
-      updatedPermissions[permissionKey] = value;
-    }
+    updatedPermissions[permissionKey] = value;
 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
 
@@ -357,21 +336,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleRoleTierChange = async (fnum, newRole) => {
-    if (isReadOnlyObserver) {
-      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit changing role tiers.");
-      return;
-    }
-
+    if (isReadOnlyObserver) return;
     const cleanFnum = stripHtmlTags(fnum);
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
-    if (!targetUser || !canModifyUser(currentUser, targetUser)) {
+    if (!targetUser || !canControlTargetUser(targetUser)) {
       alert("SECURITY OVERRIDE DENIED: Insufficient clearance.");
-      return;
-    }
-
-    const currentRoleClean = (currentUser?.role || '').toUpperCase();
-    if (currentRoleClean === 'ASSISTANT_REGIONAL_ADMIN' && newRole === 'REGIONAL_ADMIN') {
-      alert("SECURITY RESTRICTION: Assistant Regional Admin cannot modify Regional Admin roles.");
       return;
     }
 
@@ -385,29 +354,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     } catch (err) { alert(`Role Update Failed: ${err.message}`); fetchAllSystemUsers(); }
   };
 
-  // 🟢 ENHANCED APPROVAL HANDLER: Automatically grants full operational and nominal roll write permissions locked strictly to their station/region scope
   const handleApproveUser = async (userToApprove, customAssignedRole = 'STATION_ADMIN', customPermissions = {}) => {
-    if (isReadOnlyObserver) {
-      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit approving access requests.");
-      return;
-    }
-
+    if (isReadOnlyObserver) return;
     const fnum = typeof userToApprove === 'object' ? userToApprove.fnum : userToApprove;
     setIsProcessingAction(true);
     try {
       const cleanFnum = stripHtmlTags(fnum);
-      
-      const userStationUpper = stripHtmlTags(userToApprove.station || '').toUpperCase();
-      const userRegionUpper = stripHtmlTags(userToApprove.region || '').toUpperCase();
-      
-      let assignedRole = customAssignedRole;
-      if (userStationUpper.includes('HEADQUARTERS') || userStationUpper.includes('HQ') || userStationUpper.includes('REGIONAL')) {
-        assignedRole = 'REGIONAL_ADMIN'; 
-      } else {
-        assignedRole = 'STATION_ADMIN'; // Enforces station-level administrative write permissions (e.g. CPS Kampala)
-      }
-
-      // 🟢 Automatically grant all core operational clearances so approved data officers have instant write and view access for their station/region
       const grantedPermissions = {
         view_nominal_roll: true,
         upload_hr: true,
@@ -425,15 +377,15 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         method: "PUT", 
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ 
-          role: assignedRole, 
+          role: customAssignedRole, 
           is_approved: true, 
           permissions: grantedPermissions,
-          station: userToApprove.station, // Locks user strictly to their assigned station (e.g. CPS Kampala)
-          region: userToApprove.region   // Locks user to their region
+          station: userToApprove.station, 
+          region: userToApprove.region 
         })
       });
 
-      alert(`✅ Success: Operational clearance granted for ${cleanFnum} locked strictly to station [${userToApprove.station || 'Assigned Station'} / ${userToApprove.region || 'Assigned Region'}].`);
+      alert(`✅ Success: Access approved for ${cleanFnum}.`);
       setSelectedPendingUser(null);
       fetchPendingUsers();
       fetchAllSystemUsers();
@@ -442,11 +394,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleRejectUser = async (userToReject) => {
-    if (isReadOnlyObserver) {
-      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit rejecting access requests.");
-      return;
-    }
-
+    if (isReadOnlyObserver) return;
     const fnum = typeof userToReject === 'object' ? userToReject.fnum : userToReject;
     const rawReason = window.prompt(`Enter official reason for REJECTING ${fnum}:`);
     if (rawReason === null) return;
@@ -461,61 +409,53 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     finally { setIsProcessingAction(false); }
   };
 
-  const handleReviewRequest = async (reqId, actionStatus) => {
-    if (isReadOnlyObserver) {
-      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit reviewing HR modifications.");
+  const handleRevokeAccessCompletely = async (fnum, name) => {
+    if (isReadOnlyObserver) return;
+    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
+    if (targetUser && !canControlTargetUser(targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Cannot revoke higher or equivalent command tier.");
       return;
     }
 
+    const rawReason = window.prompt(`State mandatory official reason to COMPLETELY REVOKE access for ${name} (${fnum}):`);
+    if (rawReason === null) return;
+    const reason = stripHtmlTags(rawReason || "Administrative Access Revocation");
+
+    if (!window.confirm(`⚠️ Are you sure you want to completely deny system access for ${name}?`)) return;
+
     try {
-      await authFetch(`/api/v1/requests/${reqId}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: actionStatus })
+      const res = await authFetch(`/api/v1/users/${encodeURIComponent(fnum)}/revoke?reason=${encodeURIComponent(reason)}`, {
+        method: 'DELETE'
       });
-      setModRequests(modRequests.filter(r => (r.id || r.sn) !== reqId));
-      setSelectedModRequest(null); 
-      alert(`Request ${actionStatus.toLowerCase()} successfully!`);
-    } catch (err) { alert(`Error processing request: ${err.message}`); }
+      if (!res.ok) throw new Error(await res.text());
+      alert(`✅ Access completely revoked for ${fnum}.`);
+      fetchAllSystemUsers();
+    } catch (err) {
+      alert(`Revocation Failed: ${err.message}`);
+    }
   };
 
-  const handleResetAction = async (reqId, actionStr) => {
-    if (isReadOnlyObserver) {
-      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit executing password resets.");
+  // 🟢 Delegation Handler: Assign/Revoke approval powers to station/division/regional admins
+  const handleToggleDelegationPower = async (targetUser, givePower) => {
+    if (!isTopCommand) {
+      alert("SECURITY RESTRICTION: Only System Managers, RPCs, and Super Admins can delegate command powers.");
       return;
     }
 
+    const newPerms = { ...(targetUser.permissions || {}), can_approve: givePower };
     try {
-      const formData = new URLSearchParams();
-      formData.append('action', actionStr);
-      const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
-        method: "POST", headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData
+      const res = await authFetch(`/api/v1/users/${encodeURIComponent(targetUser.fnum)}/access`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: targetUser.role, permissions: newPerms })
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail);
-      setResetRequests(resetRequests.filter(r => r.id !== reqId));
-      alert(actionStr === "APPROVE" ? `Password successfully reset! Key: ${data.new_password}` : "Request rejected.");
-    } catch (err) { alert(`Error: ${err.message}`); }
-  };
-
-  const handleForcePassword = async (fnum, name) => {
-    if (isReadOnlyObserver) {
-      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit forcing password overrides.");
-      return;
+      if (!res.ok) throw new Error("Failed to update delegation.");
+      alert(`✅ Delegation successfully ${givePower ? 'GRANTED' : 'REVOKED'} for ${targetUser.name} (${targetUser.fnum}).`);
+      fetchAllSystemUsers();
+      setShowDelegationModal(false);
+    } catch (err) {
+      alert(`Delegation Error: ${err.message}`);
     }
-
-    const newPass = window.prompt(`[SUPER ADMIN OVERRIDE]\nEnter new 6+ character password for ${name} (${fnum}):`);
-    if (!newPass) return;
-    if (newPass.length < 6) return alert("Password must be at least 6 characters long.");
-
-    setIsProcessingAction(true);
-    try {
-      const response = await authFetch(`/api/v1/admin/users/${encodeURIComponent(fnum.trim())}/force-password`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ new_password: newPass })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Failed to force password reset.");
-      alert(`✅ ${data.message}`);
-    } catch (err) { alert(`❌ Error: ${err.message}`); } 
-    finally { setIsProcessingAction(false); }
   };
 
   return (
@@ -533,6 +473,15 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             </p>
           </div>
         </div>
+
+        {isTopCommand && (
+          <button 
+            onClick={() => setShowDelegationModal(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center shadow-md transition cursor-pointer"
+          >
+            <Award size={14} className="mr-2" /> Delegate Approval Powers
+          </button>
+        )}
       </div>
 
       <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5 relative z-20">
@@ -670,11 +619,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                     {filteredSystemUsers.map(u => {
                       const p = u.permissions || {};
                       const isSelf = u.fnum === currentUser?.fnum;
+                      const canModifyThisUser = canControlTargetUser(u);
+
                       return (
                         <tr key={u.fnum} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                           <td className="p-2.5 md:sticky md:left-0 z-10 bg-white dark:bg-slate-900 font-extrabold text-[11px] text-slate-900 dark:text-slate-100 w-[240px] min-w-[240px] truncate" title={formatOfficerHeader(u)}>{formatOfficerHeader(u)}</td>
                           <td className="p-2.5 text-center md:sticky md:left-[240px] z-10 bg-white dark:bg-slate-900 w-[120px] min-w-[120px]">
-                            <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf} className="border border-slate-300 dark:border-slate-700 rounded-md px-1.5 py-1 font-bold outline-none uppercase text-[10px] w-full truncate bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200">
+                            <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf || !canModifyThisUser} className="border border-slate-300 dark:border-slate-700 rounded-md px-1.5 py-1 font-bold outline-none uppercase text-[10px] w-full truncate bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 disabled:opacity-50">
                               <option value="USER">USER</option>
                               <option value="STATION_ADMIN">STN ADMIN</option>
                               <option value="DIVISION_USER">DIV USER</option>
@@ -690,8 +641,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           </td>
                           <td className="p-2.5 text-center md:sticky md:left-[360px] z-10 bg-white dark:bg-slate-900 w-[100px] min-w-[100px]">
                             <div className="flex items-center justify-center space-x-1">
-                              <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 cursor-pointer"><CheckSquare size={12} /></button>
-                              <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 cursor-pointer"><Square size={12} /></button>
+                              {canModifyThisUser && (
+                                <>
+                                  <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 cursor-pointer"><CheckSquare size={12} /></button>
+                                  <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 cursor-pointer"><Square size={12} /></button>
+                                  <button onClick={() => handleRevokeAccessCompletely(u.fnum, u.name)} title="Completely Revoke Access" className="p-1 rounded bg-rose-50 text-rose-700 border border-rose-300 cursor-pointer"><XCircle size={12} /></button>
+                                </>
+                              )}
                               {isSuperAdmin && (
                                 <button onClick={() => handleForcePassword(u.fnum, u.name)} title="Force Password" className="p-1 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 cursor-pointer"><KeyRound size={12} /></button>
                               )}
@@ -700,9 +656,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           {CLEARANCE_MATRIX_COLS.map((col, idx) => {
                             const isObserverCol = col.key === 'global_observer';
                             const isOpenCol = col.key === 'global_open';
-                            
                             const isMutuallyDisabled = (isObserverCol && Boolean(p.global_open)) || (isOpenCol && Boolean(p.global_observer));
-                            const isDisabled = isSelf || isMutuallyDisabled || u.role === 'SUPER_ADMIN';
+                            const isDisabled = isSelf || isMutuallyDisabled || !canModifyThisUser;
 
                             return (
                               <td key={idx} className="p-2 text-center border-l border-slate-100 dark:border-slate-800 w-20 min-w-[80px]">
@@ -855,6 +810,38 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* 🟢 DELEGATION MODAL */}
+      {showDelegationModal && (
+        <div className="fixed inset-0 bg-black/70 z-[999999] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl text-white">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-extrabold uppercase flex items-center">
+                <Award className="w-4 h-4 mr-2 text-yellow-400" /> Delegate Command Approval Powers
+              </h3>
+              <button onClick={() => setShowDelegationModal(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
+            </div>
+            <p className="text-xs text-slate-400">Select an officer in your command jurisdiction to delegate authorization and matrix approval privileges.</p>
+            <div className="max-h-60 overflow-y-auto space-y-2 custom-scrollbar">
+              {allSystemUsers.filter(u => u.role !== 'SUPER_ADMIN').map(u => (
+                <div key={u.fnum} className="bg-slate-800 p-3 rounded-lg flex items-center justify-between border border-slate-700">
+                  <div>
+                    <div className="font-bold text-xs">{formatOfficerHeader(u)}</div>
+                    <div className="text-[10px] text-slate-400">{u.station} / {u.region} • <span className="text-yellow-400">{u.role}</span></div>
+                  </div>
+                  <div className="space-x-2">
+                    {u.permissions?.can_approve ? (
+                      <button onClick={() => handleToggleDelegationPower(u, false)} className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer">Revoke Power</button>
+                    ) : (
+                      <button onClick={() => handleToggleDelegationPower(u, true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer">Delegate Power</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

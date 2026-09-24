@@ -919,6 +919,40 @@ def get_recipients_list(db: Session = Depends(get_db), current_user: models.User
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch recipients: {str(e)}")
 
+@app.delete("/api/v1/users/{fnum:path}/revoke")
+def revoke_user_access(
+    fnum: str,
+    reason: str = "Administrative Revocation",
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(require_admin)
+):
+    clean_fnum = unquote(unquote(fnum)).strip().upper()
+    target_user = db.query(models.Users).filter(
+        func.trim(func.upper(models.Users.fnum)) == clean_fnum
+    ).first()
+
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User record not found.")
+
+    target_user.role = "REVOKED"
+    target_user.is_approved = False
+
+    try:
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(
+                db=db,
+                fnum=current_user.fnum,
+                action="REVOKE_USER_ACCESS",
+                target_identifier=clean_fnum,
+                changes={"role": [target_user.role, "REVOKED"]},
+                remarks=reason
+            )
+        db.commit()
+        return {"status": "success", "message": f"Access successfully revoked for {clean_fnum}."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database revocation error: {str(e)}")
+
 @app.get("/api/v1/reports/establishments-json")
 def get_establishments_json(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:

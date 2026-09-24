@@ -44,7 +44,6 @@ def validate_and_normalize_nin(nin_str: Optional[str]) -> Optional[str]:
     
     clean_nin = str(nin_str).strip().upper()
     
-    # 🟢 STRICT LENGTH CHECK: Must be exactly 14 characters
     if len(clean_nin) != 14:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -63,10 +62,8 @@ def validate_and_normalize_phone(phone_str: Optional[str]) -> Optional[str]:
     if not phone_str or str(phone_str).strip().lower() in ['nan', 'none', 'null', '', 'n/a']:
         return None
         
-    # Strip spaces, dashes, or plus signs
     clean_phone = re.sub(r'\D', '', str(phone_str))
     
-    # 🟢 STRICT LENGTH CHECK: Must be exactly 10 digits
     if len(clean_phone) != 10:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -137,7 +134,7 @@ def require_export_privilege(current_user: models.Users = Depends(get_current_us
     return current_user
 
 # ====================================================================
-# 1. LOGIN ENDPOINT (Supports JSON, Form, and OAuth2 formats)
+# 1. LOGIN ENDPOINT
 # ====================================================================
 @router.post("/login")
 @router.post("/api/auth/login")
@@ -256,7 +253,6 @@ async def signup(
     clean_phone = validate_and_normalize_phone(phone)
     clean_ipps = str(ipps).strip() if ipps else None
 
-    # Check for duplicate Force Number, IPPS, or NIN
     duplicate_filters = [
         func.trim(func.upper(models.Users.fnum)) == clean_fnum
     ]
@@ -417,7 +413,7 @@ async def request_password_reset(
     return {"status": "success", "message": "Password reset request submitted to Command."}
 
 # ====================================================================
-# 5. USER PASSWORD & PROFILE UPDATE
+# 5. USER PASSWORD, PROFILE UPDATE, REVOCATION & PERMANENT DELETION
 # ====================================================================
 @router.put("/change-password")
 @router.put("/api/v1/users/change-password")
@@ -452,8 +448,62 @@ def update_profile(
         current_user.phone = validate_and_normalize_phone(data.phone)
     if getattr(data, 'nin', None): 
         current_user.nin = validate_and_normalize_nin(data.nin)
+    if getattr(data, 'sex', None): 
+        current_user.sex = str(data.sex).strip().upper()
     if data.profile_photo_path: current_user.profile_photo_path = data.profile_photo_path
 
     db.commit()
     db.refresh(current_user)
     return {"status": "success", "message": "Profile updated successfully."}
+
+@router.delete("/users/{fnum:path}/revoke")
+@router.delete("/api/v1/users/{fnum:path}/revoke")
+def revoke_user_access(
+    fnum: str,
+    reason: str = "Administrative Revocation",
+    db: Session = Depends(database.get_db),
+    current_user: models.Users = Depends(require_admin)
+):
+    clean_fnum = normalize_fnum(fnum)
+    target_user = db.query(models.Users).filter(
+        func.trim(func.upper(models.Users.fnum)) == clean_fnum
+    ).first()
+
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User record not found.")
+
+    target_user.role = "REVOKED"
+    target_user.is_approved = False
+
+    try:
+        db.commit()
+        return {"status": "success", "message": f"Access successfully revoked for {clean_fnum}."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database revocation error: {str(e)}")
+
+@router.delete("/users/{fnum:path}/permanent-delete")
+@router.delete("/api/v1/users/{fnum:path}/permanent-delete")
+def permanent_delete_user(
+    fnum: str,
+    db: Session = Depends(database.get_db),
+    current_user: models.Users = Depends(require_admin)
+):
+    if current_user.role != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Clearance Denied: Only Super Admins can permanently delete accounts.")
+
+    clean_fnum = normalize_fnum(fnum)
+    target_user = db.query(models.Users).filter(
+        func.trim(func.upper(models.Users.fnum)) == clean_fnum
+    ).first()
+
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User record not found.")
+
+    try:
+        db.delete(target_user)
+        db.commit()
+        return {"status": "success", "message": f"Account {clean_fnum} permanently deleted from database."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database deletion error: {str(e)}")

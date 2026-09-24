@@ -611,7 +611,7 @@ const parseEducationLevel = (rawVal) => {
   return str;
 };
 
-const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
+const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage, onLogout }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isRequestMode, setIsRequestMode] = useState(false);
   const [notification, setNotification] = useState(null);
@@ -642,6 +642,7 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
 
   const [formData, setFormData] = useState({
     fnum: currentUser?.fnum || '', name: currentUser?.name || '', rank: currentUser?.rank || '',
+    sex: currentUser?.sex || 'MALE',
     region: currentUser?.region || '', station: currentUser?.station || '', email: currentUser?.email || '',
     phone: currentUser?.phone || '', profile_photo_path: currentUser?.profile_photo_path || ''
   });
@@ -707,6 +708,7 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
         body: JSON.stringify({
           fnum: currentUser.fnum, requested_fnum: formData.fnum !== currentUser.fnum ? formData.fnum : null,
           requested_name: formData.name !== currentUser.name ? formData.name : null, requested_rank: formData.rank !== currentUser.rank ? formData.rank : null,
+          requested_sex: formData.sex !== currentUser.sex ? formData.sex : null,
           requested_region: formData.region !== currentUser.region ? formData.region : null, requested_station: formData.station !== currentUser.station ? formData.station : null,
         })
       });
@@ -718,7 +720,7 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
       
       setNotification("✅ Request successfully logged for Command review.");
       setIsRequestMode(false);
-      setFormData({ ...formData, fnum: currentUser.fnum, name: currentUser.name, rank: currentUser.rank, region: currentUser.region, station: currentUser.station });
+      setFormData({ ...formData, fnum: currentUser.fnum, name: currentUser.name, rank: currentUser.rank, region: currentUser.region, station: currentUser.station, sex: currentUser.sex });
       setTimeout(() => setNotification(null), 5000);
     } catch (err) { 
       setNotification(`❌ Error: ${err.message}`); 
@@ -776,6 +778,22 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
     e.preventDefault();
     if (canAutoApprove || formData.fnum !== currentUser.fnum) handleSubmit(e);
     else handleRequestSubmit(e);
+  };
+
+  const handlePermanentAccountDeletion = async () => {
+    if (!window.confirm(`⚠️ CRITICAL WARNING: You are about to permanently delete your account (${currentUser.fnum}) from the database. This action CANNOT be undone. Proceed?`)) {
+      return;
+    }
+    try {
+      const res = await authFetch(`/api/v1/users/${encodeURIComponent(currentUser.fnum)}/permanent-delete`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) throw new Error(await res.text());
+      alert("Account successfully deleted.");
+      if (onLogout) onLogout();
+    } catch (err) {
+      alert(`Deletion Failed: ${err.message}`);
+    }
   };
 
   return (
@@ -837,7 +855,22 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Full Name</label>
                     <input type="text" name="name" value={formData.name} onChange={handleInputChange} disabled={!canAutoApprove && !isRequestMode} className={`w-full p-2.5 rounded-lg text-xs font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-slate-900 focus:ring-2 focus:ring-blue-500' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`} />
                   </div>
-                  <div className="flex gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      Sex / Gender {!canAutoApprove && "(Requires Request & Clearance)"}
+                    </label>
+                    <select 
+                      name="sex" 
+                      value={formData.sex} 
+                      onChange={handleInputChange} 
+                      disabled={!canAutoApprove && !isRequestMode} 
+                      className={`w-full p-2.5 rounded-lg text-xs font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-slate-900 focus:ring-2 focus:ring-blue-500' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`}
+                    >
+                      <option value="MALE">MALE</option>
+                      <option value="FEMALE">FEMALE</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-4 col-span-2">
                     <div className="w-1/2">
                       <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Force / File Number</label>
                       <input type="text" name="fnum" value={formData.fnum} onChange={(e) => setFormData({...formData, fnum: e.target.value.toUpperCase()})} disabled={!canEditFnum} className={`w-full p-2.5 border rounded-lg text-xs font-bold transition-all ${canEditFnum ? 'bg-amber-50 border-amber-400 text-slate-900 focus:ring-2 focus:ring-amber-500 shadow-inner' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`} />
@@ -896,6 +929,18 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage }) => {
                   <button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg shadow-xs transition-colors text-xs cursor-pointer">Update Security Key</button>
                 </div>
               </form>
+
+              {currentUser?.role === 'SUPER_ADMIN' && (
+                <div className="bg-red-50 p-6 rounded-xl border border-red-200 shadow-xs space-y-3">
+                  <h4 className="text-xs font-bold text-red-800 uppercase tracking-wider border-b border-red-200 pb-2 flex items-center">
+                    <AlertTriangle size={14} className="mr-2 text-red-600" /> Danger Zone: Permanent Account Purge
+                  </h4>
+                  <p className="text-xs text-red-700">Permanently erase this account and all associated access credentials from the central database.</p>
+                  <button type="button" onClick={handlePermanentAccountDeletion} className="bg-red-700 hover:bg-red-800 text-white font-bold py-2 px-4 rounded-lg text-xs transition cursor-pointer shadow-xs">
+                    Purge Account Permanently
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="space-y-6">
