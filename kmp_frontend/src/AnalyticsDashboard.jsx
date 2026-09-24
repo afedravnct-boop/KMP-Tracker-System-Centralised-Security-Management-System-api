@@ -32,6 +32,32 @@ const normalizeOffenceCategory = (rawOffence) => {
   return words.join(' ') || clean;
 };
 
+// 🟢 Comprehensive rank normalizer for drivers, detectives, and investigators
+const normalizeAnalyticsRank = (rankStr) => {
+  if (!rankStr) return 'UNRANKED';
+  let r = String(rankStr).trim().toUpperCase();
+
+  // 1. Normalize detective prefixes (D/PC, DC, D/AIP -> PC, AIP)
+  if (r === 'DC' || r.startsWith('D/C')) {
+    r = 'PC';
+  } else if (r.startsWith('D/') || r.startsWith('D-') || r.startsWith('D ')) {
+    r = r.replace(/^D[\/\- ]/, '').trim();
+    if (r === 'C') r = 'PC';
+  }
+
+  // 2. Normalize driver suffixes/prefixes (C/DRV, PC/DRV, SGT/DRV, DRV -> PC, SGT, etc.)
+  if (r.includes('/DRV') || r.includes('-DRV') || r.includes(' DRV') || r === 'DRV' || r.includes('C/DRV')) {
+    if (r === 'C/DRV' || r === 'DRV' || r === 'PC/DRV') {
+      r = 'PC';
+    } else {
+      r = r.replace(/\/DRV|-DRV| DRV|DRV/g, '').trim();
+    }
+  }
+
+  if (r === 'C' || r === '') r = 'PC';
+  return r;
+};
+
 const getOfficialRegionForStation = (stationName, dbRegion) => {
   let cleanStation = (stationName || '').trim().toUpperCase();
   const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
@@ -305,6 +331,8 @@ const AnalyticsDashboard = ({
         key = (item.operation_type || item.outcome || item.category || 'SNAP OPERATION / DISRUPTIVE SWEEP').toUpperCase();
       } else if (activeDomain === 'EXHIBITS') {
         key = (item.status || 'UNSPECIFIED STATUS').toUpperCase();
+      } else if (metricCategory === 'RANK') {
+        key = normalizeAnalyticsRank(item.rank);
       }
 
       if (!grouped[key]) grouped[key] = { label: key, count: 0 };
@@ -332,7 +360,6 @@ const AnalyticsDashboard = ({
     })).sort((a, b) => b.total - a.total);
   }, [currentDataset]);
 
-  // 🟢 Declared here at the top scope so they are fully available before the filter toolbar renders
   const totalRecords = useMemo(() => aggregatedData.reduce((acc, curr) => acc + curr.count, 0), [aggregatedData]);
   const crimeSummaryGrandTotal = useMemo(() => crimeSummaryData.reduce((sum, item) => sum + item.total, 0), [crimeSummaryData]);
 
@@ -552,7 +579,7 @@ const AnalyticsDashboard = ({
   };
 
   return (
-    <div className="p-3 max-w-[1600px] mx-auto space-y-3 font-sans min-h-screen" style={{ backgroundColor: '#f4eee2' }}>
+    <div className="p-3 max-w-[1600px] mx-auto space-y-3 font-sans min-h-screen pb-24" style={{ backgroundColor: '#f4eee2' }}>
       
       {/* Top Header Card */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#fbf8f3] px-4 py-2.5 rounded-xl shadow-xs border border-[#e2d6c3] gap-2">
@@ -661,7 +688,7 @@ const AnalyticsDashboard = ({
 
       {/* Main View Area */}
       {activeDomain === 'RELATIONAL' ? (
-        <div className="space-y-3">
+        <div className="space-y-3 pb-12">
           <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
             <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
               <Network className="mr-2 text-[#C5A880] w-4 h-4" /> Operations ➔ Intelligence ➔ Crime Suppression Dependency Matrix
@@ -721,7 +748,7 @@ const AnalyticsDashboard = ({
           </div>
         </div>
       ) : activeDomain === 'MANPOWER_DEEP' ? (
-        <div className="space-y-6">
+        <div className="space-y-6 pb-12">
           <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
             <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
               <Users className="mr-2 text-[#C5A880] w-4 h-4" /> Multi-Layered Manpower Matrix Analysis
@@ -856,7 +883,7 @@ const AnalyticsDashboard = ({
           </div>
         </div>
       ) : activeDomain === 'TRENDS' ? (
-        <div className="space-y-3">
+        <div className="space-y-3 pb-12">
           <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm flex justify-between items-center">
             <div>
               <h2 className="text-sm font-extrabold">Week-to-Week Disruptive Operations & Arrest Trends</h2>
@@ -892,7 +919,7 @@ const AnalyticsDashboard = ({
           </div>
         </div>
       ) : activeDomain === 'CRIME_SUMMARY' ? (
-        <div className="space-y-3">
+        <div className="space-y-3 pb-24">
           <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
             <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
               <BarChart3 className="mr-2 text-[#C5A880] w-4 h-4" /> Standalone Crime Incident Summary Table
@@ -944,7 +971,7 @@ const AnalyticsDashboard = ({
           </div>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 pb-12">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             
             <div className="bg-[#fbf8f3] p-3.5 rounded-xl shadow-xs border border-[#e2d6c3] flex flex-col items-center justify-between">

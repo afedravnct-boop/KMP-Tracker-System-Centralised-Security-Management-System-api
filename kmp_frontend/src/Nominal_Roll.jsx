@@ -48,7 +48,7 @@ const getStationPriorityWeight = (station, region) => {
   return 2;
 };
 
-// 🟢 2. COMMAND LEADERSHIP PRECEDENCE (ALL ACPs: Commander, Deputy, Admin)
+// 🟢 2. COMMAND LEADERSHIP PRECEDENCE (KMP Commander -> Deputy -> Admin -> RPC -> OC)
 const getCommandWeight = (officer) => {
   if (!officer) return 99;
   const pos = cleanStr(officer.position);
@@ -66,28 +66,25 @@ const getCommandWeight = (officer) => {
   if (pos === 'RPC' || rank === 'RPC') return 3;
   if (pos === 'D/RPC' || pos === 'DEPUTY RPC' || rank === 'D/RPC') return 4;
   if (pos.startsWith('R/')) return 5; 
-  if (pos === 'OC' || pos.startsWith('OC ')) return 6;
+  if (pos === 'OC' || pos.startsWith('OC ') || pos.includes('I/C') || pos.includes('IN CHARGE')) return 6;
   
   return 99; 
 };
 
-// 🟢 3. RANK HIERARCHY ENGINE
+// 🟢 3. RANK HIERARCHY ENGINE (Unifying detectives D/PC, DC, PC and D/AIP, AIP under standard seniority)
 const getRankWeight = (rank) => {
   if (!rank) return 99;
   let r = cleanStr(rank);
-  let modifier = 0;
 
-  if (r === 'DC') {
-    modifier += 0.1;
+  // Normalize detective prefixes and driver suffixes for sorting hierarchy
+  if (r === 'DC' || r.startsWith('D/C')) {
     r = 'PC';
   } else if (r.startsWith('D/') || r.startsWith('D-') || r.startsWith('D ')) {
-    modifier += 0.1;
     r = r.replace(/^D[\/\- ]/, '').trim();
     if (r === 'C') r = 'PC';
   }
 
   if (r.includes('/DRV') || r.includes('-DRV') || r.includes(' DRV') || r === 'DRV' || r.includes('C/DRV')) {
-    modifier += 0.2;
     if (r === 'C/DRV' || r === 'DRV') {
       r = 'PC';
     } else {
@@ -121,7 +118,7 @@ const getRankWeight = (rank) => {
   else if (r === 'SPC') baseWeight = 21;
   else if (r === 'CIVILIAN') baseWeight = 98;
 
-  return baseWeight + modifier;
+  return baseWeight;
 };
 
 const parseEducationLevel = (educ) => {
@@ -134,18 +131,6 @@ const parseEducationLevel = (educ) => {
   if (e.includes('UACE') || e.includes('S.6') || e.includes('SENIOR 6')) return 'UACE (A-LEVEL)';
   if (e.includes('UCE') || e.includes('S.4') || e.includes('SENIOR 4')) return 'UCE (O-LEVEL)';
   
-  if (e.includes('S.3') || e.includes('SENIOR 3')) return 'SENIOR 3 (S.3)';
-  if (e.includes('S.2') || e.includes('SENIOR 2')) return 'SENIOR 2 (S.2)';
-  if (e.includes('S.1') || e.includes('SENIOR 1')) return 'SENIOR 1 (S.1)';
-  if (e.includes('P.7') || e.includes('PRIMARY 7')) return 'PRIMARY 7 (P.7)';
-  if (e.includes('P.6') || e.includes('PRIMARY 6')) return 'PRIMARY 6 (P.6)';
-  if (e.includes('P.5') || e.includes('PRIMARY 5')) return 'PRIMARY 5 (P.5)';
-  if (e.includes('P.4') || e.includes('PRIMARY 4')) return 'PRIMARY 4 (P.4)';
-  if (e.includes('P.3') || e.includes('PRIMARY 3')) return 'PRIMARY 3 (P.3)';
-  if (e.includes('P.2') || e.includes('PRIMARY 2')) return 'PRIMARY 2 (P.2)';
-  if (e.includes('P.1') || e.includes('PRIMARY 1')) return 'PRIMARY 1 (P.1)';
-  if (e.includes('UNEDUCATED') || e.includes('NONE') || e.includes('NIL')) return 'UNEDUCATED';
-
   return 'OTHER / UNRECORDED';
 };
 
@@ -198,7 +183,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [targetRegion, setTargetRegion] = useState('ALL REGIONS');
   const [targetStation, setTargetStation] = useState('ALL STATIONS');
 
-  const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||                         
+  const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||                          
                         (currentUser?.position || '').toUpperCase().includes('HR') ||
                         currentUser?.permissions?.system_admin === true;
 
@@ -522,17 +507,17 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return true;
     }).sort((a, b) => {
-      // 1. KMP Headquarters Station/Region Priority
+      // 1. Station Priority (KMP HQ first)
       const prioA = getStationPriorityWeight(a.station, a.region);
       const prioB = getStationPriorityWeight(b.station, b.region);
       if (prioA !== prioB) return prioA - prioB;
 
-      // 2. Command Leadership Precedence (Commander KMP -> Deputy Comdr -> Admin Officer -> RPC)
+      // 2. Command Leadership Precedence (Commander KMP -> Deputy -> Admin -> RPC -> OC)
       const cmdA = getCommandWeight(a);
       const cmdB = getCommandWeight(b);
       if (cmdA !== cmdB) return cmdA - cmdB;
 
-      // 3. Standard Rank Chronology (IGP down to PC)
+      // 3. Rank Hierarchy (Ensuring junior/Inspector OC doesn't outrank senior gazetted officers like ACP)
       const weightA = getRankWeight(a.rank);
       const weightB = getRankWeight(b.rank);
       if (weightA !== weightB) return weightA - weightB;
@@ -570,17 +555,14 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return true;
     }).sort((a, b) => {
-      // 1. KMP Headquarters Station/Region Priority
       const prioA = getStationPriorityWeight(a.station, a.region);
       const prioB = getStationPriorityWeight(b.station, b.region);
       if (prioA !== prioB) return prioA - prioB;
 
-      // 2. Command Leadership Precedence
       const cmdA = getCommandWeight(a);
       const cmdB = getCommandWeight(b);
       if (cmdA !== cmdB) return cmdA - cmdB;
 
-      // 3. Standard Rank Chronology
       const weightA = getRankWeight(a.rank);
       const weightB = getRankWeight(b.rank);
       if (weightA !== weightB) return weightA - weightB;
@@ -624,7 +606,16 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           const stationStr = cleanStr(n.station) || 'UNKNOWN';
           const sectionStr = cleanStr(n.section);
 
-          if (metricCategory === 'RANK') key = cleanStr(n.rank) || 'UNRANKED';
+          if (metricCategory === 'RANK') {
+              // 🟢 Normalize rank so D/PC, DC, PC fold into PC, and D/AIP into AIP
+              let r = cleanStr(n.rank);
+              if (r === 'DC' || r.startsWith('D/C')) r = 'PC';
+              else if (r.startsWith('D/') || r.startsWith('D-') || r.startsWith('D ')) {
+                  r = r.replace(/^D[\/\- ]/, '').trim();
+                  if (r === 'C') r = 'PC';
+              }
+              key = r || 'UNRANKED';
+          }
           else if (metricCategory === 'UNIT') key = `${stationStr} ${sectionStr ? '- ' + sectionStr : ''}`.trim();
           else if (metricCategory === 'SEX') key = isFemale ? 'FEMALE' : (isMale ? 'MALE' : 'UNSPECIFIED');
           else if (metricCategory === 'BANK') key = bankBranch || 'BANK UNKNOWN';
@@ -654,14 +645,12 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           return resultsArray.sort((a, b) => {
              const weightA = getRankWeight(a.category);
              const weightB = getRankWeight(b.category);
-             if (weightA === 50 && a.category === 'RPC') return -1;
-             if (weightB === 50 && b.category === 'RPC') return 1;
              return weightA - weightB;
           });
       } else {
           return resultsArray.sort((a, b) => b.total - a.total);
       }
-  }, [currentRollDataset, metricCategory]);
+  }, [currentDataset, metricCategory]);
 
   const metricsData = useMemo(() => {
     let maleCount = 0;
@@ -694,7 +683,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   }, [currentRollDataset]);
 
   return (
-    <div className="p-3 sm:p-6 max-w-[1600px] mx-auto space-y-5 relative z-10">
+    <div className="p-3 sm:p-6 max-w-[1600px] mx-auto space-y-5 relative z-10 pb-20">
       <div className="text-center mb-4 flex flex-col items-center">
         <img src="/upf_badge.png" alt="UPF Logo" className="w-14 h-14 mb-2 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
         <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Master Nominal Roll</h1>
@@ -728,23 +717,23 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             )}
             <div className="inline-flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-inner shrink-0">
                <button 
-                  type="button"
-                  onClick={() => { setViewMode('active'); setShowAnalytics(false); setBulkSelectMode(false); }} 
-                  className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${viewMode === 'active' && !showAnalytics ? 'bg-slate-900 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
+                type="button"
+                onClick={() => { setViewMode('active'); setShowAnalytics(false); setBulkSelectMode(false); }} 
+                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${viewMode === 'active' && !showAnalytics ? 'bg-slate-900 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
                >
-                  Active Roll
+                 Active Roll
                </button>
                <button 
-                  type="button"
-                  onClick={() => { setViewMode('archive'); setShowAnalytics(false); setBulkSelectMode(false); }} 
-                  className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${viewMode === 'archive' && !showAnalytics ? 'bg-red-700 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
+                type="button"
+                onClick={() => { setViewMode('archive'); setShowAnalytics(false); setBulkSelectMode(false); }} 
+                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${viewMode === 'archive' && !showAnalytics ? 'bg-red-700 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
                >
-                  Archived
+                 Archived
                </button>
                <button 
-                  type="button"
-                  onClick={() => setShowAnalytics(!showAnalytics)} 
-                  className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${showAnalytics ? 'bg-indigo-700 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
+                type="button"
+                onClick={() => setShowAnalytics(!showAnalytics)} 
+                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${showAnalytics ? 'bg-indigo-700 text-white shadow' : 'text-slate-600 hover:text-slate-900'}`}
                >
                   {showAnalytics ? 'Close Analytics' : 'Analytics Breakdown'}
                </button>
@@ -1070,9 +1059,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-col justify-between items-stretch gap-2.5">
               <div className="flex justify-between items-center">
                   <button
-                      type="button"
-                      onClick={() => { setBulkSelectMode(!bulkSelectMode); setSelectedOfficers([]); }}
-                      className={`text-xs font-bold px-3.5 py-1.5 rounded-lg transition-colors border shadow-xs cursor-pointer ${bulkSelectMode ? 'bg-slate-800 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'}`}
+                    type="button"
+                    onClick={() => { setBulkSelectMode(!bulkSelectMode); setSelectedOfficers([]); }}
+                    className={`text-xs font-bold px-3.5 py-1.5 rounded-lg transition-colors border shadow-xs cursor-pointer ${bulkSelectMode ? 'bg-slate-800 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'}`}
                   >
                       {bulkSelectMode ? 'Cancel Bulk Select' : '☑️ Enable Bulk Archive'}
                   </button>
@@ -1129,7 +1118,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             </div>
           )}
 
-          {/* 🟢 JURISDICTION DROPDOWNS & SEARCH */}
+          {/* JURISDICTION DROPDOWNS & SEARCH */}
           <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
             <div className="flex flex-col sm:flex-row gap-2.5 flex-1">
               <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobal} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
@@ -1165,7 +1154,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             </div>
           </div>
 
-          {/* 🟢 ANALYTICS BREAKDOWN OR TABLE LEDGER VIEW */}
+          {/* ANALYTICS BREAKDOWN OR TABLE LEDGER VIEW */}
           {showAnalytics ? (
             <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs animate-in fade-in zoom-in-95 duration-200">
                 <div className="flex justify-between items-center mb-4 border-b border-gray-200 pb-3">

@@ -385,8 +385,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     } catch (err) { alert(`Role Update Failed: ${err.message}`); fetchAllSystemUsers(); }
   };
 
-  // 🟢 JURISDICTIONAL-AWARE APPROVAL HANDLER (STATION OR REGIONAL SCOPE ENFORCEMENT)
-  const handleApproveUser = async (userToApprove, customAssignedRole = 'USER', customPermissions = {}) => {
+  // 🟢 ENHANCED APPROVAL HANDLER: Automatically grants full operational and nominal roll write permissions for their station/region scope
+  const handleApproveUser = async (userToApprove, customAssignedRole = 'STATION_ADMIN', customPermissions = {}) => {
     if (isReadOnlyObserver) {
       alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit approving access requests.");
       return;
@@ -397,23 +397,27 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     try {
       const cleanFnum = stripHtmlTags(fnum);
       
-      // Intelligent Role & Scope Derivation based on user post/station (e.g., Regional HQ vs Station Division)
       const userStationUpper = stripHtmlTags(userToApprove.station || '').toUpperCase();
-      const userRegionUpper = stripHtmlTags(userToApprove.region || '').toUpperCase();
       
       let assignedRole = customAssignedRole;
       if (userStationUpper.includes('HEADQUARTERS') || userStationUpper.includes('HQ') || userStationUpper.includes('REGIONAL')) {
-        assignedRole = 'REGIONAL_ADMIN'; // Grants jurisdiction over entire region
-      } else if (userStationUpper.includes('CPS') || userStationUpper.includes('DIVISION')) {
-        assignedRole = 'STATION_ADMIN'; // Grants jurisdiction over specific station/division
+        assignedRole = 'REGIONAL_ADMIN'; 
+      } else {
+        assignedRole = 'STATION_ADMIN'; // Ensures they have administrative write permissions for their station
       }
 
-      const baselinePermissions = grantExpressAccess(assignedRole, userToApprove.permissions || {});
+      // 🟢 Automatically grant all core operational clearances so approved data officers have instant access to their modules
       const grantedPermissions = {
-        ...baselinePermissions,
-        ...customPermissions,
-        view_nominal_roll: true,  
-        export_data: true         
+        view_nominal_roll: true,
+        upload_hr: true,
+        export_data: true,
+        view_crime_registry: true,
+        log_crime: true,
+        view_lockup: true,
+        log_lockup: true,
+        view_exhibits: true,
+        log_exhibits: true,
+        ...customPermissions
       };
 
       await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
@@ -423,12 +427,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           role: assignedRole, 
           is_approved: true, 
           permissions: grantedPermissions,
-          station: userToApprove.station,  // Preserves exact station scope
-          region: userToApprove.region     // Preserves exact region scope
+          station: userToApprove.station, 
+          region: userToApprove.region 
         })
       });
 
-      alert(`✅ Success: Jurisdictional clearance granted for ${cleanFnum} at [${userToApprove.station || 'Assigned Station'} / ${userToApprove.region || 'Assigned Region'}]. Scope enforced.`);
+      alert(`✅ Success: Full operational and data entry clearance granted for ${cleanFnum} at [${userToApprove.station || 'Assigned Station'} / ${userToApprove.region || 'Assigned Region'}].`);
       setSelectedPendingUser(null);
       fetchPendingUsers();
       fetchAllSystemUsers();
@@ -597,7 +601,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </button>
       </div>
 
-      {/* 🟢 1. AUTHORIZATIONS TAB WITH INDIVIDUAL DOSSIER REVIEW */}
+      {/* 1. AUTHORIZATIONS TAB WITH INDIVIDUAL DOSSIER REVIEW */}
       {activeTab === 'approvals' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
           {loadingPending ? (
@@ -635,7 +639,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 2. CLEARANCE MATRIX TAB */}
+      {/* 2. CLEARANCE MATRIX TAB */}
       {activeTab === 'matrix' && (
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
           <div className="bg-slate-900 dark:bg-slate-950 text-white p-3 text-xs font-extrabold uppercase tracking-wider flex justify-between">
@@ -722,7 +726,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 3. DIRECTORY ROSTER TAB */}
+      {/* 3. DIRECTORY ROSTER TAB */}
       {activeTab === 'roster' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
           <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 border-b border-slate-800 text-white font-semibold text-xs uppercase">
@@ -756,7 +760,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 4. HR TRANSFERS TAB */}
+      {/* 4. HR TRANSFERS TAB */}
       {activeTab === 'requests' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-amber-200 dark:border-amber-900/50 overflow-hidden w-full">
           <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">HR Modification Requests</div>
@@ -782,7 +786,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 5. AUDIT LOGS TAB */}
+      {/* 5. AUDIT LOGS TAB */}
       {activeTab === 'logs' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
           <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">System Audit Logs</div>
@@ -828,7 +832,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 6. PASSWORD RESETS TAB */}
+      {/* 6. PASSWORD RESETS TAB */}
       {activeTab === 'resets' && (  
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-red-200 dark:border-red-900/50 overflow-hidden w-full">
           <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">Authorized Password Recovery</div>
