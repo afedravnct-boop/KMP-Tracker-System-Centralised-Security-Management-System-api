@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { X, Shield, FileText, Users, Building, Filter } from 'lucide-react';
+import { X, Shield, FileText, Users, Building, Filter, ChevronDown, ChevronRight } from 'lucide-react';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -40,6 +40,16 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
   const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
 
+  // 🟢 State to manage expanded regions in the hierarchical tree table
+  const [expandedRegions, setExpandedRegions] = useState({});
+
+  const toggleRegion = (regionName) => {
+    setExpandedRegions(prev => ({
+      ...prev,
+      [regionName]: !prev[regionName]
+    }));
+  };
+
   const getRawRoll = () => {
     if (Array.isArray(data)) {
       if (data.length > 0 && (data[0].fnum || data[0].f_num || data[0].rank)) return data;
@@ -54,60 +64,70 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     return [];
   };
 
-  // 🟢 DYNAMIC ESTABLISHMENTS BUILDER: Aggregates stations and posts directly from the Nominal Roll
-  const getEstData = () => {
+  // 🟢 HIERARCHICAL ESTABLISHMENTS BUILDER: Groups personnel strictly into Region -> Stations -> Posts with precise column sums
+  const hierarchicalEstablishments = useMemo(() => {
     const rawRoll = getRawRoll().filter(p => {
       const statusStr = stripHtml(String(p.status || '')).trim().toUpperCase();
       if (statusStr === 'ARCHIVED' || p.is_archived === true) return false;
       return true;
     });
 
-    // Group nominal roll personnel by Region -> Station -> Post/Section
-    const groupMap = {};
+    const regionMap = {};
 
     rawRoll.forEach(p => {
       const stn = stripHtml(p.station || 'HQ').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, p.region);
-      const div = stripHtml(p.dir || p.division || 'GENERAL DUTIES').trim().toUpperCase();
-      const pst = stripHtml(p.section || p.post || '-').trim().toUpperCase();
+      const pst = stripHtml(p.section || p.post || '').trim().toUpperCase();
+      const pos = stripHtml(p.position || '').toUpperCase();
 
-      const mapKey = `${reg}|${div}|${stn}|${pst}`;
-
-      if (!groupMap[mapKey]) {
-        groupMap[mapKey] = {
-          region: reg,
-          division: div,
-          station: stn,
-          post: pst !== '-' ? pst : '',
-          personnel_in_station: 0,
-          personnel_in_post: 0
+      if (!regionMap[reg]) {
+        regionMap[reg] = {
+          regionName: reg,
+          hqPersonnel: 0,
+          stations: {},
+          total: 0
         };
       }
 
-      // Check if attached to post or main station
-      const pos = stripHtml(p.position || '').toUpperCase();
-      if (pos.includes('POST') || (pst && pst !== '-')) {
-        groupMap[mapKey].personnel_in_post += 1;
-      } else {
-        groupMap[mapKey].personnel_in_station += 1;
+      // Check if this entry belongs to Regional Headquarters or a specific station
+      const isHqRecord = stn.includes('HEADQUARTERS') && !stn.includes('DIVISION');
+      if (isHqRecord && (!pst || pst === '-')) {
+        regionMap[reg].hqPersonnel += 1;
+        regionMap[reg].total += 1;
+        return;
       }
+
+      if (!regionMap[reg].stations[stn]) {
+        regionMap[reg].stations[stn] = {
+          stationName: stn,
+          stationPersonnel: 0,
+          posts: {},
+          total: 0
+        };
+      }
+
+      if (pst && pst !== '-') {
+        if (!regionMap[reg].stations[stn].posts[pst]) {
+          regionMap[reg].stations[stn].posts[pst] = 0;
+        }
+        regionMap[reg].stations[stn].posts[pst] += 1;
+      } else {
+        regionMap[reg].stations[stn].stationPersonnel += 1;
+      }
+
+      regionMap[reg].stations[stn].total += 1;
+      regionMap[reg].total += 1;
     });
 
-    let aggregatedEst = Object.values(groupMap);
+    let result = Object.values(regionMap);
 
     // Filter by selected region and station if active
-    return aggregatedEst.filter(e => {
-      const stn = stripHtml(e.station || '').trim().toUpperCase();
-      const reg = getOfficialRegionForStation(stn, e.region);
+    if (selectedRegion !== 'ALL REGIONS') {
+      result = result.filter(r => r.regionName.toUpperCase() === selectedRegion.toUpperCase());
+    }
 
-      if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
-        return true;
-      }
-      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
-      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation.toUpperCase()) return false;
-      return true;
-    });
-  };
+    return result;
+  }, [data, selectedRegion, selectedStation, canViewGlobalActive]);
 
   const nominalAggregates = useMemo(() => {
     const rawRoll = getRawRoll().filter(p => {
@@ -322,15 +342,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     });
   }, [nominalAggregates]);
 
-  const estData = getEstData();
-  const estTotals = estData.reduce((acc, curr) => {
-    acc.station += (parseInt(curr.personnel_in_station ?? curr.pers_stn, 10) || 0);
-    acc.sub += (parseInt(curr.personnel_in_sub_station ?? 0, 10) || 0);
-    acc.post += (parseInt(curr.personnel_in_post ?? curr.pers_post, 10) || 0);
-    acc.booth += (parseInt(curr.personnel_in_booth ?? curr.booths, 10) || 0);
-    return acc;
-  }, { station: 0, sub: 0, post: 0, booth: 0 });
-
   const renderAgeBlock = (stats, isDark = false) => (
     <div className={`text-[9px] font-medium space-y-0.5 w-full max-w-[90px] mx-auto ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
       <div className="flex justify-between"><span>18-29yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.twenties}</strong></div>
@@ -415,6 +426,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-8 custom-scrollbar bg-slate-50">
         
+        {/* NOMINAL ROLL AGGREGATES TABLE */}
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px] mb-12">
           <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
              <h3 className="font-extrabold text-blue-900 text-sm uppercase tracking-wider flex items-center">
@@ -504,7 +516,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                       <td className="p-2 text-center align-middle border-r border-slate-700 bg-slate-700/50">
                          <div className="inline-flex flex-col space-y-1">
                             <span className="text-[10px] font-bold text-blue-200 bg-blue-900/50 px-2 border border-blue-800 rounded shadow-sm">M: {masterTotals.ncoSex.M}</span>
-                            <span className="text-[10px] font-bold text-pink-300 bg-pink-900/50 px-2 border border-pink-800 rounded shadow-sm">F: {masterTotals.ncoSex.F}</span>
+                            <span className="text-[10px] font-bold text-pink-300 bg-pink-900/50 px-2 border border-blue-800 rounded shadow-sm">F: {masterTotals.ncoSex.F}</span>
                          </div>
                       </td>
                       
@@ -526,59 +538,118 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
           </div>
         </div>
 
+        {/* 🟢 HIERARCHICAL POLICE ESTABLISHMENTS TABLE WITH EXPANDABLE REGIONS & CORRECT COLUMNS */}
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px]">
           <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
              <h3 className="font-extrabold text-green-900 text-sm uppercase tracking-wider flex items-center">
-                <Building className="mr-2 w-5 h-5" /> Police Establishments (Dynamic Nominal Roll Extraction)
+                <Building className="mr-2 w-5 h-5" /> Police Establishments (Hierarchical Nominal Roll Extraction)
              </h3>
           </div>
           <div className="overflow-x-auto w-full max-h-[500px] custom-scrollbar">
              <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50 sticky top-0 shadow-sm z-10">
                    <tr>
-                      <th className="p-3 text-left text-[10px] font-black text-slate-600 uppercase">SN</th>
-                      <th className="p-3 text-left text-[11px] font-black text-slate-600 uppercase bg-slate-100">REGION</th>
-                      <th className="p-3 text-left text-[10px] font-black text-slate-600 uppercase">DIVISION / DIR</th>
-                      <th className="p-3 text-left text-[10px] font-black text-slate-600 uppercase bg-slate-100">STATION</th>
-                      <th className="p-3 text-center text-[10px] font-black text-slate-600 uppercase">PERS<br/>(STN)</th>
-                      <th className="p-3 text-left text-[10px] font-black text-slate-600 uppercase bg-slate-100">POST / SECTION</th>
-                      <th className="p-3 text-center text-[10px] font-black text-slate-600 uppercase bg-slate-50">PERS<br/>(POST)</th>
-                      <th className="p-3 text-center text-[11px] font-black text-white uppercase bg-emerald-800 shadow-inner">TOTAL<br/>PERSONNEL</th>
+                      <th className="p-3 text-left text-[10px] font-black text-slate-600 uppercase w-12">SN</th>
+                      <th className="p-3 text-left text-[11px] font-black text-slate-600 uppercase bg-slate-100">REGION / STATION / POST</th>
+                      <th className="p-3 text-center text-[10px] font-black text-slate-600 uppercase">REGIONAL HQ PERSONNEL</th>
+                      <th className="p-3 text-center text-[10px] font-black text-slate-600 uppercase bg-slate-100">STATION PERSONNEL</th>
+                      <th className="p-3 text-center text-[10px] font-black text-slate-600 uppercase">POST PERSONNEL</th>
+                      <th className="p-3 text-center text-[11px] font-black text-white uppercase bg-emerald-800 shadow-inner">TOTAL PERSONNEL</th>
                    </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
-                   {estData.map((e, idx) => {
-                      const stn = parseInt(e.personnel_in_station, 10) || 0;
-                      const pst = parseInt(e.personnel_in_post, 10) || 0;
-                      const totalPerLocation = stn + pst;
+                   {hierarchicalEstablishments.map((regGroup, rIdx) => {
+                      const isExpanded = !!expandedRegions[regGroup.regionName];
                       
+                      // Calculate regional sums
+                      let regHqSum = regGroup.hqPersonnel;
+                      let regStnSum = Object.values(regGroup.stations).reduce((acc, s) => acc + s.stationPersonnel, 0);
+                      let regPostSum = Object.values(regGroup.stations).reduce((acc, s) => acc + Object.values(s.posts).reduce((a, b) => a + b, 0), 0);
+                      let regTotalSum = regGroup.total;
+
                       return (
-                         <tr key={idx} className="hover:bg-emerald-50/40 transition-colors">
-                            <td className="p-3 text-xs text-slate-500 font-bold">{idx + 1}</td>
-                            <td className="p-3 text-xs font-black text-slate-800 bg-slate-50/50 uppercase">{stripHtml(e.region)}</td>
-                            <td className="p-3 text-xs font-bold text-slate-600 uppercase">{stripHtml(e.division || '-')}</td>
-                            <td className="p-3 text-xs font-bold text-slate-600 bg-slate-50/50 uppercase">{stripHtml(e.station || '-')}</td>
-                            <td className="p-3 text-center text-sm font-extrabold text-green-700">{stn > 0 ? stn : '-'}</td>
-                            <td className="p-3 text-xs font-medium text-slate-600 bg-slate-50/50 uppercase">{stripHtml(e.post || '-')}</td>
-                            <td className="p-3 text-center text-sm font-bold text-emerald-600 bg-slate-50/50">{pst > 0 ? pst : '-'}</td>
-                            <td className="p-3 text-center text-sm font-black text-emerald-900 bg-emerald-50 shadow-inner border-l border-emerald-100">{totalPerLocation > 0 ? totalPerLocation : '-'}</td>
-                         </tr>
+                         <React.Fragment key={regGroup.regionName}>
+                            {/* REGION HEADER ROW (CLICKABLE) */}
+                            <tr 
+                              onClick={() => toggleRegion(regGroup.regionName)}
+                              className="bg-slate-100 hover:bg-slate-200 cursor-pointer transition-colors font-extrabold text-slate-900 border-t-2 border-slate-300 select-none"
+                            >
+                               <td className="p-3 text-xs font-bold text-slate-700">{rIdx + 1}</td>
+                               <td className="p-3 text-xs uppercase flex items-center space-x-2">
+                                  <span className="text-blue-700">{isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
+                                  <span>🛡️ {regGroup.regionName} (REGIONAL COMMAND)</span>
+                               </td>
+                               <td className="p-3 text-center text-xs font-black text-blue-800">{regHqSum > 0 ? regHqSum : '-'}</td>
+                               <td className="p-3 text-center text-xs font-black text-green-800 bg-slate-50">{regStnSum > 0 ? regStnSum : '-'}</td>
+                               <td className="p-3 text-center text-xs font-black text-amber-800">{regPostSum > 0 ? regPostSum : '-'}</td>
+                               <td className="p-3 text-center text-xs font-black text-white bg-emerald-800 shadow-inner">{regTotalSum > 0 ? regTotalSum : '-'}</td>
+                            </tr>
+
+                            {/* STATION & POST SUB-ROWS (RENDERED WHEN EXPANDED) */}
+                            {isExpanded && Object.values(regGroup.stations).map((stnObj, sIdx) => {
+                               const stnTotal = stnObj.stationPersonnel + Object.values(stnObj.posts).reduce((a, b) => a + b, 0);
+                               
+                               return (
+                                  <React.Fragment key={`${regGroup.regionName}-${stnObj.stationName}-${sIdx}`}>
+                                     <tr className="hover:bg-emerald-50/40 transition-colors bg-white">
+                                        <td className="p-3 text-xs text-slate-400 pl-6">—</td>
+                                        <td className="p-3 text-xs font-bold text-slate-700 uppercase pl-8">
+                                           ↳ STATION: {stnObj.stationName}
+                                        </td>
+                                        <td className="p-3 text-center text-xs text-slate-400">—</td>
+                                        <td className="p-3 text-center text-xs font-bold text-green-700 bg-slate-50/50">
+                                           {stnObj.stationPersonnel > 0 ? stnObj.stationPersonnel : '-'}
+                                        </td>
+                                        <td className="p-3 text-center text-xs text-slate-400">—</td>
+                                        <td className="p-3 text-center text-xs font-bold text-emerald-700 bg-slate-50/30">
+                                           {stnTotal > 0 ? stnTotal : '-'}
+                                        </td>
+                                     </tr>
+
+                                     {/* POST SUB-ROWS */}
+                                     {Object.entries(stnObj.posts).map(([postName, postCount], pIdx) => (
+                                        <tr key={`post-${pIdx}`} className="hover:bg-amber-50/30 transition-colors bg-slate-50/30">
+                                           <td className="p-2 text-[10px] text-slate-400 pl-10">·</td>
+                                           <td className="p-2 text-[11px] font-medium text-slate-600 uppercase pl-12">
+                                              └─ Post / Section: {postName}
+                                           </td>
+                                           <td className="p-2 text-center text-[11px] text-slate-400">—</td>
+                                           <td className="p-2 text-center text-[11px] text-slate-400 bg-slate-50/20">—</td>
+                                           <td className="p-2 text-center text-[11px] font-bold text-amber-700">
+                                              {postCount > 0 ? postCount : '-'}
+                                           </td>
+                                           <td className="p-2 text-center text-[11px] font-bold text-amber-800 bg-amber-50/30">
+                                              {postCount > 0 ? postCount : '-'}
+                                           </td>
+                                        </tr>
+                                     ))}
+                                  </React.Fragment>
+                               );
+                            })}
+                         </React.Fragment>
                       );
                    })}
-                   {estData.length === 0 && <tr><td colSpan="8" className="p-6 text-center text-slate-500 font-medium">No establishments data available from the nominal roll.</td></tr>}
+
+                   {hierarchicalEstablishments.length === 0 && (
+                      <tr><td colSpan="6" className="p-6 text-center text-slate-500 font-medium">No establishments data available from the nominal roll.</td></tr>
+                   )}
                    
-                   <tr className="bg-slate-800 border-t-4 border-slate-900">
-                      <td colSpan="4" className="p-4 text-right text-[11px] font-black text-white uppercase tracking-widest shadow-inner border-r border-slate-700">
-                          TOTALS:
+                   {/* GRAND TOTAL ROW AT THE BOTTOM */}
+                   <tr className="bg-slate-800 border-t-4 border-slate-900 text-white font-black">
+                      <td colSpan="2" className="p-4 text-right uppercase tracking-widest text-xs border-r border-slate-700">
+                          MASTER GRAND TOTALS:
                       </td>
-                      <td className="p-4 text-center text-base font-black text-green-400 border-r border-slate-700">
-                        {estData.reduce((sum, curr) => sum + (parseInt(curr.personnel_in_station, 10) || 0), 0)}
+                      <td className="p-4 text-center text-sm font-black text-blue-300 border-r border-slate-700">
+                          {hierarchicalEstablishments.reduce((sum, r) => sum + r.hqPersonnel, 0)}
                       </td>
-                      <td colSpan="2" className="p-4 text-center border-r border-slate-700 bg-slate-900/50">
-                        {estData.reduce((sum, curr) => sum + (parseInt(curr.personnel_in_post, 10) || 0), 0)}
+                      <td className="p-4 text-center text-sm font-black text-green-400 border-r border-slate-700 bg-slate-900/50">
+                          {hierarchicalEstablishments.reduce((sum, r) => sum + Object.values(r.stations).reduce((acc, s) => acc + s.stationPersonnel, 0), 0)}
+                      </td>
+                      <td className="p-4 text-center text-sm font-black text-amber-300 border-r border-slate-700">
+                          {hierarchicalEstablishments.reduce((sum, r) => sum + Object.values(r.stations).reduce((acc, s) => acc + Object.values(s.posts).reduce((a, b) => a + b, 0), 0), 0)}
                       </td>
                       <td className="p-4 text-center text-lg font-black text-yellow-400 bg-slate-950 shadow-inner">
-                         {estData.reduce((sum, curr) => sum + (parseInt(curr.personnel_in_station, 10) || 0) + (parseInt(curr.personnel_in_post, 10) || 0), 0)}
+                          {hierarchicalEstablishments.reduce((sum, r) => sum + r.total, 0)}
                       </td>
                    </tr>
                 </tbody>
