@@ -1,509 +1,825 @@
-import os
-import io
-import re
-import traceback
-import boto3
-from typing import Optional
-from datetime import datetime, timedelta
-from jose import jwt, JWTError
-from passlib.context import CryptContext
-from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { 
+  Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
+  Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
+  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search, Award
+} from 'lucide-react';
+import { stripHtmlTags } from './App';
+import { authFetch, hasValidSession } from './api';
 
-from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File, Request
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from fastapi.responses import JSONResponse
+import { 
+  REGIONAL_HIERARCHY, TOP_TIER_ROLES, getRoleWeight, canModifyUser, 
+  grantExpressAccess, CLEARANCE_MATRIX_COLS, formatOfficerHeader 
+} from './adminUtils';
 
-from app.core import security
-from app import database, models, schemas
+import { 
+  SignupDossierModal, HRModificationModal, LockdownMatrixModal, RevocationModal, ToggleSwitch 
+} from './AdminModals';
 
-router = APIRouter()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
+  const [activeTab, setActiveTab] = useState('approvals');
+  
+  const [modRequests, setModRequests] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  
+  const [realPendingUsers, setRealPendingUsers] = useState([]);
+  const [loadingPending, setLoadingPending] = useState(false);
 
-s3_client = boto3.client(
-    "s3",
-    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-    region_name=os.getenv("AWS_REGION")
-)
-BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
+  const [resetRequests, setResetRequests] = useState([]);
+  const [loadingResets, setLoadingResets] = useState(false);
 
-# ====================================================================
-# HELPERS & VALIDATORS
-# ====================================================================
-def normalize_fnum(fnum_str: str) -> str:
-    """Normalizes both Officer File Numbers (e.g. A/2408) and NCO Force Numbers (e.g. 63034)."""
-    if not fnum_str:
-        return ""
-    return str(fnum_str).strip().upper()
+  const [allSystemUsers, setAllSystemUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
 
-def validate_and_normalize_nin(nin_str: Optional[str]) -> Optional[str]:
-    """Validates that NIN starts with CM or CF and consists of exactly 14 characters."""
-    if not nin_str or str(nin_str).strip().lower() in ['nan', 'none', 'null', '', 'n/a']:
-        return None
-    
-    clean_nin = str(nin_str).strip().upper()
-    
-    if len(clean_nin) != 14:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid NIN: Must be exactly 14 characters long. You entered {len(clean_nin)} characters."
-        )
-        
-    if not re.match(r"^C[MF][A-Z0-9]{12}$", clean_nin):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid NIN format: Must start with CM or CF."
-        )
-    return clean_nin
+  const [selectedPendingUser, setSelectedPendingUser] = useState(null);
+  const [selectedModRequest, setSelectedModRequest] = useState(null);
+  const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
+  const [isProcessingAction, setIsProcessingAction] = useState(false);
 
-def validate_and_normalize_phone(phone_str: Optional[str]) -> Optional[str]:
-    """Validates that the phone number contains exactly 10 digits."""
-    if not phone_str or str(phone_str).strip().lower() in ['nan', 'none', 'null', '', 'n/a']:
-        return None
-        
-    clean_phone = re.sub(r'\D', '', str(phone_str))
-    
-    if len(clean_phone) != 10:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid Phone Number: Must be exactly 10 digits. You entered {len(clean_phone)} digits."
-        )
-    return clean_phone
+  const [isDbKillActive, setIsDbKillActive] = useState(false);
+  const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
 
-# ====================================================================
-# AUTHENTICATION DEPENDENCY
-# ====================================================================
-def get_current_user(
-    token: Optional[str] = Depends(oauth2_scheme), 
-    db: Session = Depends(database.get_db)
-):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-    )
-    if not token:
-        raise credentials_exception
+  const [activeLockdownCount, setActiveLockdownCount] = useState(0);
+  const [showLockdownModal, setShowLockdownModal] = useState(false);
+  const [lockdownRegionFilter, setLockdownRegionFilter] = useState("KMP NORTH");
+  const [lockdownData, setLockdownData] = useState({ system: false, regions: {}, stations: {} });
+  
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showDelegationModal, setShowDelegationModal] = useState(false);
 
-    try:
-        payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
-        fnum: str = payload.get("sub")
-        if fnum is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
+  const [revokePrompt, setRevokePrompt] = useState({
+    isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: ''
+  });
 
-    clean_fnum = normalize_fnum(fnum)
-    alt_fnum = clean_fnum.replace("/", "")
-    
-    user = db.query(models.Users).filter(
-        or_(
-            func.trim(func.upper(models.Users.fnum)) == clean_fnum,
-            func.trim(func.upper(models.Users.fnum)) == alt_fnum
-        )
-    ).first()
+  // 🟢 1. DEFINE HANDLER FUNCTIONS AT THE TOP TO AVOID TEMPORAL DEAD ZONE REFERENCE ERRORS
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
 
-    if user is None:
-        raise credentials_exception
-    return user
+  const isTopCommand = [
+    'SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'RPC', 'DEPUTY_RPC'
+  ].includes(userRoleClean) || userPosClean.includes('COMMANDER') || userPosClean.includes('RPC') || userPosClean.includes('HR');
 
-# ====================================================================
-# ROLE & CLEARANCE PERMISSION DEPENDENCIES
-# ====================================================================
-def require_admin(current_user: models.Users = Depends(get_current_user)):
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    if "ADMIN" not in user_role and "RPC" not in user_role:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Clearance Denied: Administrator clearance required."
-        )
-    return current_user
+  const hasDelegatedApprovalPower = currentUser?.permissions?.can_approve === true || currentUser?.permissions?.system_admin === true;
+  const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true;
 
-def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    perms = current_user.permissions or {}
-    
-    if (
-        user_role not in ["ADMIN", "SUPER_ADMIN", "RPC"] 
-        and not perms.get("export_data", False)
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Clearance Denied: Forensic Data Export privileges required."
-        )
-    return current_user
+  const canViewGlobalActive = canViewGlobal || isTopCommand || currentUser?.permissions?.view_global_roster === true;
+  const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && !currentUser?.permissions?.global_open && !isSuperAdmin;
 
-# ====================================================================
-# 1. LOGIN ENDPOINT
-# ====================================================================
-@router.post("/login")
-@router.post("/api/auth/login")
-@router.post("/api/v1/auth/login")
-async def login(
-    request: Request,
-    db: Session = Depends(database.get_db)
-):
-    username = None
-    password = None
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
+  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
 
-    content_type = request.headers.get("content-type", "")
-    if "application/json" in content_type:
-        body = await request.json()
-        username = body.get("username") or body.get("fnum")
-        password = body.get("password")
-    else:
-        form_data = await request.form()
-        username = form_data.get("username") or form_data.get("fnum")
-        password = form_data.get("password")
+  const canControlTargetUser = useCallback((targetUser) => {
+    if (!targetUser) return false;
+    const targetRole = (targetUser.role || '').toUpperCase();
+    if (targetRole === 'SUPER_ADMIN') return false;
+    if (isSuperAdmin) return true;
 
-    if not username or not password:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Force Number and Password are required."
-        )
+    const myRole = userRoleClean;
+    if (['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER'].includes(targetRole) && myRole === targetRole) return false;
+    return true;
+  }, [isSuperAdmin, userRoleClean]);
 
-    clean_username = normalize_fnum(username)
-    alt_username = clean_username.replace("/", "")
-    
-    user = db.query(models.Users).filter(
-        or_(
-            func.trim(func.upper(models.Users.fnum)) == clean_username,
-            func.trim(func.upper(models.Users.fnum)) == alt_username
-        )
-    ).first()
-
-    if not user or not security.verify_password(password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect Force Number or password"
-        )
-
-    if not user.is_approved:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account pending Command approval. Please contact the administrator."
-        )
-
-    access_token = security.create_access_token(
-        data={"sub": user.fnum},
-        expires_delta=timedelta(minutes=security.ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "fnum": user.fnum,
-        "rank": user.rank or "PC",
-        "role": user.role or "USER",
-        "name": user.name or "OFFICER",
-        "sex": user.sex or "MALE",
-        "ipps": user.ipps or "",
-        "nin": getattr(user, "nin", "") or "",
-        "region": user.region or "KMP HEADQUARTERS",
-        "division": user.division or user.station or "HQ",
-        "station": user.station or "HQ",
-        "position": user.position or "GENERAL DUTIES",
-        "email": user.email or "",
-        "phone": user.phone or "",
-        "permissions": user.permissions or {},
-        "profile_photo_path": getattr(user, 'profile_photo_path', '') or '',
-        "policy_accepted": getattr(user, 'policy_accepted', True)
+  const handleReviewRequest = async (reqId, actionStatus) => {
+    if (isReadOnlyObserver) {
+      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit reviewing HR modifications.");
+      return;
     }
 
-# ====================================================================
-# 2. SIGNUP ENDPOINT
-# ====================================================================
-@router.post("/signup", status_code=status.HTTP_201_CREATED)
-@router.post("/api/auth/signup", status_code=status.HTTP_201_CREATED)
-@router.post("/api/v1/auth/signup", status_code=status.HTTP_201_CREATED)
-async def signup(
-    fnum: str = Form(...),
-    ipps: str = Form(...),
-    nin: Optional[str] = Form(None),
-    name: str = Form(...),
-    rank: str = Form(...),
-    sex: str = Form("MALE"),
-    region: str = Form(...),
-    station: str = Form(...),
-    position: str = Form(...),
-    email: str = Form(...),
-    phone: str = Form(...),
-    password: str = Form(...),
-    role: str = Form("USER"),
-    division: Optional[str] = Form(None),
-    profile_photo_path: Optional[str] = Form(None),
-    policy_accepted: bool = Form(False),
-    file: Optional[UploadFile] = File(None),
-    db: Session = Depends(database.get_db)
-):
-    if not policy_accepted:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Error: You must accept the Terms, Information Security Policy & User Guide to register."
-        )
+    try {
+      const res = await authFetch(`/api/v1/requests/${reqId}`, {
+        method: "PATCH", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ status: actionStatus })
+      });
+      if (!res.ok) throw new Error("Failed to process request on server.");
+      
+      setModRequests(prev => prev.filter(r => (r.id || r.sn) !== reqId));
+      setSelectedModRequest(null); 
+      alert(`Request ${actionStatus.toLowerCase()} successfully!`);
+    } catch (err) { 
+      alert(`Error processing request: ${err.message}`); 
+    }
+  };
 
-    if len(password) > 72:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password exceeds maximum allowed length."
-        )
+  const handleApproveUser = async (userToApprove, customAssignedRole = 'STATION_ADMIN', customPermissions = {}) => {
+    if (isReadOnlyObserver) return;
+    const fnum = typeof userToApprove === 'object' ? userToApprove.fnum : userToApprove;
+    setIsProcessingAction(true);
+    try {
+      const cleanFnum = stripHtmlTags(fnum);
+      const grantedPermissions = {
+        view_nominal_roll: true,
+        upload_hr: true,
+        export_data: true,
+        view_crime_registry: true,
+        log_crime: true,
+        view_lockup: true,
+        log_lockup: true,
+        view_exhibits: true,
+        log_exhibits: true,
+        ...customPermissions
+      };
 
-    clean_fnum = normalize_fnum(fnum)
-    clean_nin = validate_and_normalize_nin(nin)
-    clean_phone = validate_and_normalize_phone(phone)
-    clean_ipps = str(ipps).strip() if ipps else None
+      await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+        method: "PUT", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ 
+          role: customAssignedRole, 
+          is_approved: true, 
+          permissions: grantedPermissions,
+          station: userToApprove.station, 
+          region: userToApprove.region 
+        })
+      });
 
-    duplicate_filters = [
-        func.trim(func.upper(models.Users.fnum)) == clean_fnum
-    ]
-    if clean_ipps:
-        duplicate_filters.append(func.trim(models.Users.ipps) == clean_ipps)
-    if clean_nin:
-        duplicate_filters.append(func.trim(func.upper(models.Users.nin)) == clean_nin)
+      alert(`✅ Success: Access approved for ${cleanFnum}.`);
+      setSelectedPendingUser(null);
+      fetchPendingUsers();
+      fetchAllSystemUsers();
+    } catch (err) { alert(`Approval Error: ${err.message}`); } 
+    finally { setIsProcessingAction(false); }
+  };
 
-    existing_user = db.query(models.Users).filter(or_(*duplicate_filters)).first()
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Registration Error: Force/File Number, IPPS, or NIN is already registered."
-        )
+  const handleRejectUser = async (userToReject) => {
+    if (isReadOnlyObserver) return;
+    const fnum = typeof userToReject === 'object' ? userToReject.fnum : userToReject;
+    const rawReason = window.prompt(`Enter official reason for REJECTING ${fnum}:`);
+    if (rawReason === null) return;
 
-    uploaded_photo_url = profile_photo_path
-    if file and BUCKET_NAME:
-        try:
-            file_bytes = await file.read()
-            ext = file.filename.split('.')[-1].lower() if '.' in file.filename else 'jpg'
-            s3_key = f"user_profiles/{clean_fnum.replace('/', '_')}_{int(datetime.utcnow().timestamp())}.{ext}"
-            s3_client.put_object(
-                Bucket=BUCKET_NAME,
-                Key=s3_key,
-                Body=file_bytes,
-                ContentType=file.content_type or 'image/jpeg'
-            )
-            uploaded_photo_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION', 'eu-central-1')}.amazonaws.com/{s3_key}"
-        except Exception as upload_err:
-            print(f"S3 Direct Upload fallback notice: {upload_err}")
+    setIsProcessingAction(true);
+    try {
+      await authFetch(`/api/v1/users/${encodeURIComponent(stripHtmlTags(fnum).trim())}/revoke?reason=${encodeURIComponent(stripHtmlTags(rawReason))}`, { method: "DELETE" });
+      alert(`⛔ Request Rejected.`);
+      setSelectedPendingUser(null);
+      fetchPendingUsers();
+    } catch (err) { alert(`Rejection Error: ${err.message}`); } 
+    finally { setIsProcessingAction(false); }
+  };
 
-    hashed_password = security.get_password_hash(password)
+  const handleRevokeAccessCompletely = async (fnum, name) => {
+    if (isReadOnlyObserver) return;
+    const targetUser = allSystemUsers.find(u => u.fnum === fnum);
+    if (targetUser && !canControlTargetUser(targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Cannot revoke higher or equivalent command tier.");
+      return;
+    }
 
-    new_user = models.Users(
-        fnum=clean_fnum, 
-        ipps=clean_ipps,
-        nin=clean_nin,
-        name=str(name).strip().upper(),
-        rank=str(rank).strip().upper(),
-        sex=str(sex).strip().upper(),
-        region=str(region).strip().upper(),
-        division=str(division or station).strip().upper(),
-        station=str(station).strip().upper(),
-        position=str(position).strip().upper() if position else "GENERAL DUTIES",
-        email=str(email).strip() if email else None,
-        phone=clean_phone,
-        role=str(role).strip().upper() if role else "USER",
-        hashed_password=hashed_password,
-        profile_photo_path=uploaded_photo_url or "",
-        is_approved=False,
-        permissions={},
-        comments=None,
-        policy_accepted=True,
-        policy_accepted_at=datetime.utcnow()
-    )
+    const rawReason = window.prompt(`State mandatory official reason to COMPLETELY REVOKE access for ${name} (${fnum}):`);
+    if (rawReason === null) return;
+    const reason = stripHtmlTags(rawReason || "Administrative Access Revocation");
 
-    try:
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_user)
-        return {
-            "status": "success",
-            "message": "Access authorization request submitted. Awaiting Command approval."
+    if (!window.confirm(`⚠️ Are you sure you want to completely deny system access for ${name}?`)) return;
+
+    try {
+      const res = await authFetch(`/api/v1/users/${encodeURIComponent(fnum)}/revoke?reason=${encodeURIComponent(reason)}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) throw new Error(await res.text());
+      alert(`✅ Access completely revoked for ${fnum}.`);
+      fetchAllSystemUsers();
+    } catch (err) {
+      alert(`Revocation Failed: ${err.message}`);
+    }
+  };
+
+  const handleToggleDelegationPower = async (targetUser, givePower) => {
+    if (!isTopCommand) {
+      alert("SECURITY RESTRICTION: Only System Managers, RPCs, and Super Admins can delegate command powers.");
+      return;
+    }
+
+    const newPermissions = { ...(targetUser.permissions || {}), can_approve: givePower };
+    try {
+      const res = await authFetch(`/api/v1/users/${encodeURIComponent(targetUser.fnum)}/access`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
+      });
+      if (!res.ok) throw new Error("Failed to update delegation.");
+      alert(`✅ Delegation successfully ${givePower ? 'GRANTED' : 'REVOKED'} for ${targetUser.name} (${targetUser.fnum}).`);
+      fetchAllSystemUsers();
+      setShowDelegationModal(false);
+    } catch (err) {
+      alert(`Delegation Error: ${err.message}`);
+    }
+  };
+
+  const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
+    if (isReadOnlyObserver) return;
+    const cleanFnum = stripHtmlTags(fnum);
+    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    if (!targetUser || !canControlTargetUser(targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance.");
+      return;
+    }
+
+    const newPermissions = { ...(targetUser.permissions || {}) };
+    CLEARANCE_MATRIX_COLS.forEach(col => { newPermissions[col.key] = setAllToTrue; });
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: newPermissions } : u));
+
+    try {
+      await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
+      });
+    } catch (err) { alert(`Bulk Update Failed: ${err.message}`); fetchAllSystemUsers(); }
+  };
+
+  const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
+    if (isReadOnlyObserver) return;
+    const cleanFnum = stripHtmlTags(fnum);
+    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    if (!targetUser || !canControlTargetUser(targetUser)) return;
+
+    let updatedPermissions = { ...(targetUser.permissions || {}) };
+    updatedPermissions[permissionKey] = value;
+
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
+
+    try {
+      await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
+      });
+    } catch (err) { alert(`Permission Update Failed: ${err.message}`); fetchAllSystemUsers(); }
+  };
+
+  const handleRoleTierChange = async (fnum, newRole) => {
+    if (isReadOnlyObserver) return;
+    const cleanFnum = stripHtmlTags(fnum);
+    const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
+    if (!targetUser || !canControlTargetUser(targetUser)) return;
+
+    const updatedPermissions = grantExpressAccess(newRole, targetUser.permissions || {});
+    setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
+
+    try {
+      await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
+      });
+    } catch (err) { alert(`Role Update Failed: ${err.message}`); fetchAllSystemUsers(); }
+  };
+
+  const handleResetAction = async (reqId, actionStr) => {
+    if (isReadOnlyObserver) return;
+    try {
+      const formData = new URLSearchParams();
+      formData.append('action', actionStr);
+      const response = await authFetch(`/api/v1/admin/execute-reset/${reqId}`, {
+        method: "POST", headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail);
+      setResetRequests(resetRequests.filter(r => r.id !== reqId));
+      alert(actionStr === "APPROVE" ? `Password successfully reset! Key: ${data.new_password}` : "Request rejected.");
+    } catch (err) { alert(`Error: ${err.message}`); }
+  };
+
+  const handleForcePassword = async (fnum, name) => {
+    if (isReadOnlyObserver || !isSuperAdmin) return;
+    const newPass = window.prompt(`[SUPER ADMIN OVERRIDE]\nEnter new 6+ character password for ${name} (${fnum}):`);
+    if (!newPass || newPass.length < 6) return alert("Password must be at least 6 characters long.");
+
+    setIsProcessingAction(true);
+    try {
+      const response = await authFetch(`/api/v1/admin/users/${encodeURIComponent(fnum.trim())}/force-password`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ new_password: newPass })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Failed to force password reset.");
+      alert(`✅ ${data.message}`);
+    } catch (err) { alert(`❌ Error: ${err.message}`); } 
+    finally { setIsProcessingAction(false); }
+  };
+
+  // Fetch functions
+  const fetchLockdownStatus = useCallback(async () => {
+    if (!hasValidSession()) return;
+    try {
+      const res = await authFetch('/api/v1/admin/lockdown/status');
+      if (res && res.ok) {
+        const data = await res.json();
+        let count = 0;
+        let newLockdownData = { system: false, regions: {}, stations: {} };
+        if (data.system_lockdown) { count++; newLockdownData.system = true; }
+        if (data.active_regions?.length > 0) {
+          count += data.active_regions.length;
+          data.active_regions.forEach(r => newLockdownData.regions[r] = true);
         }
-    except Exception as e:
-        db.rollback()
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Registration database error: {str(e)}"
-        )
-
-# ====================================================================
-# 3. PROFILE PHOTO UPLOAD ENDPOINT
-# ====================================================================
-@router.post("/upload-profile")
-@router.post("/api/v1/users/upload-profile")
-async def upload_user_profile_photo(
-    file: UploadFile = File(...),
-    fnum: Optional[str] = Form("NEW_USER"),
-    category: Optional[str] = Form("user_profile")
-):
-    try:
-        contents = await file.read()
-        clean_fnum = normalize_fnum(fnum).replace("/", "_")
-        ext = file.filename.split('.')[-1].lower() if '.' in file.filename else 'jpg'
-        s3_key = f"user_profiles/{clean_fnum}_{int(datetime.utcnow().timestamp())}.{ext}"
-
-        if BUCKET_NAME:
-            try:
-                s3_client.put_object(
-                    Bucket=BUCKET_NAME,
-                    Key=s3_key,
-                    Body=contents,
-                    ContentType=file.content_type or 'image/jpeg'
-                )
-                s3_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION', 'eu-central-1')}.amazonaws.com/{s3_key}"
-                return {
-                    "full_s3_url": s3_url,
-                    "cloud_storage_path": s3_key
-                }
-            except Exception as s3_err:
-                print(f"S3 Upload failed, saving locally: {s3_err}")
-
-        os.makedirs("uploads/profiles", exist_ok=True)
-        local_filename = f"{clean_fnum}_{int(datetime.utcnow().timestamp())}.{ext}"
-        local_path = os.path.join("uploads/profiles", local_filename)
-        with open(local_path, "wb") as f:
-            f.write(contents)
-
-        return {
-            "full_s3_url": f"/uploads/profiles/{local_filename}",
-            "cloud_storage_path": f"uploads/profiles/{local_filename}"
+        if (data.active_stations?.length > 0) {
+          count += data.active_stations.length;
+          data.active_stations.forEach(s => newLockdownData.stations[s] = true);
         }
+        setActiveLockdownCount(count);
+        setLockdownData(newLockdownData);
+      }
+    } catch (err) { console.error(err); }
+  }, []);
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
+  const fetchPendingUsers = useCallback(async () => {
+    if (!hasValidSession()) return;
+    setLoadingPending(true);
+    try {
+      const res = await authFetch("/api/v1/admin/pending-users");
+      if (res && res.ok) {
+        const data = await res.json();
+        setRealPendingUsers((Array.isArray(data) ? data : []).filter(u => isSuperAdmin || u.role !== 'SUPER_ADMIN'));
+      }
+    } catch (err) { console.error(err); } 
+    finally { setLoadingPending(false); }
+  }, [isSuperAdmin]);
 
-# ====================================================================
-# 4. PASSWORD RESET REQUEST ENDPOINT
-# ====================================================================
-@router.post("/request-reset")
-@router.post("/api/v1/auth/request-reset")
-async def request_password_reset(
-    fnum: str = Form(...),
-    db: Session = Depends(database.get_db)
-):
-    clean_fnum = normalize_fnum(fnum)
-    user = db.query(models.Users).filter(
-        func.trim(func.upper(models.Users.fnum)) == clean_fnum
-    ).first()
+  const fetchResets = useCallback(async () => {
+    if (!hasValidSession()) return;
+    setLoadingResets(true);
+    try {
+      const res = await authFetch("/api/v1/admin/reset-requests");
+      if (res && res.ok) setResetRequests(Array.isArray(res) ? res : await res.json());
+    } catch (err) { console.error(err); } 
+    finally { setLoadingResets(false); }
+  }, []);
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Officer with Force/File number '{clean_fnum}' is not registered."
-        )
+  const fetchAllSystemUsers = useCallback(async () => {
+    if (!hasValidSession()) return;
+    setLoadingUsers(true);
+    try {
+      const res = await authFetch("/api/v1/users");
+      if (res && res.ok) {
+        const data = await res.json();
+        setAllSystemUsers((Array.isArray(data) ? data : []).filter(u => isSuperAdmin || u.role !== 'SUPER_ADMIN'));
+      }
+    } catch (err) { console.error(err); } 
+    finally { setLoadingUsers(false); }
+  }, [isSuperAdmin]);
 
-    ResetModel = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
-    if ResetModel:
-        existing_req = db.query(ResetModel).filter(
-            func.trim(func.upper(ResetModel.fnum)) == clean_fnum,
-            ResetModel.status == "PENDING"
-        ).first()
+  const fetchModRequests = useCallback(async () => {
+    if (!hasValidSession()) return;
+    setLoadingRequests(true);
+    try {
+      const res = await authFetch("/api/v1/requests");
+      if (res && res.ok) setModRequests(Array.isArray(res) ? res : await res.json());
+    } catch (err) { console.error(err); } 
+    finally { setLoadingRequests(false); }
+  }, []);
 
-        if not existing_req:
-            new_req = ResetModel(
-                fnum=clean_fnum,
-                name=user.name,
-                rank=user.rank,
-                station=user.station,
-                region=user.region,
-                status="PENDING"
-            )
-            db.add(new_req)
-            db.commit()
+  const fetchAuditLogs = useCallback(async () => {
+    if (!hasValidSession()) return;
+    setLoadingLogs(true);
+    try {
+      const res = await authFetch("/api/v1/audit-logs");
+      if (res && res.ok) setAuditLogs(Array.isArray(res) ? res : await res.json());
+    } catch (err) { console.error(err); } 
+    finally { setLoadingLogs(false); }
+  }, []);
 
-    return {"status": "success", "message": "Password reset request submitted to Command."}
+  useEffect(() => {
+    if (activeTab === 'approvals') fetchPendingUsers();
+    else if (activeTab === 'matrix' || activeTab === 'roster') fetchAllSystemUsers();
+    else if (activeTab === 'requests') fetchModRequests();
+    else if (activeTab === 'logs') { fetchAuditLogs(); fetchAllSystemUsers(); }
+    else if (activeTab === 'resets') fetchResets();
+    
+    fetchLockdownStatus();
+  }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
 
-# ====================================================================
-# 5. USER PASSWORD, PROFILE UPDATE, REVOCATION & PERMANENT DELETION
-# ====================================================================
-@router.put("/change-password")
-@router.put("/api/v1/users/change-password")
-def change_password(
-    data: schemas.PasswordChangeReq,
-    current_user: models.Users = Depends(get_current_user),
-    db: Session = Depends(database.get_db)
-):
-    if not security.verify_password(data.old_password, current_user.hashed_password):
-        raise HTTPException(status_code=400, detail="Current password incorrect.")
+  const matchesSearch = (item, fields) => {
+    if (!searchTerm.trim()) return true;
+    const term = searchTerm.toLowerCase();
+    return fields.some(field => stripHtmlTags(String(item[field] || '')).toLowerCase().includes(term));
+  };
 
-    if len(data.new_password) < 6 or len(data.new_password) > 72:
-        raise HTTPException(status_code=400, detail="New password must be between 6 and 72 characters.")
+  const filterByRegionStation = (items, itemRegionKey = 'region', itemStationKey = 'station', searchFields = []) => {
+    return items.filter(item => {
+      const itemRegion = stripHtmlTags(item[itemRegionKey] || '').trim().toUpperCase();
+      const itemStation = stripHtmlTags(item[itemStationKey] || '').trim().toUpperCase();
+      const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
+      const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
-    current_user.hashed_password = security.get_password_hash(data.new_password)
-    db.commit()
-    return {"status": "success", "message": "Password successfully updated."}
+      if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return matchesSearch(item, searchFields);
+      if (activeReg && activeReg !== 'ALL REGIONS' && itemRegion !== activeReg) return false;
+      if (activeStat && activeStat !== 'ALL STATIONS' && itemStation !== activeStat) return false;
+      return matchesSearch(item, searchFields);
+    });
+  };
 
-@router.put("/profile/update")
-@router.put("/api/v1/users/profile/update")
-def update_profile(
-    data: schemas.UserUpdate,
-    current_user: models.Users = Depends(get_current_user),
-    db: Session = Depends(database.get_db)
-):
-    if data.name: current_user.name = str(data.name).strip().upper()
-    if data.rank: current_user.rank = str(data.rank).strip().upper()
-    if data.region: current_user.region = str(data.region).strip().upper()
-    if data.station: current_user.station = str(data.station).strip().upper()
-    if data.email: current_user.email = str(data.email).strip()
-    if data.phone: 
-        current_user.phone = validate_and_normalize_phone(data.phone)
-    if getattr(data, 'nin', None): 
-        current_user.nin = validate_and_normalize_nin(data.nin)
-    if getattr(data, 'sex', None): 
-        current_user.sex = str(data.sex).strip().upper()
-    if data.profile_photo_path: current_user.profile_photo_path = data.profile_photo_path
+  const filteredPending = useMemo(() => filterByRegionStation(realPendingUsers, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'nin', 'ipps', 'phone', 'email']), [realPendingUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
+  const filteredRequests = useMemo(() => filterByRegionStation(modRequests, 'current_region', 'current_station', ['fnum', 'current_name', 'current_station', 'current_region', 'requested_station', 'requested_name']), [modRequests, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
+  const filteredResets = useMemo(() => filterByRegionStation(resetRequests, 'region', 'station', ['fnum', 'name', 'station', 'region']), [resetRequests, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
+  const filteredSystemUsers = useMemo(() => filterByRegionStation(allSystemUsers, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'ipps', 'phone', 'email', 'role']), [allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
 
-    db.commit()
-    db.refresh(current_user)
-    return {"status": "success", "message": "Profile updated successfully."}
+  const filteredLogs = useMemo(() => {
+    return auditLogs.filter(log => {
+      const logUser = allSystemUsers.find(u => u.fnum === log.user_fnum);
+      const logRegion = stripHtmlTags(log.region || logUser?.region || '').trim().toUpperCase();
+      const logStation = stripHtmlTags(log.station || logUser?.station || '').trim().toUpperCase();
+      const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
+      const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
-@router.delete("/users/{fnum:path}/revoke")
-@router.delete("/api/v1/users/{fnum:path}/revoke")
-def revoke_user_access(
-    fnum: str,
-    reason: str = "Administrative Revocation",
-    db: Session = Depends(database.get_db),
-    current_user: models.Users = Depends(require_admin)
-):
-    clean_fnum = normalize_fnum(fnum)
-    target_user = db.query(models.Users).filter(
-        func.trim(func.upper(models.Users.fnum)) == clean_fnum
-    ).first()
+      if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
+      if (activeReg && activeReg !== 'ALL REGIONS' && logRegion !== activeReg) return false;
+      if (activeStat && activeStat !== 'ALL STATIONS' && logStation !== activeStat) return false;
+      return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
+    });
+  }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
 
-    if not target_user:
-        raise HTTPException(status_code=404, detail="User record not found.")
+  return (
+    <div className="dark p-4 max-w-[1800px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300 text-slate-100">
+      
+      <div className="bg-slate-900 dark:bg-slate-950 text-white px-6 py-5 rounded-2xl shadow-lg border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center space-x-4">
+          <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 object-contain contrast-200 brightness-110 drop-shadow-md" onError={(e) => e.target.style.display = 'none'} />
+          <div>
+            <h1 className="text-xl font-black tracking-wide uppercase flex items-center">
+              <Shield className="w-5 h-5 mr-2 text-blue-400" /> Access & Command Approvals
+            </h1>
+            <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider font-semibold">
+              Review officer signups, jurisdictional clearances, tier matrices, and regional audit logs.
+            </p>
+          </div>
+        </div>
 
-    target_user.role = "REVOKED"
-    target_user.is_approved = False
+        {isTopCommand && (
+          <button 
+            onClick={() => setShowDelegationModal(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center shadow-md transition cursor-pointer"
+          >
+            <Award size={14} className="mr-2" /> Delegate Approval Powers
+          </button>
+        )}
+      </div>
 
-    try:
-        db.commit()
-        return {"status": "success", "message": f"Access successfully revoked for {clean_fnum}."}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Database revocation error: {str(e)}")
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5 relative z-20">
+        <div className="flex flex-wrap items-center gap-3 bg-slate-50 dark:bg-slate-800/80 p-2 rounded-lg border border-slate-100 dark:border-slate-700 w-full xl:w-auto">
+          <span className="text-xs font-extrabold text-blue-900 dark:text-blue-300 uppercase flex items-center tracking-wider mr-1">
+            <Filter size={14} className="mr-1.5 text-blue-600 dark:text-blue-400" /> Filter Scope:
+          </span>
+          <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border border-slate-300 dark:border-slate-700 rounded-md p-2 text-xs shadow-sm bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer min-w-[180px]">
+            {canViewGlobalActive ? (<><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY || {}).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>) : <option value={currentUser?.region}>{stripHtmlTags(currentUser?.region)}</option>}
+          </select>
+          <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive && !['RPC', 'Deputy Commander'].includes(currentUser?.role)} className="border border-slate-300 dark:border-slate-700 rounded-md p-2 text-xs shadow-sm bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer min-w-[200px]">
+            {canViewGlobalActive || ['RPC', 'Deputy Commander'].includes(currentUser?.role) ? (<><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
+          </select>
+          
+          <div className="relative flex items-center min-w-[240px]">
+            <Search size={14} className="absolute left-3 text-slate-400 dark:text-slate-500" />
+            <input 
+              type="text" 
+              value={searchTerm} 
+              onChange={(e) => setSearchTerm(e.target.value)} 
+              placeholder="Search individual FNUM, name, IPPS..." 
+              className="w-full pl-9 pr-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-md text-xs font-bold text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-slate-950"
+            />
+            {searchTerm && (
+              <button onClick={() => setSearchTerm('')} className="absolute right-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 text-xs font-bold">×</button>
+            )}
+          </div>
+        </div>
 
-@router.delete("/users/{fnum:path}/permanent-delete")
-@router.delete("/api/v1/users/{fnum:path}/permanent-delete")
-def permanent_delete_user(
-    fnum: str,
-    db: Session = Depends(database.get_db),
-    current_user: models.Users = Depends(require_admin)
-):
-    if current_user.role != "SUPER_ADMIN":
-        raise HTTPException(status_code=403, detail="Clearance Denied: Only Super Admins can permanently delete accounts.")
+        <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
+          <button onClick={() => { fetchPendingUsers(); fetchAllSystemUsers(); fetchModRequests(); fetchAuditLogs(); fetchResets(); fetchLockdownStatus(); }} className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm">
+            <RefreshCw size={14} className="mr-2 text-blue-600 dark:text-blue-400" /> Sync Queue
+          </button>
+          {isSuperAdmin && (
+            <button onClick={() => { fetchLockdownStatus(); setShowLockdownModal(true); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${activeLockdownCount > 0 ? 'bg-red-950 border-red-500 text-red-200 animate-pulse' : 'bg-amber-950/60 border-amber-600/50 text-amber-300'}`}>
+              <span>🔒</span><span>{activeLockdownCount > 0 ? `Lockdowns (${activeLockdownCount} Active)` : 'Lockdowns'}</span>
+            </button>
+          )}
+        </div>
+      </div>
 
-    clean_fnum = normalize_fnum(fnum)
-    target_user = db.query(models.Users).filter(
-        func.trim(func.upper(models.Users.fnum)) == clean_fnum
-    ).first()
+      {/* TAB NAVIGATION BAR */}
+      <div className="flex border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-t-xl shadow-sm overflow-x-auto custom-scrollbar">
+        <button onClick={() => setActiveTab('approvals')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'approvals' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-blue-600 text-blue-700 dark:text-blue-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
+          <UserPlus className="w-4 h-4 mr-2"/> Authorizations ({loadingPending ? '...' : filteredPending.length})
+        </button>
+        <button onClick={() => setActiveTab('matrix')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'matrix' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-indigo-600 text-indigo-700 dark:text-indigo-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
+          <Shield className="w-4 h-4 mr-2"/> Clearance Matrix ({filteredSystemUsers.length})
+        </button>
+        <button onClick={() => setActiveTab('roster')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'roster' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-cyan-600 text-cyan-700 dark:text-cyan-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
+          <Users className="w-4 h-4 mr-2"/> Directory Roster ({filteredSystemUsers.length})
+        </button>
+        <button onClick={() => setActiveTab('requests')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'requests' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-amber-500 text-amber-700 dark:text-amber-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
+          <RefreshCw className="w-4 h-4 mr-2"/> HR Transfers ({filteredRequests.length})
+        </button>
+        <button onClick={() => setActiveTab('logs')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'logs' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-emerald-600 text-emerald-700 dark:text-emerald-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
+          <FileText className="w-4 h-4 mr-2"/> Audit Logs ({filteredLogs.length})
+        </button>
+        <button onClick={() => setActiveTab('resets')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'resets' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-red-600 text-red-700 dark:text-red-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
+          <KeyRound className="w-4 h-4 mr-2"/> Password Resets ({filteredResets.length})
+        </button>
+      </div>
 
-    if not target_user:
-        raise HTTPException(status_code=404, detail="User record not found.")
+      {/* 1. AUTHORIZATIONS TAB WITH INDIVIDUAL DOSSIER REVIEW */}
+      {activeTab === 'approvals' && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
+          {loadingPending ? (
+            <div className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium animate-pulse text-xs">Syncing with Command Database...</div>
+          ) : filteredPending.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium text-xs">No active unapproved access requests pending.</div>
+          ) : (
+            <div className="w-full overflow-x-auto custom-scrollbar">
+              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
+                <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px] tracking-wider">
+                  <tr><th className="px-4 py-3.5 text-left">Officer Details</th><th className="px-4 py-3.5 text-left">Jurisdiction (Station / Region)</th><th className="px-4 py-3.5 text-left">Derived Role Tier</th><th className="px-4 py-3.5 text-right">Action</th></tr>
+                </thead>
+                <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
+                  {filteredPending.map((user) => (
+                    <tr key={user.fnum} onClick={() => setSelectedPendingUser(user)} className="hover:bg-blue-50/50 dark:hover:bg-slate-800 cursor-pointer transition-colors group">
+                      <td className="px-4 py-3">
+                        <div className="font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                          <Eye size={14} className="text-blue-500 group-hover:scale-110 transition-transform"/>
+                          {formatOfficerHeader(user)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3"><div className="font-bold text-blue-700 dark:text-blue-400 uppercase">{stripHtmlTags(user.station)} / {stripHtmlTags(user.region)}</div></td>
+                      <td className="px-4 py-3"><span className="px-2 py-0.5 inline-flex text-[10px] font-bold rounded-full border bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700">{user.role}</span></td>
+                      <td className="px-4 py-3 text-right">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedPendingUser(user); }} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-md text-[11px] cursor-pointer shadow-sm">
+                          Inspect Dossier
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
-    try:
-        db.delete(target_user)
-        db.commit()
-        return {"status": "success", "message": f"Account {clean_fnum} permanently deleted from database."}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Database deletion error: {str(e)}")
+      {/* 2. CLEARANCE MATRIX TAB */}
+      {activeTab === 'matrix' && (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
+          <div className="bg-slate-900 dark:bg-slate-950 text-white p-3 text-xs font-extrabold uppercase tracking-wider flex justify-between">
+            <span>Super Control Panel - Active Roster Matrix</span>
+          </div>
+          {loadingUsers ? (
+            <div className="p-8 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
+          ) : (
+            <div className="w-full overflow-x-auto custom-scrollbar">
+              <div className="min-w-[1200px]">
+                <table className="w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs table-fixed">
+                  <thead className="bg-slate-900 dark:bg-slate-950 text-white uppercase font-black text-[10px]">
+                    <tr>
+                      <th className="p-2.5 text-left md:sticky md:left-0 z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[240px] min-w-[240px]">Officer Details</th>
+                      <th className="p-2.5 text-center md:sticky md:left-[240px] z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[120px] min-w-[120px]">Administrative Tier</th>
+                      <th className="p-2.5 text-center md:sticky md:left-[360px] z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[100px] min-w-[100px]">Quick Actions</th>
+                      {CLEARANCE_MATRIX_COLS.map((col, idx) => (
+                        <th key={idx} className="p-2 border-l border-slate-700 dark:border-slate-800 bg-slate-900 dark:bg-slate-950 w-20 min-w-[80px] align-middle">
+                          <div className="w-20 min-w-[80px] text-[9px] text-blue-100 font-bold whitespace-normal break-words leading-tight text-center px-0.5" title={col.label}>
+                            {col.label}
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium text-slate-700 dark:text-slate-300">
+                    {filteredSystemUsers.map(u => {
+                      const p = u.permissions || {};
+                      const isSelf = u.fnum === currentUser?.fnum;
+                      const canModifyThisUser = canControlTargetUser(u);
+
+                      return (
+                        <tr key={u.fnum} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <td className="p-2.5 md:sticky md:left-0 z-10 bg-white dark:bg-slate-900 font-extrabold text-[11px] text-slate-900 dark:text-slate-100 w-[240px] min-w-[240px] truncate" title={formatOfficerHeader(u)}>{formatOfficerHeader(u)}</td>
+                          <td className="p-2.5 text-center md:sticky md:left-[240px] z-10 bg-white dark:bg-slate-900 w-[120px] min-w-[120px]">
+                            <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf || !canModifyThisUser} className="border border-slate-300 dark:border-slate-700 rounded-md px-1.5 py-1 font-bold outline-none uppercase text-[10px] w-full truncate bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 disabled:opacity-50">
+                              <option value="USER">USER</option>
+                              <option value="STATION_ADMIN">STN ADMIN</option>
+                              <option value="DIVISION_USER">DIV USER</option>
+                              <option value="DIVISION_ADMIN">DIV ADMIN</option>
+                              <option value="REGIONAL_USER">REG USER</option>
+                              <option value="REGIONAL_ADMIN">REG ADMIN</option>
+                              <option value="ASSISTANT_REGIONAL_ADMIN">ASST REG ADMIN</option>
+                              <option value="ADMIN">ADMIN</option>
+                              <option value="SUPER_ADMIN">SUPER ADMIN</option>
+                              <option value="ASSISTANT_SUPER_ADMIN">ASST SUPER ADMIN</option>
+                              <option value="REVOKED">REVOKED</option>
+                            </select>
+                          </td>
+                          <td className="p-2.5 text-center md:sticky md:left-[360px] z-10 bg-white dark:bg-slate-900 w-[100px] min-w-[100px]">
+                            <div className="flex items-center justify-center space-x-1">
+                              {canModifyThisUser && (
+                                <>
+                                  <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 cursor-pointer"><CheckSquare size={12} /></button>
+                                  <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 cursor-pointer"><Square size={12} /></button>
+                                  <button onClick={() => handleRevokeAccessCompletely(u.fnum, u.name)} title="Completely Revoke Access" className="p-1 rounded bg-rose-50 text-rose-700 border border-rose-300 cursor-pointer"><XCircle size={12} /></button>
+                                </>
+                              )}
+                              {isSuperAdmin && (
+                                <button onClick={() => handleForcePassword(u.fnum, u.name)} title="Force Password" className="p-1 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 cursor-pointer"><KeyRound size={12} /></button>
+                              )}
+                            </div>
+                          </td>
+                          {CLEARANCE_MATRIX_COLS.map((col, idx) => {
+                            const isObserverCol = col.key === 'global_observer';
+                            const isOpenCol = col.key === 'global_open';
+                            const isMutuallyDisabled = (isObserverCol && Boolean(p.global_open)) || (isOpenCol && Boolean(p.global_observer));
+                            const isDisabled = isSelf || isMutuallyDisabled || !canModifyThisUser;
+
+                            return (
+                              <td key={idx} className="p-2 text-center border-l border-slate-100 dark:border-slate-800 w-20 min-w-[80px]">
+                                <input 
+                                  type="checkbox" 
+                                  checked={u.role === 'SUPER_ADMIN' || Boolean(p[col.key])} 
+                                  disabled={isDisabled}
+                                  onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
+                                  className={`w-3.5 h-3.5 rounded ${isDisabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'} accent-blue-600`} 
+                                />
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 3. DIRECTORY ROSTER TAB */}
+      {activeTab === 'roster' && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
+          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 border-b border-slate-800 text-white font-semibold text-xs uppercase">
+            Command Directory & System Roster
+          </div>
+          {loadingUsers ? (
+            <div className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium animate-pulse text-xs">Compiling roster...</div>
+          ) : (
+            <div className="w-full overflow-x-auto custom-scrollbar">
+              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
+                <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px]">
+                  <tr><th className="px-4 py-3.5 text-left">Officer Details</th><th className="px-4 py-3.5 text-left">Identifiers</th><th className="px-4 py-3.5 text-left">Contact Data</th><th className="px-4 py-3.5 text-right">Actions</th></tr>
+                </thead>
+                <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
+                  {filteredSystemUsers.map((user) => (
+                    <tr key={user.fnum} className="hover:bg-cyan-50/50 dark:hover:bg-slate-800">
+                      <td className="px-4 py-3"><div className="font-extrabold text-slate-900 dark:text-slate-100">{formatOfficerHeader(user)}</div></td>
+                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">IPPS: {user.ipps || 'N/A'}</td>
+                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{user.phone || 'N/A'}</td>
+                      <td className="px-4 py-3 text-right">
+                        {isSuperAdmin && (
+                          <button onClick={() => handleForcePassword(user.fnum, user.name)} className="px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-bold text-[10px] cursor-pointer"><KeyRound size={12} className="inline mr-1" /> Force Password</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 4. HR TRANSFERS TAB */}
+      {activeTab === 'requests' && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-amber-200 dark:border-amber-900/50 overflow-hidden w-full">
+          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">HR Modification Requests</div>
+          <div className="w-full overflow-x-auto custom-scrollbar">
+            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
+              <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px]">
+                <tr><th className="px-4 py-3.5 text-left">Officer</th><th className="px-4 py-3.5 text-left">Requested Changes</th><th className="px-4 py-3.5 text-right">Action</th></tr>
+              </thead>
+              <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
+                {filteredRequests.map((req) => (
+                  <tr key={req.id || req.sn} className="hover:bg-amber-50/50 dark:hover:bg-slate-800">
+                    <td className="px-4 py-2.5 text-slate-900 dark:text-slate-100">{formatOfficerHeader({ fnum: req.fnum, rank: req.current_rank, name: req.current_name })}</td>
+                    <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300">Station: {req.requested_station || req.current_station}</td>
+                    <td className="px-4 py-2.5 text-right space-x-2">
+                      <button onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Approve</button>
+                      <button onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className="bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Reject</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 5. AUDIT LOGS TAB */}
+      {activeTab === 'logs' && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
+          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">System Audit Logs</div>
+          <div className="w-full overflow-x-auto custom-scrollbar">
+            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs">
+              <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px] whitespace-nowrap">
+                <tr>
+                  <th className="px-4 py-3.5 text-left w-32">Timestamp</th>
+                  <th className="px-4 py-3.5 text-left w-48">User</th>
+                  <th className="px-4 py-3.5 text-left w-40">Event</th>
+                  <th className="px-4 py-3.5 text-left">Details</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
+                {filteredLogs.map((log) => (
+                  <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <td className="px-4 py-2.5 font-mono text-[10px] text-slate-500 dark:text-slate-400 whitespace-nowrap">{log.created_at}</td>
+                    
+                    <td className="px-4 py-2.5 font-extrabold text-blue-700 dark:text-blue-400 whitespace-nowrap">
+                      {log.user_fnum} {log.user_name ? `- ${log.user_name}` : ''}
+                    </td>
+
+                    <td className="px-4 py-2.5 uppercase font-extrabold text-[10px] whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                        log.event_type?.includes('AUTH') ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' :
+                        log.event_type?.includes('SUBMIT') || log.event_type?.includes('CREATE') ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' :
+                        'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
+                      }`}>
+                        {log.event_type}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-2.5 text-[11px] text-slate-700 dark:text-slate-300 font-medium whitespace-normal break-words min-w-[500px] w-full">
+                      {log.details?.includes('Target: SYSTEM | Changes: | Remarks:') 
+                        ? 'Standard System Authentication / Session Init' 
+                        : log.details}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 6. PASSWORD RESETS TAB */}
+      {activeTab === 'resets' && (  
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-red-200 dark:border-red-900/50 overflow-hidden w-full">
+          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">Authorized Password Recovery</div>
+          <div className="w-full overflow-x-auto custom-scrollbar">
+            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
+              <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px]">
+                <tr><th className="px-4 py-3.5 text-left">Date</th><th className="px-4 py-3.5 text-left">Officer</th><th className="px-4 py-3.5 text-right">Action</th></tr>
+              </thead>
+              <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
+                {filteredResets.map((req) => (
+                  <tr key={req.id} className="hover:bg-red-50/50 dark:hover:bg-slate-800">
+                    <td className="px-4 py-2.5 font-bold text-[10px] text-slate-500 dark:text-slate-400">{req.request_date}</td>
+                    <td className="px-4 py-2.5 font-extrabold text-blue-700 dark:text-blue-400">{formatOfficerHeader({ fnum: req.fnum, rank: req.rank, name: req.name })}</td>
+                    <td className="px-4 py-2.5 text-right space-x-2">
+                      <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Authorize Reset</button>
+                      <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Reject</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 🟢 DELEGATION MODAL */}
+      {showDelegationModal && (
+        <div className="fixed inset-0 bg-black/70 z-[999999] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl text-white">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-extrabold uppercase flex items-center">
+                <Award className="w-4 h-4 mr-2 text-yellow-400" /> Delegate Command Approval Powers
+              </h3>
+              <button onClick={() => setShowDelegationModal(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
+            </div>
+            <p className="text-xs text-slate-400">Select an officer in your command jurisdiction to delegate authorization and matrix approval privileges.</p>
+            <div className="max-h-60 overflow-y-auto space-y-2 custom-scrollbar">
+              {allSystemUsers.filter(u => u.role !== 'SUPER_ADMIN').map(u => (
+                <div key={u.fnum} className="bg-slate-800 p-3 rounded-lg flex items-center justify-between border border-slate-700">
+                  <div>
+                    <div className="font-bold text-xs">{formatOfficerHeader(u)}</div>
+                    <div className="text-[10px] text-slate-400">{u.station} / {u.region} • <span className="text-yellow-400">{u.role}</span></div>
+                  </div>
+                  <div className="space-x-2">
+                    {u.permissions?.can_approve ? (
+                      <button onClick={() => handleToggleDelegationPower(u, false)} className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer">Revoke Power</button>
+                    ) : (
+                      <button onClick={() => handleToggleDelegationPower(u, true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer">Delegate Power</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODALS */}
+      <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} canModifyUser={canModifyUser} />
+      <HRModificationModal req={selectedModRequest} onClose={() => setSelectedModRequest(null)} currentUser={currentUser} isProcessingAction={isProcessingAction} handleReviewRequest={handleReviewRequest} />
+      <LockdownMatrixModal isOpen={showLockdownModal} onClose={() => setShowLockdownModal(false)} activeLockdownSummary={activeLockdownSummary} lockdownData={lockdownData} handleToggleLockdown={handleToggleLockdown} lockdownRegionFilter={lockdownRegionFilter} setLockdownRegionFilter={setLockdownRegionFilter} />
+      <RevocationModal prompt={revokePrompt} setPrompt={setRevokePrompt} executeRoleChange={() => {}} executePermissionChange={() => {}} />
+
+      {viewingPhotoModal && (
+        <div className="fixed inset-0 bg-black/90 z-[400] flex justify-center items-center p-4" onClick={() => setViewingPhotoModal(null)}>
+          <button className="absolute top-6 right-6 text-white bg-white/10 p-2 rounded-full"><X size={24}/></button>
+          <img src={viewingPhotoModal} alt="Enlarged" className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+    </div>  
+  );
+};
+
+export default AdminApprovals;
