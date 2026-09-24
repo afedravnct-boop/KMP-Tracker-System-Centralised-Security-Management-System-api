@@ -169,6 +169,51 @@ const AnalyticsDashboard = ({
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : (currentUser?.region || 'KMP HEADQUARTERS'));
   const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : (currentUser?.station || 'KMP HEADQUARTERS'));
 
+  // 🟢 1. DEFINE currentDataset FIRST so it is guaranteed to exist in scope for all subsequent memos
+  const currentDataset = useMemo(() => {
+    let baseData = [];
+    if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') baseData = resolvedCrimeRegistry.filter(r => !isLockupLog(r)); 
+    else if (activeDomain === 'MANPOWER_DEEP') baseData = resolvedNominalRolls;
+    else if (activeDomain === 'SUCCESS') baseData = resolvedSuccessStories;
+    else if (activeDomain === 'OPERATIONS') baseData = resolvedOperationalStats;
+    else if (activeDomain === 'EXHIBITS') baseData = resolvedExhibits;
+
+    baseData = baseData.filter(item => {
+      let stn = (item.station || '').trim().toUpperCase();
+      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
+      const reg = getOfficialRegionForStation(stn, item.region);
+
+      if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
+        return true;
+      }
+
+      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
+      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation.toUpperCase()) return false;
+      return true;
+    });
+
+    if (activeDomain !== 'MANPOWER_DEEP' && activeDomain !== 'RELATIONAL' && dateFilter !== 'ALL') {
+      const now = new Date();
+      baseData = baseData.filter(item => {
+        const itemDateStr = item.date || item.createdAt || item.timestamp || item.date_impounded;
+        if (!itemDateStr) return true; 
+        const itemDate = new Date(itemDateStr);
+        if (isNaN(itemDate)) return true;
+
+        if (dateFilter === 'TODAY' || dateFilter === 'today') return itemDate.toDateString() === now.toDateString();
+        if (dateFilter === 'WEEK' || dateFilter === 'week') {
+          const weekAgo = new Date();
+          weekAgo.setDate(now.getDate() - 7);
+          return itemDate >= weekAgo && itemDate <= now;
+        }
+        if (dateFilter === 'MONTH') return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
+        if (dateFilter === 'YEAR') return itemDate.getFullYear() === now.getFullYear();
+        return true;
+      });
+    }
+    return baseData;
+  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, resolvedExhibits, dateFilter, selectedRegion, selectedStation, canViewGlobalActive]);
+
   const manpowerAnalysis = useMemo(() => {
     const rolls = Array.isArray(resolvedNominalRolls) ? resolvedNominalRolls : [];
     
@@ -266,51 +311,6 @@ const AnalyticsDashboard = ({
 
     return { rows, uniqueUnits, uniqueReasons, grandTotals };
   }, [resolvedNominalRolls, selectedRegion, selectedStation]);
-
-  // 🟢 FIXED: currentDataset is explicitly declared here before aggregatedData and crimeSummaryData
-  const currentDataset = useMemo(() => {
-    let baseData = [];
-    if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') baseData = resolvedCrimeRegistry.filter(r => !isLockupLog(r)); 
-    else if (activeDomain === 'MANPOWER_DEEP') baseData = resolvedNominalRolls;
-    else if (activeDomain === 'SUCCESS') baseData = resolvedSuccessStories;
-    else if (activeDomain === 'OPERATIONS') baseData = resolvedOperationalStats;
-    else if (activeDomain === 'EXHIBITS') baseData = resolvedExhibits;
-
-    baseData = baseData.filter(item => {
-      let stn = (item.station || '').trim().toUpperCase();
-      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
-      const reg = getOfficialRegionForStation(stn, item.region);
-
-      if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
-        return true;
-      }
-
-      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
-      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation.toUpperCase()) return false;
-      return true;
-    });
-
-    if (activeDomain !== 'MANPOWER_DEEP' && activeDomain !== 'RELATIONAL' && dateFilter !== 'ALL') {
-      const now = new Date();
-      baseData = baseData.filter(item => {
-        const itemDateStr = item.date || item.createdAt || item.timestamp || item.date_impounded;
-        if (!itemDateStr) return true; 
-        const itemDate = new Date(itemDateStr);
-        if (isNaN(itemDate)) return true;
-
-        if (dateFilter === 'TODAY' || dateFilter === 'today') return itemDate.toDateString() === now.toDateString();
-        if (dateFilter === 'WEEK' || dateFilter === 'week') {
-          const weekAgo = new Date();
-          weekAgo.setDate(now.getDate() - 7);
-          return itemDate >= weekAgo && itemDate <= now;
-        }
-        if (dateFilter === 'MONTH') return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
-        if (dateFilter === 'YEAR') return itemDate.getFullYear() === now.getFullYear();
-        return true;
-      });
-    }
-    return baseData;
-  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, resolvedExhibits, dateFilter, selectedRegion, selectedStation, canViewGlobalActive]);
 
   const aggregatedData = useMemo(() => {
     const grouped = {};
