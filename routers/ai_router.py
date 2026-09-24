@@ -269,7 +269,7 @@ async def process_tactical_query(
         )
 
         # 🟢 Updated candidate models using valid production Google GenAI SDK identifiers
-        candidate_models = ['gemini-2.5-flash', 'gemini-3.6-flash', 'gemini-2.5-flash']
+        candidate_models = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.7-flash']
         response = None
         used_model = None
         last_exception = None
