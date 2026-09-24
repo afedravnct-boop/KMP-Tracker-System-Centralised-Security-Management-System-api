@@ -267,7 +267,7 @@ const AnalyticsDashboard = ({
     return { rows, uniqueUnits, uniqueReasons, grandTotals };
   }, [resolvedNominalRolls, selectedRegion, selectedStation]);
 
-  // 🟢 CRITICAL: currentDataset must be defined here before aggregatedData and crimeSummaryData
+  // 🟢 FIXED: currentDataset is explicitly declared here before aggregatedData and crimeSummaryData
   const currentDataset = useMemo(() => {
     let baseData = [];
     if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') baseData = resolvedCrimeRegistry.filter(r => !isLockupLog(r)); 
