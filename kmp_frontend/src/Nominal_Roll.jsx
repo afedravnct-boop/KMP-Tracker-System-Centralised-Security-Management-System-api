@@ -9,7 +9,7 @@ import OfficerDossierModal from './OfficerDossierModal';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
   "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
   "POLICE HEADQUARTERS": ["NAGURU"]
@@ -183,7 +183,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [targetRegion, setTargetRegion] = useState('ALL REGIONS');
   const [targetStation, setTargetStation] = useState('ALL STATIONS');
 
-  const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||                          
+  const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||                        
                         (currentUser?.position || '').toUpperCase().includes('HR') ||
                         currentUser?.permissions?.system_admin === true;
 
@@ -650,7 +650,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       } else {
           return resultsArray.sort((a, b) => b.total - a.total);
       }
-  }, [currentDataset, metricCategory]);
+  }, [currentRollDataset, metricCategory]);
 
   const metricsData = useMemo(() => {
     let maleCount = 0;
@@ -892,7 +892,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       </div>
                     </div>
                   )}
-                    
+                   
                   <form onSubmit={handleFormSubmit} className="space-y-3">
                     {operation === 'update' && (formData.sn || formData.fnum) && (
                       <div className="bg-red-50 p-3 rounded-lg border border-red-200 space-y-2 mb-3 shadow-xs">
