@@ -32,20 +32,15 @@ const normalizeOffenceCategory = (rawOffence) => {
   return words.join(' ') || clean;
 };
 
-// 🟢 Comprehensive rank normalizer for drivers, detectives, and investigators
 const normalizeAnalyticsRank = (rankStr) => {
   if (!rankStr) return 'UNRANKED';
   let r = String(rankStr).trim().toUpperCase();
-
-  // 1. Normalize detective prefixes (D/PC, DC, D/AIP -> PC, AIP)
   if (r === 'DC' || r.startsWith('D/C')) {
     r = 'PC';
   } else if (r.startsWith('D/') || r.startsWith('D-') || r.startsWith('D ')) {
     r = r.replace(/^D[\/\- ]/, '').trim();
     if (r === 'C') r = 'PC';
   }
-
-  // 2. Normalize driver suffixes/prefixes (C/DRV, PC/DRV, SGT/DRV, DRV -> PC, SGT, etc.)
   if (r.includes('/DRV') || r.includes('-DRV') || r.includes(' DRV') || r === 'DRV' || r.includes('C/DRV')) {
     if (r === 'C/DRV' || r === 'DRV' || r === 'PC/DRV') {
       r = 'PC';
@@ -53,7 +48,6 @@ const normalizeAnalyticsRank = (rankStr) => {
       r = r.replace(/\/DRV|-DRV| DRV|DRV/g, '').trim();
     }
   }
-
   if (r === 'C' || r === '') r = 'PC';
   return r;
 };
@@ -273,6 +267,7 @@ const AnalyticsDashboard = ({
     return { rows, uniqueUnits, uniqueReasons, grandTotals };
   }, [resolvedNominalRolls, selectedRegion, selectedStation]);
 
+  // 🟢 Declared here so it is fully initialized before aggregatedData and crimeSummaryData
   const currentDataset = useMemo(() => {
     let baseData = [];
     if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') baseData = resolvedCrimeRegistry.filter(r => !isLockupLog(r)); 
