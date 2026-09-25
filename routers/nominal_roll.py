@@ -28,7 +28,7 @@ from auth import get_current_user
 router = APIRouter(prefix="/api/v1", tags=["Nominal Roll & HR"])
 
 # ====================================================================
-# GLOBAL HELPER FUNCTIONS (AGGRESSIVE SANITIZATION & SECURITY)
+# GLOBAL HELPER FUNCTIONS & OPSEC SCOPING
 # ====================================================================
 
 def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
@@ -39,7 +39,7 @@ def require_export_privilege(current_user: models.Users = Depends(get_current_us
         except Exception: perms = {}
         
     if (
-        user_role not in ["ADMIN", "SUPER_ADMIN", "RPC"] and 
+        user_role not in ["ADMIN", "SUPER_ADMIN", "RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN"] and 
         not perms.get("export_data", False) and 
         not perms.get("global_observer", False) and
         not perms.get("view_global_roster", False)
@@ -48,7 +48,6 @@ def require_export_privilege(current_user: models.Users = Depends(get_current_us
     return current_user
 
 def aggressive_clean_text(val):
-    """Vaporizes junk punctuation, extra spaces, and trailing dots."""
     if pd.isna(val) or val is None: return None
     s = str(val)
     if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
@@ -61,7 +60,6 @@ def aggressive_clean_text(val):
     return s.upper()
 
 def clean_numeric(val):
-    """Cleans numeric strings and removes trailing .0 from Excel floats."""
     if pd.isna(val) or val is None: return None
     s = str(val).strip()
     if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
@@ -70,7 +68,6 @@ def clean_numeric(val):
     return s
 
 def format_phone_number(val):
-    """Extracts ALL valid numbers, formats to standard, recombines with a slash."""
     if pd.isna(val) or val is None: return None
     s = str(val).strip()
     if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
@@ -103,11 +100,9 @@ def normalize_sex(val):
 def normalize_education_level(educ_str):
     cleaned = aggressive_clean_text(educ_str)
     if not cleaned: return None
-    
     if any(term in cleaned for term in ['S.1', 'S1', 'S.2', 'S2', 'S.3', 'S3', 'SENIOR 1', 'SENIOR 2', 'SENIOR 3']): return cleaned
     if any(term in cleaned for term in ['UACE', 'A-LEVEL', 'A LEVEL', 'S.6', 'S6', 'SENIOR 6']): return "UACE"
     if any(term in cleaned for term in ['UCE', 'O-LEVEL', 'O LEVEL', 'S.4', 'S4', 'SENIOR 4', 'PLE', 'P.7', 'P7']): return "UCE"
-        
     return cleaned
 
 def is_uniformed_rank(rank_str: str) -> bool:
@@ -247,7 +242,6 @@ def auto_infer_geography(station_name, current_region=None, current_district=Non
     return inferred_region or "KMP HEADQUARTERS", inferred_district or "KAMPALA"
 
 def getOfficialRegionForStation(station_name: str, current_region: Optional[str] = None) -> str:
-    """Resolves the official region for a given station using the geo map."""
     if not station_name:
         return current_region or "KMP HEADQUARTERS"
     stat_upper = aggressive_clean_text(station_name)
@@ -255,83 +249,91 @@ def getOfficialRegionForStation(station_name: str, current_region: Optional[str]
         return STATION_GEO_MAP[stat_upper]["region"]
     return current_region or "KMP HEADQUARTERS"
 
-@router.get("/nominal-roll")
-def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    ActiveModel = get_active_model()
-    ArchiveModel = get_archive_model()
-    
-    active_query = db.query(ActiveModel)
-    archive_query = db.query(ArchiveModel)
+# 🟢 CORE OPSEC SCOPING ENGINE (Applies Hierarchy Rules universally across queries & exports)
+def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
+    query = db.query(Model)
     
     user_role = (current_user.role or "").upper()
+    user_pos_str = (current_user.position or "").upper()
+    user_region = (current_user.region or "").strip().upper()
+    user_station = (current_user.station or "").strip().upper()
+    
     perms = current_user.permissions or {}
     if isinstance(perms, str):
         try: perms = json.loads(perms)
         except Exception: perms = {}
     
-    is_global = (
-        user_role in ["ADMIN", "SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
-        (current_user.region or "").strip().upper() in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
+    # 1. Absolute Global Access
+    is_absolute_global = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+        "KMP COMMANDER" in user_pos_str or
+        "DEPUTY KMP COMMANDER" in user_pos_str or
+        "KMP ADMIN" in user_pos_str or
         perms.get("view_global_roster") is True or
         perms.get("global_observer") is True
     )
 
-    # 🟢 Special CID Regional scoping logic
-    user_pos_str = (current_user.position or "").upper()
-    user_stn_str = (current_user.station or "").upper()
-    is_cid_specialist = "CID" in user_role or "CID" in user_pos_str or "CID" in user_stn_str
+    # 2. KMP System Managers (e.g., KMP CID Commander, KMP Traffic Commander)
+    is_kmp_system_manager = (
+        user_role == "SYSTEM_MANAGER" and
+        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos_str
+    )
 
-    if not is_global:
-        has_explicit_access = (
-            perms.get("view_nominal_roll", False) or 
-            perms.get("acc_hr", False) or 
-            perms.get("ai_hr_access", False) or 
-            current_user.is_approved is True
-        )
+    # 3. KMP Assistant System Managers (Specialists e.g., KMP CID, CI, TRAFFIC)
+    is_kmp_specialist = (
+        user_role == "ASSISTANT_SYSTEM_MANAGER" and
+        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos_str
+    )
+
+    # 4. Regional Command (RPCs, Deputy RPCs, Regional HR/Admins) - God mode over region
+    is_regional_command = (
+        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] and
+        not is_kmp_system_manager and
+        not is_kmp_specialist
+    )
+
+    if is_absolute_global or is_kmp_system_manager:
+        return query
         
-        user_station = (current_user.station or "").strip().upper()
-        user_region = (current_user.region or "").strip().upper()
+    elif is_kmp_specialist:
+        # Global access but strictly filtered by specialization
+        specs = []
+        if "CID" in user_pos_str: specs.append("CID")
+        if "CI" in user_pos_str or "CRIME INT" in user_pos_str: specs.append("CI")
+        if "TRAFFIC" in user_pos_str: specs.append("TRAFFIC")
         
-        if is_cid_specialist and user_region:
-            # Pull all personnel in the region attached to CID or investigative branches
-            active_query = active_query.filter(
-                and_(
-                    func.upper(ActiveModel.region) == user_region,
-                    or_(
-                        func.upper(ActiveModel.rank).like("D/%"),
-                        func.upper(ActiveModel.section).ilike("%CID%"),
-                        func.upper(ActiveModel.dir).ilike("%CID%"),
-                        func.upper(ActiveModel.position).ilike("%CID%"),
-                        func.upper(ActiveModel.position).ilike("%DETECTIVE%"),
-                        func.upper(ActiveModel.section).ilike("%INVESTIGATION%"),
-                        func.upper(ActiveModel.dir).ilike("%INVESTIGATION%")
-                    )
-                )
-            )
-            archive_query = archive_query.filter(
-                and_(
-                    func.upper(ArchiveModel.region) == user_region,
-                    or_(
-                        func.upper(ArchiveModel.rank).like("D/%"),
-                        func.upper(ArchiveModel.section).ilike("%CID%"),
-                        func.upper(ArchiveModel.dir).ilike("%CID%"),
-                        func.upper(ArchiveModel.position).ilike("%CID%"),
-                        func.upper(ArchiveModel.position).ilike("%DETECTIVE%"),
-                        func.upper(ArchiveModel.section).ilike("%INVESTIGATION%"),
-                        func.upper(ArchiveModel.dir).ilike("%INVESTIGATION%")
-                    )
-                )
-            )
-        elif user_role in ["REGIONAL_ADMIN", "REGIONAL_USER", "ASSISTANT_REGIONAL_ADMIN"] and user_region:
-            active_query = active_query.filter(func.upper(ActiveModel.region) == user_region)
-            archive_query = archive_query.filter(func.upper(ArchiveModel.region) == user_region)
-        elif user_station and has_explicit_access:
-            active_query = active_query.filter(func.upper(ActiveModel.station) == user_station)
-            archive_query = archive_query.filter(func.upper(ArchiveModel.station) == user_station)
-        else:
-            active_query = active_query.filter(ActiveModel.id == -1)
-            archive_query = archive_query.filter(ArchiveModel.id == -1)
+        if specs:
+            conds = []
+            for spec in specs:
+                conds.extend([
+                    func.upper(Model.section).ilike(f"%{spec}%"), 
+                    func.upper(Model.dir).ilike(f"%{spec}%"),
+                    func.upper(Model.position).ilike(f"%{spec}%")
+                ])
+            return query.filter(or_(*conds))
+        return query.filter(Model.id == -1) # Fallback null filter
+            
+    elif is_regional_command:
+        # Regional God Mode: Returns the ENTIRE region (HQ and sub-stations combined)
+        return query.filter(func.upper(Model.region) == user_region)
         
+    elif user_station and (perms.get("view_nominal_roll", False) or perms.get("acc_hr", False) or current_user.is_approved is True):
+        # Station or Division level access
+        return query.filter(func.upper(Model.station) == user_station)
+    
+    return query.filter(Model.id == -1)
+
+@router.get("/nominal-roll")
+def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    ActiveModel = get_active_model()
+    ArchiveModel = get_archive_model()
+    
+    # Secure Queries using OPSEC scope function
+    active_query = get_scoped_nominal_query(db, current_user, ActiveModel)
+    archive_query = get_scoped_nominal_query(db, current_user, ArchiveModel)
+    
     sort_act = getattr(ActiveModel, 'created_at', getattr(ActiveModel, 'id', getattr(ActiveModel, 'sn', None)))
     if sort_act is not None:
         active_query = active_query.order_by(sort_act.asc())
@@ -846,8 +848,10 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
     try:
         ArchiveModel = get_archive_model()
         
+        # Apply OPSEC Scoping here too
+        query = get_scoped_nominal_query(db, current_user, ArchiveModel)
+        
         sort_col = getattr(ArchiveModel, 'archive_date', getattr(ArchiveModel, 'id', None))
-        query = db.query(ArchiveModel)
         if sort_col is not None:
             query = query.order_by(sort_col.desc())
             
@@ -954,7 +958,8 @@ def export_missing_info_audit(
 ):
     try:
         ActiveModel = get_active_model()
-        query = db.query(ActiveModel)
+        # Ensure they can only export what they have clearance to see
+        query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
         region_clean = region.strip().upper()
         station_clean = station.strip().upper()
@@ -1078,7 +1083,8 @@ def export_station_nominal_roll(
 ):
     try:
         ActiveModel = get_active_model()
-        query = db.query(ActiveModel)
+        # Ensure they can only export what they have clearance to see
+        query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
         region_clean = region.strip().upper()
         station_clean = station.strip().upper()

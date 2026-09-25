@@ -7,17 +7,28 @@ import { authFetch } from './api';
 import BulkNominalRollUpload from './BulkNominalRollUpload';
 import OfficerDossierModal from './OfficerDossierModal';
 
+// 🟢 Fully mapping Regions to their core HQs and Sub-stations
 const REGIONAL_HIERARCHY = {
-  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
-  "POLICE HEADQUARTERS": ["NAGURU"]
+  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 };
 
 const cleanStr = (str) => {
   if (!str) return '';
   return String(str).replace(/\s+/g, ' ').trim().toUpperCase();
+};
+
+const isStationEquivalent = (statA, statB) => {
+  const a = cleanStr(statA);
+  const b = cleanStr(statB);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  return cleanA === cleanB && cleanA.length > 0;
 };
 
 const getOfficialRegionForStation = (stationName, dbRegion) => {
@@ -34,7 +45,6 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   return cleanDbRegion || cleanStation || 'UNASSIGNED';
 };
 
-// 🟢 1. STATION PRIORITY: KMP HEADQUARTERS COMES FIRST WITHIN EACH RANK
 const getStationPriorityWeight = (station, region) => {
   const stn = cleanStr(station);
   const reg = cleanStr(region);
@@ -48,7 +58,6 @@ const getStationPriorityWeight = (station, region) => {
   return 2;
 };
 
-// 🟢 2. COMMAND LEADERSHIP PRECEDENCE (KMP Commander -> Deputy -> Admin -> RPC -> OC)
 const getCommandWeight = (officer) => {
   if (!officer) return 99;
   const pos = cleanStr(officer.position);
@@ -57,9 +66,9 @@ const getCommandWeight = (officer) => {
   
   if (pos.includes('COMMANDER KMP') || pos.includes('COMDR KMP') || pos.includes('KMP COMMANDER') || name.includes('COMMANDER KMP')) {
     if (pos.includes('DEPUTY') || pos.includes('D/COMDR') || pos.includes('D/COMMANDER')) {
-      return 1; // Deputy Commander KMP (ACP)
+      return 1; 
     }
-    return 0; // Commander KMP (ACP)
+    return 0; 
   }
   
   if (pos.includes('ADMIN OFFICER') || pos.includes('ADMINISTRATIVE OFFICER')) return 2;
@@ -71,12 +80,10 @@ const getCommandWeight = (officer) => {
   return 99; 
 };
 
-// 🟢 3. RANK HIERARCHY ENGINE (Unifying detectives D/PC, DC, PC and D/AIP, AIP under standard seniority)
 const getRankWeight = (rank) => {
   if (!rank) return 99;
   let r = cleanStr(rank);
 
-  // Normalize detective prefixes and driver suffixes for sorting hierarchy
   if (r === 'DC' || r.startsWith('D/C')) {
     r = 'PC';
   } else if (r.startsWith('D/') || r.startsWith('D-') || r.startsWith('D ')) {
@@ -180,35 +187,41 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [updateSearch, setUpdateSearch] = useState(''); 
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState('audit'); 
-  const [targetRegion, setTargetRegion] = useState('ALL REGIONS');
+  
+  const userRoleClean = cleanStr(currentUser?.role);
+  const userPosClean = cleanStr(currentUser?.position);
+  const userRegClean = cleanStr(currentUser?.region);
+
+  // 🟢 Enhanced Scope Resolutions
+  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+    currentUser?.permissions?.view_global_roster === true;
+
+  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+
+  const canViewGlobalLevel = propCanViewGlobal !== undefined ? propCanViewGlobal : (isGlobalTier || isKmpSystemManager || isKmpSpecialist);
+  const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
+
+  const canEditRecords = isGlobalTier || isKmpSystemManager || isRegionalCommand || currentUser?.permissions?.upload_hr === true;
+  
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : cleanStr(currentUser?.station));
+
+  const [targetRegion, setTargetRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
   const [targetStation, setTargetStation] = useState('ALL STATIONS');
 
-  const isCommandOrHR = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||                        
-                        (currentUser?.position || '').toUpperCase().includes('HR') ||
-                        currentUser?.permissions?.system_admin === true;
-
-  const canEditRecords = isCommandOrHR || currentUser?.permissions?.upload_hr === true;
-   
-  const canViewGlobal = propCanViewGlobal !== undefined 
-    ? propCanViewGlobal 
-    : (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'ADMIN' || currentUser?.role === 'RPC' || currentUser?.role === 'Deputy Commander' || isCommandOrHR || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true);
-
-  const [filterRegion, setFilterRegion] = useState(canViewGlobal ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState(canViewGlobal ? 'ALL STATIONS' : ((isCommandOrHR) ? 'ALL STATIONS' : currentUser?.station || ''));
-
-  const isFilterInitialized = useRef(false);
   useEffect(() => {
-    if (!isFilterInitialized.current && currentUser?.station) {
-      if (canViewGlobal) {
-        setFilterRegion('ALL REGIONS');
-        setFilterStation('ALL STATIONS');
-      } else {
-        setFilterRegion(currentUser.region || '');
-        setFilterStation(currentUser.station || '');
-      }
-      isFilterInitialized.current = true;
+    if (canViewGlobalLevel) {
+      setFilterRegion('ALL REGIONS');
+      setFilterStation('ALL STATIONS');
+      setTargetRegion('ALL REGIONS');
+    } else if (isRegionalCommand) {
+      setFilterRegion(userRegClean);
+      setFilterStation('ALL STATIONS');
+      setTargetRegion(userRegClean);
     }
-  }, [canViewGlobal, currentUser?.station, currentUser?.region]);
+  }, [canViewGlobalLevel, isRegionalCommand, userRegClean]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
@@ -490,7 +503,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const selStation = cleanStr(filterStation);
 
       if (selRegion && selRegion !== 'ALL REGIONS' && reg !== selRegion) return false;
-      if (selStation && selStation !== 'ALL STATIONS' && stn !== selStation) return false;
+      if (selStation && selStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(stn, selStation)) return false;
+      }
 
       if (searchTerm.trim()) {
         const query = searchTerm.trim().toLowerCase();
@@ -507,17 +522,14 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return true;
     }).sort((a, b) => {
-      // 1. Station Priority (KMP HQ first)
       const prioA = getStationPriorityWeight(a.station, a.region);
       const prioB = getStationPriorityWeight(b.station, b.region);
       if (prioA !== prioB) return prioA - prioB;
 
-      // 2. Command Leadership Precedence (Commander KMP -> Deputy -> Admin -> RPC -> OC)
       const cmdA = getCommandWeight(a);
       const cmdB = getCommandWeight(b);
       if (cmdA !== cmdB) return cmdA - cmdB;
 
-      // 3. Rank Hierarchy (Ensuring junior/Inspector OC doesn't outrank senior gazetted officers like ACP)
       const weightA = getRankWeight(a.rank);
       const weightB = getRankWeight(b.rank);
       if (weightA !== weightB) return weightA - weightB;
@@ -537,7 +549,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const selStation = cleanStr(filterStation);
 
       if (selRegion && selRegion !== 'ALL REGIONS' && reg !== selRegion) return false;
-      if (selStation && selStation !== 'ALL STATIONS' && stn !== selStation) return false;
+      if (selStation && selStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(stn, selStation)) return false;
+      }
 
       if (searchTerm.trim()) {
         const query = searchTerm.trim().toLowerCase();
@@ -578,7 +592,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const availableUpdateRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const fNumVal = cleanStr(n.fnum || n.f_num);
-      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && !canViewGlobal && cleanStr(n.region) !== cleanStr(currentUser.region)) return false;
+      if (!isGlobalTier && !canViewGlobalLevel && cleanStr(n.region) !== userRegClean) return false;
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
         return fNumVal.toLowerCase().includes(query) || 
@@ -587,7 +601,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
       return true;
     });
-  }, [Nominal_Rolls, currentUser, updateSearch, canViewGlobal]);
+  }, [Nominal_Rolls, userRegClean, updateSearch, isGlobalTier, canViewGlobalLevel]);
 
   const calculatedMetrics = useMemo(() => {
       const grouped = {};
@@ -607,7 +621,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           const sectionStr = cleanStr(n.section);
 
           if (metricCategory === 'RANK') {
-              // 🟢 Normalize rank so D/PC, DC, PC fold into PC, and D/AIP into AIP
               let r = cleanStr(n.rank);
               if (r === 'DC' || r.startsWith('D/C')) r = 'PC';
               else if (r.startsWith('D/') || r.startsWith('D-') || r.startsWith('D ')) {
@@ -773,10 +786,12 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                 <select 
                   value={targetRegion} 
                   onChange={(e) => { setTargetRegion(e.target.value); setTargetStation('ALL STATIONS'); }}
-                  className="w-full text-xs border rounded p-2 bg-white font-bold text-slate-800 outline-none"
+                  disabled={!canViewGlobalLevel}
+                  className="w-full text-xs border rounded p-2 bg-white font-bold text-slate-800 outline-none disabled:bg-gray-100 disabled:text-gray-500"
                 >
-                  <option value="ALL REGIONS">ALL REGIONS</option>
-                  {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
+                  {canViewGlobalLevel ? (
+                    <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+                  ) : <option value={userRegClean}>{userRegClean}</option>}
                 </select>
               </div>
               <div>
@@ -784,10 +799,15 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                 <select 
                   value={targetStation} 
                   onChange={(e) => setTargetStation(e.target.value)}
-                  className="w-full text-xs border rounded p-2 bg-white font-bold text-slate-800 outline-none"
+                  disabled={!(canViewGlobalLevel || isRegionalCommand)}
+                  className="w-full text-xs border rounded p-2 bg-white font-bold text-slate-800 outline-none disabled:bg-gray-100 disabled:text-gray-500"
                 >
-                  <option value="ALL STATIONS">ALL STATIONS (Full Region / Global)</option>
-                  {availableStationsList.map(stn => <option key={stn} value={stn}>{stn}</option>)}
+                  {(canViewGlobalLevel || isRegionalCommand) ? (
+                    <>
+                      <option value="ALL STATIONS">ALL STATIONS (Full Region / Global)</option>
+                      {availableStationsList.map(stn => <option key={stn} value={stn}>{stn}</option>)}
+                    </>
+                  ) : <option value={currentUser?.station}>{cleanStr(currentUser?.station)}</option>}
                 </select>
               </div>
             </div>
@@ -892,7 +912,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       </div>
                     </div>
                   )}
-                   
+                    
                   <form onSubmit={handleFormSubmit} className="space-y-3">
                     {operation === 'update' && (formData.sn || formData.fnum) && (
                       <div className="bg-red-50 p-3 rounded-lg border border-red-200 space-y-2 mb-3 shadow-xs">
@@ -957,8 +977,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                     <div className="bg-gray-50 p-2.5 rounded-lg border border-gray-200 space-y-2">
                       <h4 className="text-[10px] font-bold text-gray-500 uppercase border-b pb-0.5">2. Service & Placement</h4>
                       <div className="grid grid-cols-2 gap-2">
-                        <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">REGION *</label><select name="region" value={formData.region} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role)} required className="w-full text-xs border-gray-300 rounded shadow-xs border py-1.5 px-2 bg-white text-slate-800 disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}</select></div>
-                        <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DUTY STATION *</label><select name="station" value={formData.station} onChange={handleInputChange} disabled={!['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role)} required className="w-full text-xs border-gray-300 rounded shadow-xs border py-1.5 px-2 bg-white text-slate-800 disabled:bg-gray-100 disabled:text-gray-500">{['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser.role) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : (<option value={currentUser.station}>{currentUser.station}</option>)}</select></div>
+                        <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">REGION *</label><select name="region" value={formData.region} onChange={handleInputChange} disabled={!isGlobalTier} required className="w-full text-xs border-gray-300 rounded shadow-xs border py-1.5 px-2 bg-white text-slate-800 disabled:bg-gray-100 disabled:text-gray-500">{isGlobalTier ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={userRegClean}>{userRegClean}</option>}</select></div>
+                        <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DUTY STATION *</label><select name="station" value={formData.station} onChange={handleInputChange} disabled={!isGlobalTier && !isRegionalCommand} required className="w-full text-xs border-gray-300 rounded shadow-xs border py-1.5 px-2 bg-white text-slate-800 disabled:bg-gray-100 disabled:text-gray-500">{(isGlobalTier || isRegionalCommand) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : (<option value={currentUser.station}>{cleanStr(currentUser.station)}</option>)}</select></div>
                         <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">POSITION *</label><input type="text" name="position" value={formData.position} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-xs border py-1.5 px-2 bg-white text-slate-800" /></div>
                         <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DISTRICT</label><input type="text" name="district" value={formData.district} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-xs border py-1.5 px-2 bg-white text-slate-800" /></div>
                         <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">SECTION</label><input type="text" name="section" value={formData.section} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-xs border py-1.5 px-2 bg-white text-slate-800" /></div>
@@ -1003,7 +1023,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                             </p>
                           </div>
                         </div>
-                         
+                          
                         <div className="space-y-2.5 bg-white p-2.5 rounded-md border border-amber-100">
                           <div>
                             <label className="block text-[10px] font-bold text-slate-700 mb-0.5">Re-integration Authority / Reason *</label>
@@ -1016,7 +1036,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                               className="w-full text-xs py-1.5 px-2 border border-slate-300 rounded shadow-xs focus:ring-1 focus:ring-amber-500 outline-none bg-white text-slate-800"
                             />
                           </div>
-                           
+                            
                           <div>
                             <label className="block text-[10px] font-bold text-slate-700 mb-0.5 flex items-center">
                               Previous Force No. <span className="text-slate-400 font-normal ml-1">(If promoted to Gazetted File No.)</span>
@@ -1071,7 +1091,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       </span>
                   )}
               </div>
-               
+                
               {bulkSelectMode && selectedOfficers.length > 0 && (
                   <div className="flex flex-col sm:flex-row items-center gap-2 animate-in fade-in slide-in-from-left-4 bg-white p-2.5 rounded-lg shadow-xs border border-red-200">
                       <select
@@ -1121,15 +1141,15 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           {/* JURISDICTION DROPDOWNS & SEARCH */}
           <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
             <div className="flex flex-col sm:flex-row gap-2.5 flex-1">
-              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobal} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-                {canViewGlobal ? (
+              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalLevel} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+                {canViewGlobalLevel ? (
                   <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(filteredRolls || []).map(n => cleanStr(n.region)).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-                ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+                ) : <option value={userRegClean}>{userRegClean}</option>}
               </select>
-              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value) } disabled={!(isCommandOrHR || canViewGlobal)} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-                {(isCommandOrHR || canViewGlobal) ? (
+              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value) } disabled={!(canViewGlobalLevel || isRegionalCommand)} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+                {(canViewGlobalLevel || isRegionalCommand) ? (
                   <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(filteredRolls || []).filter(n => filterRegion === 'ALL REGIONS' || cleanStr(n.region) === filterRegion).map(n => cleanStr(n.station)).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
-                ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+                ) : <option value={currentUser?.station}>{cleanStr(currentUser?.station)}</option>}
               </select>
             </div>
 
