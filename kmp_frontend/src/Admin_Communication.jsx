@@ -96,7 +96,6 @@ const buildThreads = (flatMsgs) => {
 const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm, initialTab, onMarkAllRead }) => {
   const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
   
-  // High command check for viewing/granting cross-region permissions (Super Admin, Asst Super Admin, RPC, Deputy RPC)
   const isHighCommand = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'RPC', 'DEPUTY_RPC', 'DEPUTY COMMANDER'].includes((currentUser?.role || '').toUpperCase()) ||
     (currentUser?.position || '').toUpperCase().includes('RPC') ||
     (currentUser?.position || '').toUpperCase().includes('COMMANDER');
@@ -112,10 +111,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL');
   const [selectedRegionFilter, setSelectedRegionFilter] = useState('ALL');
   
-  // 🟢 Recipient Search Input State
   const [recipientSearchTerm, setRecipientSearchTerm] = useState('');
-
-  // 🟢 Technical Glitch Alert Toggle State
   const [isTechnicalGlitch, setIsTechnicalGlitch] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -216,7 +212,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 🟢 Enhanced Recipient Filtering with OPSEC & Dual-Equivalence Support
   const finalSelectableRecipients = (filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || [])).filter(user => {
     if (user.fnum === currentUser.fnum) return false;
     const region = (user.region || "").toUpperCase();
@@ -237,7 +232,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       if (!belongsToTargetRegion) return false;
     }
 
-    // Search query filter
     if (recipientSearchTerm.trim()) {
       const term = recipientSearchTerm.trim().toLowerCase();
       const name = (user.name || "").toLowerCase();
@@ -479,9 +473,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
         if (idsToAcknowledge.length > 0) {
            await fetch(`${API_URL}/api/v1/communications/acknowledge-bulk`, { 
-             method: 'POST', 
-             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-             body: JSON.stringify({ comm_ids: idsToAcknowledge })
+              method: 'POST', 
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ comm_ids: idsToAcknowledge })
            });
         }
         
@@ -904,7 +898,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                                     <div className="flex items-center space-x-2 shrink-0">
                                       <span className="text-[10px] uppercase font-mono text-slate-500 bg-white px-1.5 py-0.5 rounded border">{u.station} [{u.region}]</span>
                                       
-                                      {/* 🟢 HIGH COMMAND TOGGLE FOR GRANTING CROSS-REGION CLEARANCE */}
                                       {isHighCommand && (
                                         <button
                                           type="button"
@@ -960,7 +953,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                   </div>
                 )}
 
-                <div className="pb-12">
+                <div className="pb-12"> 
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                     {isReplyingTo ? 'Your Response Body *' : 'Communication Body *'}
                   </label>

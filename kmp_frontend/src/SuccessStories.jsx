@@ -13,7 +13,6 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
 const isStationEquivalent = (statA, statB) => {
   const a = stripHtmlTags(statA || '').trim().toUpperCase();
   const b = stripHtmlTags(statB || '').trim().toUpperCase();
@@ -107,7 +106,6 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
   const [selectedDossier, setSelectedDossier] = useState(null);
   const [expandedRows, setExpandedRows] = useState({});
 
-  // 🟢 OPSEC Role Classification Engine
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
@@ -121,15 +119,18 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
   const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
   
+  // 🟢 FIXED: Defined safely here to eliminate any ReferenceError
+  const canViewGlobalActive = canViewGlobalLevel;
+  
   const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
 
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
-  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalActive || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
 
   const isFilterInitialized = useRef(false);
   useEffect(() => {
     if (!isFilterInitialized.current && currentUser?.station) {
-      if (canViewGlobalLevel) {
+      if (canViewGlobalActive) {
         setFilterRegion('ALL REGIONS');
         setFilterStation('ALL STATIONS');
       } else if (isRegionalCommand) {
@@ -141,7 +142,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       }
       isFilterInitialized.current = true;
     }
-  }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
+  }, [canViewGlobalActive, isRegionalCommand, userRegClean, currentUser?.station]);
   
   const [notification, setNotification] = useState(null);
   const [updateSearch, setUpdateSearch] = useState('');
@@ -178,13 +179,12 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     return null;
   };
 
-  // 🟢 OPSEC Filter Engine for Success Stories
   const filteredStories = useMemo(() => {
     return (Array.isArray(stories) ? stories : []).filter(s => {
       const stn = stripHtmlTags(s.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, s.region);
 
-      if (canViewGlobalLevel && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
+      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
         // Global viewing allowed
       } else {
         const belongsToRegion = filterRegion === 'ALL REGIONS' || 
@@ -215,14 +215,14 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       
       return true;
     });
-  }, [stories, filterRegion, filterStation, dateFilter, canViewGlobalLevel]);
+  }, [stories, filterRegion, filterStation, dateFilter, canViewGlobalActive]);
 
   const availableUpdateStories = useMemo(() => {
     return (Array.isArray(stories) ? stories : []).filter(s => {
       const stn = stripHtmlTags(s.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, s.region);
 
-      if (!canViewGlobalLevel) {
+      if (!canViewGlobalActive) {
         const belongsToRegion = reg === userRegClean || 
                                 (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(st => isStationEquivalent(st, stn)));
         if (!belongsToRegion) return false;
@@ -234,7 +234,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       }
       return true;
     });
-  }, [stories, updateSearch, canViewGlobalLevel, userRegClean]);
+  }, [stories, updateSearch, canViewGlobalActive, userRegClean]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -494,13 +494,13 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-              {canViewGlobalActive ? (
+            <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalLevel} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+              {canViewGlobalLevel ? (
                 <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
               ) : <option value={userRegClean}>{userRegClean}</option>}
             </select>
-            <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!(canViewGlobalActive || isRegionalCommand)} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-              {(canViewGlobalActive || isRegionalCommand) ? (
+            <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!(canViewGlobalLevel || isRegionalCommand)} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+              {(canViewGlobalLevel || isRegionalCommand) ? (
                 <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
               ) : <option value={stripHtmlTags(currentUser?.station || '').toUpperCase()}>{stripHtmlTags(currentUser?.station || '').toUpperCase()}</option>}
             </select>
@@ -673,7 +673,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                         <img 
                           src={stripHtmlTags(url)} 
                           alt={`Dossier Exhibit ${idx + 1}`} 
-                          className="w-full h-40 object-cover rounded cursor-pointer hover:scale-105 transition-transform" 
+                          className="w-full h-40 object-contain rounded cursor-pointer hover:scale-105 transition-transform" 
                           onClick={() => window.open(stripHtmlTags(url), '_blank')}
                         />
                       </div>

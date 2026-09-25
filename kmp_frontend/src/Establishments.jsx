@@ -1,8 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X, Filter, FileText, ChevronDown, ChevronUp, Shield } from 'lucide-react';
-import ReactQuill from 'react-quill-new';
-import 'react-quill-new/dist/quill.snow.css';
+import { PlusCircle, Edit, AlertTriangle, CheckCircle, X, Filter, Building, Shield } from 'lucide-react';
 import { authFetch } from './api';
+import { stripHtmlTags } from './App';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -17,7 +16,6 @@ const stripHtml = (html) => {
   return String(html).replace(/<[^>]*>?/gm, '').trim();
 };
 
-// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
 const isStationEquivalent = (statA, statB) => {
   const a = stripHtml(statA || '').trim().toUpperCase();
   const b = stripHtml(statB || '').trim().toUpperCase();
@@ -104,7 +102,7 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // 🟢 OPSEC Role Classification Engine
+  // 🟢 OPSEC Role Classification & Scoping Engine
   const userRoleClean = stripHtml(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtml(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtml(currentUser?.region || '').toUpperCase();
@@ -118,15 +116,18 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
 
   const canViewGlobalLevel = propCanViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
   
+  // 🟢 GUARANTEEDSAFE DEFINITION (Prevents undefined crashes entirely)
+  const canViewGlobalActive = Boolean(canViewGlobalLevel);
+  
   const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
 
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
-  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtml(currentUser?.station || '').toUpperCase());
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalActive || isRegionalCommand) ? 'ALL STATIONS' : stripHtml(currentUser?.station || '').toUpperCase());
 
   const isFilterInitialized = useRef(false);
   useEffect(() => {
     if (!isFilterInitialized.current && currentUser?.station) {
-      if (canViewGlobalLevel) {
+      if (canViewGlobalActive) {
         setFilterRegion('ALL REGIONS');
         setFilterStation('ALL STATIONS');
       } else if (isRegionalCommand) {
@@ -138,7 +139,7 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
       }
       isFilterInitialized.current = true;
     }
-  }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
+  }, [canViewGlobalActive, isRegionalCommand, userRegClean, currentUser?.station]);
 
   const [updateSearch, setUpdateSearch] = useState('');
 
@@ -148,13 +149,12 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
     booths: 0, location: '', personnel_in_booth: 0, installed_by: '', status: 'OPERATIONAL', comment: ''
   });
   
-  // 🟢 OPSEC Filter Engine for Establishments
   const filteredEstablishments = useMemo(() => {
     return (Array.isArray(establishments) ? establishments : []).filter(e => {
       const stn = stripHtml(e.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, e.region);
 
-      if (canViewGlobalLevel && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
+      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
         return true;
       }
 
@@ -169,14 +169,14 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
       }
       return true;
     });
-  }, [establishments, filterRegion, filterStation, canViewGlobalLevel]);
+  }, [establishments, filterRegion, filterStation, canViewGlobalActive]);
 
   const availableUpdateEstablishments = useMemo(() => {
     return (Array.isArray(establishments) ? establishments : []).filter(e => {
       const stn = stripHtml(e.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, e.region);
 
-      if (!canViewGlobalLevel) {
+      if (!canViewGlobalActive) {
         const belongsToRegion = reg === userRegClean || 
                                 (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(s => isStationEquivalent(s, stn)));
         if (!belongsToRegion) return false;
@@ -189,13 +189,14 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
       }
       return true;
     });
-  }, [establishments, currentUser, updateSearch, canViewGlobalLevel, userRegClean]);
+  }, [establishments, currentUser, updateSearch, canViewGlobalActive, userRegClean]);
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
-    if (name === 'region') setFormData({ ...formData, region: value, division: REGIONAL_HIERARCHY[value]?.[0] || '', station: REGIONAL_HIERARCHY[value]?.[0] || '' });
-    else if (name === 'division') setFormData({ ...formData, division: value, station: value });
-    else setFormData({ ...formData, [name]: type === 'number' ? (value === '' ? 0 : parseInt(value) || 0) : value });
+    const cleanValue = stripHtml(value);
+    if (name === 'region') setFormData({ ...formData, region: cleanValue, division: REGIONAL_HIERARCHY[cleanValue]?.[0] || '', station: REGIONAL_HIERARCHY[cleanValue]?.[0] || '' });
+    else if (name === 'division') setFormData({ ...formData, division: cleanValue, station: cleanValue });
+    else setFormData({ ...formData, [name]: type === 'number' ? (cleanValue === '' ? 0 : parseInt(cleanValue) || 0) : cleanValue });
   };
 
   const handleOperationToggle = (op) => {
@@ -287,8 +288,7 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
       </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <>
-          {/* LEFT COLUMN: FORM & CONTROLS */}
+        {!isReadOnlyObserver && (
           <div className="lg:col-span-4 space-y-6">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="bg-slate-900 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
@@ -342,14 +342,14 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
                     <div className="grid grid-cols-2 gap-4">
                       <div className="col-span-2">
                         <label className="block text-xs font-bold text-gray-700 mb-1">Select Region *</label>
-                        <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobal} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                          {canViewGlobal ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={userRegClean}>{userRegClean}</option>}
+                        <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalLevel} className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                          {canViewGlobalLevel ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={userRegClean}>{userRegClean}</option>}
                         </select>
                       </div>
                       <div className="col-span-2">
                         <label className="block text-xs font-bold text-gray-700 mb-1">DIVISION (Headquarter) *</label>
-                        <select name="division" value={formData.division} onChange={handleInputChange} disabled={!canViewGlobal && !isRegionalCommand} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
-                          {canViewGlobal || isRegionalCommand ? (
+                        <select name="division" value={formData.division} onChange={handleInputChange} disabled={!canViewGlobalLevel && !isRegionalCommand} required className="w-full text-sm border-gray-300 rounded-md shadow-sm bg-white border p-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
+                          {canViewGlobalLevel || isRegionalCommand ? (
                             formData.region && REGIONAL_HIERARCHY[formData.region] ? REGIONAL_HIERARCHY[formData.region].map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value="">Select Region First</option>
                           ) : (
                             <option value={stripHtml(currentUser.station || currentUser.division).toUpperCase()}>{stripHtml(currentUser.station || currentUser.division).toUpperCase()}</option>
@@ -414,13 +414,7 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
                       </div>
                       <div className="col-span-2 pb-8">
                         <label className="block text-xs font-bold text-gray-700 mb-1">COMMENT ON STATUS</label>
-                        <ReactQuill 
-                          theme="snow" 
-                          value={formData.comment || ''} 
-                          onChange={(content) => setFormData({ ...formData, comment: content })}
-                          className="bg-white rounded-md"
-                          modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }}
-                        />
+                        <input type="text" name="comment" value={formData.comment} onChange={handleInputChange} className="w-full text-sm border-gray-300 rounded-md shadow-sm border p-2 focus:ring-blue-500 bg-white" placeholder="Notes..." />
                       </div>
                     </div>
                   </div>
@@ -435,79 +429,79 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
               </div>
             </div>
           </div>
+        )}
 
-          {/* RIGHT COLUMN: FILTERS & TABLE */}
-          <div className="lg:col-span-8 space-y-4">
-            <div className="flex flex-col sm:flex-row gap-3">
-              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobal} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-                {canViewGlobal ? (
-                  <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-                ) : <option value={userRegClean}>{userRegClean}</option>}
-              </select>
-              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(canViewGlobal || isRegionalCommand)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-                {(canViewGlobal || isRegionalCommand) ? (
-                  <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
-                ) : <option value={stripHtml(currentUser?.station || '').toUpperCase()}>{stripHtml(currentUser?.station || '').toUpperCase()}</option>}
-              </select>
-            </div>
-
-            <ExpandableTableCard title="Regional Establishments Master Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
-              <div className="overflow-x-auto w-full">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50 sticky top-0 z-10">
-                    <tr>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">DIVISION</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">STATION</th>
-                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(STN)</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">SUB-STATION</th>
-                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(SUB-STN)</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">POST</th>
-                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(POST)</th>
-                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">BOOTHS</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">LOCATION</th>
-                      <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(BOOTH)</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">INSTALLED BY</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">STATUS</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">COMMENT</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredEstablishments.map((est) => {
-                      const rowKey = est.id || est.sn;
-                      return (
-                        <tr key={rowKey} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(est); }}>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900">{est.division || 'N/A'}</td>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-blue-800">{est.station}</td>
-                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_station}</td> 
-                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.sub_station || '-'}</td>
-                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_sub_station}</td>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.post || '-'}</td>
-                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_post}</td>
-                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.booths}</td>
-                          <td className="px-3 py-3 text-xs text-gray-800 break-words max-w-[150px]">{est.location || '-'}</td>
-                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_booth}</td>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600">{est.installed_by || '-'}</td>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs font-bold">
-                            <span className={`px-2 py-1 rounded-full text-[9px] ${est.status === 'OPERATIONAL' ? 'bg-green-100 text-green-800' : est.status?.includes('MAINTENANCE') ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
-                              {est.status}
-                            </span>
-                          </td>
-                          <td className="px-3 py-3 text-xs text-gray-500 italic max-w-[150px] break-words">
-                             <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: est.comment || '-' }} />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {filteredEstablishments.length === 0 && <tr><td colSpan="13" className="text-center py-6 text-gray-500">No establishments logged for this jurisdiction.</td></tr>}
-                  </tbody>
-                </table>
-              </div>
-            </ExpandableTableCard>
+        {/* RIGHT COLUMN: FILTERS & TABLE */}
+        <div className="lg:col-span-8 space-y-4">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalLevel} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+              {canViewGlobalLevel ? (
+                <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+              ) : <option value={userRegClean}>{userRegClean}</option>}
+            </select>
+            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(canViewGlobalLevel || isRegionalCommand)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+              {(canViewGlobalLevel || isRegionalCommand) ? (
+                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
+              ) : <option value={stripHtml(currentUser?.station || '').toUpperCase()}>{stripHtml(currentUser?.station || '').toUpperCase()}</option>}
+            </select>
           </div>
-        </>
+
+          <ExpandableTableCard title="Regional Establishments Master Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+            <div className="overflow-x-auto w-full">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50 sticky top-0 z-10">
+                  <tr>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">DIVISION</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">STATION</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(STN)</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">SUB-STATION</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(SUB-STN)</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">POST</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(POST)</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">BOOTHS</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">LOCATION</th>
+                    <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">PERS<br/>(BOOTH)</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">INSTALLED BY</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">STATUS</th>
+                    <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider leading-tight">COMMENT</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredEstablishments.map((est) => {
+                    const rowKey = est.id || est.sn;
+                    return (
+                      <tr key={rowKey} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(est); }}>
+                        <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900">{est.division || 'N/A'}</td>
+                        <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-blue-800">{est.station}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_station}</td> 
+                        <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.sub_station || '-'}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_sub_station}</td>
+                        <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-800">{est.post || '-'}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_post}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.booths}</td>
+                        <td className="px-3 py-3 text-xs text-gray-800 break-words max-w-[150px]">{est.location || '-'}</td>
+                        <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold">{est.personnel_in_booth}</td>
+                        <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600">{est.installed_by || '-'}</td>
+                        <td className="px-3 py-3 whitespace-nowrap text-xs font-bold">
+                          <span className={`px-2 py-1 rounded-full text-[9px] ${est.status === 'OPERATIONAL' ? 'bg-green-100 text-green-800' : est.status?.includes('MAINTENANCE') ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                            {est.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-xs text-gray-500 italic max-w-[150px] break-words">
+                           <div className="ql-editor p-0" dangerouslySetInnerHTML={{ __html: est.comment || '-' }} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredEstablishments.length === 0 && <tr><td colSpan="13" className="text-center py-6 text-gray-500">No establishments logged for this jurisdiction.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </ExpandableTableCard>
+        </div>
       </div>
     </div>
   );
 };
 
-exports = Establishments; // Wait, standard export pattern used across project is export default Establishments
+export default Establishments;

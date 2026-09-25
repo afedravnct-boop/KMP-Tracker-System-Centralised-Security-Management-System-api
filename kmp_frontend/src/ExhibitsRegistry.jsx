@@ -14,7 +14,22 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+const EXHIBIT_CATEGORIES = [
+  'MOTOR VEHICLE', 'MOTORCYCLE', 'ELECTRONICS/COMPUTER', 'FIREARM/AMMUNITION', 
+  'CURRENCY/MONEY', 'NARCOTICS/DRUGS', 'DOCUMENTS/VALUABLES', 'WATERCRAFT/BOAT', 'GENERAL PROPERTY'
+];
+
+const CASE_REF_TYPES = ['SD REF:', 'CRB:', 'TAR:', 'GEF:', 'DEF:'];
+
+const STATUS_OPTIONS = [
+  'UNDER INVESTIGATION', 'PENDING COURT', 'IN COURT', 'UNCLAIMED', 
+  'FORFEITED', 'CLEARED', 'DISPOSED BY COURT', 'CUSTOM'
+];
+
+const POLICE_UNITS = [
+  'CID', 'CRIME INTELLIGENCE', 'TRAFFIC', 'FFU', '999 ERU', 'K9 UNIT', 'COUNTER TERRORISM', 'SPECIAL OPERATIONS'
+];
+
 const isStationEquivalent = (statA, statB) => {
   const a = stripHtmlTags(statA || '').trim().toUpperCase();
   const b = stripHtmlTags(statB || '').trim().toUpperCase();
@@ -77,7 +92,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
 
-  // 🟢 OPSEC Role Classification Engine
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
@@ -90,16 +104,17 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
   const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
 
   const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
+  const canViewGlobalActive = canViewGlobalLevel;
   
   const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN', 'STATION_ADMIN', 'DIVISION_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
 
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
-  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalActive || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
 
   const isFilterInitialized = useRef(false);
   useEffect(() => {
     if (!isFilterInitialized.current && currentUser?.station) {
-      if (canViewGlobalLevel) {
+      if (canViewGlobalActive) {
         setFilterRegion('ALL REGIONS');
         setFilterStation('ALL STATIONS');
       } else if (isRegionalCommand) {
@@ -111,7 +126,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       }
       isFilterInitialized.current = true;
     }
-  }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
+  }, [canViewGlobalActive, isRegionalCommand, userRegClean, currentUser?.station]);
 
   const [filterCaseType, setFilterCaseType] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
@@ -316,13 +331,12 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 🟢 OPSEC Filter Engine for Exhibits Table
   const filteredExhibits = useMemo(() => {
     return serverExhibits.filter(item => {
       const stn = stripHtmlTags(item.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, item.region);
 
-      if (canViewGlobalLevel && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
+      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
         // Global view allowed
       } else {
         const belongsToRegion = filterRegion === 'ALL REGIONS' || 
@@ -361,7 +375,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
       return true;
     });
-  }, [serverExhibits, dateFilter, filterCaseType, filterStatus, filterUnit, filterRegion, filterStation, canViewGlobalLevel]);
+  }, [serverExhibits, dateFilter, filterCaseType, filterStatus, filterUnit, filterRegion, filterStation, canViewGlobalActive]);
 
   const metrics = useMemo(() => {
     const getCount = (statusName) => 
@@ -674,36 +688,35 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                       }
 
                       return (
-                      <tr key={item.id || item.sn || index} onClick={() => populateEditForm(item)} title="Click to edit this record" className="hover:bg-amber-50 dark:hover:bg-slate-800 transition-colors cursor-pointer group">
-                        <td className="px-3 py-2.5 text-center font-black">{index + 1}</td>
-                        <td className="px-3 py-2.5 font-extrabold text-emerald-800 dark:text-emerald-400 group-hover:text-amber-700">{stripHtmlTags(item.reg_no)}</td>
-                        
-                        <td className="px-3 py-2.5 font-black text-[10px] text-slate-500">{displayCategory}</td>
-                        <td className="px-3 py-2.5 font-bold uppercase">{displayType}</td>
-                        
-                        <td className="px-3 py-2.5 uppercase">{stripHtmlTags(item.colour)}</td>
-                        <td className="px-3 py-2.5 text-center font-mono">{stripHtmlTags(item.date_impounded)}</td>
-                        <td className="px-3 py-2.5 font-extrabold text-blue-700 dark:text-blue-400">{stripHtmlTags(item.case_no)}</td>
-                        <td className="px-3 py-2.5 uppercase font-semibold">{stripHtmlTags(item.reason)}</td>
-                        <td className="px-3 py-2.5 text-center">
-                          <span className={`px-2 py-0.5 rounded-full font-extrabold text-[9px] ${
-                            (item.status || '').toUpperCase() === 'IN COURT' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
-                            (item.status || '').toUpperCase() === 'PENDING COURT' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' :
-                            (item.status || '').toUpperCase() === 'UNDER INVESTIGATION' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
-                            (item.status || '').toUpperCase() === 'CLEARED' || (item.status || '').toUpperCase() === 'DISPOSED BY COURT' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
-                            (item.status || '').toUpperCase() === 'FORFEITED' ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' :
-                            'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                          }`}>
-                            {stripHtmlTags(item.status)}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-center font-bold">{stripHtmlTags(item.unit_responsible)}</td>
-                        <td className="px-3 py-2.5">{stripHtmlTags(item.assorted_items || 'NIL')}</td>
-                        <td className="px-3 py-2.5 text-[11px] font-semibold">{item.impounded_by_rank ? `${item.impounded_by_rank} ${item.impounded_by_name} (${item.impounded_by_fnum})` : 'N/A'}</td>
-                        <td className="px-3 py-2.5 text-[10px] text-slate-500">{stripHtmlTags(item.entered_by)}</td>
-                        <td className="px-3 py-2.5 italic text-slate-600 dark:text-slate-400">{stripHtmlTags(item.comment || 'NIL')}</td>
-                      </tr>
-                    )})
+                        <tr key={item.id || item.sn || index} onClick={() => populateEditForm(item)} title="Click to edit this record" className="hover:bg-amber-50 dark:hover:bg-slate-800 transition-colors cursor-pointer group">
+                          <td className="px-3 py-2.5 text-center font-black">{index + 1}</td>
+                          <td className="px-3 py-2.5 font-extrabold text-emerald-800 dark:text-emerald-400 group-hover:text-amber-700">{stripHtmlTags(item.reg_no)}</td>
+                          <td className="px-3 py-2.5 font-black text-[10px] text-slate-500">{displayCategory}</td>
+                          <td className="px-3 py-2.5 font-bold uppercase">{displayType}</td>
+                          <td className="px-3 py-2.5 uppercase">{stripHtmlTags(item.colour)}</td>
+                          <td className="px-3 py-2.5 text-center font-mono">{stripHtmlTags(item.date_impounded)}</td>
+                          <td className="px-3 py-2.5 font-extrabold text-blue-700 dark:text-blue-400">{stripHtmlTags(item.case_no)}</td>
+                          <td className="px-3 py-2.5 uppercase font-semibold">{stripHtmlTags(item.reason)}</td>
+                          <td className="px-3 py-2.5 text-center">
+                            <span className={`px-2 py-0.5 rounded-full font-extrabold text-[9px] ${
+                              (item.status || '').toUpperCase() === 'IN COURT' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                              (item.status || '').toUpperCase() === 'PENDING COURT' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' :
+                              (item.status || '').toUpperCase() === 'UNDER INVESTIGATION' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
+                              (item.status || '').toUpperCase() === 'CLEARED' || (item.status || '').toUpperCase() === 'DISPOSED BY COURT' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                              (item.status || '').toUpperCase() === 'FORFEITED' ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' :
+                              'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            }`}>
+                              {stripHtmlTags(item.status)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-center font-bold">{stripHtmlTags(item.unit_responsible)}</td>
+                          <td className="px-3 py-2.5">{stripHtmlTags(item.assorted_items || 'NIL')}</td>
+                          <td className="px-3 py-2.5 text-[11px] font-semibold">{item.impounded_by_rank ? `${item.impounded_by_rank} ${item.impounded_by_name} (${item.impounded_by_fnum})` : 'N/A'}</td>
+                          <td className="px-3 py-2.5 text-[10px] text-slate-500">{stripHtmlTags(item.entered_by)}</td>
+                          <td className="px-3 py-2.5 italic text-slate-600 dark:text-slate-400">{stripHtmlTags(item.comment || 'NIL')}</td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

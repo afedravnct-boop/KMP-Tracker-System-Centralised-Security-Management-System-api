@@ -121,17 +121,19 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
   const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
 
+  // 🟢 FIXED: Defined both canViewGlobalLevel and canViewGlobalActive to prevent ReferenceErrors
   const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
+  const canViewGlobalActive = canViewGlobalLevel;
   
   const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
 
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
-  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalActive || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
 
   const isFilterInitialized = useRef(false);
   useEffect(() => {
     if (!isFilterInitialized.current && currentUser?.station) {
-      if (canViewGlobalLevel) {
+      if (canViewGlobalActive) {
         setFilterRegion('ALL REGIONS');
         setFilterStation('ALL STATIONS');
       } else if (isRegionalCommand) {
@@ -143,7 +145,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       }
       isFilterInitialized.current = true;
     }
-  }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
+  }, [canViewGlobalActive, isRegionalCommand, userRegClean, currentUser?.station]);
 
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -261,7 +263,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const stn = stripHtmlTags(r.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, r.region);
 
-      if (canViewGlobalLevel && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
+      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
         // Global viewing allowed
       } else {
         const belongsToRegion = filterRegion === 'ALL REGIONS' || 
@@ -310,7 +312,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       return true;
     }).sort((a, b) => (b.sn || b.id || 0) - (a.sn || a.id || 0));
 
-  }, [serverReports, dateFilter, showAgriculturalOnly, filterRegion, filterStation, canViewGlobalLevel]);
+  }, [serverReports, dateFilter, showAgriculturalOnly, filterRegion, filterStation, canViewGlobalActive]);
 
   const isStationSpecific = filterStation && filterStation !== 'ALL STATIONS';
 
@@ -319,7 +321,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const stn = stripHtmlTags(r.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, r.region);
 
-      if (!canViewGlobalLevel) {
+      if (!canViewGlobalActive) {
         const belongsToRegion = reg === userRegClean || 
                                 (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(s => isStationEquivalent(s, stn)));
         if (!belongsToRegion) return false;
@@ -331,7 +333,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       }
       return true;
     });
-  }, [finalFilteredReports, updateSearch, canViewGlobalLevel, userRegClean]);
+  }, [finalFilteredReports, updateSearch, canViewGlobalActive, userRegClean]);
 
   const metrics = useMemo(() => {
     const stationCellPop = {};
@@ -529,7 +531,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     setNotification(isEditingLockup ? "⏳ Updating Daily Cell Population..." : "⏳ Logging Daily Cell Population to Independent Matrix...");
       
     try {
-      const activeSubmissionRegion = canViewGlobalLevel
+      const activeSubmissionRegion = canViewGlobalActive
         ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
         : getOfficialRegionForStation(formData.station, formData.region);
 
@@ -659,7 +661,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const isDuplicate = serverReports.some(r => stripHtmlTags(r.station) === stripHtmlTags(formData.station) && ((stripHtmlTags(r.sdRef || r.sd_ref || '')).trim().toLowerCase() === final_reference.toLowerCase() || extractPlainText(r.narrative || '').trim().toLowerCase() === plainTextForDuplicate.toLowerCase()));
       if (isDuplicate) return setNotification(`Error: This specific ${cleanRefType} entry or identical narrative already exists.`);
 
-      const activeSubmissionRegion = canViewGlobalLevel
+      const activeSubmissionRegion = canViewGlobalActive
         ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
         : getOfficialRegionForStation(formData.station, formData.region);
 
@@ -971,7 +973,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                   )}
                 </div>
 
-                {/* 🟢 FIXED NARRATIVE AND APPEND UI */}
                 {operation === 'new' ? (
                   <div className="pb-5"> 
                     <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">

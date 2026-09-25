@@ -38,7 +38,7 @@ const isStationEquivalent = (statA, statB) => {
   return cleanA === cleanB && cleanA.length > 0;
 };
 
-const AdminApprovals = ({ currentUser, canViewGlobal = false, canViewGlobalActive = false }) => {
+const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
   const [matrixView, setMatrixView] = useState('ACTIVE');
   
