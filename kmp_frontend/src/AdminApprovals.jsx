@@ -16,7 +16,6 @@ import {
   SignupDossierModal, HRModificationModal, LockdownMatrixModal, RevocationModal, ToggleSwitch 
 } from './AdminModals';
 
-// 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -25,7 +24,6 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
 const isStationEquivalent = (statA, statB) => {
   const a = stripHtmlTags(statA || '').trim().toUpperCase();
   const b = stripHtmlTags(statB || '').trim().toUpperCase();
@@ -42,7 +40,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
   const [matrixView, setMatrixView] = useState('ACTIVE');
   
-  // 🟢 1. DECLARE ROLE & GLOBAL FLAGS AT THE VERY TOP BEFORE ANY useMemo HOOKS
+  // 🟢 SAFELY PARSE ROLES AND GLOBAL FLAGS FIRST
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
@@ -65,7 +63,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const hasDelegatedApprovalPower = currentUser?.permissions?.can_approve === true || currentUser?.permissions?.system_admin === true;
   const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true;
 
-  const canViewGlobalActive = canViewGlobal || isGlobalTier;
+  // 🟢 GUARANTEEDSAFE DEFINITION (Prevents undefined crashes entirely)
+  const canViewGlobalActive = Boolean(canViewGlobal) || Boolean(isGlobalTier);
   const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && !currentUser?.permissions?.global_open && !isSuperAdmin;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
@@ -73,36 +72,27 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const [modRequests, setModRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
-  
   const [auditLogs, setAuditLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
-  
   const [realPendingUsers, setRealPendingUsers] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
-
   const [resetRequests, setResetRequests] = useState([]);
   const [loadingResets, setLoadingResets] = useState(false);
-
   const [allSystemUsers, setAllSystemUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
-
   const [selectedPendingUser, setSelectedPendingUser] = useState(null);
   const [selectedModRequest, setSelectedModRequest] = useState(null);
   const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
-
   const [isDbKillActive, setIsDbKillActive] = useState(false);
   const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
-
   const [activeLockdownCount, setActiveLockdownCount] = useState(0);
   const [showLockdownModal, setShowLockdownModal] = useState(false);
   const [lockdownRegionFilter, setLockdownRegionFilter] = useState("KMP NORTH");
   const [lockdownData, setLockdownData] = useState({ system: false, regions: {}, stations: {} });
-  
   const [searchTerm, setSearchTerm] = useState('');
   const [showDelegationModal, setShowDelegationModal] = useState(false);
   const [delegationSearchTerm, setDelegationSearchTerm] = useState('');
-
   const [revokePrompt, setRevokePrompt] = useState({
     isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: ''
   });
