@@ -387,6 +387,46 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
   };
 
+  const handleRegrantAccess = async (fnum, name) => {
+    if (isReadOnlyObserver) return;
+    if (!window.confirm(`⚠️ Are you sure you want to restore system access for ${name} (${fnum})? They will be granted default STATION_USER access and moved back to the Active Matrix.`)) return;
+
+    setIsProcessingAction(true);
+    try {
+      // Baseline safe permissions upon restoration
+      const defaultRole = 'STATION_USER';
+      const defaultPermissions = {
+        view_nominal_roll: true,
+        view_crime_registry: true,
+        log_crime: true,
+        view_lockup: true,
+        log_lockup: true,
+        view_exhibits: true,
+        log_exhibits: true,
+      };
+
+      const res = await authFetch(`/api/v1/users/${encodeURIComponent(fnum)}/access`, {
+        method: 'PUT',
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          role: defaultRole, 
+          is_approved: true, 
+          permissions: defaultPermissions 
+        })
+      });
+
+      if (!res.ok) throw new Error(await res.text());
+      alert(`✅ Access successfully restored for ${fnum}. Please review their clearance matrix to adjust permissions.`);
+      
+      fetchAllSystemUsers();
+      fetchPendingUsers(); 
+    } catch (err) {
+      alert(`Restoration Failed: ${err.message}`);
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
+
   const handleToggleDelegationPower = async (targetUser, givePower) => {
     if (!isTopCommand) {
       alert("SECURITY RESTRICTION: Only System Managers, RPCs, and Super Admins can delegate command powers.");
@@ -933,9 +973,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           <Eye size={12} className="mr-1.5"/> Inspect Dossier
                         </button>
                         
+                        {/* 🟢 NEW: Restore Access Button */}
+                        <button onClick={() => handleRegrantAccess(u.fnum, u.name)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
+                          <Unlock size={12} className="mr-1.5"/> Restore
+                        </button>
+                        
                         {isSuperAdmin ? (
                           <button onClick={() => handlePermanentDelete(u.fnum, u.name)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
-                            <Trash2 size={12} className="mr-1.5"/> Permanent Purge
+                            <Trash2 size={12} className="mr-1.5"/> Purge
                           </button>
                         ) : (
                           <span className="text-[10px] text-slate-400 italic">Restricted</span>
