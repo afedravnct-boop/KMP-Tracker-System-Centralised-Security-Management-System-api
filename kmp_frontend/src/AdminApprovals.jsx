@@ -16,6 +16,7 @@ import {
   SignupDossierModal, HRModificationModal, LockdownMatrixModal, RevocationModal, ToggleSwitch 
 } from './AdminModals';
 
+// 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -24,6 +25,7 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
 const isStationEquivalent = (statA, statB) => {
   const a = stripHtmlTags(statA || '').trim().toUpperCase();
   const b = stripHtmlTags(statB || '').trim().toUpperCase();
@@ -40,7 +42,50 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
   const [matrixView, setMatrixView] = useState('ACTIVE');
   
-  // 🟢 SAFELY PARSE ROLES AND GLOBAL FLAGS FIRST
+  const [modRequests, setModRequests] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  
+  const [realPendingUsers, setRealPendingUsers] = useState([]);
+  const [loadingPending, setLoadingPending] = useState(false);
+
+  const [resetRequests, setResetRequests] = useState([]);
+  const [loadingResets, setLoadingResets] = useState(false);
+
+  const [allSystemUsers, setAllSystemUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+
+  const [selectedPendingUser, setSelectedPendingUser] = useState(null);
+  const [selectedModRequest, setSelectedModRequest] = useState(null);
+  const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
+  const [isProcessingAction, setIsProcessingAction] = useState(false);
+
+  const [isDbKillActive, setIsDbKillActive] = useState(false);
+  const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
+
+  const [activeLockdownCount, setActiveLockdownCount] = useState(0);
+  const [showLockdownModal, setShowLockdownModal] = useState(false);
+  const [lockdownRegionFilter, setLockdownRegionFilter] = useState("KMP NORTH");
+  const [lockdownData, setLockdownData] = useState({ system: false, regions: {}, stations: {} });
+  
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showDelegationModal, setShowDelegationModal] = useState(false);
+  const [delegationSearchTerm, setDelegationSearchTerm] = useState('');
+
+  const [revokePrompt, setRevokePrompt] = useState({
+    isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: ''
+  });
+
+  const activeLockdownSummary = useMemo(() => {
+    let list = [];
+    if (lockdownData.system) list.push("🚨 SYSTEM-WIDE FULL LOCKDOWN");
+    Object.keys(lockdownData.regions).forEach(r => { if (lockdownData.regions[r]) list.push(`⚠️ REGION: ${r}`); });
+    Object.keys(lockdownData.stations).forEach(s => { if (lockdownData.stations[s]) list.push(`🔒 STATION: ${s}`); });
+    return list;
+  }, [lockdownData]);
+
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
@@ -63,47 +108,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const hasDelegatedApprovalPower = currentUser?.permissions?.can_approve === true || currentUser?.permissions?.system_admin === true;
   const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true;
 
-  // 🟢 GUARANTEEDSAFE DEFINITION (Prevents undefined crashes entirely)
-  const canViewGlobalActive = Boolean(canViewGlobal) || Boolean(isGlobalTier);
+  const canViewGlobalActive = canViewGlobal || isGlobalTier;
   const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && !currentUser?.permissions?.global_open && !isSuperAdmin;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState('ALL STATIONS');
-
-  const [modRequests, setModRequests] = useState([]);
-  const [loadingRequests, setLoadingRequests] = useState(false);
-  const [auditLogs, setAuditLogs] = useState([]);
-  const [loadingLogs, setLoadingLogs] = useState(false);
-  const [realPendingUsers, setRealPendingUsers] = useState([]);
-  const [loadingPending, setLoadingPending] = useState(false);
-  const [resetRequests, setResetRequests] = useState([]);
-  const [loadingResets, setLoadingResets] = useState(false);
-  const [allSystemUsers, setAllSystemUsers] = useState([]);
-  const [loadingUsers, setLoadingUsers] = useState(false);
-  const [selectedPendingUser, setSelectedPendingUser] = useState(null);
-  const [selectedModRequest, setSelectedModRequest] = useState(null);
-  const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
-  const [isProcessingAction, setIsProcessingAction] = useState(false);
-  const [isDbKillActive, setIsDbKillActive] = useState(false);
-  const [loadingKillSwitch, setLoadingKillSwitch] = useState(false);
-  const [activeLockdownCount, setActiveLockdownCount] = useState(0);
-  const [showLockdownModal, setShowLockdownModal] = useState(false);
-  const [lockdownRegionFilter, setLockdownRegionFilter] = useState("KMP NORTH");
-  const [lockdownData, setLockdownData] = useState({ system: false, regions: {}, stations: {} });
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showDelegationModal, setShowDelegationModal] = useState(false);
-  const [delegationSearchTerm, setDelegationSearchTerm] = useState('');
-  const [revokePrompt, setRevokePrompt] = useState({
-    isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: ''
-  });
-
-  const activeLockdownSummary = useMemo(() => {
-    let list = [];
-    if (lockdownData.system) list.push("🚨 SYSTEM-WIDE FULL LOCKDOWN");
-    Object.keys(lockdownData.regions).forEach(r => { if (lockdownData.regions[r]) list.push(`⚠️ REGION: ${r}`); });
-    Object.keys(lockdownData.stations).forEach(s => { if (lockdownData.stations[s]) list.push(`🔒 STATION: ${s}`); });
-    return list;
-  }, [lockdownData]);
 
   useEffect(() => {
     if (canViewGlobalActive) {
@@ -961,6 +970,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           <Eye size={12} className="mr-1.5"/> Inspect Dossier
                         </button>
                         
+                        {/* 🟢 RESTORE BUTTON: Click to regrant access instantly */}
                         <button onClick={() => handleRegrantAccess(u.fnum, u.name)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
                           <Unlock size={12} className="mr-1.5"/> Restore
                         </button>
@@ -1119,7 +1129,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* WIDER DELEGATION MODAL */}
+      {/* 🟢 WIDER DELEGATION MODAL WITH SEARCH BOX */}
       {showDelegationModal && (
         <div className="fixed inset-0 bg-black/70 z-[999999] flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl p-6 space-y-4 shadow-2xl text-white">
@@ -1132,6 +1142,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             
             <p className="text-xs text-slate-400">Search and select an officer in your command jurisdiction to delegate authorization and matrix approval privileges.</p>
             
+            {/* 🟢 Search Input for Delegation Modal */}
             <div className="relative flex items-center">
               <Search size={14} className="absolute left-3 text-slate-400" />
               <input 

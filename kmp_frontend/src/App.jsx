@@ -3025,6 +3025,7 @@ const App = () => {
           <AdminApprovals 
             currentUser={currentUser} 
             canViewGlobal={canViewGlobal}
+            canViewGlobalActive={canViewGlobal} // 🟢 Pass it explicitly here
           />
         ) : (
           <HomeDashboard 
