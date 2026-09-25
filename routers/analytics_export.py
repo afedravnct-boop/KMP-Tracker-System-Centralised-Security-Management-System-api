@@ -8,7 +8,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 
 from auth import get_current_user, require_export_privilege
 from app.database import get_db
@@ -16,7 +16,6 @@ from app import models
 
 router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics Exports"])
 
-# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 REGIONAL_HIERARCHY = {
     "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
     "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -38,7 +37,6 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
             try: perms = json.loads(perms)
             except Exception: perms = {}
 
-        # 🟢 OPSEC Role Classification Engine
         is_absolute_global = (
             user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
             "KMP COMMANDER" in user_pos or
@@ -66,12 +64,36 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
             not is_kmp_specialist
         )
         
-        # 1. ORM Models
-        CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
-        StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', getattr(models, 'Stats', None)))
-        StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', getattr(models, 'Stories', None)))
-        NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', getattr(models, 'User', None)))
-        AgricModel = getattr(models, 'Agricultural_Crime_Summary', None)
+        # 1. Flexible ORM Model Resolution
+        CrimeModel = None
+        for name in ['Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports']:
+            if hasattr(models, name):
+                CrimeModel = getattr(models, name)
+                break
+
+        StatsModel = None
+        for name in ['Operational_Statistics', 'OperationalStatistics', 'Stats', 'operational_statistics']:
+            if hasattr(models, name):
+                StatsModel = getattr(models, name)
+                break
+
+        StoryModel = None
+        for name in ['Success_Stories', 'SuccessStories', 'Stories', 'success_stories']:
+            if hasattr(models, name):
+                StoryModel = getattr(models, name)
+                break
+
+        NomModel = None
+        for name in ['Nominal_Roll', 'NominalRoll', 'User', 'Users', 'nominal_roll']:
+            if hasattr(models, name):
+                NomModel = getattr(models, name)
+                break
+
+        AgricModel = None
+        for name in ['Agricultural_Crime_Summary', 'AgriculturalCrimeSummary', 'agricultural_crime_summary']:
+            if hasattr(models, name):
+                AgricModel = getattr(models, name)
+                break
 
         def get_scoped_query(ModelClass):
             if not ModelClass:
@@ -101,7 +123,6 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
                 if hasattr(ModelClass, 'region'):
                     conds.append(func.upper(ModelClass.region) == user_reg)
                 
-                # 🟢 Station Dual-Equivalence Check for missing regions
                 if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
                     expanded_stns = set()
                     for s in REGIONAL_HIERARCHY[user_reg]:
@@ -111,15 +132,15 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
                         expanded_stns.add(s + ' HQ')
                     
                     conds.append(func.upper(ModelClass.station).in_(list(expanded_stns)))
-                    
+                
                 if conds:
                     return q.filter(or_(*conds)).all()
                 return []
                 
-            elif hasattr(ModelClass, 'station'):
+            elif hasattr(ModelClass, 'station') and user_stn:
                 return q.filter(func.upper(ModelClass.station) == user_stn).all()
                 
-            return []
+            return q.all()
 
         cr_records = get_scoped_query(CrimeModel)
         ops_records = get_scoped_query(StatsModel)
@@ -128,8 +149,6 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
         agric_records = get_scoped_query(AgricModel)
 
         # 2. Build Specialized Datasets
-
-        # --- A. Agricultural Crimes Sub-Categories (Animals, Produce, Equipment) ---
         agric_breakdown = {"ANIMALS": [0, 0], "PRODUCE": [0, 0], "EQUIPMENT": [0, 0]}
         for ag in agric_records:
             rep_type = str(getattr(ag, 'agric_crime_report', '')).upper()
@@ -151,7 +170,6 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
             ["EQUIPMENT (Farm Implements & Tools)", agric_breakdown["EQUIPMENT"][0], agric_breakdown["EQUIPMENT"][1]]
         ]
 
-        # --- B. Manpower Analysis (Corrected NCOs including HCM and HC with M/F split) ---
         officer_ranks = ['CP', 'ACP', 'SSP', 'SP', 'SASP', 'ASP', 'IP', 'AIP']
         nco_ranks = ['HCM', 'HC', 'S/SGT', 'SGT', 'CPL', 'L/CPL', 'PC', 'PPC', 'SPC']
         all_ranks = officer_ranks + nco_ranks
@@ -192,7 +210,6 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
                     row_entry.append(ranks_data[rk]['F'])
                 manpower_table_rows.append(row_entry)
 
-        # --- C. Success Stories (One-Line Bullet Sentence Format) ---
         success_data = []
         for st in ss_records:
             date_val = str(getattr(st, 'date', ''))
@@ -202,7 +219,6 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
             bullet_sentence = f"• Successful operational breakthrough achieved on {date_val} at {stat_val} ({reg_val}): {narrative}."
             success_data.append([reg_val, stat_val, bullet_sentence])
 
-        # --- D. Disruptive Ops Grouped Weekly per Station within Regional Blocks ---
         disruptive_data = []
         region_ops_totals = {}
         for s in ops_records:
@@ -233,14 +249,12 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
 
             disruptive_data.append([str(wk), reg, stat, arr, bon, cau, pen, tak, rel, rem, con])
 
-        # --- E. Comparative Distribution & Volume ---
         comp_counts = {}
         for r in cr_records:
             cat = getattr(r, 'offence', 'GENERAL CRIME') or 'GENERAL CRIME'
             comp_counts[cat] = comp_counts.get(cat, 0) + 1
         comp_data = [[k, v] for k, v in sorted(comp_counts.items(), key=lambda x: x[1], reverse=True)]
 
-        # --- F. Master Summary Table ---
         summary_table_data = [
             ["Total General Manpower (Force-Wide)", len(nom_records)],
             ["Total General Male Personnel", total_male_general],
@@ -255,7 +269,6 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
         for r_name, totals in region_ops_totals.items():
             summary_table_data.append([f"Disruptive Ops Total - Region: {r_name} (Arrested / Convicted)", f"Arrested: {totals['arrested']} | Convicted: {totals['convicted']}"])
 
-        # 3. Build Excel Workbook
         wb = openpyxl.Workbook()
         wb.remove(wb.active)
 
@@ -263,6 +276,8 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
         header_font = Font(color="FFFFFF", bold=True)
         section_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
         section_font = Font(color="FFFFFF", bold=True, size=11)
+
+        manpower_headers = ["Region", "Station", "Total", "Male", "Female"] + [item for r in all_ranks for item in (f"{r} (M)", f"{r} (F)")]
 
         def add_individual_sheet(title, headers, rows):
             ws = wb.create_sheet(title=title)
@@ -275,7 +290,6 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
                 max_len = max([len(str(cell.value or '')) for cell in col], default=0)
                 ws.column_dimensions[col[0].column_letter].width = min(max_len + 3, 50)
 
-        manpower_headers = ["Region", "Station", "Total", "Male", "Female"] + [item for r in all_ranks for item in (f"{r} (M)", f"{r} (F)")]
         add_individual_sheet("Manpower Analysis", manpower_headers, manpower_table_rows)
         add_individual_sheet("Agricultural Crimes", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
         add_individual_sheet("Success Stories", ["Region", "Station", "Operational Success Highlight (One-Line Bullet)"], success_data)
@@ -283,7 +297,6 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
         add_individual_sheet("Comparative Trends", ["Category / Offence", "Total Volume"], comp_data)
         add_individual_sheet("Master Summary Aggregates", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
 
-        # 4. Build Master 'General Analytics' Sheet
         ws_gen = wb.create_sheet(title="General Analytics", index=0)
         
         def append_stacked_section(section_title, headers, rows):
@@ -317,7 +330,6 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
             max_len = max([len(str(cell.value or '')) for cell in col], default=0)
             ws_gen.column_dimensions[col[0].column_letter].width = min(max_len + 3, 55)
 
-        # 5. Encrypt into AES-256 ZIP Archive
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
 
