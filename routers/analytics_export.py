@@ -17,11 +17,11 @@ from app import models
 router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics Exports"])
 
 REGIONAL_HIERARCHY = {
-    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-    "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
-    "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+    "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
+    "POLICE HEADQUARTERS": ["NAGURU"]
 }
 
 @router.get("/export")
@@ -59,9 +59,9 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
         )
 
         is_regional_command = (
-            user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] and
-            not is_kmp_sys_mgr and
-            not is_kmp_specialist
+            user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] or
+            user_pos.find("RPC") != -1 or
+            user_reg in REGIONAL_HIERARCHY
         )
         
         # 1. Flexible ORM Model Resolution with robust fallbacks
@@ -118,13 +118,13 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
                     if conds: return q.filter(or_(*conds)).all()
                 return []
                 
-            elif is_regional_command:
+            elif is_regional_command and user_reg in REGIONAL_HIERARCHY:
                 conds = []
                 if hasattr(ModelClass, 'region'):
                     conds.append(func.upper(ModelClass.region) == user_reg)
                 
-                if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
-                    expanded_stns = set()
+                if hasattr(ModelClass, 'station'):
+                    expanded_stns = set(REGIONAL_HIERARCHY[user_reg])
                     for s in REGIONAL_HIERARCHY[user_reg]:
                         expanded_stns.add(s)
                         expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
