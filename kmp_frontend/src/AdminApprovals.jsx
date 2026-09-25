@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
-  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search, Award
+  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search, Award, Trash2
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -18,6 +18,7 @@ import {
 
 const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
+  const [matrixView, setMatrixView] = useState('ACTIVE'); // 🟢 Sub-tab for Active vs Revoked accounts
   
   const [modRequests, setModRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
@@ -82,15 +83,39 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const canControlTargetUser = useCallback((targetUser) => {
     if (!targetUser) return false;
     const targetRole = (targetUser.role || '').toUpperCase();
-    if (targetRole === 'SUPER_ADMIN') return false;
-    if (isSuperAdmin) return true;
+    
+    if (targetRole === 'SUPER_ADMIN') return false; 
+    if (isSuperAdmin) return true; 
 
-    const myRole = userRoleClean;
-    if (['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER'].includes(targetRole) && myRole === targetRole) return false;
+    const tierWeight = {
+      'SUPER_ADMIN': 100,
+      'ASSISTANT_SUPER_ADMIN': 90,
+      'SYSTEM_MANAGER': 80, 
+      'ASSISTANT_SYSTEM_MANAGER': 70, 
+      'REGIONAL_ADMIN': 60, 
+      'ASSISTANT_REGIONAL_ADMIN': 50,
+      'ADMIN_USER': 45, 
+      'DIVISION_ADMIN': 40, 
+      'DIVISION_USER': 30,
+      'STATION_ADMIN': 20, 
+      'STATION_USER': 10,
+      'USER': 5,
+      'REVOKED': 0
+    };
+
+    const myWeight = tierWeight[userRoleClean] || 0;
+    const targetWeight = tierWeight[targetRole] || 0;
+
+    if (myWeight <= targetWeight) return false; 
+
+    const isGlobalRole = ['ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || currentUser?.permissions?.view_global_roster === true;
+    if (!isGlobalRole && targetUser.region !== currentUser?.region) {
+      return false;
+    }
+
     return true;
-  }, [isSuperAdmin, userRoleClean]);
+  }, [isSuperAdmin, userRoleClean, currentUser]);
 
-  // 🟢 DEFINED HANDLERS AT THE TOP TO PREVENT REFERENCE ERRORS
   const handleToggleLockdown = async (type, name, currentStatus) => {
     if (isReadOnlyObserver) {
       alert("SECURITY RESTRICTION: Read-only clearance does not permit managing system lockdowns.");
@@ -144,10 +169,46 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const handleApproveUser = async (userToApprove, customAssignedRole = 'STATION_ADMIN', customPermissions = {}) => {
     if (isReadOnlyObserver) return;
-    const fnum = typeof userToApprove === 'object' ? userToApprove.fnum : userToApprove;
+    const userName = stripHtmlTags(typeof userToApprove === 'object' ? (userToApprove.name || '') : '').toUpperCase();
+    const cleanFnum = stripHtmlTags(typeof userToApprove === 'object' ? userToApprove.fnum : userToApprove).toUpperCase();
+
+    if (cleanFnum.includes('/')) {
+      const prefix = cleanFnum.split('/')[0];
+      const nameInitial = userName.charAt(0);
+      
+      if (prefix.match(/^[A-Z]+$/) && prefix !== nameInitial) {
+        alert(`⛔ CRITICAL DATA MISMATCH: Officer name is "${userName}" (starts with '${nameInitial}'), but File Number is "${cleanFnum}". Under standard UPF naming conventions, the File Number prefix must match the first letter of the name (e.g., ${nameInitial}/${cleanFnum.split('/')[1] || '10000'}). Please correct the dossier before authorizing access.`);
+        setIsProcessingAction(false);
+        return;
+      }
+    }
+
     setIsProcessingAction(true);
     try {
-      const cleanFnum = stripHtmlTags(fnum);
+      let assignedRole = customAssignedRole;
+      const pos = stripHtmlTags(userToApprove.position || '').toUpperCase();
+      
+      if (pos.includes('KMP COMMANDER') || pos.includes('DEPUTY KMP COMMANDER') || pos === 'KMP ADMIN OFFICER') {
+        assignedRole = 'ASSISTANT_SUPER_ADMIN';
+      } else if (pos.includes('RPC') && !pos.includes('DEPUTY')) {
+        assignedRole = 'SYSTEM_MANAGER';
+      } else if (pos.includes('DEPUTY RPC')) {
+        assignedRole = 'ASSISTANT_SYSTEM_MANAGER';
+      } else if (pos.includes('REGIONAL HR') || pos.includes('REGIONAL ADMIN')) {
+        assignedRole = 'REGIONAL_ADMIN';
+      } else if (pos.includes('DPC') || pos.includes('DIVISION COMMANDER')) {
+        assignedRole = 'DIVISION_ADMIN';
+      } else if (pos.includes('OC STATION')) {
+        assignedRole = 'STATION_ADMIN';
+      } else if (pos.includes('OC CID')) {
+        assignedRole = 'ADMIN_USER';
+      } else if (pos.includes('KMP CID') || pos.includes('KMP CI') || pos.includes('KMP TRAFFIC') || pos.includes('KMP 999') || pos.includes('KMP FFU')) {
+        assignedRole = 'SYSTEM_MANAGER'; 
+      }
+
+      const isGlobalAssign = ['ASSISTANT_SUPER_ADMIN'].includes(assignedRole) || 
+        (assignedRole === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userToApprove.region?.toUpperCase()));
+
       const grantedPermissions = {
         view_nominal_roll: true,
         upload_hr: true,
@@ -158,6 +219,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         log_lockup: true,
         view_exhibits: true,
         log_exhibits: true,
+        view_global_roster: isGlobalAssign,
+        global_open: isGlobalAssign,
         ...customPermissions
       };
 
@@ -165,7 +228,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         method: "PUT", 
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ 
-          role: customAssignedRole, 
+          role: assignedRole, 
           is_approved: true, 
           permissions: grantedPermissions,
           station: userToApprove.station, 
@@ -173,7 +236,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         })
       });
 
-      alert(`✅ Success: Access approved for ${cleanFnum}.`);
+      alert(`✅ Success: Access approved for ${cleanFnum}. Tier allocated: ${assignedRole}`);
       setSelectedPendingUser(null);
       fetchPendingUsers();
       fetchAllSystemUsers();
@@ -218,14 +281,37 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       if (!res.ok) throw new Error(await res.text());
       alert(`✅ Access completely revoked for ${fnum}.`);
       fetchAllSystemUsers();
+      fetchPendingUsers(); // Refresh the revoked queue
     } catch (err) {
       alert(`Revocation Failed: ${err.message}`);
+    }
+  };
+
+  // 🟢 PERMANENT DELETION HANDLER (Super Admin Only)
+  const handlePermanentDelete = async (fnum, name) => {
+    if (!isSuperAdmin) {
+      alert("SECURITY RESTRICTION: Only Super Admins can execute permanent account deletion.");
+      return;
+    }
+    if (!window.confirm(`⚠️ CRITICAL: Are you absolutely sure you want to PERMANENTLY ERASE the account for ${name} (${fnum})? This action cannot be undone and erases the user from the master database.`)) return;
+
+    try {
+      const res = await authFetch(`/api/v1/users/${encodeURIComponent(fnum)}/permanent-delete`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(await res.text());
+      alert(`✅ Account ${fnum} permanently deleted.`);
+      fetchPendingUsers(); // Refresh lists
+    } catch (err) {
+      alert(`Deletion Failed: ${err.message}`);
     }
   };
 
   const handleToggleDelegationPower = async (targetUser, givePower) => {
     if (!isTopCommand) {
       alert("SECURITY RESTRICTION: Only System Managers, RPCs, and Super Admins can delegate command powers.");
+      return;
+    }
+    if (!canControlTargetUser(targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance over this command tier.");
       return;
     }
 
@@ -287,7 +373,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     if (isReadOnlyObserver) return;
     const cleanFnum = stripHtmlTags(fnum);
     const targetUser = allSystemUsers.find(u => u.fnum === cleanFnum);
-    if (!targetUser || !canControlTargetUser(targetUser)) return;
+    if (!targetUser || !canControlTargetUser(targetUser)) {
+      alert("SECURITY OVERRIDE DENIED: Insufficient clearance to alter this tier.");
+      return;
+    }
 
     const updatedPermissions = grantExpressAccess(newRole, targetUser.permissions || {});
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
@@ -440,7 +529,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     });
   };
 
-  const filteredPending = useMemo(() => filterByRegionStation(realPendingUsers, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'nin', 'ipps', 'phone', 'email']), [realPendingUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
+  // 🟢 Split realPendingUsers into Authorizations (active pending) vs Revoked Accounts
+  const pendingAuthsList = useMemo(() => realPendingUsers.filter(u => u.role !== 'REVOKED'), [realPendingUsers]);
+  const revokedUsersList = useMemo(() => realPendingUsers.filter(u => u.role === 'REVOKED'), [realPendingUsers]);
+
+  const filteredPending = useMemo(() => filterByRegionStation(pendingAuthsList, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'nin', 'ipps', 'phone', 'email']), [pendingAuthsList, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
+  const filteredRevoked = useMemo(() => filterByRegionStation(revokedUsersList, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'nin', 'ipps', 'phone', 'email']), [revokedUsersList, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
   const filteredRequests = useMemo(() => filterByRegionStation(modRequests, 'current_region', 'current_station', ['fnum', 'current_name', 'current_station', 'current_region', 'requested_station', 'requested_name']), [modRequests, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
   const filteredResets = useMemo(() => filterByRegionStation(resetRequests, 'region', 'station', ['fnum', 'name', 'station', 'region']), [resetRequests, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
   const filteredSystemUsers = useMemo(() => filterByRegionStation(allSystemUsers, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'ipps', 'phone', 'email', 'role']), [allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
@@ -459,6 +553,16 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
     });
   }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
+
+  // 🟢 Helper to extract Revocation Reason from Audit Logs
+  const getRevocationReason = useCallback((fnum) => {
+    const log = auditLogs.find(l => l.event_type === 'REVOKE_USER_ACCESS' && l.target_user === fnum);
+    if (log && log.details) {
+      const match = log.details.match(/Remarks:\s*(.*)/);
+      return match ? match[1] : 'Administrative Revocation';
+    }
+    return 'No reason logged';
+  }, [auditLogs]);
 
   return (
     <div className="dark p-4 max-w-[1800px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300 text-slate-100">
@@ -494,8 +598,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border border-slate-300 dark:border-slate-700 rounded-md p-2 text-xs shadow-sm bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer min-w-[180px]">
             {canViewGlobalActive ? (<><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY || {}).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>) : <option value={currentUser?.region}>{stripHtmlTags(currentUser?.region)}</option>}
           </select>
-          <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive && !['RPC', 'Deputy Commander'].includes(currentUser?.role)} className="border border-slate-300 dark:border-slate-700 rounded-md p-2 text-xs shadow-sm bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer min-w-[200px]">
-            {canViewGlobalActive || ['RPC', 'Deputy Commander'].includes(currentUser?.role) ? (<><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
+          <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive && !['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER'].includes(currentUser?.role)} className="border border-slate-300 dark:border-slate-700 rounded-md p-2 text-xs shadow-sm bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer min-w-[200px]">
+            {canViewGlobalActive || ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER'].includes(currentUser?.role) ? (<><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
           </select>
           
           <div className="relative flex items-center min-w-[240px]">
@@ -522,6 +626,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               <span>🔒</span><span>{activeLockdownCount > 0 ? `Lockdowns (${activeLockdownCount} Active)` : 'Lockdowns'}</span>
             </button>
           )}
+          {isSuperAdmin && (
+            <button onClick={handleKillSwitchToggle} disabled={loadingKillSwitch} className={`font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm border ${isDbKillActive ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-600 text-emerald-800 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-950/40 border-red-400 dark:border-red-600 text-red-800 dark:text-red-300'}`}>
+              {loadingKillSwitch ? <Loader2 size={14} className="mr-2 animate-spin text-slate-500" /> : <ShieldAlert size={14} className={`mr-2 ${isDbKillActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`} />}
+              {isDbKillActive ? 'AI DB Query: ON' : 'AI DB Query: KILLED'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -531,7 +641,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           <UserPlus className="w-4 h-4 mr-2"/> Authorizations ({loadingPending ? '...' : filteredPending.length})
         </button>
         <button onClick={() => setActiveTab('matrix')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'matrix' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-indigo-600 text-indigo-700 dark:text-indigo-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
-          <Shield className="w-4 h-4 mr-2"/> Clearance Matrix ({filteredSystemUsers.length})
+          <Shield className="w-4 h-4 mr-2"/> Clearance Matrix
         </button>
         <button onClick={() => setActiveTab('roster')} className={`flex-1 py-3.5 px-4 text-xs uppercase tracking-wider font-extrabold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'roster' ? 'bg-slate-50 dark:bg-slate-800 border-b-[3px] border-cyan-600 text-cyan-700 dark:text-cyan-400 shadow-inner' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/50'}`}>
           <Users className="w-4 h-4 mr-2"/> Directory Roster ({filteredSystemUsers.length})
@@ -585,26 +695,31 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 2. CLEARANCE MATRIX TAB */}
+      {/* 2. CLEARANCE MATRIX TAB with REVOKED USERS SUB-TAB */}
       {activeTab === 'matrix' && (
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
-          <div className="bg-slate-900 dark:bg-slate-950 text-white p-3 text-xs font-extrabold uppercase tracking-wider flex justify-between">
-            <span>Super Control Panel - Active Roster Matrix</span>
+          <div className="bg-slate-900 dark:bg-slate-950 p-2.5 flex justify-between items-center border-b border-slate-800">
+            <div className="flex space-x-2 bg-slate-800/80 p-1 rounded-lg">
+              <button onClick={() => setMatrixView('ACTIVE')} className={`px-4 py-1.5 text-[10px] uppercase tracking-wider font-black rounded-md transition-colors ${matrixView === 'ACTIVE' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white cursor-pointer'}`}>Active Matrix ({filteredSystemUsers.length})</button>
+              <button onClick={() => setMatrixView('REVOKED')} className={`px-4 py-1.5 text-[10px] uppercase tracking-wider font-black rounded-md transition-colors ${matrixView === 'REVOKED' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-400 hover:text-white cursor-pointer'}`}>Revoked Vault ({filteredRevoked.length})</button>
+            </div>
+            <span className="text-white text-[10px] font-extrabold uppercase tracking-widest hidden sm:block mr-2 opacity-80">System Clearance Module</span>
           </div>
+
           {loadingUsers ? (
-            <div className="p-8 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database roster...</div>
-          ) : (
+            <div className="p-8 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database...</div>
+          ) : matrixView === 'ACTIVE' ? (
             <div className="w-full overflow-x-auto custom-scrollbar">
               <div className="min-w-[1200px]">
                 <table className="w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs table-fixed">
-                  <thead className="bg-slate-900 dark:bg-slate-950 text-white uppercase font-black text-[10px]">
+                  <thead className="bg-slate-100 dark:bg-slate-950/50 text-slate-700 dark:text-slate-300 uppercase font-black text-[10px]">
                     <tr>
-                      <th className="p-2.5 text-left md:sticky md:left-0 z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[240px] min-w-[240px]">Officer Details</th>
-                      <th className="p-2.5 text-center md:sticky md:left-[240px] z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[120px] min-w-[120px]">Administrative Tier</th>
-                      <th className="p-2.5 text-center md:sticky md:left-[360px] z-20 bg-slate-900 dark:bg-slate-950 text-blue-100 w-[100px] min-w-[100px]">Quick Actions</th>
+                      <th className="p-2.5 text-left md:sticky md:left-0 z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[240px] min-w-[240px]">Officer Details</th>
+                      <th className="p-2.5 text-center md:sticky md:left-[240px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[120px] min-w-[120px]">Administrative Tier</th>
+                      <th className="p-2.5 text-center md:sticky md:left-[360px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[100px] min-w-[100px]">Quick Actions</th>
                       {CLEARANCE_MATRIX_COLS.map((col, idx) => (
-                        <th key={idx} className="p-2 border-l border-slate-700 dark:border-slate-800 bg-slate-900 dark:bg-slate-950 w-20 min-w-[80px] align-middle">
-                          <div className="w-20 min-w-[80px] text-[9px] text-blue-100 font-bold whitespace-normal break-words leading-tight text-center px-0.5" title={col.label}>
+                        <th key={idx} className="p-2 border-l border-slate-300 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 w-20 min-w-[80px] align-middle">
+                          <div className="w-20 min-w-[80px] text-[9px] text-blue-900 dark:text-blue-100 font-bold whitespace-normal break-words leading-tight text-center px-0.5" title={col.label}>
                             {col.label}
                           </div>
                         </th>
@@ -623,16 +738,18 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           <td className="p-2.5 text-center md:sticky md:left-[240px] z-10 bg-white dark:bg-slate-900 w-[120px] min-w-[120px]">
                             <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf || !canModifyThisUser} className="border border-slate-300 dark:border-slate-700 rounded-md px-1.5 py-1 font-bold outline-none uppercase text-[10px] w-full truncate bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 disabled:opacity-50">
                               <option value="USER">USER</option>
+                              <option value="STATION_USER">STATION USER</option>
                               <option value="STATION_ADMIN">STN ADMIN</option>
                               <option value="DIVISION_USER">DIV USER</option>
                               <option value="DIVISION_ADMIN">DIV ADMIN</option>
                               <option value="REGIONAL_USER">REG USER</option>
-                              <option value="REGIONAL_ADMIN">REG ADMIN</option>
                               <option value="ASSISTANT_REGIONAL_ADMIN">ASST REG ADMIN</option>
-                              <option value="ADMIN">ADMIN</option>
-                              <option value="SUPER_ADMIN">SUPER ADMIN</option>
+                              <option value="REGIONAL_ADMIN">REG ADMIN</option>
+                              <option value="ADMIN_USER">ADMIN USER</option>
+                              <option value="ASSISTANT_SYSTEM_MANAGER">ASST SYS MANAGER</option>
+                              <option value="SYSTEM_MANAGER">SYSTEM MANAGER</option>
                               <option value="ASSISTANT_SUPER_ADMIN">ASST SUPER ADMIN</option>
-                              <option value="REVOKED">REVOKED</option>
+                              <option value="SUPER_ADMIN">SUPER ADMIN</option>
                             </select>
                           </td>
                           <td className="p-2.5 text-center md:sticky md:left-[360px] z-10 bg-white dark:bg-slate-900 w-[100px] min-w-[100px]">
@@ -641,7 +758,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                                 <>
                                   <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 cursor-pointer"><CheckSquare size={12} /></button>
                                   <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 cursor-pointer"><Square size={12} /></button>
-                                  <button onClick={() => handleRevokeAccessCompletely(u.fnum, u.name)} title="Completely Revoke Access" className="p-1 rounded bg-rose-50 text-rose-700 border border-rose-300 cursor-pointer"><XCircle size={12} /></button>
+                                  <button onClick={() => handleRevokeAccessCompletely(u.fnum, u.name)} title="Revoke Access (Move to Vault)" className="p-1 rounded bg-rose-50 text-rose-700 border border-rose-300 cursor-pointer"><XCircle size={12} /></button>
                                 </>
                               )}
                               {isSuperAdmin && (
@@ -673,6 +790,52 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                   </tbody>
                 </table>
               </div>
+            </div>
+          ) : (
+            <div className="w-full overflow-x-auto custom-scrollbar">
+              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
+                <thead className="bg-red-950/30 text-red-900 dark:text-red-300 uppercase font-black text-[10px]">
+                  <tr>
+                    <th className="p-3 text-left">Officer Details</th>
+                    <th className="p-3 text-left">Contact & Identifiers</th>
+                    <th className="p-3 text-left">Revocation Reason</th>
+                    <th className="p-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium text-slate-700 dark:text-slate-300 bg-red-50/30 dark:bg-slate-900">
+                  {filteredRevoked.map(u => (
+                    <tr key={u.fnum} className="hover:bg-red-50 dark:hover:bg-slate-800/50">
+                      <td className="p-3">
+                        <div className="font-extrabold text-slate-900 dark:text-slate-100">{formatOfficerHeader(u)}</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">{u.station} / {u.region}</div>
+                      </td>
+                      <td className="p-3">
+                        <div>IPPS: <span className="font-bold">{u.ipps || 'N/A'}</span> | NIN: <span className="font-bold">{u.nin || 'N/A'}</span></div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">{u.email || 'No Email'} • {u.phone || 'No Phone'}</div>
+                      </td>
+                      <td className="p-3 whitespace-normal break-words max-w-xs">
+                        <div className="text-red-700 dark:text-red-400 font-bold text-[11px] bg-red-100 dark:bg-red-900/30 px-2 py-1 rounded inline-block">
+                          {getRevocationReason(u.fnum)}
+                        </div>
+                      </td>
+                      <td className="p-3 text-right">
+                        {isSuperAdmin ? (
+                          <button onClick={() => handlePermanentDelete(u.fnum, u.name)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
+                            <Trash2 size={12} className="mr-1.5"/> Permanent Purge
+                          </button>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 italic">Restricted (Super Admin Only)</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredRevoked.length === 0 && (
+                    <tr>
+                      <td colSpan="4" className="p-8 text-center text-slate-500 font-bold text-xs">No revoked accounts currently logged in the vault.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -822,7 +985,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             </div>
             <p className="text-xs text-slate-400">Select an officer in your command jurisdiction to delegate authorization and matrix approval privileges.</p>
             <div className="max-h-60 overflow-y-auto space-y-2 custom-scrollbar">
-              {allSystemUsers.filter(u => u.role !== 'SUPER_ADMIN').map(u => (
+              {allSystemUsers.filter(u => u.role !== 'SUPER_ADMIN' && canControlTargetUser(u)).map(u => (
                 <div key={u.fnum} className="bg-slate-800 p-3 rounded-lg flex items-center justify-between border border-slate-700">
                   <div>
                     <div className="font-bold text-xs">{formatOfficerHeader(u)}</div>
@@ -843,7 +1006,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       )}
 
       {/* MODALS */}
-      <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} canModifyUser={canModifyUser} />
+      <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} canModifyUser={canControlTargetUser} />
       <HRModificationModal req={selectedModRequest} onClose={() => setSelectedModRequest(null)} currentUser={currentUser} isProcessingAction={isProcessingAction} handleReviewRequest={handleReviewRequest} />
       <LockdownMatrixModal isOpen={showLockdownModal} onClose={() => setShowLockdownModal(false)} activeLockdownSummary={activeLockdownSummary} lockdownData={lockdownData} handleToggleLockdown={handleToggleLockdown} lockdownRegionFilter={lockdownRegionFilter} setLockdownRegionFilter={setLockdownRegionFilter} />
       <RevocationModal prompt={revokePrompt} setPrompt={setRevokePrompt} executeRoleChange={() => {}} executePermissionChange={() => {}} />
