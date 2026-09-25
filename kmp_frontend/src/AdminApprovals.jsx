@@ -8,7 +8,7 @@ import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
 
 import { 
-  REGIONAL_HIERARCHY, TOP_TIER_ROLES, getRoleWeight, canModifyUser, 
+  REGIONAL_HIERARCHY as BASE_REGIONAL_HIERARCHY, TOP_TIER_ROLES, getRoleWeight, canModifyUser, 
   grantExpressAccess, CLEARANCE_MATRIX_COLS, formatOfficerHeader 
 } from './adminUtils';
 
@@ -16,9 +16,31 @@ import {
   SignupDossierModal, HRModificationModal, LockdownMatrixModal, RevocationModal, ToggleSwitch 
 } from './AdminModals';
 
+// 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
+const REGIONAL_HIERARCHY = {
+  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+};
+
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+const isStationEquivalent = (statA, statB) => {
+  const a = stripHtmlTags(statA || '').trim().toUpperCase();
+  const b = stripHtmlTags(statB || '').trim().toUpperCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
+};
+
 const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
-  const [matrixView, setMatrixView] = useState('ACTIVE'); // 🟢 Sub-tab for Active vs Revoked accounts
+  const [matrixView, setMatrixView] = useState('ACTIVE');
   
   const [modRequests, setModRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
@@ -65,21 +87,43 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
   const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
 
-  const isTopCommand = [
-    'SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'RPC', 'DEPUTY_RPC'
-  ].includes(userRoleClean) || userPosClean.includes('COMMANDER') || userPosClean.includes('RPC') || userPosClean.includes('HR');
+  // 🟢 Role classification
+  const isGlobalTier = isSuperAdmin || 
+    userRoleClean === 'ASSISTANT_SUPER_ADMIN' ||
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) ||
+    currentUser?.permissions?.view_global_roster === true;
+
+  const isRPC = ['RPC', 'DEPUTY_RPC'].includes(userRoleClean) || 
+    (userRoleClean === 'SYSTEM_MANAGER' && !isGlobalTier) ||
+    userPosClean.includes('RPC') || 
+    userPosClean.includes('REGIONAL POLICE COMMANDER');
+
+  const isTopCommand = isGlobalTier || isRPC || 
+    ['ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN'].includes(userRoleClean) || 
+    userPosClean.includes('HR');
 
   const hasDelegatedApprovalPower = currentUser?.permissions?.can_approve === true || currentUser?.permissions?.system_admin === true;
   const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true;
 
-  const canViewGlobalActive = canViewGlobal || isTopCommand || currentUser?.permissions?.view_global_roster === true;
+  const canViewGlobalActive = canViewGlobal || isGlobalTier;
   const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && !currentUser?.permissions?.global_open && !isSuperAdmin;
 
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : stripHtmlTags(currentUser?.region || ''));
-  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || ''));
+  // 🟢 RPCs default to their Region with full station oversight
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState('ALL STATIONS');
 
+  useEffect(() => {
+    if (canViewGlobalActive) {
+      setFilterRegion('ALL REGIONS');
+    } else if (isRPC || isTopCommand) {
+      setFilterRegion(userRegClean);
+    }
+  }, [canViewGlobalActive, isRPC, isTopCommand, userRegClean]);
+
+  // 🟢 Strict hierarchy check ensuring station-to-region mapping acts as a fallback
   const canControlTargetUser = useCallback((targetUser) => {
     if (!targetUser) return false;
     const targetRole = (targetUser.role || '').toUpperCase();
@@ -108,13 +152,39 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
     if (myWeight <= targetWeight) return false; 
 
-    const isGlobalRole = ['ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || currentUser?.permissions?.view_global_roster === true;
-    if (!isGlobalRole && targetUser.region !== currentUser?.region) {
+    // Regional containment mapping: Checks if target's station belongs to your region
+    const belongsToMyRegion = targetUser.region === currentUser?.region || 
+      (REGIONAL_HIERARCHY[currentUser?.region] && REGIONAL_HIERARCHY[currentUser?.region].some(s => isStationEquivalent(s, targetUser.station)));
+
+    if (!isGlobalTier && !belongsToMyRegion) {
       return false;
     }
 
     return true;
-  }, [isSuperAdmin, userRoleClean, currentUser]);
+  }, [isSuperAdmin, userRoleClean, isGlobalTier, currentUser]);
+
+  const handleKillSwitchToggle = async () => {
+    if (isReadOnlyObserver) {
+      alert("SECURITY RESTRICTION: Read-only clearance does not permit toggling the AI database kill switch.");
+      return;
+    }
+
+    setLoadingKillSwitch(true);
+    try {
+      const res = await authFetch('/api/v1/ai/admin/toggle-db-query', { method: 'POST' });
+      if (res && res.ok) {
+        const data = await res.json();
+        setIsDbKillActive(!data.ai_database_query_enabled);
+        alert(data.message);
+      } else {
+        alert("Failed to toggle AI database kill switch.");
+      }
+    } catch (err) {
+      alert("Error contacting the server.");
+    } finally {
+      setLoadingKillSwitch(false);
+    }
+  };
 
   const handleToggleLockdown = async (type, name, currentStatus) => {
     if (isReadOnlyObserver) {
@@ -146,11 +216,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleReviewRequest = async (reqId, actionStatus) => {
-    if (isReadOnlyObserver) {
-      alert("SECURITY RESTRICTION: Global Observer (Read-Only) clearance does not permit reviewing HR modifications.");
-      return;
-    }
-
+    if (isReadOnlyObserver) return;
     try {
       const res = await authFetch(`/api/v1/requests/${reqId}`, {
         method: "PATCH", 
@@ -172,12 +238,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     const userName = stripHtmlTags(typeof userToApprove === 'object' ? (userToApprove.name || '') : '').toUpperCase();
     const cleanFnum = stripHtmlTags(typeof userToApprove === 'object' ? userToApprove.fnum : userToApprove).toUpperCase();
 
+    // 🟢 Critical UPF File Number Validation
     if (cleanFnum.includes('/')) {
       const prefix = cleanFnum.split('/')[0];
       const nameInitial = userName.charAt(0);
       
       if (prefix.match(/^[A-Z]+$/) && prefix !== nameInitial) {
-        alert(`⛔ CRITICAL DATA MISMATCH: Officer name is "${userName}" (starts with '${nameInitial}'), but File Number is "${cleanFnum}". Under standard UPF naming conventions, the File Number prefix must match the first letter of the name (e.g., ${nameInitial}/${cleanFnum.split('/')[1] || '10000'}). Please correct the dossier before authorizing access.`);
+        alert(`⛔ CRITICAL DATA MISMATCH: Officer name is "${userName}" (starts with '${nameInitial}'), but File Number is "${cleanFnum}". Under standard UPF conventions, the prefix must match the first letter of the name (e.g., ${nameInitial}/${cleanFnum.split('/')[1] || '10000'}). Please correct before approval.`);
         setIsProcessingAction(false);
         return;
       }
@@ -281,25 +348,24 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       if (!res.ok) throw new Error(await res.text());
       alert(`✅ Access completely revoked for ${fnum}.`);
       fetchAllSystemUsers();
-      fetchPendingUsers(); // Refresh the revoked queue
+      fetchPendingUsers(); 
     } catch (err) {
       alert(`Revocation Failed: ${err.message}`);
     }
   };
 
-  // 🟢 PERMANENT DELETION HANDLER (Super Admin Only)
   const handlePermanentDelete = async (fnum, name) => {
     if (!isSuperAdmin) {
       alert("SECURITY RESTRICTION: Only Super Admins can execute permanent account deletion.");
       return;
     }
-    if (!window.confirm(`⚠️ CRITICAL: Are you absolutely sure you want to PERMANENTLY ERASE the account for ${name} (${fnum})? This action cannot be undone and erases the user from the master database.`)) return;
+    if (!window.confirm(`⚠️ CRITICAL: Permanently erase ${name} (${fnum}) from the master database?`)) return;
 
     try {
       const res = await authFetch(`/api/v1/users/${encodeURIComponent(fnum)}/permanent-delete`, { method: 'DELETE' });
       if (!res.ok) throw new Error(await res.text());
-      alert(`✅ Account ${fnum} permanently deleted.`);
-      fetchPendingUsers(); // Refresh lists
+      alert(`✅ Account ${fnum} permanently purged.`);
+      fetchPendingUsers(); 
     } catch (err) {
       alert(`Deletion Failed: ${err.message}`);
     }
@@ -515,6 +581,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     return fields.some(field => stripHtmlTags(String(item[field] || '')).toLowerCase().includes(term));
   };
 
+  // 🟢 Enhanced filtering pulling all stations logically underneath the region
   const filterByRegionStation = (items, itemRegionKey = 'region', itemStationKey = 'station', searchFields = []) => {
     return items.filter(item => {
       const itemRegion = stripHtmlTags(item[itemRegionKey] || '').trim().toUpperCase();
@@ -522,14 +589,29 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
       const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
-      if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return matchesSearch(item, searchFields);
-      if (activeReg && activeReg !== 'ALL REGIONS' && itemRegion !== activeReg) return false;
-      if (activeStat && activeStat !== 'ALL STATIONS' && itemStation !== activeStat) return false;
+      if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') {
+        return matchesSearch(item, searchFields);
+      }
+
+      // Region Check: Match if item's region strictly matches OR if the item's station belongs to this active region
+      const belongsToRegion = activeReg === 'ALL REGIONS' || 
+                              itemRegion === activeReg || 
+                              (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, itemStation)));
+
+      if (!belongsToRegion) {
+        return false;
+      }
+
+      if (activeStat && activeStat !== 'ALL STATIONS') {
+        if (!isStationEquivalent(itemStation, activeStat)) {
+          return false;
+        }
+      }
+
       return matchesSearch(item, searchFields);
     });
   };
 
-  // 🟢 Split realPendingUsers into Authorizations (active pending) vs Revoked Accounts
   const pendingAuthsList = useMemo(() => realPendingUsers.filter(u => u.role !== 'REVOKED'), [realPendingUsers]);
   const revokedUsersList = useMemo(() => realPendingUsers.filter(u => u.role === 'REVOKED'), [realPendingUsers]);
 
@@ -548,13 +630,18 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
       if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
-      if (activeReg && activeReg !== 'ALL REGIONS' && logRegion !== activeReg) return false;
-      if (activeStat && activeStat !== 'ALL STATIONS' && logStation !== activeStat) return false;
+      
+      const belongsToRegion = activeReg === 'ALL REGIONS' || 
+                              logRegion === activeReg || 
+                              (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, logStation)));
+
+      if (!belongsToRegion) return false;
+      if (activeStat && activeStat !== 'ALL STATIONS' && !isStationEquivalent(logStation, activeStat)) return false;
+      
       return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
     });
   }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
 
-  // 🟢 Helper to extract Revocation Reason from Audit Logs
   const getRevocationReason = useCallback((fnum) => {
     const log = auditLogs.find(l => l.event_type === 'REVOKE_USER_ACCESS' && l.target_user === fnum);
     if (log && log.details) {
@@ -596,10 +683,17 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             <Filter size={14} className="mr-1.5 text-blue-600 dark:text-blue-400" /> Filter Scope:
           </span>
           <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border border-slate-300 dark:border-slate-700 rounded-md p-2 text-xs shadow-sm bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer min-w-[180px]">
-            {canViewGlobalActive ? (<><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY || {}).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>) : <option value={currentUser?.region}>{stripHtmlTags(currentUser?.region)}</option>}
+            {canViewGlobalActive ? (<><option value="ALL REGIONS">ALL REGIONS (GLOBAL)</option>{Object.keys(REGIONAL_HIERARCHY || {}).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>) : <option value={userRegClean}>{userRegClean}</option>}
           </select>
-          <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive && !['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER'].includes(currentUser?.role)} className="border border-slate-300 dark:border-slate-700 rounded-md p-2 text-xs shadow-sm bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer min-w-[200px]">
-            {canViewGlobalActive || ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER'].includes(currentUser?.role) ? (<><option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
+          <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive && !isRPC && !isTopCommand} className="border border-slate-300 dark:border-slate-700 rounded-md p-2 text-xs shadow-sm bg-white dark:bg-slate-900 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer min-w-[200px]">
+            {canViewGlobalActive || isRPC || isTopCommand ? (
+              <>
+                <option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>
+                {filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY?.[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => (
+                  <option key={stat} value={stat}>{stat}</option>
+                )) : null}
+              </>
+            ) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
           </select>
           
           <div className="relative flex items-center min-w-[240px]">
