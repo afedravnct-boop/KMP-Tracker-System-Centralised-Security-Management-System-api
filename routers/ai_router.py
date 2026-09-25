@@ -191,7 +191,7 @@ async def process_tactical_query(
                             
                             if term_cond:
                                 search_conditions.append(or_(*term_cond))
-                        
+                    
                         if search_conditions:
                             hr_sample_query = hr_sample_query.filter(or_(*search_conditions))
 
@@ -268,29 +268,34 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-        # 🟢 Updated candidate models using valid production Google GenAI SDK identifiers
+        # 🟢 Updated candidate models with retry logic for 503 traffic spikes and valid identifiers
         candidate_models = ['gemini-3.8-flash', 'gemini-3.7-flash']
         response = None
         used_model = None
         last_exception = None
 
         for m in candidate_models:
-            try:
-                response = client.models.generate_content(
-                    model=m,
-                    contents=tactical_context,
-                    config=types.GenerateContentConfig(system_instruction=system_rules)
-                )
-                used_model = m
+            success = False
+            for attempt in range(2):
+                try:
+                    response = client.models.generate_content(
+                        model=m,
+                        contents=tactical_context,
+                        config=types.GenerateContentConfig(system_instruction=system_rules)
+                    )
+                    used_model = m
+                    success = True
+                    break
+                except Exception as mod_err:
+                    last_exception = mod_err
+                    print(f">> [AI Model Notice] Model {m} (attempt {attempt+1}) encountered load issue: {mod_err}. Retrying...")
+                    time.sleep(1.5 * (attempt + 1))
+            if success:
                 break
-            except Exception as mod_err:
-                last_exception = mod_err
-                print(f">> [AI Model Notice] Model {m} encountered an issue: {mod_err}. Trying fallback...")
-                time.sleep(0.3)
-                continue
+            time.sleep(0.5)
 
         if not response:
-            raise Exception(f"All Google AI fallback servers are currently busy or unavailable (503). Details: {str(last_exception)}")
+            raise Exception(f"All Google AI servers are temporarily busy due to high demand (503). Please wait a moment and try again. Details: {str(last_exception)}")
 
         try:
             LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
