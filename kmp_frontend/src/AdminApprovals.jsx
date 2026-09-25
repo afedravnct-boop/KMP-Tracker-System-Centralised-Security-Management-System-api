@@ -42,7 +42,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
   const [matrixView, setMatrixView] = useState('ACTIVE');
   
-  // 🟢 1. DECLARE ROLE & GLOBAL FLAGS FIRST TO PREVENT REFERENCE ERRORS
+  // 🟢 1. DECLARE ROLE & GLOBAL FLAGS AT THE VERY TOP BEFORE ANY useMemo HOOKS
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
