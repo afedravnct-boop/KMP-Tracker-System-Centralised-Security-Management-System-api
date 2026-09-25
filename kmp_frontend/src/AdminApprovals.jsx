@@ -8,7 +8,7 @@ import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
 
 import { 
-  REGIONAL_HIERARCHY as BASE_REGIONAL_HIERARCHY, TOP_TIER_ROLES, getRoleWeight, canModifyUser, 
+  TOP_TIER_ROLES, getRoleWeight, canModifyUser, 
   grantExpressAccess, CLEARANCE_MATRIX_COLS, formatOfficerHeader 
 } from './adminUtils';
 
@@ -19,7 +19,7 @@ import {
 // 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
   "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
   "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
@@ -90,7 +90,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
   const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
 
-  // 🟢 Role classification
+  // 🟢 Role classification synchronized with Nominal Roll
   const isGlobalTier = isSuperAdmin || 
     userRoleClean === 'ASSISTANT_SUPER_ADMIN' ||
     ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) ||
@@ -616,7 +616,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const revokedUsersList = useMemo(() => realPendingUsers.filter(u => u.role === 'REVOKED'), [realPendingUsers]);
 
   const filteredPending = useMemo(() => filterByRegionStation(pendingAuthsList, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'nin', 'ipps', 'phone', 'email']), [pendingAuthsList, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
+  
   const filteredRevoked = useMemo(() => filterByRegionStation(revokedUsersList, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'nin', 'ipps', 'phone', 'email']), [revokedUsersList, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
+  
   const filteredRequests = useMemo(() => filterByRegionStation(modRequests, 'current_region', 'current_station', ['fnum', 'current_name', 'current_station', 'current_region', 'requested_station', 'requested_name']), [modRequests, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
   const filteredResets = useMemo(() => filterByRegionStation(resetRequests, 'region', 'station', ['fnum', 'name', 'station', 'region']), [resetRequests, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
   const filteredSystemUsers = useMemo(() => filterByRegionStation(allSystemUsers, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'ipps', 'phone', 'email', 'role']), [allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
@@ -912,13 +914,18 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           {getRevocationReason(u.fnum)}
                         </div>
                       </td>
-                      <td className="p-3 text-right">
+                      <td className="p-3 text-right space-x-2">
+                        {/* 🟢 Inspect Dossier Button in the Revoked Vault */}
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedPendingUser(u); }} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-lg text-[10px] shadow-sm inline-flex items-center transition cursor-pointer">
+                          <Eye size={12} className="mr-1.5"/> Inspect Dossier
+                        </button>
+                        
                         {isSuperAdmin ? (
                           <button onClick={() => handlePermanentDelete(u.fnum, u.name)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
                             <Trash2 size={12} className="mr-1.5"/> Permanent Purge
                           </button>
                         ) : (
-                          <span className="text-[10px] text-slate-400 italic">Restricted (Super Admin Only)</span>
+                          <span className="text-[10px] text-slate-400 italic">Restricted</span>
                         )}
                       </td>
                     </tr>
