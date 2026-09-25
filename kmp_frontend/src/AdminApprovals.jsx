@@ -126,7 +126,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     if (!targetUser) return false;
     const targetRole = (targetUser.role || '').toUpperCase();
     
-    if (targetRole === 'SUPER_ADMIN') return false; 
+    if (targetRole === 'SUPER_ADMIN' && !isSuperAdmin) return false; 
     if (isSuperAdmin) return true; 
 
     const tierWeight = {
@@ -237,7 +237,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     const cleanIpps = stripHtmlTags(typeof userToApprove === 'object' ? userToApprove.ipps : '').toUpperCase();
     const cleanNin = stripHtmlTags(typeof userToApprove === 'object' ? userToApprove.nin : '').toUpperCase();
 
-    // 🟢 STRICT DUPLICATE CHECKER FAILSFE: Scans the master roster for FNUM, IPPS, or NIN conflicts
     const duplicateExists = allSystemUsers.some(u => {
       const uFnum = (u.fnum || '').toUpperCase();
       const uIpps = (u.ipps || '').toUpperCase();
@@ -393,7 +392,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
     setIsProcessingAction(true);
     try {
-      // Baseline safe permissions upon restoration
       const defaultRole = 'STATION_USER';
       const defaultPermissions = {
         view_nominal_roll: true,
@@ -923,7 +921,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
                             return (
                               <td key={idx} className="p-2 text-center border-l border-slate-100 dark:border-slate-800 w-20 min-w-[80px]">
-                                {/* 🟢 ENABLED UNCHECKING FOR TOP OFFICIALS: Respects explicit false values */}
                                 <input 
                                   type="checkbox" 
                                   checked={p[col.key] !== false ? (['SUPER_ADMIN', 'ADMIN'].includes(u.role) || Boolean(p[col.key])) : false} 
@@ -973,7 +970,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           <Eye size={12} className="mr-1.5"/> Inspect Dossier
                         </button>
                         
-                        {/* 🟢 NEW: Restore Access Button */}
+                        {/* 🟢 RESTORE BUTTON: Click to regrant access instantly */}
                         <button onClick={() => handleRegrantAccess(u.fnum, u.name)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
                           <Unlock size={12} className="mr-1.5"/> Restore
                         </button>

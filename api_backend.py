@@ -334,6 +334,23 @@ def get_eat_time():
     eat_tz = pytz.timezone('Africa/Nairobi')
     return datetime.now(eat_tz).strftime('%Y-%m-%d %H:%M:%S')
 
+# 🟢 REUSABLE FORENSIC INDEPENDENT LOGGING HELPER
+def log_independent_activity(logs_db: Session, fnum: str, action: str, module: str, details: str):
+    """Writes an immutable forensic event directly to the independent Neon activity logs branch."""
+    try:
+        new_activity = models.Activity_Logs(
+            fnum=str(fnum or "SYSTEM").strip().upper(),
+            action=str(action or "ACTION").strip().upper(),
+            module=str(module or "GENERAL").strip().upper(),
+            details=details,
+            created_at=get_eat_time()
+        )
+        logs_db.add(new_activity)
+        logs_db.commit()
+    except Exception as e:
+        logs_db.rollback()
+        print(f"⚠️ Neon Activity Log Failure [{action}]: {str(e)}")
+
 def get_current_user(request: Request, db: Session = Depends(get_db)):
     token = None
     auth_header = request.headers.get("Authorization")
@@ -556,7 +573,19 @@ def get_weekly_reports_list(db: Session = Depends(get_db), current_user = Depend
         return []
 
 @app.get("/api/v1/admin/pending-users")
-def get_pending_users(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin_or_observer)):
+def get_pending_users(
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db), 
+    current_user: models.Users = Depends(require_admin_or_observer)
+):
+    # 🟢 FORENSIC VECTOR 3: Captures access to the secure Approvals queue
+    log_independent_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action="ACCESS_APPROVALS_TAB_VIEW",
+        module="ADMIN_APPROVALS",
+        details=f"Administrator {current_user.name} ({current_user.fnum}) accessed the secure Access Approvals and Authorizations dashboard."
+    )
     try:
         pending = db.query(models.Users).filter(models.Users.is_approved == False).all()
         return [
@@ -715,6 +744,7 @@ def update_user_access(
     data: dict, 
     fnum: Optional[str] = None, 
     db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(require_admin)
 ):
     target_fnum = fnum or data.get("fnum") or data.get("user_fnum")
@@ -754,6 +784,16 @@ def update_user_access(
     try:
         db.commit()
         db.refresh(user)
+
+        # 🟢 FORENSIC VECTOR 4: Captures authorizations, matrix permissions, and tier promotions
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="USER_ACCESS_UPDATE",
+            module="ACCESS_MATRIX",
+            details=f"Command Authorizations: Admin {current_user.name} ({current_user.fnum}) updated matrix clearance for officer {clean_fnum}. Role Tier: {user.role}, Approved: {user.is_approved}."
+        )
+
         return {
             "status": "success",
             "message": f"Access matrix and approval permanently committed for {user.fnum}",
@@ -763,6 +803,7 @@ def update_user_access(
         }
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Database commit error: {str(e)}")
 
 @app.put("/api/v1/admin/users/{fnum:path}/force-password")
@@ -770,6 +811,7 @@ def force_user_password(
     fnum: str, 
     payload: dict, 
     db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     if current_user.role != "SUPER_ADMIN":
@@ -787,6 +829,15 @@ def force_user_password(
         
     target_user.hashed_password = pwd_context.hash(new_pass)
     
+    # 🟢 FORENSIC VECTOR: Force password reset action logged
+    log_independent_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action="FORCE_PASSWORD_RESET",
+        module="SECURITY_VAULT",
+        details=f"Super Admin {current_user.name} ({current_user.fnum}) forcibly overrode and reset the security key for officer {target_fnum}."
+    )
+
     if hasattr(models, 'Audit_Logs'):
         log_semantic_audit(
             db=db, 
@@ -816,6 +867,7 @@ def execute_password_reset(
     req_id: int,
     action: str = Form(...),
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(require_admin)
 ):
     TargetModel = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
@@ -826,11 +878,13 @@ def execute_password_reset(
     if not reset_req:
         raise HTTPException(status_code=404, detail="Password reset request not found.")
 
+    target_fnum = str(reset_req.fnum).strip().upper()
+
     if action.upper() == "APPROVE":
         temp_password = "UPF" + secrets.token_hex(3).upper()
         hashed_pw = pwd_context.hash(temp_password)
         target_user = db.query(models.Users).filter(
-            func.trim(func.upper(models.Users.fnum)) == str(reset_req.fnum).strip().upper()
+            func.trim(func.upper(models.Users.fnum)) == target_fnum
         ).first()
 
         if target_user:
@@ -839,10 +893,27 @@ def execute_password_reset(
         db.delete(reset_req)
         db.commit()
 
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="PASSWORD_RESET_APPROVED",
+            module="SECURITY_VAULT",
+            details=f"Admin {current_user.name} ({current_user.fnum}) approved password recovery for officer {target_fnum}."
+        )
+
         return {"status": "success", "new_password": temp_password}
     else:
         db.delete(reset_req)
         db.commit()
+        
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="PASSWORD_RESET_REJECTED",
+            module="SECURITY_VAULT",
+            details=f"Admin {current_user.name} ({current_user.fnum}) rejected password recovery for officer {target_fnum}."
+        )
+
         return {"status": "success", "message": "Password reset request rejected."}
 
 class HeartbeatPayload(BaseModel):
@@ -1000,11 +1071,13 @@ def get_recipients_list(db: Session = Depends(get_db), current_user: models.User
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch recipients: {str(e)}")
 
+# 🟢 FORENSIC VECTOR 5 & 6: REVOCATION AND PERMANENT PURGE WITH INDEPENDENT LOGS BRANCH
 @app.delete("/api/v1/users/{fnum:path}/revoke")
 def revoke_user_access(
     fnum: str,
     reason: str = "Administrative Revocation",
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(require_admin)
 ):
     clean_fnum = unquote(unquote(fnum)).strip().upper()
@@ -1019,6 +1092,14 @@ def revoke_user_access(
     target_user.is_approved = False
 
     try:
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="REVOKE_USER_ACCESS",
+            module="ACCESS_MATRIX",
+            details=f"SECURITY ACTION: Administrator {current_user.name} ({current_user.fnum}) revoked access for officer {target_user.name} ({clean_fnum}). Reason: {reason}"
+        )
+
         if hasattr(models, 'Audit_Logs'):
             log_semantic_audit(
                 db=db,
@@ -1032,7 +1113,55 @@ def revoke_user_access(
         return {"status": "success", "message": f"Access successfully revoked for {clean_fnum}."}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Database revocation error: {str(e)}")
+
+@app.delete("/api/v1/users/{fnum:path}/permanent-delete")
+def permanently_delete_user(
+    fnum: str,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    if current_user.role != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="SECURITY OVERRIDE DENIED: Only Super Admins can execute permanent record deletion.")
+        
+    target_fnum = unquote(unquote(fnum)).strip().upper()
+    target_user = db.query(models.Users).filter(func.upper(models.Users.fnum) == target_fnum).first()
+    
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Officer record not found in database.")
+        
+    officer_name = target_user.name
+    
+    try:
+        # 🟢 FORENSIC VECTOR 6: Permanent erasure logging to independent storage
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="PERMANENT_ACCOUNT_PURGE",
+            module="SECURITY_VAULT",
+            details=f"CRITICAL OVERRIDE: Super Admin {current_user.name} ({current_user.fnum}) permanently purged officer record {officer_name} ({target_fnum}) from Neon database."
+        )
+
+        if hasattr(models, 'Audit_Logs'):
+            log_semantic_audit(
+                db=db, 
+                fnum=current_user.fnum, 
+                action="PERMANENT_ACCOUNT_PURGE",
+                target_identifier=target_fnum, 
+                changes={"action": ["EXISTING", "PERMANENTLY_ERASED"]}, 
+                remarks=f"Super Admin completely erased user {officer_name}"
+            )
+
+        db.delete(target_user)
+        db.commit()
+        
+        return {"status": "success", "message": f"Officer record {target_fnum} permanently purged and logged to independent storage."}
+    except Exception as e:
+        db.rollback()
+        logs_db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database purge failed: {str(e)}")
 
 @app.get("/api/v1/reports/establishments-json")
 def get_establishments_json(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
@@ -1090,8 +1219,21 @@ def get_consolidated_ledger(
 # ====================================================================
 
 @app.get("/api/v1/audit-logs/export")
-def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):
+def export_audit_logs_excel(
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(require_export_privilege)
+):
     try:
+        # 🟢 FORENSIC VECTOR 8: Master Audit Export Logging
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="AUDIT_LOGS_EXPORT",
+            module="EXCEL_EXPORTS",
+            details=f"Security Alert: Officer {current_user.name} ({current_user.fnum}) downloaded the encrypted audit logs vault archive."
+        )
+
         AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
         logs = db.query(AuditModel).order_by(AuditModel.id.desc()).all()
 
@@ -1165,8 +1307,21 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
         raise HTTPException(status_code=500, detail=f"Failed to export audit logs: {str(e)}")
 
 @app.get("/api/v1/hr/export-ledger")
-def export_hr_ledger(db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):
+def export_hr_ledger(
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(require_export_privilege)
+):
     try:
+        # 🟢 FORENSIC VECTOR 8: HR Ledger Export Logging
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="HR_LEDGER_EXPORT",
+            module="EXCEL_EXPORTS",
+            details=f"Security Alert: Officer {current_user.name} ({current_user.fnum}) downloaded the secure encrypted HR establishments ledger archive."
+        )
+
         NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
         EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
         ArcModel = getattr(models, 'NominalRollArchive', getattr(models, 'Nominal_Roll_Archive', None))        
@@ -1234,8 +1389,24 @@ def export_hr_ledger(db: Session = Depends(get_db), current_user: models.Users =
         raise HTTPException(status_code=500, detail=f"HR export failed: {str(e)}")
 
 @app.get("/api/v1/reports/export")
-def export_master_database(timeframe: str = "all", scope: Optional[str] = None, value: Optional[str] = None, db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):
+def export_master_database(
+    timeframe: str = "all", 
+    scope: Optional[str] = None, 
+    value: Optional[str] = None, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(require_export_privilege)
+):
     try:
+        # 🟢 FORENSIC VECTOR 8: Master DB Export Logging
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="MASTER_DATABASE_EXPORT",
+            module="EXCEL_EXPORTS",
+            details=f"Security Alert: Officer {current_user.name} ({current_user.fnum}) downloaded the encrypted master database archive (Scope: {scope or 'ALL'}, Value: {value or 'GENERAL'})."
+        )
+
         CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
         StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', getattr(models, 'Stats', None)))
         StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', getattr(models, 'Stories', None)))
