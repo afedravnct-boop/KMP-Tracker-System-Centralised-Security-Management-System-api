@@ -64,7 +64,7 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
             not is_kmp_specialist
         )
         
-        # 1. Flexible ORM Model Resolution
+        # 1. Flexible ORM Model Resolution with robust fallbacks
         CrimeModel = None
         for name in ['Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports']:
             if hasattr(models, name):
@@ -95,7 +95,7 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
                 AgricModel = getattr(models, name)
                 break
 
-        def get_scoped_query(ModelClass):
+        def get_scoped_records(ModelClass):
             if not ModelClass:
                 return []
             q = db.query(ModelClass)
@@ -142,11 +142,11 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
                 
             return q.all()
 
-        cr_records = get_scoped_query(CrimeModel)
-        ops_records = get_scoped_query(StatsModel)
-        ss_records = get_scoped_query(StoryModel)
-        nom_records = get_scoped_query(NomModel)
-        agric_records = get_scoped_query(AgricModel)
+        cr_records = get_scoped_records(CrimeModel)
+        ops_records = get_scoped_records(StatsModel)
+        ss_records = get_scoped_records(StoryModel)
+        nom_records = get_scoped_records(NomModel)
+        agric_records = get_scoped_records(AgricModel)
 
         # 2. Build Specialized Datasets
         agric_breakdown = {"ANIMALS": [0, 0], "PRODUCE": [0, 0], "EQUIPMENT": [0, 0]}
