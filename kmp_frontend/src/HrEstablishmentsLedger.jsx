@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { X, Shield, FileText, Users, Building, Filter, ChevronDown, ChevronRight } from 'lucide-react';
+import { stripHtmlTags } from './App'; // Assumes you use stripHtmlTags or stripHtml
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -12,6 +13,19 @@ const REGIONAL_HIERARCHY = {
 const stripHtml = (html) => {
   if (!html) return '';
   return String(html).replace(/<[^>]*>?/gm, '').trim();
+};
+
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+const isStationEquivalent = (statA, statB) => {
+  const a = stripHtml(statA || '').trim().toUpperCase();
+  const b = stripHtml(statB || '').trim().toUpperCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
 };
 
 const getOfficialRegionForStation = (stationName, dbRegion) => {
@@ -32,13 +46,25 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
 };
 
 const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = false }) => {
-  const canViewGlobalActive = canViewGlobal || 
-    ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
-    currentUser?.permissions?.view_global_roster === true || 
-    currentUser?.permissions?.global_observer === true;
+  
+  // 🟢 OPSEC Role Classification Engine
+  const userRoleClean = stripHtml(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtml(currentUser?.position || '').toUpperCase();
+  const userRegClean = stripHtml(currentUser?.region || '').toUpperCase();
 
-  const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
-  const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+    currentUser?.permissions?.view_global_roster === true;
+
+  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+
+  const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
+  
+  const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
+
+  const [selectedRegion, setSelectedRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
+  const [selectedStation, setSelectedStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtml(currentUser?.station || '').toUpperCase());
 
   // 🟢 State to manage expanded regions in the hierarchical tree table
   const [expandedRegions, setExpandedRegions] = useState({});
@@ -49,6 +75,19 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       [regionName]: !prev[regionName]
     }));
   };
+
+  useEffect(() => {
+    if (canViewGlobalLevel) {
+      setSelectedRegion('ALL REGIONS');
+      setSelectedStation('ALL STATIONS');
+    } else if (isRegionalCommand) {
+      setSelectedRegion(userRegClean);
+      setSelectedStation('ALL STATIONS');
+    } else {
+      setSelectedRegion(userRegClean);
+      setSelectedStation(stripHtml(currentUser?.station || '').toUpperCase());
+    }
+  }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
 
   const getRawRoll = () => {
     if (Array.isArray(data)) {
@@ -64,21 +103,40 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     return [];
   };
 
-  // 🟢 HIERARCHICAL ESTABLISHMENTS BUILDER: Groups personnel strictly into Region -> Stations -> Posts with precise column sums
-  const hierarchicalEstablishments = useMemo(() => {
-    const rawRoll = getRawRoll().filter(p => {
+  // 🟢 CORE FILTER ENGINE: Applies Dual-Equivalence & OPSEC constraints
+  const filteredRoll = useMemo(() => {
+    return getRawRoll().filter(p => {
       const statusStr = stripHtml(String(p.status || '')).trim().toUpperCase();
       if (statusStr === 'ARCHIVED' || p.is_archived === true) return false;
+
+      const stn = stripHtml(p.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, p.region);
+
+      if (canViewGlobalLevel && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
+        return true;
+      }
+
+      const belongsToRegion = selectedRegion === 'ALL REGIONS' || 
+                              reg === selectedRegion || 
+                              (REGIONAL_HIERARCHY[selectedRegion] && REGIONAL_HIERARCHY[selectedRegion].some(s => isStationEquivalent(s, stn)));
+
+      if (!belongsToRegion) return false;
+
+      if (selectedStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(stn, selectedStation)) return false;
+      }
       return true;
     });
+  }, [data, selectedRegion, selectedStation, canViewGlobalLevel]);
 
+  // 🟢 HIERARCHICAL ESTABLISHMENTS BUILDER
+  const hierarchicalEstablishments = useMemo(() => {
     const regionMap = {};
 
-    rawRoll.forEach(p => {
+    filteredRoll.forEach(p => {
       const stn = stripHtml(p.station || 'HQ').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, p.region);
       const pst = stripHtml(p.section || p.post || '').trim().toUpperCase();
-      const pos = stripHtml(p.position || '').toUpperCase();
 
       if (!regionMap[reg]) {
         regionMap[reg] = {
@@ -119,32 +177,10 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       regionMap[reg].total += 1;
     });
 
-    let result = Object.values(regionMap);
-
-    // Filter by selected region and station if active
-    if (selectedRegion !== 'ALL REGIONS') {
-      result = result.filter(r => r.regionName.toUpperCase() === selectedRegion.toUpperCase());
-    }
-
-    return result;
-  }, [data, selectedRegion, selectedStation, canViewGlobalActive]);
+    return Object.values(regionMap);
+  }, [filteredRoll]);
 
   const nominalAggregates = useMemo(() => {
-    const rawRoll = getRawRoll().filter(p => {
-      const statusStr = stripHtml(String(p.status || '')).trim().toUpperCase();
-      if (statusStr === 'ARCHIVED' || p.is_archived === true) return false;
-
-      const stn = stripHtml(p.station || '').trim().toUpperCase();
-      const reg = getOfficialRegionForStation(stn, p.region);
-
-      if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
-        return true;
-      }
-      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
-      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation.toUpperCase()) return false;
-      return true;
-    });
-    
     const regions = [
       { key: 'GENERAL / HQ', match: ['HEADQUARTERS', 'HQ', 'GENERAL', 'NAGURU'] },
       { key: 'KMP EAST', match: ['KMP EAST', 'EAST'] },
@@ -236,7 +272,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     };
 
     let aggregatedRegions = regions.map(reg => {
-      const regionPersonnel = rawRoll.filter(p => {
+      const regionPersonnel = filteredRoll.filter(p => {
         const pReg = stripHtml(String(p.region || '')).trim().toUpperCase();
         return reg.match.some(m => pReg.includes(m));
       });
@@ -256,11 +292,11 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     
     const assignedIds = new Set();
     aggregatedRegions.forEach(r => {
-      rawRoll.filter(p => regions.find(reg => reg.key === r.region)?.match.some(m => stripHtml(String(p.region || '')).toUpperCase().includes(m)))
+      filteredRoll.filter(p => regions.find(reg => reg.key === r.region)?.match.some(m => stripHtml(String(p.region || '')).toUpperCase().includes(m)))
         .forEach(p => assignedIds.add(p.id || p.sn || p.fnum));
     });
     
-    const unassigned = rawRoll.filter(p => !assignedIds.has(p.id || p.sn || p.fnum));
+    const unassigned = filteredRoll.filter(p => !assignedIds.has(p.id || p.sn || p.fnum));
     if (unassigned.length > 0) {
       const officers = unassigned.filter(p => isOfficer(p.rank));
       const ncos = unassigned.filter(p => !isOfficer(p.rank));
@@ -287,7 +323,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     }
 
     return aggregatedRegions;
-  }, [data, selectedRegion, selectedStation, canViewGlobalActive]);
+  }, [filteredRoll, selectedRegion]);
 
   const masterTotals = useMemo(() => {
     return nominalAggregates.reduce((acc, curr) => {
@@ -324,7 +360,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       acc.ncoEdu.diploma += curr.ncos.edu.diploma;
       acc.ncoEdu.cert += curr.ncos.edu.cert;
       acc.ncoEdu.uace += curr.ncos.edu.uace;
-      acc.ncoEdu.uce += curr.ncos.edu.uce;
+      acc.ncoEdu.uce += curr.ncos.edu.uace;
       acc.ncoEdu.s2_s3 += curr.ncos.edu.s2_s3;
       acc.ncoEdu.others += curr.ncos.edu.others;
 
@@ -385,10 +421,10 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
           <select 
             value={selectedRegion} 
             onChange={(e) => { setSelectedRegion(e.target.value); setSelectedStation('ALL STATIONS'); }}
-            disabled={!canViewGlobalActive}
+            disabled={!canViewGlobalLevel}
             className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
           >
-            {canViewGlobalActive ? (
+            {canViewGlobalLevel ? (
               <>
                 <option value="ALL REGIONS">ALL REGIONS</option>
                 {Object.keys(REGIONAL_HIERARCHY).map(reg => (
@@ -396,17 +432,17 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                 ))}
               </>
             ) : (
-              <option value={currentUser?.region || ''}>{currentUser?.region || 'UNKNOWN'}</option>
+              <option value={userRegClean}>{userRegClean || 'UNKNOWN'}</option>
             )}
           </select>
 
           <select 
             value={selectedStation} 
             onChange={(e) => setSelectedStation(e.target.value)}
-            disabled={!canViewGlobalActive}
+            disabled={!(canViewGlobalLevel || isRegionalCommand)}
             className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
           >
-            {canViewGlobalActive ? (
+            {(canViewGlobalLevel || isRegionalCommand) ? (
               <>
                 <option value="ALL STATIONS">ALL STATIONS</option>
                 {selectedRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[selectedRegion] || []).map(stn => (
@@ -414,7 +450,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                 ))}
               </>
             ) : (
-              <option value={currentUser?.station || ''}>{currentUser?.station || 'UNKNOWN'}</option>
+              <option value={stripHtml(currentUser?.station || '').toUpperCase()}>{stripHtml(currentUser?.station || '').toUpperCase() || 'UNKNOWN'}</option>
             )}
           </select>
         </div>
@@ -538,7 +574,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
           </div>
         </div>
 
-        {/* 🟢 HIERARCHICAL POLICE ESTABLISHMENTS TABLE WITH EXPANDABLE REGIONS & CORRECT COLUMNS */}
+        {/* 🟢 HIERARCHICAL POLICE ESTABLISHMENTS TABLE WITH EXPANDABLE REGIONS */}
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px]">
           <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
              <h3 className="font-extrabold text-green-900 text-sm uppercase tracking-wider flex items-center">
@@ -594,7 +630,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                                      <tr className="hover:bg-emerald-50/40 transition-colors bg-white">
                                         <td className="p-3 text-xs text-slate-400 pl-6">—</td>
                                         <td className="p-3 text-xs font-bold text-slate-700 uppercase pl-8">
-                                           ↳ STATION: {stnObj.stationName}
+                                            ↳ STATION: {stnObj.stationName}
                                         </td>
                                         <td className="p-3 text-center text-xs text-slate-400">—</td>
                                         <td className="p-3 text-center text-xs font-bold text-green-700 bg-slate-50/50">

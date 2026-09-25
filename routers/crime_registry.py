@@ -1,15 +1,24 @@
-from typing import Optional, List
+from typing import Optional, List, Union
 from datetime import datetime, date
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_
+from sqlalchemy import func, and_, or_, text
 
 from app import models
 from app.database import get_db
 from auth import get_current_user
 
 router = APIRouter(prefix="/api/v1", tags=["Crime Registry"])
+
+# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
+REGIONAL_HIERARCHY = {
+    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+    "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+    "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+}
 
 def get_officer_signature(user):
     if not user:
@@ -52,6 +61,94 @@ def clean_model_dict(obj):
 
     return clean
 
+# 🟢 CORE OPSEC SCOPING ENGINE
+def apply_opsec_scope(current_user, query, ModelClass):
+    if not ModelClass:
+        return query
+        
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    user_pos = str(current_user.position).strip().upper() if current_user.position else ""
+    user_reg = str(current_user.region).strip().upper() if current_user.region else ""
+    user_stn = str(current_user.station).strip().upper() if current_user.station else ""
+
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+
+    is_absolute_global = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        "KMP COMMANDER" in user_pos or
+        "DEPUTY KMP COMMANDER" in user_pos or
+        "KMP ADMIN" in user_pos or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True or
+        perms.get("view_all_reports", False) is True
+    )
+
+    is_kmp_sys_mgr = (
+        user_role == "SYSTEM_MANAGER" and
+        user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos
+    )
+
+    is_kmp_specialist = (
+        user_role == "ASSISTANT_SYSTEM_MANAGER" and
+        user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos
+    )
+
+    is_regional_command = (
+        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"] and
+        not is_kmp_sys_mgr and
+        not is_kmp_specialist
+    )
+
+    if is_absolute_global or is_kmp_sys_mgr:
+        return query
+        
+    elif is_kmp_specialist:
+        specs = []
+        if "CID" in user_pos: specs.append("CID")
+        if "CI" in user_pos or "CRIME INT" in user_pos: specs.append("CI")
+        if "TRAFFIC" in user_pos: specs.append("TRAFFIC")
+        
+        if specs and hasattr(ModelClass, 'section'):
+            conds = []
+            for spec in specs:
+                conds.append(func.upper(ModelClass.section).ilike(f"%{spec}%"))
+                if hasattr(ModelClass, 'dir'):
+                    conds.append(func.upper(ModelClass.dir).ilike(f"%{spec}%"))
+            return query.filter(or_(*conds))
+        elif hasattr(ModelClass, 'region'):
+            return query.filter(func.upper(ModelClass.region) == user_reg)
+        return query
+        
+    elif is_regional_command or user_reg in REGIONAL_HIERARCHY:
+        conds = []
+        if hasattr(ModelClass, 'region'):
+            conds.append(func.upper(ModelClass.region) == user_reg)
+        
+        # 🟢 Station Dual-Equivalence Check for missing regional tags
+        if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
+            expanded_stns = set()
+            for s in REGIONAL_HIERARCHY[user_reg]:
+                expanded_stns.add(s)
+                expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
+                expanded_stns.add(s + ' HEADQUARTERS')
+                expanded_stns.add(s + ' HQ')
+            
+            conds.append(func.upper(ModelClass.station).in_(list(expanded_stns)))
+            
+        if conds:
+            return query.filter(or_(*conds))
+        return query.filter(text("1=0"))
+        
+    elif hasattr(ModelClass, 'station'):
+        return query.filter(func.upper(ModelClass.station) == user_stn)
+        
+    return query.filter(text("1=0"))
+
 # ====================================================================
 # 1. RETRIEVE CRIME REPORTS (UPGRADED ENTERPRISE SQL FILTERING)
 # ====================================================================
@@ -60,7 +157,7 @@ def get_reports(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
-    limit: int = Query(default=200, le=1000), # 🟢 Prevents DB memory exhaustion
+    limit: int = Query(default=200, le=1000), 
     db: Session = Depends(get_db), 
     current_user: models.Users = Depends(get_current_user)
 ):
@@ -71,26 +168,10 @@ def get_reports(
     # 1. Start the Base Database Query
     query = db.query(CrimeModel)
     
-    # 2. Enforce Strict Security Clearances
-    user_role = (current_user.role or "").upper()
-    perms = current_user.permissions or {}
-    is_global_view = (
-        user_role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
-        (current_user.region or "").strip().upper() in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
-        perms.get("view_global_roster") is True or
-        perms.get("global_observer") is True or
-        perms.get("view_all_reports", False) is True
-    )
+    # 2. Enforce Strict OPSEC Security Clearances
+    query = apply_opsec_scope(current_user, query, CrimeModel)
 
-    if not is_global_view:
-        if user_role in ["ADMIN", "RPC"]:
-            if hasattr(CrimeModel, 'region'):
-                query = query.filter(func.upper(CrimeModel.region) == str(current_user.region).upper())
-        else:
-            if hasattr(CrimeModel, 'station'):
-                query = query.filter(func.upper(CrimeModel.station) == str(current_user.station).upper())
-
-    # 3. 🟢 APPLY DYNAMIC SQL FILTERS (Memory Optimization)
+    # 3. APPLY DYNAMIC UI FILTERS (Memory Optimization)
     if region and region.upper() not in ["ALL REGIONS", "ALL"]:
         if hasattr(CrimeModel, 'region'):
             query = query.filter(func.upper(CrimeModel.region) == region.upper())
@@ -102,7 +183,6 @@ def get_reports(
     if search:
         search_term = f"%{search.strip()}%"
         search_conditions = []
-        # Safely check which columns exist in the DB model before querying
         if hasattr(CrimeModel, 'sd_ref'): search_conditions.append(CrimeModel.sd_ref.ilike(search_term))
         if hasattr(CrimeModel, 'sdRef'): search_conditions.append(CrimeModel.sdRef.ilike(search_term))
         if hasattr(CrimeModel, 'offence'): search_conditions.append(CrimeModel.offence.ilike(search_term))
@@ -323,10 +403,12 @@ def get_consolidated_ledger(
         crimes_data = []
         if CrimeModel:
             q_crimes = db.query(CrimeModel)
+            q_crimes = apply_opsec_scope(current_user, q_crimes, CrimeModel)
+
             date_col = getattr(CrimeModel, 'date', getattr(CrimeModel, 'created_at', None))
             if date_col is not None:
                 if start_date:
-                    q_crimes = q_crimes.filter(func.cast(date_col, models.database.String if hasattr(models, 'database') else models.String) >= start_date if hasattr(models, 'String') else date_col >= start_date)
+                    q_crimes = q_crimes.filter(date_col >= start_date)
                 if end_date:
                     q_crimes = q_crimes.filter(date_col <= end_date)
             if region and region.upper() not in ['ALL REGIONS', 'ALL']:
@@ -340,7 +422,6 @@ def get_consolidated_ledger(
             
             for c in crimes:
                 c_dict = clean_model_dict(c)
-                # Attach nested suspect details if present
                 if SuspectModel and hasattr(c, 'id'):
                     suspects = db.query(SuspectModel).filter(SuspectModel.report_id == c.id).all()
                     c_dict['suspectDetails'] = [clean_model_dict(s) for s in suspects]
@@ -350,6 +431,8 @@ def get_consolidated_ledger(
         stats_data = []
         if StatsModel:
             q_stats = db.query(StatsModel)
+            q_stats = apply_opsec_scope(current_user, q_stats, StatsModel)
+
             date_col_st = getattr(StatsModel, 'date', getattr(StatsModel, 'timestamp', getattr(StatsModel, 'created_at', None)))
             if date_col_st is not None:
                 if start_date:
@@ -370,6 +453,8 @@ def get_consolidated_ledger(
         stories_data = []
         if StoryModel:
             q_stories = db.query(StoryModel)
+            q_stories = apply_opsec_scope(current_user, q_stories, StoryModel)
+
             date_col_story = getattr(StoryModel, 'date', getattr(StoryModel, 'timestamp', getattr(StoryModel, 'created_at', None)))
             if date_col_story is not None:
                 if start_date:

@@ -1,17 +1,36 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Eye, Filter, X } from 'lucide-react';
 
+// 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 const REGIONAL_HIERARCHY = {
-  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
-  "POLICE HEADQUARTERS": ["NAGURU"]
+  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+};
+
+const cleanStr = (str) => {
+  if (!str) return '';
+  return String(str).replace(/\s+/g, ' ').trim().toUpperCase();
+};
+
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+const isStationEquivalent = (statA, statB) => {
+  const a = cleanStr(statA);
+  const b = cleanStr(statB);
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
 };
 
 const getOfficialRegionForStation = (stationName, dbRegion) => {
-  const cleanStation = (stationName || '').trim().toUpperCase();
-  const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
+  const cleanStation = cleanStr(stationName);
+  const cleanDbRegion = cleanStr(dbRegion);
 
   if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
     return cleanDbRegion;
@@ -34,24 +53,37 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
   const [startDate, setStartDate] = useState(lastWeek.toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
 
-  const canViewGlobalActive = canViewGlobal || 
-    currentUser?.role === 'SUPER_ADMIN' || 
-    ['ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) ||
-    currentUser?.permissions?.view_global_roster === true || 
-    currentUser?.permissions?.global_observer === true;
+  // 🟢 OPSEC Role Classification Engine
+  const userRoleClean = cleanStr(currentUser?.role);
+  const userPosClean = cleanStr(currentUser?.position);
+  const userRegClean = cleanStr(currentUser?.region);
 
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+    currentUser?.permissions?.view_global_roster === true;
 
-  React.useEffect(() => {
-    if (canViewGlobalActive) {
+  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+
+  const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
+  
+  const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : cleanStr(currentUser?.station));
+
+  useEffect(() => {
+    if (canViewGlobalLevel) {
       setFilterRegion('ALL REGIONS');
       setFilterStation('ALL STATIONS');
-    } else if (currentUser) {
-      setFilterRegion(currentUser.region || 'ALL REGIONS');
-      setFilterStation(currentUser.station || 'ALL STATIONS');
+    } else if (isRegionalCommand) {
+      setFilterRegion(userRegClean);
+      setFilterStation('ALL STATIONS');
+    } else {
+      setFilterRegion(userRegClean);
+      setFilterStation(cleanStr(currentUser?.station));
     }
-  }, [currentUser, canViewGlobalActive]);
+  }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
 
   const rawReports = Array.isArray(reports) ? reports : (data?.crimes || data?.reports || []);
   const rawStats = Array.isArray(stats) ? stats : (data?.statistics || data?.stats || []);
@@ -102,15 +134,20 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
     rawReports.filter(r => isWithinWeek(r.date)).forEach(r => {
       if (isLockupLog(r)) return;
 
-      const stn = (r.station || '').trim().toUpperCase();
+      const stn = cleanStr(r.station);
       const reg = getOfficialRegionForStation(stn, r.region);
 
-      if (!(canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS')) {
-        if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return;
-        if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return;
+      const belongsToRegion = filterRegion === 'ALL REGIONS' || 
+                              reg === filterRegion || 
+                              (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
+
+      if (!belongsToRegion) return;
+
+      if (filterStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(stn, filterStation)) return;
       }
 
-      const off = r.offence ? r.offence.toUpperCase() : 'UNSPECIFIED INCIDENT';
+      const off = r.offence ? cleanStr(r.offence) : 'UNSPECIFIED INCIDENT';
       const suspects = parseInt(r.suspects, 10) || 0;
 
       if (!crimeRegional[reg]) crimeRegional[reg] = {};
@@ -129,12 +166,17 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
 
     // --- Process Agricultural Crimes & Produce Summaries ---
     rawAgric.filter(a => isWithinWeek(a.date)).forEach(a => {
-      const stn = (a.station || '').trim().toUpperCase();
+      const stn = cleanStr(a.station);
       const reg = getOfficialRegionForStation(stn, a.region);
 
-      if (!(canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS')) {
-        if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return;
-        if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return;
+      const belongsToRegion = filterRegion === 'ALL REGIONS' || 
+                              reg === filterRegion || 
+                              (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
+
+      if (!belongsToRegion) return;
+
+      if (filterStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(stn, filterStation)) return;
       }
 
       const off = (a.agric_crime_report || 'AGRICULTURAL THEFT').toUpperCase();
@@ -153,12 +195,17 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
 
     // --- Process Operational Statistics ---
     rawStats.filter(s => isWithinWeek(s.date)).forEach(s => {
-      const stn = (s.station || '').trim().toUpperCase();
+      const stn = cleanStr(s.station);
       const reg = getOfficialRegionForStation(stn, s.region);
 
-      if (!(canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS')) {
-        if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return;
-        if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return;
+      const belongsToRegion = filterRegion === 'ALL REGIONS' || 
+                              reg === filterRegion || 
+                              (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(st => isStationEquivalent(st, stn)));
+
+      if (!belongsToRegion) return;
+
+      if (filterStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(stn, filterStation)) return;
       }
       
       if (!opsRegional[reg]) {
@@ -175,12 +222,17 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
 
     // --- Process Success Stories ---
     rawStories.filter(s => isWithinWeek(s.date)).forEach(s => {
-      const stn = (s.station || '').trim().toUpperCase();
+      const stn = cleanStr(s.station);
       const reg = getOfficialRegionForStation(stn, s.region);
 
-      if (!(canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS')) {
-        if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return;
-        if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return;
+      const belongsToRegion = filterRegion === 'ALL REGIONS' || 
+                              reg === filterRegion || 
+                              (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(st => isStationEquivalent(st, stn)));
+
+      if (!belongsToRegion) return;
+
+      if (filterStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(stn, filterStation)) return;
       }
 
       if (!storyRegional[reg]) storyRegional[reg] = 0;
@@ -207,7 +259,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
       opsRegional, opsGeneral, sortedOpsRegions,
       storyRegional, sortedStoryRegions, grandStories
     };
-  }, [rawReports, rawStats, rawStories, rawAgric, startDate, endDate, filterRegion, filterStation, canViewGlobalActive]);
+  }, [rawReports, rawStats, rawStories, rawAgric, startDate, endDate, filterRegion, filterStation]);
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto space-y-10 relative z-10 animate-in fade-in duration-300">
@@ -226,10 +278,10 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
           <select 
             value={filterRegion} 
             onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }}
-            disabled={!canViewGlobalActive}
+            disabled={!canViewGlobalLevel}
             className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
           >
-            {canViewGlobalActive ? (
+            {canViewGlobalLevel ? (
               <>
                 <option value="ALL REGIONS">ALL REGIONS</option>
                 {Object.keys(REGIONAL_HIERARCHY).map(reg => (
@@ -237,17 +289,17 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
                 ))}
               </>
             ) : (
-              <option value={currentUser?.region || ''}>{currentUser?.region || 'UNKNOWN'}</option>
+              <option value={userRegClean}>{userRegClean || 'UNKNOWN'}</option>
             )}
           </select>
 
           <select 
             value={filterStation} 
             onChange={(e) => setFilterStation(e.target.value)}
-            disabled={!canViewGlobalActive}
+            disabled={!(canViewGlobalLevel || isRegionalCommand)}
             className="border border-slate-300 rounded-lg p-2 text-xs font-bold text-slate-800 bg-white outline-none cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
           >
-            {canViewGlobalActive ? (
+            {(canViewGlobalLevel || isRegionalCommand) ? (
               <>
                 <option value="ALL STATIONS">ALL STATIONS</option>
                 {filterRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[filterRegion] || []).map(stn => (
@@ -255,7 +307,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
                 ))}
               </>
             ) : (
-              <option value={currentUser?.station || ''}>{currentUser?.station || 'UNKNOWN'}</option>
+              <option value={cleanStr(currentUser?.station)}>{cleanStr(currentUser?.station) || 'UNKNOWN'}</option>
             )}
           </select>
 
@@ -426,7 +478,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
               <thead>
                 <tr className="bg-[#f8cbad] border-2 border-slate-400">
                   <th colSpan="9" className="p-3 text-center font-extrabold text-slate-900 tracking-wide border-2 border-slate-400 text-[13px]">
-                    GENERAL OPERATIONAL SUMMARY (ALL REGIONS)
+                    GENERAL OPERATIONAL SUMMARY ({filterRegion})
                   </th>
                 </tr>
                 <tr className="bg-slate-100 text-slate-800">

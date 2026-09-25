@@ -37,12 +37,12 @@ from pydantic import BaseModel
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_
+from sqlalchemy import func, and_, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy import Column, Integer, text
+from sqlalchemy import Column, Integer
 from docx.shared import Pt, RGBColor
 import openpyxl
 from openpyxl.styles import Alignment, PatternFill, Font
@@ -91,7 +91,7 @@ from routers import (
 )
 
 # ==========================================
-# ROUTER INCLUSIONS (CLEANED UP DUPLICATES)
+# ROUTER INCLUSIONS
 # ==========================================
 app.include_router(document_upload.router)
 app.include_router(general_documents.router)
@@ -109,7 +109,7 @@ app.include_router(auth_router)
 app.include_router(exhibits.router)
 
 # ==========================================
-# GLOBAL EXCEPTION HANDLER (FIXED CORS)
+# GLOBAL EXCEPTION HANDLER
 # ==========================================
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -150,6 +150,91 @@ s3_client = boto3.client(
     region_name=os.getenv("AWS_REGION")
 )
 BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
+
+# ==========================================
+# REGIONAL HIERARCHY & DUAL-EQUIVALENCE
+# ==========================================
+REGIONAL_HIERARCHY = {
+    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+    "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+    "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+}
+
+def is_station_equivalent(stat_a: Optional[str], stat_b: Optional[str]) -> bool:
+    a = (stat_a or "").strip().upper()
+    b = (stat_b or "").strip().upper()
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    clean_a = re.sub(r'(\s+HEADQUARTERS|\s+HQ)$', '', a)
+    clean_b = re.sub(r'(\s+HEADQUARTERS|\s+HQ)$', '', b)
+    return clean_a == clean_b and len(clean_a) > 0
+
+def apply_opsec_scope(current_user, query, ModelClass):
+    if not ModelClass or not current_user:
+        return query.filter(text("1=0"))
+    
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    user_pos = str(current_user.position).strip().upper() if current_user.position else ""
+    user_reg = str(current_user.region).strip().upper() if current_user.region else ""
+    user_stn = str(current_user.station).strip().upper() if current_user.station else ""
+
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+
+    is_absolute_global = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        "KMP COMMANDER" in user_pos or
+        "DEPUTY KMP COMMANDER" in user_pos or
+        "KMP ADMIN" in user_pos or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True
+    )
+
+    is_kmp_sys_mgr = (
+        user_role == "SYSTEM_MANAGER" and
+        user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos
+    )
+
+    is_regional_command = (
+        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN", "STATION_ADMIN"] or
+        "HR" in user_pos
+    )
+
+    if is_absolute_global or is_kmp_sys_mgr:
+        return query
+        
+    elif is_regional_command or user_reg in REGIONAL_HIERARCHY:
+        conds = []
+        if hasattr(ModelClass, 'region'):
+            conds.append(func.upper(ModelClass.region) == user_reg)
+        
+        if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
+            expanded_stns = set()
+            for s in REGIONAL_HIERARCHY[user_reg]:
+                expanded_stns.add(s)
+                expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
+                expanded_stns.add(s + ' HEADQUARTERS')
+                expanded_stns.add(s + ' HQ')
+            
+            conds.append(func.upper(ModelClass.station).in_(list(expanded_stns)))
+            
+        if conds:
+            return query.filter(or_(*conds))
+        return query.filter(text("1=0"))
+        
+    elif hasattr(ModelClass, 'station'):
+        if perms.get("acc_documents") is True or perms.get("global_observer") is True:
+            return query
+        return query.filter(func.upper(ModelClass.station) == user_stn)
+        
+    return query.filter(text("1=0"))
 
 # ==========================================
 # UNIVERSAL EXPORT HELPERS
@@ -241,7 +326,7 @@ app.add_middleware(
 )
 
 # ==========================================
-# 3. SECURITY & DEPENDENCIES (RAM-ONLY SECURE)
+# 3. SECURITY & DEPENDENCIES
 # ==========================================
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
@@ -324,10 +409,8 @@ def require_admin_or_observer(current_user: models.Users = Depends(get_current_u
         
     perms = current_user.permissions or {}
     if isinstance(perms, str):
-        try:
-            perms = json.loads(perms)
-        except Exception:
-            perms = {}
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
             
     if perms.get("global_observer") is True or perms.get("view_global_roster") is True:
         return current_user
@@ -389,10 +472,8 @@ def check_is_global_user(user) -> bool:
         
     perms = user.permissions or {}
     if isinstance(perms, str):
-        try:
-            perms = json.loads(perms)
-        except:
-            perms = {}
+        try: perms = json.loads(perms)
+        except: perms = {}
             
     return perms.get("global_observer") is True or perms.get("view_global_roster") is True
 
@@ -983,12 +1064,8 @@ def get_consolidated_ledger(
         EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
         NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
 
-        is_global = check_is_global_user(current_user)
-
         def apply_scope(query, ModelClass):
-            if not is_global and hasattr(ModelClass, 'region'):
-                return query.filter(ModelClass.region == current_user.region)
-            return query
+            return apply_opsec_scope(current_user, query, ModelClass)
 
         crimes = apply_scope(db.query(CrimeModel), CrimeModel).all() if CrimeModel else []
         stats = apply_scope(db.query(StatsModel), StatsModel).all() if StatsModel else []
@@ -1090,7 +1167,6 @@ def export_audit_logs_excel(db: Session = Depends(get_db), current_user: models.
 @app.get("/api/v1/hr/export-ledger")
 def export_hr_ledger(db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):
     try:
-        is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
         NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
         EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
         ArcModel = getattr(models, 'NominalRollArchive', getattr(models, 'Nominal_Roll_Archive', None))        
@@ -1099,7 +1175,7 @@ def export_hr_ledger(db: Session = Depends(get_db), current_user: models.Users =
             if not ModelClass: return []
             try:
                 query = db.query(ModelClass)
-                if not is_global and hasattr(ModelClass, 'region'): query = query.filter(ModelClass.region == current_user.region)
+                query = apply_opsec_scope(current_user, query, ModelClass)
                 
                 rows = []
                 for r in query.all():
@@ -1160,17 +1236,6 @@ def export_hr_ledger(db: Session = Depends(get_db), current_user: models.Users =
 @app.get("/api/v1/reports/export")
 def export_master_database(timeframe: str = "all", scope: Optional[str] = None, value: Optional[str] = None, db: Session = Depends(get_db), current_user: models.Users = Depends(require_export_privilege)):
     try:
-        user_role = (current_user.role or "").upper()
-        perms = current_user.permissions or {}
-        
-        is_global = (
-            user_role in ['SUPER_ADMIN', 'ADMIN', 'RPC', 'DEPUTY COMMANDER'] or
-            (current_user.region or "").strip().upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'] or
-            perms.get("view_global_roster") is True or
-            perms.get("global_observer") is True or
-            perms.get("global_open") is True
-        )
-        
         CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
         StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', getattr(models, 'Stats', None)))
         StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', getattr(models, 'Stories', None)))
@@ -1181,7 +1246,6 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
         AIModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
         ArcModel = getattr(models, 'NominalRollArchive', getattr(models, 'Nominal_Roll_Archive', None))
         AgricStatsModel = getattr(models, 'AgricStats', getattr(models, 'agric_stats', getattr(models, 'Agric_Stats', None)))
-        
         ExhibitsModel = getattr(models, 'Exhibits', getattr(models, 'exhibits', getattr(models, 'Exhibit', getattr(models, 'ImpoundedExhibits', None))))
 
         def get_full_dataframe(ModelClass):
@@ -1189,8 +1253,7 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
                 return pd.DataFrame()
             try:
                 query = db.query(ModelClass)
-                if not is_global and hasattr(ModelClass, 'region'): 
-                    query = query.filter(ModelClass.region == current_user.region)
+                query = apply_opsec_scope(current_user, query, ModelClass)
                 
                 records = query.all()
                 if not records:
@@ -1327,7 +1390,12 @@ def export_master_database(timeframe: str = "all", scope: Optional[str] = None, 
 def export_establishments_summary(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     try:
         est_model = getattr(models, 'Establishments', getattr(models, 'establishments', None))
-        est = db.query(est_model).all() if est_model else []
+        query = db.query(est_model) if est_model else None
+        if query is not None:
+            query = apply_opsec_scope(current_user, query, est_model)
+            est = query.all()
+        else:
+            est = []
         df_est = sanitize_df_for_excel(pd.DataFrame([serialize_model_row(e) for e in est]))
         
         output = io.BytesIO()
@@ -1517,7 +1585,6 @@ def run_weekly_tactical_briefing_job():
                 except Exception as mail_err:
                     print(f"Failed to dispatch to {user.email}: {mail_err}")
 
-        # 🟢 SECURE ASYNC RUNNER FOR APSCHEDULER THREAD
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():

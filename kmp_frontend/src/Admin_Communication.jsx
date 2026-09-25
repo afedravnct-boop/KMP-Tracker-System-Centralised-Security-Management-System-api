@@ -5,6 +5,27 @@ import 'react-quill-new/dist/quill.snow.css';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
+const REGIONAL_HIERARCHY = {
+  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "TRAFFIC", "LOGISTICS", "FLYING SQUAD", "CRIME INTELLIGENCE", "PRO"],
+  "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+};
+
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+const isStationEquivalent = (statA, statB) => {
+  const a = (statA || '').trim().toUpperCase();
+  const b = (statB || '').trim().toUpperCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
+};
+
 // 🟢 AUTO-CAPITALIZATION ENGINE
 const autoCapitalize = (text) => {
   if (!text) return text;
@@ -195,10 +216,11 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 🟢 Enhanced Recipient Filtering with Search Box Support
+  // 🟢 Enhanced Recipient Filtering with OPSEC & Dual-Equivalence Support
   const finalSelectableRecipients = (filteredRecipientsList.length > 0 ? filteredRecipientsList : (users || [])).filter(user => {
     if (user.fnum === currentUser.fnum) return false;
     const region = (user.region || "").toUpperCase();
+    const station = (user.station || "").toUpperCase();
     
     if (isTechnicalGlitch) {
       return ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes((user.role || '').toUpperCase()) || 
@@ -208,16 +230,21 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     if (selectedCategoryFilter === 'POLICE_HQ' && !region.includes("POLICE HEADQUARTERS")) return false;
     if (selectedCategoryFilter === 'KMP_HQ' && !region.includes("KMP HEADQUARTERS")) return false;
     if (selectedCategoryFilter === 'FIELD_COMMAND' && region.includes("HEADQUARTERS")) return false;
-    if (selectedRegionFilter !== 'ALL' && region !== selectedRegionFilter) return false;
+    
+    if (selectedRegionFilter !== 'ALL') {
+      const belongsToTargetRegion = region === selectedRegionFilter || 
+                                    (REGIONAL_HIERARCHY[selectedRegionFilter] && REGIONAL_HIERARCHY[selectedRegionFilter].some(s => isStationEquivalent(s, station)));
+      if (!belongsToTargetRegion) return false;
+    }
 
     // Search query filter
     if (recipientSearchTerm.trim()) {
       const term = recipientSearchTerm.trim().toLowerCase();
       const name = (user.name || "").toLowerCase();
       const fnum = (user.fnum || "").toLowerCase();
-      const station = (user.station || "").toLowerCase();
+      const stationStr = station.toLowerCase();
       const rank = (user.rank || "").toLowerCase();
-      if (!name.includes(term) && !fnum.includes(term) && !station.includes(term) && !rank.includes(term)) {
+      if (!name.includes(term) && !fnum.includes(term) && !stationStr.includes(term) && !rank.includes(term)) {
         return false;
       }
     }
@@ -378,7 +405,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         else if (audience === 'ADMINS_ONLY') targetPool = allSystemUsers.filter(u => ['ADMIN', 'SUPER_ADMIN'].includes(u.role));
         else if (audience === 'RPC_ONLY') targetPool = allSystemUsers.filter(u => ['RPC', 'ADMIN', 'SUPER_ADMIN'].includes(u.role) || (u.position || '').toUpperCase().includes('RPC'));
         else if (audience === 'DEPUTY RPC_ONLY') targetPool = allSystemUsers.filter(u => (u.position || '').toUpperCase().includes('DEPUTY'));
-        else if (audience === 'SPECIFIC_REGION') targetPool = allSystemUsers.filter(u => (u.region || '').toUpperCase() === (region || '').toUpperCase());
+        else if (audience === 'SPECIFIC_REGION') {
+          targetPool = allSystemUsers.filter(u => {
+            const uReg = (u.region || '').toUpperCase();
+            const uStn = (u.station || '').toUpperCase();
+            return uReg === region || (REGIONAL_HIERARCHY[region] && REGIONAL_HIERARCHY[region].some(s => isStationEquivalent(s, uStn)));
+          });
+        }
         else if (audience === 'SPECIFIC_USER' && msg.target_fnum) {
             let targetFnumsArray = [];
             if (Array.isArray(msg.target_fnum)) {
@@ -418,9 +451,12 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     const isSender = msg.sender_fnum === currentUser?.fnum;
     
     let isIntendedRecipient = false;
+    const userReg = (currentUser?.region || '').toUpperCase();
+    const userStn = (currentUser?.station || '').toUpperCase();
+
     if (msg.target_audience === 'ALL_USERS' || msg.target_audience === 'ALL') isIntendedRecipient = true;
     else if (msg.target_audience === 'SPECIFIC_USER' && msg.target_fnum && msg.target_fnum.includes(currentUser?.fnum)) isIntendedRecipient = true;
-    else if (msg.target_audience === 'SPECIFIC_REGION' && msg.target_region === currentUser?.region) isIntendedRecipient = true;
+    else if (msg.target_audience === 'SPECIFIC_REGION' && (msg.target_region === userReg || (REGIONAL_HIERARCHY[msg.target_region] && REGIONAL_HIERARCHY[msg.target_region].some(s => isStationEquivalent(s, userStn))))) isIntendedRecipient = true;
     else if (msg.target_audience === 'ADMINS_ONLY' && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role)) isIntendedRecipient = true;
     else if (msg.target_audience === 'RPC_ONLY' && (['RPC', 'ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || (currentUser?.position || '').toUpperCase().includes('RPC'))) isIntendedRecipient = true;
 

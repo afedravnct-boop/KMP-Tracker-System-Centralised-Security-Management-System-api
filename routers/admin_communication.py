@@ -1,5 +1,6 @@
 import os
 import asyncio
+import json
 from datetime import datetime
 from typing import Optional, List, Union
 from urllib.parse import unquote
@@ -8,13 +9,22 @@ import pytz
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, and_
+from sqlalchemy import func, or_, and_, text
 
 from app import models, schemas
 from app.database import get_db
 from auth import get_current_user
 
 router = APIRouter(prefix="/api/v1", tags=["Admin Communications"])
+
+# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
+REGIONAL_HIERARCHY = {
+    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+    "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+    "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+}
 
 # Configure Mail (pulling from environment variables)
 conf = ConnectionConfig(
@@ -44,10 +54,20 @@ def get_fnum_col(model_class):
     return getattr(model_class, 'fnum', getattr(model_class, 'f_num', getattr(model_class, 'user_fnum', None)))
 
 def check_global_view(user):
-    role = (user.role or "").upper()
+    user_role = str(user.role).strip().upper() if user.role else ""
+    user_pos = str(user.position).strip().upper() if user.position else ""
+    user_reg = str(user.region).strip().upper() if user.region else ""
+
     perms = user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+
     return (
-        role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        "KMP COMMANDER" in user_pos or
+        "DEPUTY KMP COMMANDER" in user_pos or
+        user_reg in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
         perms.get("view_global_roster") is True or
         perms.get("global_observer") is True
     )
@@ -249,7 +269,6 @@ def get_admin_communications(
         sender_clean = (c.sender_fnum or "").strip().upper()
         comm_id = getattr(c, 'id', getattr(c, 'sn', 1))
         
-        # 🟢 If the message was dispatched before the user's account was created, suppress notification/unread heartbeat alerts by treating it as read/acknowledged
         is_older_than_user = False
         if user_created_at and c.created_at and isinstance(c.created_at, datetime):
             msg_dt = c.created_at.replace(tzinfo=None) if c.created_at.tzinfo else c.created_at
@@ -311,7 +330,6 @@ def acknowledge_communication(
 
     clean_user_fnum = (current_user.fnum or "").strip().upper()
 
-    # 🟢 Allow the sender, anyone with global view clearance, or valid recipients to acknowledge cleanly
     if comm.sender_fnum != current_user.fnum and not check_global_view(current_user):
         audience = (comm.target_audience or "").strip().upper()
         target_region = (comm.target_region or "").strip().upper()
@@ -326,10 +344,20 @@ def acknowledge_communication(
         user_region = (current_user.region or "").strip().upper()
 
         is_general = audience in ["ALL", "ALL_USERS", "ALL_REGIONS"]
+        
+        # 🟢 Regional Dual-Equivalence Check for Communications
+        is_region_match = False
+        if target_region:
+            if user_region == target_region:
+                is_region_match = True
+            elif target_region in REGIONAL_HIERARCHY and REGIONAL_HIERARCHY[target_region]:
+                user_stn = (current_user.station or "").strip().upper()
+                is_region_match = any(stn == user_stn for stn in REGIONAL_HIERARCHY[target_region])
+
         is_intended = (
             is_general or
             (audience == "SPECIFIC_USER" and clean_user_fnum in target_fnums) or
-            (audience in ["SPECIFIC_REGION", "REGIONAL_BROADCAST"] and target_region and user_region == target_region) or
+            (audience in ["SPECIFIC_REGION", "REGIONAL_BROADCAST"] and is_region_match) or
             (audience == "ADMINS_ONLY" and user_role in ["ADMIN", "SUPER_ADMIN", "SYSTEM_ADMIN"]) or
             (audience == "RPC_ONLY" and user_role in ["RPC", "SUPER_ADMIN", "DEPUTY COMMANDER"])
         )
@@ -406,10 +434,18 @@ def get_communication_readers(
 
     is_general_broadcast = audience in ["ALL", "ALL_USERS", "ALL_REGIONS"]
 
+    is_region_match = False
+    if target_region:
+        if user_region == target_region:
+            is_region_match = True
+        elif target_region in REGIONAL_HIERARCHY and REGIONAL_HIERARCHY[target_region]:
+            user_stn = (current_user.station or "").strip().upper()
+            is_region_match = any(stn == user_stn for stn in REGIONAL_HIERARCHY[target_region])
+
     is_intended_recipient = (
         is_general_broadcast or
         (audience == "SPECIFIC_USER" and clean_user_fnum in target_fnums) or
-        (audience in ["SPECIFIC_REGION", "REGIONAL_BROADCAST"] and target_region and user_region == target_region) or
+        (audience in ["SPECIFIC_REGION", "REGIONAL_BROADCAST"] and is_region_match) or
         (audience == "ADMINS_ONLY" and user_role in ["ADMIN", "SUPER_ADMIN", "SYSTEM_ADMIN"]) or
         (audience == "RPC_ONLY" and user_role in ["RPC", "SUPER_ADMIN", "DEPUTY COMMANDER"]) or
         (comm.sender_fnum == current_user.fnum)
@@ -464,7 +500,6 @@ from typing import List
 class BulkAcknowledgePayload(BaseModel):
     comm_ids: List[int]
 
-# 🟢 ENDPOINT 1: Acknowledges a specific thread (Root message + all nested replies) at once
 @router.post("/communications/acknowledge-bulk")
 @router.post("/Admin_Communication/acknowledge-bulk")
 def acknowledge_bulk_communications(
@@ -504,7 +539,6 @@ def acknowledge_bulk_communications(
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-# 🟢 ENDPOINT 2: "Mark All as Read" sweeping function
 @router.post("/communications/acknowledge-all")
 @router.post("/Admin_Communication/acknowledge-all")
 def acknowledge_all_communications(

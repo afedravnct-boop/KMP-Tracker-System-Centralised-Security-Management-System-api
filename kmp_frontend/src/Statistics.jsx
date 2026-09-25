@@ -10,6 +10,24 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+const cleanStr = (str) => {
+  if (!str) return '';
+  return String(str).replace(/\s+/g, ' ').trim().toUpperCase();
+};
+
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+const isStationEquivalent = (statA, statB) => {
+  const a = cleanStr(statA);
+  const b = cleanStr(statB);
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
+};
+
 const MetricCard = ({ title, value, colorClass }) => (
   <div className="bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col items-center justify-center text-center">
     <h4 className="text-[9px] font-extrabold mb-1 uppercase tracking-wider text-slate-500 dark:text-slate-400">{title}</h4>
@@ -69,7 +87,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats = [], setStats, setAgricStats, setSidebarOpen, isReadOnlyObserver }) => {
+const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, stats = [], agricStats = [], setStats, setAgricStats, setSidebarOpen, isReadOnlyObserver }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
@@ -101,6 +119,45 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     status: 'UNDER INVESTIGATION',
     date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]
   });
+
+  // 🟢 OPSEC Role Classification Engine
+  const userRoleClean = cleanStr(currentUser?.role);
+  const userPosClean = cleanStr(currentUser?.position);
+  const userRegClean = cleanStr(currentUser?.region);
+
+  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+    currentUser?.permissions?.view_global_roster === true;
+
+  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+
+  const canViewGlobalLevel = propCanViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
+  
+  const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
+  
+  const isCommandOrHR = isGlobalTier || isKmpSystemManager || isRegionalCommand || userPosClean.includes('HR');
+  const canEditRecords = isCommandOrHR || currentUser?.permissions?.upload_hr === true || currentUser?.permissions?.log_crime === true;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : cleanStr(currentUser?.station));
+
+  const isFilterInitialized = useRef(false);
+  useEffect(() => {
+    if (!isFilterInitialized.current && currentUser?.station) {
+      if (canViewGlobalLevel) {
+        setFilterRegion('ALL REGIONS');
+        setFilterStation('ALL STATIONS');
+      } else if (isRegionalCommand) {
+        setFilterRegion(userRegClean);
+        setFilterStation('ALL STATIONS');
+      } else {
+        setFilterRegion(userRegClean);
+        setFilterStation(cleanStr(currentUser.station));
+      }
+      isFilterInitialized.current = true;
+    }
+  }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
 
   useEffect(() => {
     if (statsDomain === 'AGRICULTURAL') {
@@ -150,6 +207,8 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     e.preventDefault();
     const token = getAuthToken();
     if (!token) return setNotification("Error: Security token missing. Please re-authenticate.");
+
+    if (!canEditRecords) return setNotification("Security Restriction: You do not have clearance to modify analytical records.");
 
     try {
       const payload = {
@@ -205,48 +264,33 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     }
   };
 
-  const canViewGlobalActive = canViewGlobal || 
-    ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
-    currentUser?.permissions?.view_global_roster === true || 
-    currentUser?.permissions?.global_observer === true;
-
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
-
-  const isFilterInitialized = useRef(false);
-  useEffect(() => {
-    if (!isFilterInitialized.current && currentUser?.station) {
-      if (canViewGlobalActive) {
-        setFilterRegion('ALL REGIONS');
-        setFilterStation('ALL STATIONS');
-      } else {
-        setFilterRegion(currentUser.region || '');
-        setFilterStation(currentUser.station || '');
-      }
-      isFilterInitialized.current = true;
-    }
-  }, [canViewGlobalActive, currentUser?.station]);
-
   const [updateSearch, setUpdateSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   
   const [formData, setFormData] = useState({
-    sn: null, id: null, region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+    sn: null, id: null, region: userRegClean, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
     date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
     arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0
   });
 
+  // 🟢 Apply OPSEC & Dual-Equivalence Engine filtering to stats
   const filteredStats = useMemo(() => {
     return (Array.isArray(currentDomainStats) ? currentDomainStats : []).filter(s => {
-      const isAllRegions = filterRegion === 'ALL REGIONS';
-      const isAllStations = filterStation === 'ALL STATIONS';
+      const statRegion = cleanStr(s.region);
+      const statStation = cleanStr(s.station);
+      
+      if (canViewGlobalLevel && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
+        // Global viewing, proceed to date check
+      } else {
+        const belongsToRegion = filterRegion === 'ALL REGIONS' || 
+                                statRegion === filterRegion || 
+                                (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(st => isStationEquivalent(st, statStation)));
 
-      if (!(canViewGlobalActive && isAllRegions)) {
-        if (filterRegion !== 'ALL REGIONS' && s.region !== filterRegion) return false;
-      }
-
-      if (!(canViewGlobalActive && isAllRegions && isAllStations)) {
-        if (filterStation !== 'ALL STATIONS' && s.station !== filterStation) return false;
+        if (!belongsToRegion) return false;
+        
+        if (filterStation !== 'ALL STATIONS') {
+          if (!isStationEquivalent(statStation, filterStation)) return false;
+        }
       }
 
       const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24));
@@ -265,11 +309,19 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
       
       return true;
     });
-  }, [currentDomainStats, filterRegion, filterStation, dateFilter, canViewGlobalActive]);
+  }, [currentDomainStats, filterRegion, filterStation, dateFilter, canViewGlobalLevel]);
 
   const availableUpdateStats = useMemo(() => {
     return (Array.isArray(currentDomainStats) ? currentDomainStats : []).filter(s => {
-      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && !canViewGlobalActive && s.region !== currentUser.region) return false;
+      const statRegion = cleanStr(s.region);
+      const statStation = cleanStr(s.station);
+      
+      if (!canViewGlobalLevel) {
+         const belongsToRegion = statRegion === userRegClean || 
+                                (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(st => isStationEquivalent(st, statStation)));
+         if (!belongsToRegion) return false;
+      }
+
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
         const idStr = String(s.id || s.sn || '').toLowerCase();
@@ -279,7 +331,7 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
       }
       return true;
     });
-  }, [currentDomainStats, currentUser, updateSearch, canViewGlobalActive]);
+  }, [currentDomainStats, currentUser, updateSearch, canViewGlobalLevel, userRegClean]);
 
   const totals = useMemo(() => {
     return filteredStats.reduce((acc, curr) => {
@@ -301,7 +353,7 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
     setOperation(op); setNotification(null);
     if (op === 'new') {
       setFormData({
-        sn: null, id: null, region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+        sn: null, id: null, region: userRegClean, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
         date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
         arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0
       });
@@ -316,14 +368,15 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
 
   const handleFormSubmit = async (e) => {  
     e.preventDefault();
+    if (!canEditRecords) return setNotification("Security Restriction: You do not have clearance to modify analytical records.");
     
     const token = getAuthToken();
     if (!token) return setNotification("Error: Security token missing. Please re-authenticate.");
     
     const targetEndpoint = statsDomain === 'AGRICULTURAL' ? '/api/v1/agric-stats' : '/api/v1/stats';
 
-    const activeRegion = (canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion : formData.region;
-    const activeStation = (canViewGlobalActive && filterStation && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
+    const activeRegion = (canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion : formData.region;
+    const activeStation = (canViewGlobalLevel && filterStation && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
 
     if (operation === 'new') {
       const isDuplicate = currentDomainStats.some(s =>  
@@ -488,14 +541,14 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
                       <div>
                         <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Select Region *</label>
-                        <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-950 disabled:text-gray-500">
-                          {canViewGlobalActive ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
+                        <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalLevel || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-950 disabled:text-gray-500">
+                          {canViewGlobalLevel ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={userRegClean}>{userRegClean}</option>}
                         </select>
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Station / Division *</label>
-                        <select name="station" value={formData.station} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-950 disabled:text-gray-500">
-                          {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : canViewGlobalActive ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{currentUser.station}</option>}
+                        <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(canViewGlobalLevel || isRegionalCommand) || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-950 disabled:text-gray-500">
+                          {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : (canViewGlobalLevel || isRegionalCommand) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={cleanStr(currentUser.station)}>{cleanStr(currentUser.station)}</option>}
                         </select>
                       </div>
                       <div>
@@ -560,15 +613,15 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
 
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-                  {canViewGlobalActive ? (
+                <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalLevel} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+                  {canViewGlobalLevel ? (
                     <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-                  ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+                  ) : <option value={userRegClean}>{userRegClean}</option>}
                 </select>
-                <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-                  {canViewGlobalActive ? (
+                <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(canViewGlobalLevel || isRegionalCommand)} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+                  {(canViewGlobalLevel || isRegionalCommand) ? (
                     <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
-                  ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+                  ) : <option value={cleanStr(currentUser.station)}>{cleanStr(currentUser.station)}</option>}
                 </select>
               </div>
 
@@ -644,18 +697,18 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
                   <form onSubmit={handleAgricFormSubmit} className="p-5 grid grid-cols-1 sm:grid-cols-6 gap-4 dark:bg-slate-900">
                     <div>
                       <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">Region *</label>
-                      <select name="region" value={agricFormData.region} onChange={handleAgricInputChange} className="w-full text-xs border dark:border-slate-700 p-2 rounded bg-white dark:bg-slate-800 dark:text-slate-100 font-bold outline-none focus:border-emerald-500">
-                        {Object.keys(REGIONAL_HIERARCHY).map(reg => (
+                      <select name="region" value={agricFormData.region} onChange={handleAgricInputChange} disabled={!canViewGlobalLevel} className="w-full text-xs border dark:border-slate-700 p-2 rounded bg-white dark:bg-slate-800 dark:text-slate-100 font-bold outline-none focus:border-emerald-500 disabled:bg-gray-100 disabled:text-gray-500">
+                        {canViewGlobalLevel ? Object.keys(REGIONAL_HIERARCHY).map(reg => (
                           <option key={reg} value={reg}>{reg}</option>
-                        ))}
+                        )) : <option value={userRegClean}>{userRegClean}</option>}
                       </select>
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">Station / Division *</label>
-                      <select name="station" value={agricFormData.station} onChange={handleAgricInputChange} className="w-full text-xs border dark:border-slate-700 p-2 rounded bg-white dark:bg-slate-800 dark:text-slate-100 font-bold outline-none focus:border-emerald-500">
-                        {(REGIONAL_HIERARCHY[agricFormData.region] || [currentUser.station]).map(stn => (
+                      <select name="station" value={agricFormData.station} onChange={handleAgricInputChange} disabled={!(canViewGlobalLevel || isRegionalCommand)} className="w-full text-xs border dark:border-slate-700 p-2 rounded bg-white dark:bg-slate-800 dark:text-slate-100 font-bold outline-none focus:border-emerald-500 disabled:bg-gray-100 disabled:text-gray-500">
+                        {(canViewGlobalLevel || isRegionalCommand) ? (REGIONAL_HIERARCHY[agricFormData.region] || [currentUser.station]).map(stn => (
                           <option key={stn} value={stn}>{stn}</option>
-                        ))}
+                        )) : <option value={cleanStr(currentUser.station)}>{cleanStr(currentUser.station)}</option>}
                       </select>
                     </div>
                     <div>
@@ -726,7 +779,9 @@ const Statistics = ({ currentUser, canViewGlobal = false, stats = [], agricStats
                               {isExpanded && hasData && Object.keys(regionData.stations).map((stationName, idx) => {
                                 const records = regionData.stations[stationName];
                                 
-                                if (filterStation !== 'ALL STATIONS' && stationName !== filterStation) return null;
+                                if (filterStation !== 'ALL STATIONS') {
+                                  if (!isStationEquivalent(stationName, filterStation)) return null;
+                                }
 
                                 return (
                                   <tr key={stationName} className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b border-slate-300 dark:border-slate-800">

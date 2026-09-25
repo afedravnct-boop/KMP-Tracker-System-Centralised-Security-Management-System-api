@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Users, Building, X, Filter } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Eye, Filter, X, Users, Building } from 'lucide-react';
 import { stripHtmlTags } from './App';
 
 const REGIONAL_HIERARCHY = {
@@ -8,6 +8,19 @@ const REGIONAL_HIERARCHY = {
   "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
   "POLICE HEADQUARTERS": ["NAGURU"]
+};
+
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+const isStationEquivalent = (statA, statB) => {
+  const a = stripHtmlTags(statA || '').trim().toUpperCase();
+  const b = stripHtmlTags(statB || '').trim().toUpperCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
 };
 
 const getOfficialRegionForStation = (stationName, dbRegion) => {
@@ -30,11 +43,37 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
 const CommandLedger = ({ hrLedgerData, onClose, currentUser, canViewGlobal = false }) => {
   if (!hrLedgerData) return null;
 
-  // 🟢 Safely resolve global view active state matching other modules
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
+  // 🟢 OPSEC Role Classification Engine
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
 
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+    currentUser?.permissions?.view_global_roster === true;
+
+  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+
+  const canViewGlobalActive = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
+  
+  const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalActive;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalActive || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
+
+  useEffect(() => {
+    if (canViewGlobalActive) {
+      setFilterRegion('ALL REGIONS');
+      setFilterStation('ALL STATIONS');
+    } else if (isRegionalCommand) {
+      setFilterRegion(userRegClean);
+      setFilterStation('ALL STATIONS');
+    } else {
+      setFilterRegion(userRegClean);
+      setFilterStation(stripHtmlTags(currentUser?.station || '').toUpperCase());
+    }
+  }, [canViewGlobalActive, isRegionalCommand, userRegClean, currentUser?.station]);
 
   // 🟢 Filtered HR records based on selected jurisdiction
   const filteredHr = useMemo(() => {
@@ -46,8 +85,17 @@ const CommandLedger = ({ hrLedgerData, onClose, currentUser, canViewGlobal = fal
       if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
         return true;
       }
-      if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return false;
-      if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return false;
+      
+      const belongsToRegion = filterRegion === 'ALL REGIONS' || 
+                              reg === filterRegion.toUpperCase() || 
+                              (REGIONAL_HIERARCHY[filterRegion.toUpperCase()] && REGIONAL_HIERARCHY[filterRegion.toUpperCase()].some(s => isStationEquivalent(s, stn)));
+
+      if (!belongsToRegion) return false;
+      
+      if (filterStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(stn, filterStation.toUpperCase())) return false;
+      }
+      
       return true;
     });
   }, [hrLedgerData.hr, filterRegion, filterStation, canViewGlobalActive]);
@@ -62,8 +110,17 @@ const CommandLedger = ({ hrLedgerData, onClose, currentUser, canViewGlobal = fal
       if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
         return true;
       }
-      if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return false;
-      if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return false;
+      
+      const belongsToRegion = filterRegion === 'ALL REGIONS' || 
+                              reg === filterRegion.toUpperCase() || 
+                              (REGIONAL_HIERARCHY[filterRegion.toUpperCase()] && REGIONAL_HIERARCHY[filterRegion.toUpperCase()].some(s => isStationEquivalent(s, stn)));
+
+      if (!belongsToRegion) return false;
+      
+      if (filterStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(stn, filterStation.toUpperCase())) return false;
+      }
+      
       return true;
     });
   }, [hrLedgerData.establishments, filterRegion, filterStation, canViewGlobalActive]);
@@ -96,17 +153,17 @@ const CommandLedger = ({ hrLedgerData, onClose, currentUser, canViewGlobal = fal
                 ))}
               </>
             ) : (
-              <option value={currentUser?.region || ''}>{currentUser?.region || 'UNKNOWN'}</option>
+              <option value={userRegClean || ''}>{userRegClean || 'UNKNOWN'}</option>
             )}
           </select>
 
           <select 
             value={filterStation} 
             onChange={(e) => setFilterStation(e.target.value)}
-            disabled={!canViewGlobalActive}
+            disabled={!(canViewGlobalActive || isRegionalCommand)}
             className="border border-gray-300 rounded-lg p-2 text-xs font-bold text-gray-800 bg-white outline-none cursor-pointer disabled:bg-gray-100 disabled:text-gray-500"
           >
-            {canViewGlobalActive ? (
+            {(canViewGlobalActive || isRegionalCommand) ? (
               <>
                 <option value="ALL STATIONS">ALL STATIONS</option>
                 {filterRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[filterRegion] || []).map(stn => (
@@ -114,7 +171,7 @@ const CommandLedger = ({ hrLedgerData, onClose, currentUser, canViewGlobal = fal
                 ))}
               </>
             ) : (
-              <option value={currentUser?.station || ''}>{currentUser?.station || 'UNKNOWN'}</option>
+              <option value={stripHtmlTags(currentUser?.station || '').toUpperCase()}>{stripHtmlTags(currentUser?.station || '').toUpperCase() || 'UNKNOWN'}</option>
             )}
           </select>
 

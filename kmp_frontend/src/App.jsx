@@ -62,6 +62,19 @@ const POSITIONS = {
   ]
 };
 
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+export const isStationEquivalent = (statA, statB) => {
+  const a = stripHtmlTags(statA || '').trim().toUpperCase();
+  const b = stripHtmlTags(statB || '').trim().toUpperCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
+};
+
 // ====================================================================
 // 2. CORE UTILITY FUNCTIONS & ENGINES
 // ====================================================================
@@ -85,8 +98,13 @@ export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = t
 
 export const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, filterStation) => {
   const scopedSubmissions = (Array.isArray(allSubmissions) ? allSubmissions : []).filter(entry => {
+    // 🟢 Strict RPC Region Filter
     if (filterRegion && filterRegion !== 'ALL REGIONS' && entry.region !== filterRegion) return false;
-    if (filterStation && filterStation !== 'ALL STATIONS' && entry.station !== filterStation) return false;
+    
+    // 🟢 Apply Dual-Equivalence to Station Filtering
+    if (filterStation && filterStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(entry.station, filterStation)) return false;
+    }
     return true;
   });
 
@@ -94,7 +112,8 @@ export const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, 
     return sum + (Number(entry.total_value || entry.count || entry.amount || entry.daily_lock_up) || 0);
   }, 0);
 
-  const hqEntry = scopedSubmissions.find(entry => entry.is_hq_grand_total || entry.station === 'HQ GENERAL');
+  // 🟢 Resolves HQ string variations seamlessly
+  const hqEntry = scopedSubmissions.find(entry => entry.is_hq_grand_total || isStationEquivalent(entry.station, 'HEADQUARTERS GENERAL TOTAL'));
   const hqEnteredTotal = hqEntry ? (Number(hqEntry.total_value || hqEntry.count || hqEntry.amount || hqEntry.daily_lock_up) || 0) : null;
 
   return {
@@ -112,11 +131,18 @@ export const stripHtmlTags = (str) => {
 
 export const canViewGlobalJurisdiction = (user) => {
   if (!user) return false;
-  if (user.role === 'SUPER_ADMIN') return true;
-  if (['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes((user.region || '').trim().toUpperCase())) return true;
+  
+  const userRole = (user.role || '').toUpperCase();
+  const userPos = (user.position || '').toUpperCase();
+  const userReg = (user.region || '').trim().toUpperCase();
+
+  // 🟢 Properly evaluates Global Tier and Regional Command scoping
+  if (['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRole)) return true;
+  if (['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPos)) return true;
+  if (['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userReg)) return true;
   
   const perms = user.permissions || {};
-  return perms.view_global_roster === true || perms.global_observer === true;
+  return perms.view_global_roster === true || perms.global_observer === true || perms.global_open === true;
 };
 
 export const formatEATDateTime = (dateStr) => {
@@ -2098,13 +2124,19 @@ const DashboardLayout = ({
   const safeSidebarComms = Array.isArray(adminCommsData) ? adminCommsData : (adminCommsData?.data || adminCommsData?.items || []);
   const relevantComms = safeSidebarComms.filter(c => {
     if (currentUser?.role === 'SUPER_ADMIN') return true;
+    
     const audience = c.target_audience || c.audience || 'ALL_USERS';
     const region = c.target_region || c.region;
+    
     if (audience === 'ALL_USERS' || audience === 'ALL') return true;
     if (audience === 'ADMINS_ONLY' && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role)) return true;
-    if (audience === 'RPC_ONLY' && ['ADMIN', 'SUPER_ADMIN', 'RPC'].includes(currentUser?.role)) return true;
-    if (audience === 'SPECIFIC_REGION' && region === currentUser?.region) return true;
+    if (audience === 'RPC_ONLY' && ['ADMIN', 'SUPER_ADMIN', 'RPC', 'DEPUTY COMMANDER'].includes(currentUser?.role)) return true;
+    
+    // 🟢 Dual-Equivalence Region match applied for Sidebar Alerts
+    if (audience === 'SPECIFIC_REGION' && isStationEquivalent(region, currentUser?.region)) return true;
+    
     if (audience === 'SPECIFIC_USER' && c.target_fnum === currentUser?.fnum) return true;
+    
     return false;
   });
 

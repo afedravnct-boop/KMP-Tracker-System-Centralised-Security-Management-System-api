@@ -1,14 +1,24 @@
+import json
 from datetime import datetime
 from typing import Optional, List, Union
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app import models
 from app.database import get_db
 from auth import get_current_user
 
 router = APIRouter(prefix="/api/v1", tags=["Establishments"])
+
+# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
+REGIONAL_HIERARCHY = {
+    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+    "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+    "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+}
 
 def get_officer_signature(user):
     if not user:
@@ -23,15 +33,6 @@ def get_est_model():
     if not model:
         raise HTTPException(status_code=500, detail="Establishments database model not configured.")
     return model
-
-def check_global_view(user):
-    role = (user.role or "").upper()
-    perms = user.permissions or {}
-    return (
-        role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
-        perms.get("view_global_roster") is True or
-        perms.get("global_observer") is True
-    )
 
 def serialize_row(row):
     if not row:
@@ -52,13 +53,59 @@ def get_all_establishments(db: Session = Depends(get_db), current_user: models.U
     EstModel = get_est_model()
     query = db.query(EstModel)
     
-    # Read Access: Uses global view permissions check
-    if check_global_view(current_user):
-        pass
-    elif (current_user.role or "").upper() in ["REGIONAL_ADMIN", "DIVISION_ADMIN"] or "HR" in (current_user.position or "").upper():
-        query = query.filter(func.upper(EstModel.region) == str(current_user.region).strip().upper())
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    user_pos = str(current_user.position).strip().upper() if current_user.position else ""
+    user_reg = str(current_user.region).strip().upper() if current_user.region else ""
+    user_stn = str(current_user.station).strip().upper() if current_user.station else ""
+
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+
+    # 🟢 OPSEC Role Classification Engine
+    is_absolute_global = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        "KMP COMMANDER" in user_pos or
+        "DEPUTY KMP COMMANDER" in user_pos or
+        "KMP ADMIN" in user_pos or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True
+    )
+
+    is_kmp_sys_mgr = (
+        user_role == "SYSTEM_MANAGER" and
+        user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos
+    )
+
+    is_regional_command = (
+        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"] or
+        "HR" in user_pos or
+        not is_absolute_global
+    )
+
+    if is_absolute_global or is_kmp_sys_mgr:
+        pass # Global or Top-Tier Access
+    elif user_reg in REGIONAL_HIERARCHY:
+        # 🟢 Regional Command with Dual-Equivalence Station Expansion
+        conds = [func.upper(EstModel.region) == user_reg]
+        
+        expanded_stns = set()
+        for s in REGIONAL_HIERARCHY[user_reg]:
+            expanded_stns.add(s)
+            expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
+            expanded_stns.add(s + ' HEADQUARTERS')
+            expanded_stns.add(s + ' HQ')
+            
+        conds.append(func.upper(EstModel.station).in_(list(expanded_stns)))
+        if hasattr(EstModel, 'division'):
+            conds.append(func.upper(EstModel.division).in_(list(expanded_stns)))
+            
+        query = query.filter(or_(*conds))
     else:
-        query = query.filter(func.upper(EstModel.station) == str(current_user.station).strip().upper())
+        # Strict Station Fallback
+        query = query.filter(func.upper(EstModel.station) == user_stn)
     
     pk_col = getattr(EstModel, 'id', getattr(EstModel, 'sn', None))
     if pk_col is not None:
@@ -129,7 +176,7 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
             except (ValueError, TypeError):
                 est_update[field] = 0
 
-        # Write/Update Access: Prevent overriding jurisdiction fields unless authorized globally
+    # Write/Update Access: Prevent overriding jurisdiction fields unless authorized globally
     perms = current_user.permissions or {}
     can_reassign = (
         current_user.role in ["SUPER_ADMIN", "RPC", "ADMIN"] or

@@ -4,18 +4,32 @@ import {
   Loader2, FolderOpen, Clock, FileArchive, Lock, Server, Trash2, Filter, ExternalLink, Search, X, ArrowLeft
 } from 'lucide-react';
 import { authFetch } from './api';
+import { stripHtmlTags } from './App';
 
 const REGIONAL_HIERARCHY = {
-  "KMP NORTH": ["KMP NORTH HEADQAURTERS", "KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+const isStationEquivalent = (statA, statB) => {
+  const a = stripHtmlTags(statA || '').trim().toUpperCase();
+  const b = stripHtmlTags(statB || '').trim().toUpperCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
+};
+
 const getOfficialRegionForStation = (stationName, dbRegion) => {
-  const cleanStation = (stationName || '').trim().toUpperCase();
-  const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
+  const cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
+  const cleanDbRegion = stripHtmlTags(dbRegion || '').trim().toUpperCase();
 
   if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) return cleanDbRegion;
 
@@ -36,33 +50,48 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const [templateCustomName, setTemplateCustomName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const canViewGlobalActive = canViewGlobal || 
-    ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
-    currentUser?.permissions?.view_global_roster === true || 
-    currentUser?.permissions?.global_observer === true;
+  // 🟢 OPSEC Role Classification Engine
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
+  const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
 
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+  const isGlobalTier = isSuperAdmin || 
+    ['ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+    currentUser?.permissions?.view_global_roster === true;
+
+  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+
+  const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
+  
+  const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
 
   const isFilterInitialized = useRef(false);
   useEffect(() => {
     if (!isFilterInitialized.current && currentUser?.station) {
-      if (canViewGlobalActive) {
+      if (canViewGlobalLevel) {
         setFilterRegion('ALL REGIONS');
         setFilterStation('ALL STATIONS');
+      } else if (isRegionalCommand) {
+        setFilterRegion(userRegClean);
+        setFilterStation('ALL STATIONS');
       } else {
-        setFilterRegion(currentUser.region || '');
-        setFilterStation(currentUser.station || '');
+        setFilterRegion(userRegClean);
+        setFilterStation(stripHtmlTags(currentUser?.station || '').toUpperCase());
       }
       isFilterInitialized.current = true;
     }
-  }, [canViewGlobalActive, currentUser?.station, currentUser?.region]);
+  }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
 
-  const canUploadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN'].includes(currentUser?.role?.toUpperCase());
-  const canDownloadByRole = ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'STATION_ADMIN', 'USER'].includes(currentUser?.role?.toUpperCase());
-
-  const hasUploadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_documents !== false && (canUploadByRole || currentUser?.permissions?.acc_documents === true));
-  const hasDownloadClearance = canViewGlobalActive || currentUser?.role === 'SUPER_ADMIN' || (currentUser?.permissions?.acc_documents_download !== false && (canDownloadByRole || currentUser?.permissions?.acc_documents_download === true));
+  const canUploadByRole = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN', 'RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'DIVISION_ADMIN', 'STATION_ADMIN'].includes(userRoleClean);
+  
+  const hasUploadClearance = isGlobalTier || (currentUser?.permissions?.acc_documents !== false && (canUploadByRole || currentUser?.permissions?.acc_documents === true || currentUser?.permissions?.upload_hr === true));
+  const hasDownloadClearance = isGlobalTier || (currentUser?.permissions?.acc_documents_download !== false && currentUser?.permissions?.global_observer !== true);
 
   const fetchArchiveList = async () => {
     setLoadingDocs(true);
@@ -113,8 +142,8 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     files.forEach((f) => formData.append("files", f));
 
     let endpoint = "";
-    const targetRegionToSubmit = overrideRegion || (canViewGlobalActive && filterRegion !== 'ALL REGIONS' ? filterRegion : currentUser?.region);
-    const targetStationToSubmit = overrideStation || (canViewGlobalActive && filterStation !== 'ALL STATIONS' ? filterStation : currentUser?.station);
+    const targetRegionToSubmit = overrideRegion || (canViewGlobalLevel && filterRegion !== 'ALL REGIONS' ? filterRegion : userRegClean);
+    const targetStationToSubmit = overrideStation || (canViewGlobalLevel && filterStation !== 'ALL STATIONS' ? filterStation : stripHtmlTags(currentUser?.station || '').toUpperCase());
 
     if (activeCategory === 'templates') {
       const templateIdKey = templateCustomName ? templateCustomName.toLowerCase().replace(/[^a-z0-9]/g, '_') : 'custom_template';
@@ -167,11 +196,9 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
-  // 🟢 READ PATH: Reverted to Google Docs Viewer to ensure Forensic Stamp is Visible
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document', categoryKey = 'weekly_report') => {
     setActionLoading(`read-${docId}`);
     
-    // Open the tab instantly BEFORE the network request to bypass popup blockers
     const mobileSafeWindow = window.open('about:blank', '_blank');
 
     try {
@@ -197,7 +224,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
 
       const lowerName = (docName || '').toLowerCase();
       
-      // 🟢 Force Templates into Google Viewer to prevent downloading and ensure the Stamp renders
       if (categoryKey === 'templates' || isTemplate) {
         if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
           mobileSafeWindow.location.href = s3Url;
@@ -206,7 +232,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
           mobileSafeWindow.location.href = googleViewerUrl;
         }
       } 
-      // 🟢 ORIGINAL LOGIC: Kept untouched for weekly reports and general docs
       else {
         if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
           mobileSafeWindow.location.href = s3Url;
@@ -259,14 +284,24 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     }
   };
 
+  // 🟢 OPSEC Filtered Document Retrieval
   const filteredDocuments = useMemo(() => {
     let result = documents.filter(doc => {
       if (doc.categoryKey !== activeCategory) return false;
-      const stn = (doc.station || '').trim().toUpperCase();
+      const stn = stripHtmlTags(doc.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, doc.region);
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
-      if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return false;
-      if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return false;
+      
+      if (canViewGlobalLevel && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') return true;
+      
+      const belongsToRegion = filterRegion === 'ALL REGIONS' || 
+                              reg === filterRegion || 
+                              (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
+
+      if (!belongsToRegion) return false;
+
+      if (filterStation !== 'ALL STATIONS') {
+          if (!isStationEquivalent(stn, filterStation)) return false;
+      }
       return true;
     });
 
@@ -278,7 +313,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       );
     }
     
-    // Sort by latest
     result.sort((a, b) => {
       const dateA = new Date(a.date || a.created_at || 0).getTime();
       const dateB = new Date(b.date || b.created_at || 0).getTime();
@@ -286,7 +320,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
     });
     
     return result;
-  }, [documents, activeCategory, filterRegion, filterStation, canViewGlobalActive, searchQuery]);
+  }, [documents, activeCategory, filterRegion, filterStation, canViewGlobalLevel, searchQuery]);
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-6 font-sans mb-8 p-4 md:p-6 animate-in fade-in duration-300">
@@ -308,7 +342,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
         <button 
           type="button"
           onClick={() => {
-            // 🟢 SAFELY NAVIGATE HOME WITHOUT REFRESHING
             if (typeof setCurrentPage === 'function') {
               setCurrentPage('home');
             } else if (typeof onBack === 'function') {
@@ -350,23 +383,23 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
           <select 
             value={filterRegion} 
             onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }}
-            disabled={!canViewGlobalActive}
+            disabled={!canViewGlobalLevel}
             className="border border-sky-200 dark:border-sky-900/60 rounded-xl p-2.5 text-xs font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-950 outline-none cursor-pointer disabled:bg-slate-100 dark:disabled:bg-slate-900 shadow-sm focus:ring-2 focus:ring-sky-500"
           >
-            {canViewGlobalActive ? (
+            {canViewGlobalLevel ? (
               <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => (<option key={reg} value={reg}>{reg}</option>))}</>
-            ) : (<option value={currentUser?.region || ''}>{currentUser?.region || 'UNKNOWN'}</option>)}
+            ) : (<option value={userRegClean}>{userRegClean}</option>)}
           </select>
 
           <select 
             value={filterStation} 
             onChange={(e) => setFilterStation(e.target.value)}
-            disabled={!canViewGlobalActive}
+            disabled={!(canViewGlobalLevel || isRegionalCommand)}
             className="border border-sky-200 dark:border-sky-900/60 rounded-xl p-2.5 text-xs font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-950 outline-none cursor-pointer disabled:bg-slate-100 dark:disabled:bg-slate-900 shadow-sm focus:ring-2 focus:ring-sky-500"
           >
-            {canViewGlobalActive ? (
+            {(canViewGlobalLevel || isRegionalCommand) ? (
               <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[filterRegion] || []).map(stn => (<option key={stn} value={stn}>{stn}</option>))}</>
-            ) : (<option value={currentUser?.station || ''}>{currentUser?.station || 'UNKNOWN'}</option>)}
+            ) : (<option value={stripHtmlTags(currentUser?.station || '').toUpperCase()}>{stripHtmlTags(currentUser?.station || '').toUpperCase()}</option>)}
           </select>
         </div>
       </div>

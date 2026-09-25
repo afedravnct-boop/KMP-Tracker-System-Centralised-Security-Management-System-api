@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, and_
 
 from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File, Request
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
@@ -252,6 +252,10 @@ async def signup(
     clean_nin = validate_and_normalize_nin(nin)
     clean_phone = validate_and_normalize_phone(phone)
     clean_ipps = str(ipps).strip() if ipps else None
+    clean_region = str(region).strip().upper()
+    clean_station = str(station).strip().upper()
+    clean_role = str(role).strip().upper()
+    clean_position = str(position).strip().upper()
 
     duplicate_filters = [
         func.trim(func.upper(models.Users.fnum)) == clean_fnum
@@ -267,6 +271,114 @@ async def signup(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Registration Error: Force/File Number, IPPS, or NIN is already registered."
         )
+
+    # ====================================================================
+    # 🟢 COMMAND UNIQUENESS ENFORCEMENT ENGINE
+    # ====================================================================
+    active_users_query = db.query(models.Users).filter(models.Users.role != 'REVOKED')
+
+    # 1. Regional Command: Only ONE RPC and ONE Deputy RPC per Region
+    if clean_role == 'RPC' or 'RPC' in clean_position:
+        existing_rpc = active_users_query.filter(
+            func.upper(models.Users.region) == clean_region,
+            or_(
+                func.upper(models.Users.role) == 'RPC',
+                func.upper(models.Users.position).like('%RPC%')
+            )
+        ).first()
+        if existing_rpc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Registration Blocked: Region '{clean_region}' already has an active Regional Police Commander (RPC) assigned ({existing_rpc.name})."
+            )
+
+    if 'DEPUTY RPC' in clean_position or 'DEPUTY REGIONAL' in clean_position:
+        existing_d_rpc = active_users_query.filter(
+            func.upper(models.Users.region) == clean_region,
+            func.upper(models.Users.position).like('%DEPUTY RPC%')
+        ).first()
+        if existing_d_rpc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Registration Blocked: Region '{clean_region}' already has an active Deputy RPC assigned ({existing_d_rpc.name})."
+            )
+
+    # 2. Regional Admin: Strictly ONE per Region
+    if clean_role == 'REGIONAL_ADMIN':
+        existing_reg_admin = active_users_query.filter(
+            func.upper(models.Users.region) == clean_region,
+            func.upper(models.Users.role) == 'REGIONAL_ADMIN'
+        ).first()
+        if existing_reg_admin:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Registration Blocked: Region '{clean_region}' already has a designated Regional Administrator."
+            )
+
+    # 3. Station / Division Command: Only ONE DPC, ONE OC Station, ONE OC CID per Station
+    if 'DPC' in clean_position or 'DIVISION POLICE COMMANDER' in clean_position:
+        existing_dpc = active_users_query.filter(
+            func.upper(models.Users.station) == clean_station,
+            func.upper(models.Users.position).like('%DPC%')
+        ).first()
+        if existing_dpc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Registration Blocked: Station/Division '{clean_station}' already has a Division Police Commander (DPC) assigned."
+            )
+
+    if 'OC STATION' in clean_position or clean_position == 'OC':
+        existing_oc = active_users_query.filter(
+            func.upper(models.Users.station) == clean_station,
+            or_(
+                func.upper(models.Users.position) == 'OC STATION',
+                func.upper(models.Users.position) == 'OC'
+            )
+        ).first()
+        if existing_oc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Registration Blocked: Station '{clean_station}' already has an OC Station assigned."
+            )
+
+    if 'OC CID' in clean_position or 'DIOC' in clean_position:
+        existing_occid = active_users_query.filter(
+            func.upper(models.Users.station) == clean_station,
+            or_(
+                func.upper(models.Users.position).like('%OC CID%'),
+                func.upper(models.Users.position).like('%DIOC%')
+            )
+        ).first()
+        if existing_occid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Registration Blocked: Station '{clean_station}' already has an OC CID assigned."
+            )
+
+    # 4. Singular National / KMP Directorate Command Positions
+    singular_positions = {
+        'KMP COMMANDER': 'KMP Commander / Commander KMP',
+        'COMMANDER KMP': 'KMP Commander / Commander KMP',
+        'DEPUTY KMP COMMANDER': 'Deputy Commander KMP',
+        'KMP ADMIN OFFICER': 'Admin Officer KMP',
+        'KMP COMMANDER CID': 'KMP Commander CID',
+        'KMP COMMANDER CI': 'KMP Commander CI',
+        'KMP COMMANDER TRAFFIC': 'KMP Commander Traffic',
+        'KMP COMMANDER FFU': 'KMP Commander FFU',
+        'COMMANDER 999 ERU': 'Commander 999 ERU',
+        'KMP COMMANDER OPERATIONS': 'KMP Commander Operations'
+    }
+
+    for key_pos, label in singular_positions.items():
+        if key_pos in clean_position:
+            existing_singular = active_users_query.filter(
+                func.upper(models.Users.position).like(f'%{key_pos}%')
+            ).first()
+            if existing_singular:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Registration Blocked: Position '{label}' is already occupied by {existing_singular.name} ({existing_singular.fnum})."
+                )
 
     uploaded_photo_url = profile_photo_path
     if file and BUCKET_NAME:
@@ -293,13 +405,13 @@ async def signup(
         name=str(name).strip().upper(),
         rank=str(rank).strip().upper(),
         sex=str(sex).strip().upper(),
-        region=str(region).strip().upper(),
+        region=clean_region,
         division=str(division or station).strip().upper(),
-        station=str(station).strip().upper(),
-        position=str(position).strip().upper() if position else "GENERAL DUTIES",
+        station=clean_station,
+        position=clean_position if clean_position else "GENERAL DUTIES",
         email=str(email).strip() if email else None,
         phone=clean_phone,
-        role=str(role).strip().upper() if role else "USER",
+        role=clean_role if clean_role else "USER",
         hashed_password=hashed_password,
         profile_photo_path=uploaded_photo_url or "",
         is_approved=False,
@@ -498,7 +610,7 @@ def permanent_delete_user(
     ).first()
 
     if not target_user:
-        raise HTTPException(status_code=404, detail="User record not found.")
+        raise HTTPException(status_code=404, detail="Command user record not found.")
 
     try:
         db.delete(target_user)

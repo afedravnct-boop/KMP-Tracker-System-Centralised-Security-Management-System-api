@@ -18,11 +18,11 @@ import {
 
 // 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 const REGIONAL_HIERARCHY = {
-  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
-  "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
 // 🟢 Dual-Equivalence Engine for Regional Headquarter matching
@@ -72,6 +72,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   
   const [searchTerm, setSearchTerm] = useState('');
   const [showDelegationModal, setShowDelegationModal] = useState(false);
+  const [delegationSearchTerm, setDelegationSearchTerm] = useState('');
 
   const [revokePrompt, setRevokePrompt] = useState({
     isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: ''
@@ -90,7 +91,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
   const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
 
-  // 🟢 Role classification synchronized with Nominal Roll
   const isGlobalTier = isSuperAdmin || 
     userRoleClean === 'ASSISTANT_SUPER_ADMIN' ||
     ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) ||
@@ -111,7 +111,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const canViewGlobalActive = canViewGlobal || isGlobalTier;
   const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && !currentUser?.permissions?.global_open && !isSuperAdmin;
 
-  // 🟢 RPCs default to their Region with full station oversight
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState('ALL STATIONS');
 
@@ -123,7 +122,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
   }, [canViewGlobalActive, isRPC, isTopCommand, userRegClean]);
 
-  // 🟢 Strict hierarchy check ensuring station-to-region mapping acts as a fallback
   const canControlTargetUser = useCallback((targetUser) => {
     if (!targetUser) return false;
     const targetRole = (targetUser.role || '').toUpperCase();
@@ -152,7 +150,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
     if (myWeight <= targetWeight) return false; 
 
-    // Regional containment mapping: Checks if target's station belongs to your region
     const belongsToMyRegion = targetUser.region === currentUser?.region || 
       (REGIONAL_HIERARCHY[currentUser?.region] && REGIONAL_HIERARCHY[currentUser?.region].some(s => isStationEquivalent(s, targetUser.station)));
 
@@ -237,8 +234,27 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     if (isReadOnlyObserver) return;
     const userName = stripHtmlTags(typeof userToApprove === 'object' ? (userToApprove.name || '') : '').toUpperCase();
     const cleanFnum = stripHtmlTags(typeof userToApprove === 'object' ? userToApprove.fnum : userToApprove).toUpperCase();
+    const cleanIpps = stripHtmlTags(typeof userToApprove === 'object' ? userToApprove.ipps : '').toUpperCase();
+    const cleanNin = stripHtmlTags(typeof userToApprove === 'object' ? userToApprove.nin : '').toUpperCase();
 
-    // 🟢 Critical UPF File Number Validation
+    // 🟢 STRICT DUPLICATE CHECKER FAILSFE: Scans the master roster for FNUM, IPPS, or NIN conflicts
+    const duplicateExists = allSystemUsers.some(u => {
+      const uFnum = (u.fnum || '').toUpperCase();
+      const uIpps = (u.ipps || '').toUpperCase();
+      const uNin = (u.nin || '').toUpperCase();
+
+      if (uFnum && cleanFnum && uFnum === cleanFnum) return true;
+      if (uIpps && cleanIpps && uIpps === cleanIpps) return true;
+      if (uNin && cleanNin && uNin === cleanNin) return true;
+      return false;
+    });
+
+    if (duplicateExists) {
+      alert(`⛔ APPROVAL BLOCKED: An existing or revoked account is already using this Force Number, IPPS, or NIN. You must completely delete the revoked/duplicate account from the vault before approving this identity.`);
+      setIsProcessingAction(false);
+      return;
+    }
+
     if (cleanFnum.includes('/')) {
       const prefix = cleanFnum.split('/')[0];
       const nameInitial = userName.charAt(0);
@@ -356,7 +372,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const handlePermanentDelete = async (fnum, name) => {
     if (!isSuperAdmin) {
-      alert("SECURITY RESTRICTION: Only Super Admins can execute permanent account deletion.");
+      alert("SECURITY RESTRICTION: Only Super Admins can permanently delete accounts.");
       return;
     }
     if (!window.confirm(`⚠️ CRITICAL: Permanently erase ${name} (${fnum}) from the master database?`)) return;
@@ -391,7 +407,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       if (!res.ok) throw new Error("Failed to update delegation.");
       alert(`✅ Delegation successfully ${givePower ? 'GRANTED' : 'REVOKED'} for ${targetUser.name} (${targetUser.fnum}).`);
       fetchAllSystemUsers();
-      setShowDelegationModal(false);
     } catch (err) {
       alert(`Delegation Error: ${err.message}`);
     }
@@ -581,7 +596,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     return fields.some(field => stripHtmlTags(String(item[field] || '')).toLowerCase().includes(term));
   };
 
-  // 🟢 Enhanced filtering pulling all stations logically underneath the region
   const filterByRegionStation = (items, itemRegionKey = 'region', itemStationKey = 'station', searchFields = []) => {
     return items.filter(item => {
       const itemRegion = stripHtmlTags(item[itemRegionKey] || '').trim().toUpperCase();
@@ -593,7 +607,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         return matchesSearch(item, searchFields);
       }
 
-      // Region Check: Match if item's region strictly matches OR if the item's station belongs to this active region
       const belongsToRegion = activeReg === 'ALL REGIONS' || 
                               itemRegion === activeReg || 
                               (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, itemStation)));
@@ -671,7 +684,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
         {isTopCommand && (
           <button 
-            onClick={() => setShowDelegationModal(true)}
+            onClick={() => { setDelegationSearchTerm(''); setShowDelegationModal(true); }}
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center shadow-md transition cursor-pointer"
           >
             <Award size={14} className="mr-2" /> Delegate Approval Powers
@@ -870,9 +883,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
                             return (
                               <td key={idx} className="p-2 text-center border-l border-slate-100 dark:border-slate-800 w-20 min-w-[80px]">
+                                {/* 🟢 ENABLED UNCHECKING FOR TOP OFFICIALS: Respects explicit false values */}
                                 <input 
                                   type="checkbox" 
-                                  checked={u.role === 'SUPER_ADMIN' || Boolean(p[col.key])} 
+                                  checked={p[col.key] !== false ? (['SUPER_ADMIN', 'ADMIN'].includes(u.role) || Boolean(p[col.key])) : false} 
                                   disabled={isDisabled}
                                   onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
                                   className={`w-3.5 h-3.5 rounded ${isDisabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'} accent-blue-600`} 
@@ -915,7 +929,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                         </div>
                       </td>
                       <td className="p-3 text-right space-x-2">
-                        {/* 🟢 Inspect Dossier Button in the Revoked Vault */}
                         <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedPendingUser(u); }} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-lg text-[10px] shadow-sm inline-flex items-center transition cursor-pointer">
                           <Eye size={12} className="mr-1.5"/> Inspect Dossier
                         </button>
@@ -1074,33 +1087,64 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 DELEGATION MODAL */}
+      {/* 🟢 WIDER DELEGATION MODAL WITH SEARCH BOX */}
       {showDelegationModal && (
         <div className="fixed inset-0 bg-black/70 z-[999999] flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl text-white">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl p-6 space-y-4 shadow-2xl text-white">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <h3 className="text-sm font-extrabold uppercase flex items-center">
                 <Award className="w-4 h-4 mr-2 text-yellow-400" /> Delegate Command Approval Powers
               </h3>
               <button onClick={() => setShowDelegationModal(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
             </div>
-            <p className="text-xs text-slate-400">Select an officer in your command jurisdiction to delegate authorization and matrix approval privileges.</p>
-            <div className="max-h-60 overflow-y-auto space-y-2 custom-scrollbar">
-              {allSystemUsers.filter(u => u.role !== 'SUPER_ADMIN' && canControlTargetUser(u)).map(u => (
-                <div key={u.fnum} className="bg-slate-800 p-3 rounded-lg flex items-center justify-between border border-slate-700">
-                  <div>
-                    <div className="font-bold text-xs">{formatOfficerHeader(u)}</div>
-                    <div className="text-[10px] text-slate-400">{u.station} / {u.region} • <span className="text-yellow-400">{u.role}</span></div>
+            
+            <p className="text-xs text-slate-400">Search and select an officer in your command jurisdiction to delegate authorization and matrix approval privileges.</p>
+            
+            {/* 🟢 Search Input for Delegation Modal */}
+            <div className="relative flex items-center">
+              <Search size={14} className="absolute left-3 text-slate-400" />
+              <input 
+                type="text"
+                value={delegationSearchTerm}
+                onChange={(e) => setDelegationSearchTerm(e.target.value)}
+                placeholder="Search by name, F/No, or station..."
+                className="w-full pl-9 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white outline-none focus:border-indigo-500"
+              />
+              {delegationSearchTerm && (
+                <button onClick={() => setDelegationSearchTerm('')} className="absolute right-3 text-slate-400 hover:text-white text-xs font-bold">×</button>
+              )}
+            </div>
+
+            <div className="max-h-80 overflow-y-auto space-y-2 custom-scrollbar pr-1">
+              {allSystemUsers
+                .filter(u => {
+                  if (u.role === 'SUPER_ADMIN' || !canControlTargetUser(u)) return false;
+                  if (!delegationSearchTerm.trim()) return true;
+                  const term = delegationSearchTerm.trim().toLowerCase();
+                  const name = (u.name || "").toLowerCase();
+                  const fnum = (u.fnum || "").toLowerCase();
+                  const station = (u.station || "").toLowerCase();
+                  return name.includes(term) || fnum.includes(term) || station.includes(term);
+                })
+                .map(u => (
+                  <div key={u.fnum} className="bg-slate-800/90 p-3.5 rounded-xl flex items-center justify-between border border-slate-700 hover:border-indigo-500 transition-colors">
+                    <div>
+                      <div className="font-bold text-xs">{formatOfficerHeader(u)}</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">{u.station} / {u.region} • <span className="text-yellow-400 font-semibold">{u.role}</span></div>
+                    </div>
+                    <div className="space-x-2 shrink-0">
+                      {u.permissions?.can_approve ? (
+                        <button onClick={() => handleToggleDelegationPower(u, false)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-extrabold cursor-pointer shadow-sm">Revoke Power</button>
+                      ) : (
+                        <button onClick={() => handleToggleDelegationPower(u, true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-extrabold cursor-pointer shadow-sm">Delegate Power</button>
+                      )}
+                    </div>
                   </div>
-                  <div className="space-x-2">
-                    {u.permissions?.can_approve ? (
-                      <button onClick={() => handleToggleDelegationPower(u, false)} className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer">Revoke Power</button>
-                    ) : (
-                      <button onClick={() => handleToggleDelegationPower(u, true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded text-[10px] font-bold cursor-pointer">Delegate Power</button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                ))}
+            </div>
+            
+            <div className="flex justify-end pt-2 border-t border-slate-800">
+              <button onClick={() => setShowDelegationModal(false)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs cursor-pointer">Done</button>
             </div>
           </div>
         </div>

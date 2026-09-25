@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Shield, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, 
   Filter, Save, Truck, Loader2, Lock, RefreshCw, Box
@@ -7,36 +7,36 @@ import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
 
 const REGIONAL_HIERARCHY = {
-  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 Standardized Dropdowns
-const CASE_REF_TYPES = ['SD REF:', 'CRB:', 'TAR:', 'GEF:', 'DEF:'];
-const STATUS_OPTIONS = ['UNDER INVESTIGATION', 'PENDING COURT', 'IN COURT', 'UNCLAIMED', 'FORFEITED', 'CLEARED', 'DISPOSED BY COURT', 'CUSTOM'];
-const POLICE_UNITS = [
-  '1ST DIV', '999 ERU', 'ASTU', 'CI', 'CID', 'CT', 'DIS', 'EPPU', 'FFU', 'FIRE', 'FLYING SQUAD', 'FSU', 
-  'G/DUTIES', 'IHP', 'JAT', 'MILITARY POLICE', 'MINERAL POLICE', 'MOTORCYCLE SQUAD', 'PARLIAMENTARY POLICE', 'PPG', 'SFC', 'SHACU', 'TRAFFIC'
-].sort();
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+const isStationEquivalent = (statA, statB) => {
+  const a = stripHtmlTags(statA || '').trim().toUpperCase();
+  const b = stripHtmlTags(statB || '').trim().toUpperCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
 
-// 🟢 NEW: Broadened Exhibit Categories
-const EXHIBIT_CATEGORIES = [
-  'MOTOR VEHICLE', 'MOTORCYCLE', 'BICYCLE', 'WATERCRAFT/BOAT', 
-  'ELECTRONICS/COMPUTER', 'CURRENCY/MONEY', 'CLOTHING/APPAREL', 
-  'DOCUMENTS/IDs', 'WEAPON/FIREARM', 'CONTRABAND/DRUGS', 'OTHER'
-];
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
+};
 
 const getOfficialRegionForStation = (stationName, dbRegion) => {
   const cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
   const cleanDbRegion = stripHtmlTags(dbRegion || '').trim().toUpperCase();
-  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
+  
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].some(s => isStationEquivalent(s, cleanStation))) {
     return cleanDbRegion;
   }
+  
   for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
-    if (stationsList.includes(cleanStation)) return regionName;
+    if (stationsList.some(s => isStationEquivalent(s, cleanStation))) return regionName;
   }
   return cleanDbRegion || 'KMP GENERAL';
 };
@@ -77,25 +77,53 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
 
-  const canViewGlobalActive = canViewGlobal || 
-    ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || 
-    currentUser?.permissions?.view_global_roster === true || 
-    currentUser?.permissions?.global_observer === true;
+  // 🟢 OPSEC Role Classification Engine
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
 
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+    currentUser?.permissions?.view_global_roster === true;
+
+  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+
+  const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
   
+  const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN', 'STATION_ADMIN', 'DIVISION_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
+
+  const isFilterInitialized = useRef(false);
+  useEffect(() => {
+    if (!isFilterInitialized.current && currentUser?.station) {
+      if (canViewGlobalLevel) {
+        setFilterRegion('ALL REGIONS');
+        setFilterStation('ALL STATIONS');
+      } else if (isRegionalCommand) {
+        setFilterRegion(userRegClean);
+        setFilterStation('ALL STATIONS');
+      } else {
+        setFilterRegion(userRegClean);
+        setFilterStation(stripHtmlTags(currentUser?.station || '').toUpperCase());
+      }
+      isFilterInitialized.current = true;
+    }
+  }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
+
   const [filterCaseType, setFilterCaseType] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [filterUnit, setFilterUnit] = useState('ALL');
   
   const [customStatusInput, setCustomStatusInput] = useState('');
 
-  const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
+  const getTodayString = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).split(',')[0].replace(/\//g, '-');
 
   const [formData, setFormData] = useState({
     id: null,
-    category: 'MOTOR VEHICLE', // 🟢 New Field
+    category: 'MOTOR VEHICLE',
     reg_no: '',
     type_make: '',
     colour: '',
@@ -107,7 +135,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     unit_responsible: 'CID',
     assorted_items: 'NIL',
     comment: 'NIL',
-    region: stripHtmlTags(currentUser?.region || ''),
+    region: userRegClean,
     station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
     impounded_by_fnum: stripHtmlTags(currentUser?.fnum || ''),
     impounded_by_rank: stripHtmlTags(currentUser?.rank || ''),
@@ -163,7 +191,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       unit_responsible: 'CID',
       assorted_items: 'NIL',
       comment: 'NIL',
-      region: stripHtmlTags(currentUser?.region || ''),
+      region: userRegClean,
       station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
       impounded_by_fnum: stripHtmlTags(currentUser?.fnum || ''),
       impounded_by_rank: stripHtmlTags(currentUser?.rank || ''),
@@ -206,7 +234,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
     const payload = {
       ...formData,
-      reg_no: formData.reg_no.trim() || 'NIL', // Default to NIL if blank
+      reg_no: formData.reg_no.trim() || 'NIL',
       case_no: finalCaseNo,
       status: finalStatus,
       region: getOfficialRegionForStation(formData.station, formData.region),
@@ -259,7 +287,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       }
     }
 
-    // 🟢 Smart Fallback Parsing: If DB doesn't have a category column, try to split it from type_make
     let extractedCategory = item.category || 'MOTOR VEHICLE';
     let extractedTypeMake = item.type_make || '';
     
@@ -289,11 +316,29 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // 🟢 OPSEC Filter Engine for Exhibits Table
   const filteredExhibits = useMemo(() => {
     return serverExhibits.filter(item => {
+      const stn = stripHtmlTags(item.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, item.region);
+
+      if (canViewGlobalLevel && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
+        // Global view allowed
+      } else {
+        const belongsToRegion = filterRegion === 'ALL REGIONS' || 
+                                reg === filterRegion || 
+                                (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
+
+        if (!belongsToRegion) return false;
+
+        if (filterStation !== 'ALL STATIONS') {
+          if (!isStationEquivalent(stn, filterStation)) return false;
+        }
+      }
+
       const diffDays = Math.ceil(Math.abs(new Date() - new Date(item.date_impounded || item.created_at)) / (1000 * 60 * 60 * 24));
       if (dateFilter === 'TODAY') {
-        const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+        const todayStr = getTodayString();
         if (item.date_impounded !== todayStr) return false;
       } else if (dateFilter === 'LAST 7 DAYS' && diffDays > 7) return false;
       else if (dateFilter === 'LAST 30 DAYS' && diffDays > 30) return false;
@@ -316,7 +361,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
       return true;
     });
-  }, [serverExhibits, dateFilter, filterCaseType, filterStatus, filterUnit]);
+  }, [serverExhibits, dateFilter, filterCaseType, filterStatus, filterUnit, filterRegion, filterStation, canViewGlobalLevel]);
 
   const metrics = useMemo(() => {
     const getCount = (statusName) => 
@@ -334,7 +379,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     };
   }, [filteredExhibits]);
 
-  // 🟢 Dynamic Placeholders based on category
   const getRegPlaceholder = () => {
     if (['MOTOR VEHICLE', 'MOTORCYCLE'].includes(formData.category)) return "e.g. UGH 190C";
     if (formData.category === 'ELECTRONICS/COMPUTER') return "e.g. SERIAL NUMBER / MAC ADDRESS";
@@ -402,7 +446,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
               <form onSubmit={handleFormSubmit} className="p-4 space-y-3 text-xs">
                 
-                {/* 🟢 NEW CATEGORY FIELD */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-1">
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Exhibit Category *</label>
@@ -416,7 +459,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                   </div>
                 </div>
 
-                {/* 🟢 BROADENED ITEM IDENTIFICATION */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1" title="Leave blank or type NIL if no identifier exists">Identifier (Reg / Serial) </label>
@@ -491,14 +533,14 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Region *</label>
-                    <select name="region" value={formData.region} onChange={handleInputChange} className="w-full border rounded-lg p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500">
-                      {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
+                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalLevel} className="w-full border rounded-lg p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50">
+                      {canViewGlobalLevel ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={userRegClean}>{userRegClean}</option>}
                     </select>
                   </div>
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange} className="w-full border rounded-lg p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500">
-                      {(REGIONAL_HIERARCHY[formData.region] || []).map(stn => <option key={stn} value={stn}>{stn}</option>)}
+                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(canViewGlobalLevel || isRegionalCommand)} className="w-full border rounded-lg p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50">
+                      {(canViewGlobalLevel || isRegionalCommand) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stn => <option key={stn} value={stn}>{stn}</option>) : <option value={userRegClean}>{stripHtmlTags(currentUser?.station || '')}</option>}
                     </select>
                   </div>
                 </div>
@@ -555,12 +597,12 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                   <option value="LAST 90 DAYS">LAST 90 DAYS</option>
                 </select>
 
-                <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 disabled:opacity-50 outline-none cursor-pointer">
-                  {canViewGlobalActive ? (<><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+                <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalLevel} className="border dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 disabled:opacity-50 outline-none cursor-pointer">
+                  {canViewGlobalLevel ? (<><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>) : <option value={userRegClean}>{userRegClean}</option>}
                 </select>
 
-                <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 disabled:opacity-50 outline-none cursor-pointer">
-                  {canViewGlobalActive ? (<><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stn => <option key={stn} value={stn}>{stn}</option>) : null}</>) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+                <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!(canViewGlobalLevel || isRegionalCommand)} className="border dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 disabled:opacity-50 outline-none cursor-pointer">
+                  {(canViewGlobalLevel || isRegionalCommand) ? (<><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stn => <option key={stn} value={stn}>{stn}</option>) : null}</>) : <option value={stripHtmlTags(currentUser?.station || '').toUpperCase()}>{stripHtmlTags(currentUser?.station || '').toUpperCase()}</option>}
                 </select>
               </div>
             </div>
@@ -598,7 +640,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                 <thead className="bg-emerald-900 text-white sticky top-0 z-10 font-black text-[10px]">
                   <tr>
                     <th className="px-3 py-3 text-center w-12">S/NO</th>
-                    {/* 🟢 Updated Table Headers to reflect categories */}
                     <th className="px-3 py-3 text-left">IDENTIFIER (REG/SERIAL)</th>
                     <th className="px-3 py-3 text-left">CATEGORY</th>
                     <th className="px-3 py-3 text-left">DESCRIPTION</th>
@@ -622,7 +663,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                   ) : (
                     filteredExhibits.map((item, index) => {
                       
-                      // 🟢 Safe Display parsing for Category & Description
                       let displayCategory = item.category || 'MOTOR VEHICLE';
                       let displayType = stripHtmlTags(item.type_make);
                       if (!item.category && displayType.includes(' - ')) {
@@ -638,7 +678,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                         <td className="px-3 py-2.5 text-center font-black">{index + 1}</td>
                         <td className="px-3 py-2.5 font-extrabold text-emerald-800 dark:text-emerald-400 group-hover:text-amber-700">{stripHtmlTags(item.reg_no)}</td>
                         
-                        {/* 🟢 Render Category and Description */}
                         <td className="px-3 py-2.5 font-black text-[10px] text-slate-500">{displayCategory}</td>
                         <td className="px-3 py-2.5 font-bold uppercase">{displayType}</td>
                         

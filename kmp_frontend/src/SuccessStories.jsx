@@ -1,27 +1,41 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X, Filter, FileText, ChevronDown, ChevronUp, Shield } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { authFetch } from './api';
+import { stripHtmlTags } from './App';
 
 const REGIONAL_HIERARCHY = {
-  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-const getOfficialRegionForStation = (stationName, dbRegion) => {
-  const cleanStation = (stationName || '').trim().toUpperCase();
-  const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+const isStationEquivalent = (statA, statB) => {
+  const a = stripHtmlTags(statA || '').trim().toUpperCase();
+  const b = stripHtmlTags(statB || '').trim().toUpperCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
 
-  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
+};
+
+const getOfficialRegionForStation = (stationName, dbRegion) => {
+  const cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
+  const cleanDbRegion = stripHtmlTags(dbRegion || '').trim().toUpperCase();
+
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].some(s => isStationEquivalent(s, cleanStation))) {
     return cleanDbRegion;
   }
 
   for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
-    if (stationsList.includes(cleanStation)) {
+    if (stationsList.some(s => isStationEquivalent(s, cleanStation))) {
       return regionName;
     }
   }
@@ -93,10 +107,41 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
   const [selectedDossier, setSelectedDossier] = useState(null);
   const [expandedRows, setExpandedRows] = useState({});
 
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true;
+  // 🟢 OPSEC Role Classification Engine
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
 
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+    currentUser?.permissions?.view_global_roster === true;
+
+  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+
+  const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
+  
+  const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
+
+  const isFilterInitialized = useRef(false);
+  useEffect(() => {
+    if (!isFilterInitialized.current && currentUser?.station) {
+      if (canViewGlobalLevel) {
+        setFilterRegion('ALL REGIONS');
+        setFilterStation('ALL STATIONS');
+      } else if (isRegionalCommand) {
+        setFilterRegion(userRegClean);
+        setFilterStation('ALL STATIONS');
+      } else {
+        setFilterRegion(userRegClean);
+        setFilterStation(stripHtmlTags(currentUser?.station || '').toUpperCase());
+      }
+      isFilterInitialized.current = true;
+    }
+  }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
   
   const [notification, setNotification] = useState(null);
   const [updateSearch, setUpdateSearch] = useState('');
@@ -104,10 +149,10 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
   if (!stories) return <div className="p-4 text-gray-500 dark:text-slate-400">Loading mission logs...</div>;
 
-  const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
+  const getTodayString = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).split(',')[0].replace(/\//g, '-');
 
   const [formData, setFormData] = useState({
-    sn: null, region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+    sn: null, region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
     date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
     narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: ''
   });
@@ -133,22 +178,30 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     return null;
   };
 
+  // 🟢 OPSEC Filter Engine for Success Stories
   const filteredStories = useMemo(() => {
     return (Array.isArray(stories) ? stories : []).filter(s => {
-      const stn = (s.station || '').trim().toUpperCase();
+      const stn = stripHtmlTags(s.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, s.region);
 
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
-        // Fall through
+      if (canViewGlobalLevel && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
+        // Global viewing allowed
       } else {
-        if (filterRegion !== 'ALL REGIONS' && reg !== filterRegion.toUpperCase()) return false;
-        if (filterStation !== 'ALL STATIONS' && stn !== filterStation.toUpperCase()) return false;
+        const belongsToRegion = filterRegion === 'ALL REGIONS' || 
+                                reg === filterRegion || 
+                                (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
+
+        if (!belongsToRegion) return false;
+
+        if (filterStation !== 'ALL STATIONS') {
+          if (!isStationEquivalent(stn, filterStation)) return false;
+        }
       }
 
       const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24));
       
       if (dateFilter === 'TODAY') {
-        const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+        const todayStr = getTodayString();
         if (s.date !== todayStr) return false;
       } 
       else if (dateFilter === 'LAST 7 DAYS') { if (diffDays > 7) return false; } 
@@ -162,29 +215,34 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       
       return true;
     });
-  }, [stories, filterRegion, filterStation, dateFilter, canViewGlobalActive]);
+  }, [stories, filterRegion, filterStation, dateFilter, canViewGlobalLevel]);
 
   const availableUpdateStories = useMemo(() => {
     return (Array.isArray(stories) ? stories : []).filter(s => {
-      const stn = (s.station || '').trim().toUpperCase();
+      const stn = stripHtmlTags(s.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, s.region);
 
-      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && !canViewGlobalActive && reg !== currentUser.region) return false;
+      if (!canViewGlobalLevel) {
+        const belongsToRegion = reg === userRegClean || 
+                                (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(st => isStationEquivalent(st, stn)));
+        if (!belongsToRegion) return false;
+      }
+
       if (updateSearch) {
-        const query = updateSearch.toLowerCase();
+        const query = stripHtmlTags(updateSearch).toLowerCase();
         return s.sn.toString().includes(query) || s.narrative.toLowerCase().includes(query);
       }
       return true;
     });
-  }, [stories, currentUser, updateSearch, canViewGlobalActive]);
+  }, [stories, updateSearch, canViewGlobalLevel, userRegClean]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    if (name === 'region') setFormData({ ...formData, region: value, station: REGIONAL_HIERARCHY[value][0] });
-    else setFormData({ ...formData, [name]: value });
+    const cleanValue = stripHtmlTags(value);
+    if (name === 'region') setFormData({ ...formData, region: cleanValue, station: REGIONAL_HIERARCHY[cleanValue]?.[0] || '' });
+    else setFormData({ ...formData, [name]: cleanValue });
   };
 
-  // 🟢 MULTI-FILE UPLOAD HANDLER
   const handleExhibitUpload = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
@@ -193,25 +251,24 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       let uploadedUrls = [];
       let hasError = false;
 
-      // Upload sequentially to avoid choking the connection
       for (const file of files) {
         const uploadData = new FormData();
         uploadData.append("file", file);
         uploadData.append("category", "scene");
-        uploadData.append("case_id", formData.sn || "NEW_STORY");
-        uploadData.append("narrative", formData.narrative || "Exhibit Upload");
+        uploadData.append("case_id", stripHtmlTags(formData.sn || "NEW_STORY"));
+        uploadData.append("narrative", stripHtmlTags(formData.narrative || "Exhibit Upload"));
 
         try {
           const response = await authFetch("/api/v1/investigation/upload/", { method: "POST", body: uploadData });
           const data = await response.json();
           if (data.full_s3_url || data.cloud_storage_path) {
-            uploadedUrls.push(data.full_s3_url || data.cloud_storage_path);
+            uploadedUrls.push(stripHtmlTags(data.full_s3_url || data.cloud_storage_path));
           } else {
             hasError = true;
           }
         } catch (error) {
           hasError = true;
-          uploadedUrls.push(URL.createObjectURL(file)); // Fallback preview
+          uploadedUrls.push(URL.createObjectURL(file));
         }
       }
 
@@ -229,7 +286,6 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     }
   };
 
-  // 🟢 REMOVE PHOTO HANDLER
   const removePhoto = (indexToRemove) => {
     const urls = formData.photo_url.split(',');
     const newUrls = urls.filter((_, idx) => idx !== indexToRemove);
@@ -240,7 +296,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     setOperation(op); setNotification(null);
     if (op === 'new') {
       setFormData({
-        sn: null, region: currentUser.region, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+        sn: null, region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
         date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
         narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: ''
       });
@@ -257,19 +313,19 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       ? formData.narrative.replace(/color:\s*(white|#fff|#ffffff);?/gi, '')
       : '';
 
-    const activeRegion = (canViewGlobalActive && filterRegion !== 'ALL REGIONS') ? filterRegion : formData.region;
-    const activeStation = (canViewGlobalActive && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
+    const activeRegion = (canViewGlobalLevel && filterRegion !== 'ALL REGIONS') ? filterRegion : formData.region;
+    const activeStation = (canViewGlobalLevel && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
 
     const submissionData = { ...formData, region: activeRegion, station: activeStation, narrative: cleanedNarrative };
 
     if (operation === 'new') {
-      const cleanNewText = submissionData.narrative.replace(/<[^>]*>?/gm, '').trim().toLowerCase();
-      const isDuplicate = stories.some(s => s.narrative.replace(/<[^>]*>?/gm, '').trim().toLowerCase() === cleanNewText);
+      const cleanNewText = stripHtmlTags(submissionData.narrative).toLowerCase();
+      const isDuplicate = stories.some(s => stripHtmlTags(s.narrative).toLowerCase() === cleanNewText);
 
       if (isDuplicate) return setNotification("Error: This exact success story has already been logged.");
 
       const exactNextSN = (stories && stories.length > 0) ? Math.max(...stories.map(s => s.sn || s.id || 0)) + 1 : 1;
-      const newStory = { ...submissionData, sn: exactNextSN, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
+      const newStory = { ...submissionData, sn: exactNextSN, last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})` };
       delete newStory.updateText;
       
       try {
@@ -278,7 +334,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         });
         
         const resData = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(resData.detail || "Failed to save to database");
+        if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Failed to save to database");
         
         if (resData.sn) newStory.sn = resData.sn;
         
@@ -288,7 +344,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
       } catch (err) {
         console.error("Cloud sync failed:", err);
-        return setNotification(`Error: ${err.message}`);
+        return setNotification(`Error: ${stripHtmlTags(err.message)}`);
       }
 
     } else if (operation === 'update') {
@@ -298,7 +354,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         ? `${submissionData.narrative}<br/><br/><strong>[UPDATE ${new Date().toISOString().slice(0,16).replace('T', ' ')}]:</strong><br/>${submissionData.updateText}` 
         : submissionData.narrative;
         
-      const updatedRecord = { ...submissionData, narrative: updatedNarrative, last_updated_by: `${currentUser.name} (${currentUser.fnum})` };
+      const updatedRecord = { ...submissionData, narrative: updatedNarrative, last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})` };
       delete updatedRecord.updateText;
 
       try {
@@ -307,14 +363,14 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         });
         
         const resData = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(resData.detail || "Failed to update record in database");
+        if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Failed to update record in database");
 
         setStories((stories || []).map(s => (s.sn === submissionData.sn || s.id === submissionData.sn) ? updatedRecord : s));
         setNotification(`Success story SN ${submissionData.sn} successfully updated!`);
 
       } catch (err) {
         console.error("Cloud sync failed:", err);
-        return setNotification(`Error: ${err.message}`);
+        return setNotification(`Error: ${stripHtmlTags(err.message)}`);
       }
     }
 
@@ -338,16 +394,16 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                 <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all cursor-pointer ${operation === 'update' ? 'bg-green-600 shadow text-white font-bold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
               </div>
 
-              {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-800 dark:text-red-300' : 'bg-green-50 dark:bg-green-950/40 border-green-200 dark:border-green-900 text-green-800 dark:text-green-300'}`}>{notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{notification}</span></div>}
+              {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-800 dark:text-red-300' : 'bg-green-50 dark:bg-green-950/40 border-green-200 dark:border-green-900 text-green-800 dark:text-green-300'}`}>{notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{stripHtmlTags(notification)}</span></div>}
 
               {operation === 'update' && (
                 <div className="bg-yellow-50 dark:bg-slate-800 border border-yellow-200 dark:border-slate-700 rounded-lg p-3">
                   <label className="block text-xs font-bold text-yellow-800 dark:text-yellow-400 mb-2">🔍 Search & Select Story to Update</label>
-                  <input type="text" placeholder="Search by SN or Narrative..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-yellow-200 dark:border-slate-700 rounded outline-none focus:ring-2 focus:ring-yellow-400 bg-white dark:bg-slate-900 dark:text-slate-100" />
+                  <input type="text" placeholder="Search by SN or Narrative..." value={updateSearch} onChange={e => setUpdateSearch(stripHtmlTags(e.target.value))} className="w-full text-sm p-2 mb-2 border border-yellow-200 dark:border-slate-700 rounded outline-none focus:ring-2 focus:ring-yellow-400 bg-white dark:bg-slate-900 dark:text-slate-100" />
                   <div className="max-h-40 overflow-y-auto bg-white dark:bg-slate-900 border border-yellow-100 dark:border-slate-800 rounded custom-scrollbar">
                     {availableUpdateStories.length === 0 ? <div className="p-3 text-xs text-gray-500 dark:text-slate-400 text-center">No success stories found matching your search.</div> : availableUpdateStories?.map(s => (
                         <div key={s.sn || s.id} onClick={() => populateUpdateForm(s)} className={`p-2 text-xs border-b dark:border-slate-800 cursor-pointer transition-colors ${formData.sn === (s.sn || s.id) ? 'bg-yellow-500 text-white font-bold' : 'hover:bg-yellow-50 dark:hover:bg-slate-800 text-gray-700 dark:text-slate-300'}`}>
-                          <span className={formData.sn === (s.sn || s.id) ? 'text-yellow-100' : 'text-gray-400'}>SN: {s.sn || s.id}</span> | <span className={formData.sn === (s.sn || s.id) ? 'text-white' : 'font-bold text-yellow-700 dark:text-yellow-400'}>{s.date}</span> | {s.station}
+                          <span className={formData.sn === (s.sn || s.id) ? 'text-yellow-100' : 'text-gray-400'}>SN: {s.sn || s.id}</span> | <span className={formData.sn === (s.sn || s.id) ? 'text-white' : 'font-bold text-yellow-700 dark:text-yellow-400'}>{stripHtmlTags(s.date)}</span> | {stripHtmlTags(s.station)}
                         </div>
                       ))}
                   </div>
@@ -360,14 +416,14 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Select Region *</label>
-                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-gray-50 dark:bg-slate-800 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
-                      {canViewGlobalActive ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{currentUser.region}</option>}
+                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalLevel || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-gray-50 dark:bg-slate-800 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
+                      {canViewGlobalLevel ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={userRegClean}>{userRegClean}</option>}
                     </select>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-gray-50 dark:bg-slate-800 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
-                      {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : canViewGlobalActive ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{currentUser.station}</option>}
+                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(canViewGlobalLevel || isRegionalCommand) || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-gray-50 dark:bg-slate-800 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
+                      {operation === 'update' ? <option value={formData.station}>{stripHtmlTags(formData.station)}</option> : (canViewGlobalLevel || isRegionalCommand) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={stripHtmlTags(currentUser.station)}>{stripHtmlTags(currentUser.station)}</option>}
                     </select>
                   </div>
                 </div>
@@ -392,10 +448,8 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                   <div className="bg-gray-50 dark:bg-slate-800 p-3 rounded-lg border border-gray-200 dark:border-slate-700">
                     <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-2 flex items-center"><Image size={14} className="mr-1"/> Attach Exhibits / Scene Photos (Optional)</label>
                     <div className="flex items-center space-x-4">
-                      {/* 🟢 MULTI-FILE SELECTOR */}
                       <input type="file" multiple accept="image/*" onChange={handleExhibitUpload} className="text-xs w-full text-slate-500 dark:text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-yellow-50 dark:file:bg-slate-700 file:text-yellow-700 dark:file:text-yellow-300 hover:file:bg-yellow-100 dark:hover:file:bg-slate-600 cursor-pointer" />
                     </div>
-                    {/* 🟢 MULTI-PHOTO PREVIEW GRID */}
                     {formData.photo_url && (
                       <div className="mt-3 flex flex-wrap gap-3">
                         {formData.photo_url.split(',').filter(Boolean).map((url, idx) => (
@@ -440,15 +494,15 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
         <div className="lg:col-span-7 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3">
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+            <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
               {canViewGlobalActive ? (
                 <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-              ) : <option value={currentUser?.region}>{currentUser?.region}</option>}
+              ) : <option value={userRegClean}>{userRegClean}</option>}
             </select>
-            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-              {canViewGlobalActive ? (
+            <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!(canViewGlobalActive || isRegionalCommand)} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+              {(canViewGlobalActive || isRegionalCommand) ? (
                 <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
-              ) : <option value={currentUser?.station}>{currentUser?.station}</option>}
+              ) : <option value={stripHtmlTags(currentUser?.station || '').toUpperCase()}>{stripHtmlTags(currentUser?.station || '').toUpperCase()}</option>}
             </select>
             <select 
               value={dateFilter} 
@@ -494,8 +548,8 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                         onClick={() => setSelectedDossier(story)}
                       >
                         <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 dark:text-slate-100 align-top">{rowId}</td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-slate-400 align-top">{story.date}<br/><span className="text-xs text-gray-400 dark:text-slate-500">{story.time}</span></td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-blue-700 dark:text-blue-400 align-top">{story.station}<br/><span className="text-xs text-gray-400 dark:text-slate-500">{story.region}</span></td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-slate-400 align-top">{stripHtmlTags(story.date)}<br/><span className="text-xs text-gray-400 dark:text-slate-500">{stripHtmlTags(story.time)}</span></td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-blue-700 dark:text-blue-400 align-top">{stripHtmlTags(story.station)}<br/><span className="text-xs text-gray-400 dark:text-slate-500">{story.region}</span></td>
                         <td className="px-4 py-4 text-sm text-gray-600 dark:text-slate-300 align-top whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
                           
                           <div className={`relative ${!isRowExpanded ? 'max-h-28 overflow-hidden' : ''}`}>
@@ -519,7 +573,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                             <div className="mt-3 p-3 bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 rounded-lg flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
                               <div>
                                 <span className="text-[10px] font-extrabold text-blue-800 dark:text-blue-400 uppercase tracking-wider block">🔗 Traceable Prior Crime Record Found:</span>
-                                <span className="text-xs font-black text-blue-900 dark:text-blue-300">{linkedCase.sdRef || linkedCase.sd_ref} — {linkedCase.offence}</span>
+                                <span className="text-xs font-black text-blue-900 dark:text-blue-300">{stripHtmlTags(linkedCase.sdRef || linkedCase.sd_ref)} — {stripHtmlTags(linkedCase.offence)}</span>
                               </div>
                               <button 
                                 onClick={(e) => { e.stopPropagation(); setSelectedCase(linkedCase); }}
@@ -530,13 +584,12 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                             </div>
                           )}
 
-                          {/* 🟢 MULTI-PHOTO TABLE ROW RENDER */}
                           {story.photo_url && (
                             <div className="mt-4 flex flex-wrap gap-2">
                               {story.photo_url.split(',').filter(Boolean).map((url, idx) => (
                                 <div key={idx} className="border dark:border-slate-700 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800 flex justify-center items-center p-1 shadow-sm">
                                   <img 
-                                    src={url} 
+                                    src={stripHtmlTags(url)} 
                                     alt={`Exhibit ${idx + 1}`} 
                                     className="h-24 w-auto object-contain rounded" 
                                     onError={(e) => { e.target.style.display = 'none'; }} 
@@ -546,9 +599,9 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                             </div>
                           )}
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400 font-medium align-top">{story.last_updated_by || "System Genesis"}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400 font-medium align-top">{stripHtmlTags(story.last_updated_by || "System Genesis")}</td>
                         <td className="px-4 py-4 whitespace-nowrap align-top">
-                          <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${story.status?.includes('COMPLETED') ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300'}`}>{story.status}</span>
+                          <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${story.status?.includes('COMPLETED') ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300'}`}>{stripHtmlTags(story.status)}</span>
                         </td>
                       </tr>
                     );
@@ -581,26 +634,26 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
               <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 grid grid-cols-2 gap-4">
                 <div>
                   <span className="text-slate-400 font-bold uppercase block text-[10px]">Command Region</span>
-                  <span className="font-extrabold text-slate-800 dark:text-slate-200">{selectedDossier.region}</span>
+                  <span className="font-extrabold text-slate-800 dark:text-slate-200">{stripHtmlTags(selectedDossier.region)}</span>
                 </div>
                 <div>
                   <span className="text-slate-400 font-bold uppercase block text-[10px]">Police Station / Unit</span>
-                  <span className="font-extrabold text-slate-800 dark:text-slate-200">{selectedDossier.station}</span>
+                  <span className="font-extrabold text-slate-800 dark:text-slate-200">{stripHtmlTags(selectedDossier.station)}</span>
                 </div>
                 <div>
                   <span className="text-slate-400 font-bold uppercase block text-[10px]">Accomplished Date & Time</span>
-                  <span className="font-extrabold text-slate-800 dark:text-slate-200">{selectedDossier.date || 'N/A'} at {selectedDossier.time || 'N/A'}</span>
+                  <span className="font-extrabold text-slate-800 dark:text-slate-200">{stripHtmlTags(selectedDossier.date || 'N/A')} at {stripHtmlTags(selectedDossier.time || 'N/A')}</span>
                 </div>
                 <div>
                   <span className="text-slate-400 font-bold uppercase block text-[10px]">Recording Officer</span>
-                  <span className="font-extrabold text-slate-800 dark:text-slate-200">{selectedDossier.last_updated_by || 'CENTRAL COMMAND'}</span>
+                  <span className="font-extrabold text-slate-800 dark:text-slate-200">{stripHtmlTags(selectedDossier.last_updated_by || 'CENTRAL COMMAND')}</span>
                 </div>
               </div>
 
               <div>
                 <h4 className="font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-1">Operational Status</h4>
                 <span className={`px-2.5 py-1 inline-flex text-xs font-bold rounded-full ${selectedDossier.status?.includes('COMPLETED') ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300'}`}>
-                  {selectedDossier.status}
+                  {stripHtmlTags(selectedDossier.status)}
                 </span>
               </div>
 
@@ -611,7 +664,6 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                 </div>
               </div>
 
-              {/* 🟢 MULTI-PHOTO DOSSIER RENDER */}
               {selectedDossier.photo_url && (
                 <div>
                   <h4 className="font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-2">Attached Exhibits / Evidence</h4>
@@ -619,10 +671,10 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                     {selectedDossier.photo_url.split(',').filter(Boolean).map((url, idx) => (
                       <div key={idx} className="border dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-900 flex justify-center items-center shadow-sm p-1">
                         <img 
-                          src={url} 
+                          src={stripHtmlTags(url)} 
                           alt={`Dossier Exhibit ${idx + 1}`} 
                           className="w-full h-40 object-cover rounded cursor-pointer hover:scale-105 transition-transform" 
-                          onClick={() => window.open(url, '_blank')}
+                          onClick={() => window.open(stripHtmlTags(url), '_blank')}
                         />
                       </div>
                     ))}

@@ -1,19 +1,22 @@
 import os
 import uuid
 import boto3
+import json
 from datetime import datetime
 import pytz
 from fastapi import FastAPI, File, UploadFile, Form, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import func, or_, text
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 # Import our database and models
 from database import get_db, engine
 import models
+from auth import get_current_user
 
 # Ensure tables exist
 models.Base.metadata.create_all(bind=engine)
@@ -45,23 +48,109 @@ s3_client = boto3.client(
 BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 
 # ==========================================
+# OPSEC & DUAL-EQUIVALENCE ENGINE
+# ==========================================
+REGIONAL_HIERARCHY = {
+    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+    "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+    "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+}
+
+def get_scoped_query(db: Session, current_user: models.User, ModelClass):
+    """Dynamically scopes SQL queries based on Command Tier and Regional mapping."""
+    if not ModelClass:
+        return []
+    
+    q = db.query(ModelClass)
+    
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    user_pos = str(current_user.position).strip().upper() if current_user.position else ""
+    user_reg = str(current_user.region).strip().upper() if current_user.region else ""
+    user_stn = str(current_user.station).strip().upper() if current_user.station else ""
+
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+
+    is_absolute_global = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+        "KMP COMMANDER" in user_pos or
+        "DEPUTY KMP COMMANDER" in user_pos or
+        "KMP ADMIN" in user_pos or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True
+    )
+
+    is_kmp_sys_mgr = (
+        user_role == "SYSTEM_MANAGER" and
+        user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos
+    )
+
+    is_kmp_specialist = (
+        user_role == "ASSISTANT_SYSTEM_MANAGER" and
+        user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos
+    )
+
+    is_regional_command = (
+        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] and
+        not is_kmp_sys_mgr and
+        not is_kmp_specialist
+    )
+
+    if is_absolute_global or is_kmp_sys_mgr:
+        return q
+        
+    elif is_kmp_specialist:
+        if hasattr(ModelClass, 'region'):
+            return q.filter(func.upper(ModelClass.region) == user_reg)
+        return q
+        
+    elif is_regional_command:
+        conds = []
+        if hasattr(ModelClass, 'region'):
+            conds.append(func.upper(ModelClass.region) == user_reg)
+        
+        # 🟢 Station Dual-Equivalence Check for missing regional tags
+        if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
+            expanded_stns = set()
+            for s in REGIONAL_HIERARCHY[user_reg]:
+                expanded_stns.add(s)
+                expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
+                expanded_stns.add(s + ' HEADQUARTERS')
+                expanded_stns.add(s + ' HQ')
+            
+            conds.append(func.upper(ModelClass.station).in_(list(expanded_stns)))
+            
+        if conds:
+            return q.filter(or_(*conds))
+        return q.filter(text("1=0"))
+        
+    elif hasattr(ModelClass, 'station'):
+        return q.filter(func.upper(ModelClass.station) == user_stn)
+        
+    return q.filter(text("1=0"))
+
+# ==========================================
 # PYDANTIC SCHEMAS (Matches React Data)
 # ==========================================
 class CrimeReportPayload(BaseModel):
-    # sn removed to allow DB auto-increment
     sdRef: str
     region: str
     station: str
     date: str
     time: str
-    offence: str # Fixed from 'offence. str'
+    offence: str 
     narrative: str
     status: str
     suspects: int
     lastUpdatedBy: str
 
 class OperationalStatisticPayload(BaseModel):
-    # sn removed to allow DB auto-increment
     region: str
     station: str
     date: str
@@ -76,7 +165,6 @@ class OperationalStatisticPayload(BaseModel):
     lastUpdatedBy: str
 
 class EstablishmentPayload(BaseModel):
-    # sn removed to allow DB auto-increment
     region: str
     division: str
     station: str
@@ -93,7 +181,6 @@ class EstablishmentPayload(BaseModel):
     lastUpdatedBy: str
 
 class NominalRollPayload(BaseModel):
-    # sn removed to allow DB auto-increment
     fnum: str
     rank: str
     name: str
@@ -124,7 +211,6 @@ class ArchivePayload(BaseModel):
     fnum: str
     archiveReason: str
 
-# New Schema for Communications
 class CommunicationPayload(BaseModel):
     sender_fnum: str
     sender_name: str
@@ -141,8 +227,9 @@ class CommunicationPayload(BaseModel):
 
 # --- 1. CRIME REPORTS ---
 @app.get("/api/v1/reports")
-def get_reports(db: Session = Depends(get_db)):
-    reports = db.query(models.CrimeReport).order_by(models.CrimeReport.sn.desc()).all()
+def get_reports(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    query = get_scoped_query(db, current_user, models.CrimeReport)
+    reports = query.order_by(models.CrimeReport.sn.desc()).all()
     return [{
         "sn": r.sn, "sdRef": r.sd_ref, "region": r.region, "station": r.station,
         "date": r.date, "time": r.time, "offence": r.offence, "narrative": r.narrative, 
@@ -167,8 +254,9 @@ def create_report(payload: CrimeReportPayload, db: Session = Depends(get_db)):
 
 # --- 2. DISRUPTIVE OPS ---
 @app.get("/api/v1/statistics")
-def get_statistics(db: Session = Depends(get_db)):
-    stats = db.query(models.OperationalStatistic).order_by(models.OperationalStatistic.sn.desc()).all()
+def get_statistics(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    query = get_scoped_query(db, current_user, models.OperationalStatistic)
+    stats = query.order_by(models.OperationalStatistic.sn.desc()).all()
     return [{
         "sn": s.sn, "region": s.region, "station": s.station, "date": s.date,
         "arrested": s.arrested, "givenBond": s.given_bond, "cautioned": s.cautioned,
@@ -196,8 +284,9 @@ def create_statistic(payload: OperationalStatisticPayload, db: Session = Depends
 
 # --- 3. ESTABLISHMENTS ---
 @app.get("/api/v1/establishments")
-def get_establishments(db: Session = Depends(get_db)):
-    ests = db.query(models.Establishment).order_by(models.Establishment.sn.desc()).all()
+def get_establishments(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    query = get_scoped_query(db, current_user, models.Establishment)
+    ests = query.order_by(models.Establishment.sn.desc()).all()
     return [{
         "id": e.id, "region": e.region, "division": e.division, "station": e.station,
         "sub_Station": e.sub_station, "personnel_In_Sub_Station": e.personnel_in_sub_station,
@@ -227,8 +316,9 @@ def create_establishment(payload: EstablishmentPayload, db: Session = Depends(ge
 
 # --- 4. NOMINAL ROLL ---
 @app.get("/api/v1/nominal-roll")
-def get_nominal_roll(db: Session = Depends(get_db)):
-    rolls = db.query(models.NominalRoll).filter(models.NominalRoll.status != "ARCHIVED").order_by(models.NominalRoll.sn.desc()).all()
+def get_nominal_roll(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    query = get_scoped_query(db, current_user, models.NominalRoll)
+    rolls = query.filter(models.NominalRoll.status != "ARCHIVED").order_by(models.NominalRoll.sn.desc()).all()
     return [{
         "sn": r.sn, "fnum": r.fnum, "rank": r.rank, "name": r.name, "sex": r.sex,
         "position": r.position, "dob": r.dob, "doe": r.doe, "doPost": r.do_post,
@@ -279,8 +369,9 @@ def archive_personnel(payload: ArchivePayload, db: Session = Depends(get_db)):
 # FILE UPLOAD ROUTE (Success Stories)
 # ==========================================
 @app.get("/api/v1/success-stories")
-def get_success_stories(db: Session = Depends(get_db)):
-    stories = db.query(models.SuccessStory).order_by(models.SuccessStory.sn.desc()).all()
+def get_success_stories(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    query = get_scoped_query(db, current_user, models.SuccessStory)
+    stories = query.order_by(models.SuccessStory.sn.desc()).all()
     return [{
         "sn": s.sn, "region": s.region, "station": s.station, "date": s.date,
         "time": s.time, "narrative": s.narrative, "photoUrl": s.photo_url, 
@@ -393,8 +484,21 @@ def create_admin_communication(payload: CommunicationPayload, db: Session = Depe
         raise HTTPException(status_code=500, detail="Failed to log Admin_Communication.")
 
 @app.get("/api/v1/Admin_Communication")
-def get_admin_communications(db: Session = Depends(get_db)):
-    comms = db.query(models.Admin_Communication).order_by(models.Admin_Communication.created_at.desc()).all()
+def get_admin_communications(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_reg = str(current_user.region).strip().upper() if current_user.region else "UNKNOWN"
+    user_role = str(current_user.role).strip().upper() if current_user.role else "USER"
+    
+    q = db.query(models.Admin_Communication)
+    
+    if user_role not in ["SUPER_ADMIN", "ADMIN"]:
+        conds = [
+            func.upper(models.Admin_Communication.target_audience) == "ALL",
+            func.upper(models.Admin_Communication.target_region) == "ALL REGIONS",
+            func.upper(models.Admin_Communication.target_region) == user_reg
+        ]
+        q = q.filter(or_(*conds))
+        
+    comms = q.order_by(models.Admin_Communication.created_at.desc()).all()
     return [{
         "id": getattr(c, 'id', None),
         "sender_fnum": c.sender_fnum,

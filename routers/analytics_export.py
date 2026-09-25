@@ -1,4 +1,5 @@
 import io
+import json
 from datetime import datetime
 import pytz
 import pyzipper
@@ -7,6 +8,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import func, or_
 
 from auth import get_current_user, require_export_privilege
 from app.database import get_db
@@ -14,10 +16,55 @@ from app import models
 
 router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics Exports"])
 
+# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
+REGIONAL_HIERARCHY = {
+    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+    "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+    "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+}
+
 @router.get("/export")
 def export_analytics_report(db: Session = Depends(get_db), current_user = Depends(require_export_privilege)):
     try:
-        is_global = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC'] or str(current_user.region).upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']
+        user_role = str(current_user.role).strip().upper() if current_user.role else ""
+        user_pos = str(current_user.position).strip().upper() if current_user.position else ""
+        user_reg = str(current_user.region).strip().upper() if current_user.region else ""
+        user_stn = str(current_user.station).strip().upper() if current_user.station else ""
+
+        perms = current_user.permissions or {}
+        if isinstance(perms, str):
+            try: perms = json.loads(perms)
+            except Exception: perms = {}
+
+        # 🟢 OPSEC Role Classification Engine
+        is_absolute_global = (
+            user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+            "KMP COMMANDER" in user_pos or
+            "DEPUTY KMP COMMANDER" in user_pos or
+            "KMP ADMIN" in user_pos or
+            perms.get("view_global_roster") is True or
+            perms.get("global_observer") is True
+        )
+
+        is_kmp_sys_mgr = (
+            user_role == "SYSTEM_MANAGER" and
+            user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+            "KMP" in user_pos
+        )
+
+        is_kmp_specialist = (
+            user_role == "ASSISTANT_SYSTEM_MANAGER" and
+            user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+            "KMP" in user_pos
+        )
+
+        is_regional_command = (
+            user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] and
+            not is_kmp_sys_mgr and
+            not is_kmp_specialist
+        )
         
         # 1. ORM Models
         CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
@@ -30,9 +77,49 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
             if not ModelClass:
                 return []
             q = db.query(ModelClass)
-            if not is_global and hasattr(ModelClass, 'region'):
-                q = q.filter(ModelClass.region == current_user.region)
-            return q.all()
+            
+            if is_absolute_global or is_kmp_sys_mgr:
+                return q.all()
+                
+            elif is_kmp_specialist:
+                specs = []
+                if "CID" in user_pos: specs.append("CID")
+                if "CI" in user_pos or "CRIME INT" in user_pos: specs.append("CI")
+                if "TRAFFIC" in user_pos: specs.append("TRAFFIC")
+                
+                if specs:
+                    conds = []
+                    for spec in specs:
+                        if hasattr(ModelClass, 'section'): conds.append(func.upper(ModelClass.section).ilike(f"%{spec}%"))
+                        if hasattr(ModelClass, 'dir'): conds.append(func.upper(ModelClass.dir).ilike(f"%{spec}%"))
+                        if hasattr(ModelClass, 'position'): conds.append(func.upper(ModelClass.position).ilike(f"%{spec}%"))
+                    if conds: return q.filter(or_(*conds)).all()
+                return []
+                
+            elif is_regional_command:
+                conds = []
+                if hasattr(ModelClass, 'region'):
+                    conds.append(func.upper(ModelClass.region) == user_reg)
+                
+                # 🟢 Station Dual-Equivalence Check for missing regions
+                if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
+                    expanded_stns = set()
+                    for s in REGIONAL_HIERARCHY[user_reg]:
+                        expanded_stns.add(s)
+                        expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
+                        expanded_stns.add(s + ' HEADQUARTERS')
+                        expanded_stns.add(s + ' HQ')
+                    
+                    conds.append(func.upper(ModelClass.station).in_(list(expanded_stns)))
+                    
+                if conds:
+                    return q.filter(or_(*conds)).all()
+                return []
+                
+            elif hasattr(ModelClass, 'station'):
+                return q.filter(func.upper(ModelClass.station) == user_stn).all()
+                
+            return []
 
         cr_records = get_scoped_query(CrimeModel)
         ops_records = get_scoped_query(StatsModel)

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { 
+import {  
   Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2
 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
@@ -9,23 +9,36 @@ import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
 
 const REGIONAL_HIERARCHY = {
-  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "TRAFFIC", "LOGISTICS", "FLYING SQUAD", "CRIME INTELLIGENCE", "PRO"],
   "POLICE HEADQUARTERS": ["NAGURU"]
+};
+
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+const isStationEquivalent = (statA, statB) => {
+  const a = stripHtmlTags(statA || '').trim().toUpperCase();
+  const b = stripHtmlTags(statB || '').trim().toUpperCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
 };
 
 const getOfficialRegionForStation = (stationName, dbRegion) => {
   const cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
   const cleanDbRegion = stripHtmlTags(dbRegion || '').trim().toUpperCase();
 
-  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].some(s => isStationEquivalent(s, cleanStation))) {
     return cleanDbRegion;
   }
 
   for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
-    if (stationsList.includes(cleanStation)) {
+    if (stationsList.some(s => isStationEquivalent(s, cleanStation))) {
       return regionName;
     }
   }
@@ -84,7 +97,6 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
 };
 
 const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports, setSidebarOpen, isReadOnlyObserver }) => {
-  // 🟢 1. NEW STATE: Server-Side Data Management
   const [serverReports, setServerReports] = useState([]);
   const [isFetchingReports, setIsFetchingReports] = useState(false);
   const [lockupData, setLockupData] = useState([]);
@@ -97,27 +109,41 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
   const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
 
-  const canViewGlobalActive = canViewGlobal || 
-    ['SUPER_ADMIN', 'ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role) || 
-    currentUser?.permissions?.view_global_roster === true || 
-    currentUser?.permissions?.global_observer === true;
+  // 🟢 OPSEC Role Classification Engine
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
 
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : currentUser?.region || '');
-  const [filterStation, setFilterStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : currentUser?.station || '');
+  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+    currentUser?.permissions?.view_global_roster === true;
+
+  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+
+  const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
+  
+  const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
 
   const isFilterInitialized = useRef(false);
   useEffect(() => {
     if (!isFilterInitialized.current && currentUser?.station) {
-      if (canViewGlobalActive) {
+      if (canViewGlobalLevel) {
         setFilterRegion('ALL REGIONS');
         setFilterStation('ALL STATIONS');
+      } else if (isRegionalCommand) {
+        setFilterRegion(userRegClean);
+        setFilterStation('ALL STATIONS');
       } else {
-        setFilterRegion(currentUser.region || '');
-        setFilterStation(currentUser.station || '');
+        setFilterRegion(userRegClean);
+        setFilterStation(stripHtmlTags(currentUser?.station || '').toUpperCase());
       }
       isFilterInitialized.current = true;
     }
-  }, [canViewGlobalActive, currentUser?.station]);
+  }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
 
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
@@ -127,7 +153,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   const [hqGrandTotalInput, setHqGrandTotalInput] = useState('');
   const [showLockupMatrixModal, setShowLockupMatrixModal] = useState(false);  
 
-  // 🟢 2. NEW STATE: Search Debouncing
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   
@@ -138,11 +163,11 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   const [showLockup, setShowLockup] = useState(false);
   const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', nationality: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' });
 
-  const getTodayString = () => new Date().toLocaleDateString('en-CA').split(',')[0].replace(/\//g, '-');
+  const getTodayString = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).split(',')[0].replace(/\//g, '-');
 
   const [formData, setFormData] = useState({
     sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
-    region: stripHtmlTags(currentUser?.region || ''), station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
+    region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
     date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
     offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
   });
@@ -163,7 +188,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     fetchLockupData();
   }, []);
 
-  // 🟢 3. DEBOUNCE EFFECT: Wait 500ms after user stops typing before fetching
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(searchQuery);
@@ -171,7 +195,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     return () => clearTimeout(handler);
   }, [searchQuery]);
 
-  // 🟢 4. SQL FETCH ENGINE
   const fetchFilteredDatabaseReports = useCallback(async () => {
     if (!hasValidSession()) return;
 
@@ -181,13 +204,13 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       if (filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
       if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
       if (debouncedSearch) params.append('search', debouncedSearch);
-      params.append('limit', '200'); // Protect browser memory
+      params.append('limit', '200');
 
       const response = await authFetch(`/api/v1/reports?${params.toString()}`);
       if (response.ok) {
         const data = await response.json();
         setServerReports(data);
-        if (setReports) setReports(data); // Sync up with App.jsx
+        if (setReports) setReports(data);
       }
     } catch (err) {
       console.error("Failed to execute SQL fetch:", err);
@@ -196,7 +219,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     }
   }, [filterRegion, filterStation, debouncedSearch, setReports]);
 
-  // Trigger fetch when filters or search change
   useEffect(() => {
     fetchFilteredDatabaseReports();
   }, [fetchFilteredDatabaseReports]);
@@ -204,7 +226,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   const resetFormToBlank = () => {
     setFormData({
       sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
-      region: stripHtmlTags(currentUser?.region || ''), station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
+      region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
       date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
       offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
     });
@@ -229,12 +251,29 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     });
   };
 
-  // 🟢 5. LOCAL CLIENT FILTERS (Dates & Agri-Crimes)
+  // 🟢 OPSEC Filter Engine for Crime Reports
   const finalFilteredReports = useMemo(() => {
     if (!Array.isArray(serverReports)) return [];
       
     return serverReports.filter(r => {
       if (r.is_hq_general_total || (r.offence || '').toUpperCase().includes("LOCK-UP TOTAL")) return false;
+
+      const stn = stripHtmlTags(r.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, r.region);
+
+      if (canViewGlobalLevel && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
+        // Global viewing allowed
+      } else {
+        const belongsToRegion = filterRegion === 'ALL REGIONS' || 
+                                reg === filterRegion || 
+                                (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
+
+        if (!belongsToRegion) return false;
+
+        if (filterStation !== 'ALL STATIONS') {
+          if (!isStationEquivalent(stn, filterStation)) return false;
+        }
+      }
 
       // Agri-Crime Frontend Filter
       if (showAgriculturalOnly) {
@@ -256,7 +295,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       // Date Frontend Filter
       const diffDays = Math.ceil(Math.abs(new Date() - new Date(r.date)) / (1000 * 60 * 60 * 24));
       if (dateFilter === 'TODAY') {
-        const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+        const todayStr = getTodayString();
         if (r.date !== todayStr) return false;
       } 
       else if (dateFilter === 'LAST 7 DAYS') { if (diffDays > 7) return false; } 
@@ -271,26 +310,32 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       return true;
     }).sort((a, b) => (b.sn || b.id || 0) - (a.sn || a.id || 0));
 
-  }, [serverReports, dateFilter, showAgriculturalOnly]);
+  }, [serverReports, dateFilter, showAgriculturalOnly, filterRegion, filterStation, canViewGlobalLevel]);
 
   const isStationSpecific = filterStation && filterStation !== 'ALL STATIONS';
 
   const availableUpdateCases = useMemo(() => {
-    const currentUserRegion = stripHtmlTags(currentUser?.region || '');
     return finalFilteredReports.filter(r => {
-      const rRegion = getOfficialRegionForStation(r.station, r.region);
-      if (!['ADMIN', 'SUPER_ADMIN'].includes(currentUser.role) && !canViewGlobalActive && rRegion !== currentUserRegion) return false;
+      const stn = stripHtmlTags(r.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, r.region);
+
+      if (!canViewGlobalLevel) {
+        const belongsToRegion = reg === userRegClean || 
+                                (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(s => isStationEquivalent(s, stn)));
+        if (!belongsToRegion) return false;
+      }
+
       if (updateSearch) {
         const query = stripHtmlTags(updateSearch).toLowerCase();
         return stripHtmlTags(r.sdRef || r.sd_ref || '').toLowerCase().includes(query) || (r.id || r.sn || '').toString().includes(query) || extractPlainText(r.narrative).toLowerCase().includes(query);
       }
       return true;
     });
-  }, [finalFilteredReports, currentUser, updateSearch, canViewGlobalActive]);
+  }, [finalFilteredReports, updateSearch, canViewGlobalLevel, userRegClean]);
 
   const metrics = useMemo(() => {
     const stationCellPop = {};
-    const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    const todayStr = getTodayString();
       
     let hqGrandTotalToday = null;
     let latestHqGrandTotal = null;
@@ -300,13 +345,22 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const lStation = stripHtmlTags(l.station || '');
       const lRegion = getOfficialRegionForStation(lStation, l.region);
       const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' || lRegion === 'KMP HEADQUARTERS';
-      if (isHQTotal) {
-        if (l.date === todayStr && l.suspects > 0) hqGrandTotalToday = l.suspects;
-        if (!latestHqGrandTotal && l.suspects > 0) latestHqGrandTotal = l.suspects;
-      } else {
-        if (l.date === todayStr) {
-          stationCellPop[lStation] = l.suspects;
-          if (lStation === filterStation) hasLockupUpdateToday = true;
+      
+      const belongsToJurisdiction = (filterRegion === 'ALL REGIONS') || 
+                                    (lRegion === filterRegion) || 
+                                    (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, lStation)));
+
+      if (belongsToJurisdiction) {
+        if (filterStation === 'ALL STATIONS' || isStationEquivalent(lStation, filterStation)) {
+          if (isHQTotal) {
+            if (l.date === todayStr && l.suspects > 0) hqGrandTotalToday = l.suspects;
+            if (!latestHqGrandTotal && l.suspects > 0) latestHqGrandTotal = l.suspects;
+          } else {
+            if (l.date === todayStr) {
+              stationCellPop[lStation] = l.suspects;
+              if (isStationEquivalent(lStation, filterStation)) hasLockupUpdateToday = true;
+            }
+          }
         }
       }
     });
@@ -316,7 +370,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
     let localJurisdictionTotal = 0;
     if (filterStation && filterStation !== 'ALL STATIONS') {
-      localJurisdictionTotal = stationCellPop[filterStation] || 0;
+      localJurisdictionTotal = Object.keys(stationCellPop)
+        .filter(stn => isStationEquivalent(stn, filterStation))
+        .reduce((sum, stn) => sum + stationCellPop[stn], 0);
     } else if (filterRegion && filterRegion !== 'ALL REGIONS') {
       const regionStations = REGIONAL_HIERARCHY[filterRegion] || [];
       localJurisdictionTotal = regionStations.reduce((sum, stat) => sum + (stationCellPop[stat] || 0), 0);
@@ -414,7 +470,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
       try {
         const token = localStorage.getItem('kmp_authToken') || sessionStorage.getItem('kmp_authToken');
-        const API_URL = import.meta.env.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
+        const API_URL = import.meta.env?.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
         const response = await fetch(`${API_URL}/api/v1/investigation/upload/`, { method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: uploadData });
         const data = await response.json();
         if (data.full_s3_url || data.cloud_storage_path) {
@@ -473,7 +529,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     setNotification(isEditingLockup ? "⏳ Updating Daily Cell Population..." : "⏳ Logging Daily Cell Population to Independent Matrix...");
       
     try {
-      const activeSubmissionRegion = canViewGlobalActive
+      const activeSubmissionRegion = canViewGlobalLevel
         ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
         : getOfficialRegionForStation(formData.station, formData.region);
 
@@ -603,7 +659,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const isDuplicate = serverReports.some(r => stripHtmlTags(r.station) === stripHtmlTags(formData.station) && ((stripHtmlTags(r.sdRef || r.sd_ref || '')).trim().toLowerCase() === final_reference.toLowerCase() || extractPlainText(r.narrative || '').trim().toLowerCase() === plainTextForDuplicate.toLowerCase()));
       if (isDuplicate) return setNotification(`Error: This specific ${cleanRefType} entry or identical narrative already exists.`);
 
-      const activeSubmissionRegion = canViewGlobalActive
+      const activeSubmissionRegion = canViewGlobalLevel
         ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
         : getOfficialRegionForStation(formData.station, formData.region);
 
@@ -627,7 +683,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         const resData = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Database rejected the entry.");
           
-        fetchFilteredDatabaseReports(); // Refresh data from backend
+        fetchFilteredDatabaseReports();
         setNotification(`✅ Case SN ${resData.sn} (Ref: ${apiPayload.sd_ref}) successfully registered!`);
         resetFormToBlank();
         setTimeout(() => setNotification(null), 5000);
@@ -661,7 +717,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         const response = await authFetch(`/api/v1/reports/${formData.sn}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord) });
         if (!response.ok) throw new Error("Failed to update record in database.");
 
-        fetchFilteredDatabaseReports(); // Refresh data from backend
+        fetchFilteredDatabaseReports();
         setNotification(`✅ Case SN ${formData.sn} successfully updated!`);
         handleOperationToggle('new');
         setTimeout(() => setNotification(null), 5000);
@@ -882,13 +938,13 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                   <div>
                     <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Select Region *</label>
                     <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
-                      {canViewGlobalActive ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={currentUser.region}>{stripHtmlTags(currentUser.region)}</option>}
+                      {canViewGlobalActive ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={userRegClean}>{stripHtmlTags(userRegClean)}</option>}
                     </select>
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
-                      {operation === 'update' ? <option value={formData.station}>{stripHtmlTags(formData.station)}</option> : canViewGlobalActive ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{stripHtmlTags(currentUser.station)}</option>}
+                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(canViewGlobalActive || isRegionalCommand) || operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
+                      {operation === 'update' ? <option value={formData.station}>{stripHtmlTags(formData.station)}</option> : (canViewGlobalActive || isRegionalCommand) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{stripHtmlTags(currentUser.station)}</option>}
                     </select>
                   </div>
                 </div>
@@ -1012,10 +1068,10 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
              </button>
 
             <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs shadow-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-              {canViewGlobalActive ? <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</> : <option value={currentUser?.region}>{stripHtmlTags(currentUser?.region)}</option>}
+              {canViewGlobalActive ? <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</> : <option value={userRegClean}>{stripHtmlTags(userRegClean)}</option>}
             </select>
-            <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!canViewGlobalActive} className="border dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs shadow-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-              {canViewGlobalActive ? (
+            <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!(canViewGlobalActive || isRegionalCommand)} className="border dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs shadow-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+              {(canViewGlobalActive || isRegionalCommand) ? (
                 <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
               ) : (
                 <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>

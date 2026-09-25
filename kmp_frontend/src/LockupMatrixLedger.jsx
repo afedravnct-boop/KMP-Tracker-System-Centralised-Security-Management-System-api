@@ -2,24 +2,42 @@ import React, { useState, useMemo } from 'react';
 import { X, Filter, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 const REGIONAL_HIERARCHY = {
-  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
-  "POLICE HEADQUARTERS": ["NAGURU"]
+  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 };
 
-// Helper to resolve region consistently
-const getOfficialRegionForStation = (stationName, dbRegion) => {
-  const cleanStation = (stationName || '').trim().toUpperCase();
-  const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
+const stripHtml = (html) => {
+  if (!html) return '';
+  return String(html).replace(/<[^>]*>?/gm, '').trim();
+};
 
-  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+const isStationEquivalent = (statA, statB) => {
+  const a = stripHtml(statA || '').trim().toUpperCase();
+  const b = stripHtml(statB || '').trim().toUpperCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
+};
+
+// Helper to resolve region consistently utilizing dual-equivalence
+const getOfficialRegionForStation = (stationName, dbRegion) => {
+  const cleanStation = stripHtml(stationName || '').trim().toUpperCase();
+  const cleanDbRegion = stripHtml(dbRegion || '').trim().toUpperCase();
+
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].some(s => isStationEquivalent(s, cleanStation))) {
     return cleanDbRegion;
   }
 
   for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
-    if (stationsList.includes(cleanStation)) {
+    if (stationsList.some(s => isStationEquivalent(s, cleanStation))) {
       return regionName;
     }
   }
@@ -39,23 +57,25 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const filteredLockupEntries = useMemo(() => {
     let filtered = Array.isArray(lockupEntries) ? [...lockupEntries] : [];
 
-    // 1. Regional Filter Application
-    if (selectedRegion && selectedRegion !== 'ALL REGIONS') {
-      const cleanTargetRegion = selectedRegion.trim().toUpperCase();
-      filtered = filtered.filter(row => {
-        const rowRegion = getOfficialRegionForStation(row.station, row.region);
-        return rowRegion === cleanTargetRegion;
-      });
-    }
+    // 1. & 2. OPSEC Regional & Station Filtering (Using Hierarchical Equivalence)
+    filtered = filtered.filter(row => {
+      const stn = stripHtml(row.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, row.region);
 
-    // 2. Station Filter Application
-    if (selectedStation && selectedStation !== 'ALL STATIONS') {
-      const cleanTargetStation = selectedStation.trim().toUpperCase();
-      filtered = filtered.filter(row => {
-        const rowStation = (row.station || '').trim().toUpperCase();
-        return rowStation === cleanTargetStation;
-      });
-    }
+      if (selectedRegion && selectedRegion !== 'ALL REGIONS') {
+        const cleanTargetRegion = selectedRegion.trim().toUpperCase();
+        const belongsToRegion = reg === cleanTargetRegion || 
+                                (REGIONAL_HIERARCHY[cleanTargetRegion] && REGIONAL_HIERARCHY[cleanTargetRegion].some(s => isStationEquivalent(s, stn)));
+        if (!belongsToRegion) return false;
+      }
+
+      if (selectedStation && selectedStation !== 'ALL STATIONS') {
+        const cleanTargetStation = selectedStation.trim().toUpperCase();
+        if (!isStationEquivalent(stn, cleanTargetStation)) return false;
+      }
+
+      return true;
+    });
 
     // 3. Timeframe Filter Application
     if (lockupFilter !== 'ALL') {

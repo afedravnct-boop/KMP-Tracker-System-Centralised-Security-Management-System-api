@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart, Clock, Users, Award, MapPin, Zap, CheckCircle2, GitCommit, Network, Loader2, BookOpen, ChevronDown, ChevronRight, Download, Truck } from 'lucide-react';
 import { authFetch, hasValidSession } from './api';
+import { stripHtmlTags } from './App';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -52,9 +53,22 @@ const normalizeAnalyticsRank = (rankStr) => {
   return r;
 };
 
+// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+const isStationEquivalent = (statA, statB) => {
+  const a = stripHtmlTags(statA || '').trim().toUpperCase();
+  const b = stripHtmlTags(statB || '').trim().toUpperCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
+};
+
 const getOfficialRegionForStation = (stationName, dbRegion) => {
-  let cleanStation = (stationName || '').trim().toUpperCase();
-  const cleanDbRegion = (dbRegion || '').trim().toUpperCase();
+  let cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
+  const cleanDbRegion = stripHtmlTags(dbRegion || '').trim().toUpperCase();
 
   if (cleanStation === "KIRA DIVISION" || cleanStation === "KIRA DIV" || cleanStation === "KIRA") {
     cleanStation = "KIRA DIV";
@@ -164,12 +178,39 @@ const AnalyticsDashboard = ({
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
   const [dateFilter, setDateFilter] = useState('ALL'); 
   
-  const canViewGlobalActive = canViewGlobal || currentUser?.role === 'SUPER_ADMIN' || currentUser?.permissions?.view_global_roster === true || currentUser?.permissions?.global_observer === true || true;
+  // 🟢 OPSEC Role Classification Engine
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
 
-  const [selectedRegion, setSelectedRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : (currentUser?.region || 'KMP HEADQUARTERS'));
-  const [selectedStation, setSelectedStation] = useState(canViewGlobalActive ? 'ALL STATIONS' : (currentUser?.station || 'KMP HEADQUARTERS'));
+  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+    currentUser?.permissions?.view_global_roster === true;
 
-  // 🟢 1. DEFINE currentDataset FIRST so it is guaranteed to exist in scope for all subsequent memos
+  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+
+  const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
+  
+  const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
+
+  const [selectedRegion, setSelectedRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
+  const [selectedStation, setSelectedStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
+
+  useEffect(() => {
+    if (canViewGlobalLevel) {
+      setSelectedRegion('ALL REGIONS');
+      setSelectedStation('ALL STATIONS');
+    } else if (isRegionalCommand) {
+      setSelectedRegion(userRegClean);
+      setSelectedStation('ALL STATIONS');
+    } else {
+      setSelectedRegion(userRegClean);
+      setSelectedStation(stripHtmlTags(currentUser?.station || '').toUpperCase());
+    }
+  }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
+
+  // 🟢 Filter Engine utilizing OPSEC & Dual-Equivalence
   const currentDataset = useMemo(() => {
     let baseData = [];
     if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') baseData = resolvedCrimeRegistry.filter(r => !isLockupLog(r)); 
@@ -179,16 +220,23 @@ const AnalyticsDashboard = ({
     else if (activeDomain === 'EXHIBITS') baseData = resolvedExhibits;
 
     baseData = baseData.filter(item => {
-      let stn = (item.station || '').trim().toUpperCase();
+      let stn = stripHtmlTags(item.station || '').toUpperCase();
       if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
       const reg = getOfficialRegionForStation(stn, item.region);
 
-      if (canViewGlobalActive && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
+      if (canViewGlobalLevel && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
         return true;
       }
 
-      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return false;
-      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation.toUpperCase()) return false;
+      const belongsToRegion = selectedRegion === 'ALL REGIONS' || 
+                              reg === selectedRegion || 
+                              (REGIONAL_HIERARCHY[selectedRegion] && REGIONAL_HIERARCHY[selectedRegion].some(s => isStationEquivalent(s, stn)));
+
+      if (!belongsToRegion) return false;
+
+      if (selectedStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(stn, selectedStation)) return false;
+      }
       return true;
     });
 
@@ -212,7 +260,7 @@ const AnalyticsDashboard = ({
       });
     }
     return baseData;
-  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, resolvedExhibits, dateFilter, selectedRegion, selectedStation, canViewGlobalActive]);
+  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, resolvedExhibits, dateFilter, selectedRegion, selectedStation, canViewGlobalLevel]);
 
   const manpowerAnalysis = useMemo(() => {
     const rolls = Array.isArray(resolvedNominalRolls) ? resolvedNominalRolls : [];
@@ -229,12 +277,19 @@ const AnalyticsDashboard = ({
     const grandTotals = { deployableTotal: 0, nonDeployableTotal: 0, units: {}, reasons: {} };
 
     rolls.forEach(o => {
-      let stn = (o.station || 'UNKNOWN').trim().toUpperCase();
+      let stn = stripHtmlTags(o.station || 'UNKNOWN').toUpperCase();
       if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
       const reg = getOfficialRegionForStation(stn, o.region);
 
-      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion) return;
-      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation) return;
+      // 🟢 OPSEC Filter logic applied internally to aggregates
+      if (selectedRegion !== 'ALL REGIONS') {
+        const belongsToRegion = reg === selectedRegion || 
+                                (REGIONAL_HIERARCHY[selectedRegion] && REGIONAL_HIERARCHY[selectedRegion].some(s => isStationEquivalent(s, stn)));
+        if (!belongsToRegion) return;
+      }
+      if (selectedStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(stn, selectedStation)) return;
+      }
 
       const targetReg = regionMap[reg] || regionMap["GENERAL / OTHER"];
       if (!targetReg.stations[stn]) {
@@ -404,7 +459,7 @@ const AnalyticsDashboard = ({
     });
 
     ops.forEach(o => {
-      let stn = (o.station || '').trim().toUpperCase();
+      let stn = stripHtmlTags(o.station || '').toUpperCase();
       if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
 
       const reg = getOfficialRegionForStation(stn, o.region);
@@ -417,7 +472,7 @@ const AnalyticsDashboard = ({
     });
 
     successes.forEach(s => {
-      let stn = (s.station || '').trim().toUpperCase();
+      let stn = stripHtmlTags(s.station || '').toUpperCase();
       if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
 
       const reg = getOfficialRegionForStation(stn, s.region);
@@ -428,7 +483,7 @@ const AnalyticsDashboard = ({
     });
 
     reports.forEach(r => {
-      let stn = (r.station || '').trim().toUpperCase();
+      let stn = stripHtmlTags(r.station || '').toUpperCase();
       if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
 
       const reg = getOfficialRegionForStation(stn, r.region);
@@ -439,7 +494,7 @@ const AnalyticsDashboard = ({
     });
 
     exhibitsList.forEach(e => {
-      let stn = (e.station || '').trim().toUpperCase();
+      let stn = stripHtmlTags(e.station || '').toUpperCase();
       if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
 
       const reg = getOfficialRegionForStation(stn, e.region);
@@ -451,13 +506,16 @@ const AnalyticsDashboard = ({
 
     const rows = [];
     Object.values(regionMap).forEach(regObj => {
+      // 🟢 OPSEC Filter logic applied internally to matrix
       if (selectedRegion !== 'ALL REGIONS' && regObj.region !== selectedRegion) return;
 
       let hasMatchingStation = false;
       const stationRows = [];
 
       Object.values(regObj.stations).forEach(stnObj => {
-        if (selectedStation !== 'ALL STATIONS' && stnObj.station !== selectedStation) return;
+        if (selectedStation !== 'ALL STATIONS') {
+          if (!isStationEquivalent(stnObj.station, selectedStation)) return;
+        }
         
         if (stnObj.arrests > 0 || stnObj.successes > 0 || stnObj.crimes > 0 || stnObj.exhibits > 0) {
           hasMatchingStation = true;
@@ -498,13 +556,20 @@ const AnalyticsDashboard = ({
     const allWeeksSet = new Set();
 
     ops.forEach(o => {
-      let stn = (o.station || 'UNKNOWN').trim().toUpperCase();
+      let stn = stripHtmlTags(o.station || '').toUpperCase();
       if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
 
       const reg = getOfficialRegionForStation(stn, o.region);
 
-      if (selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion) return;
-      if (selectedStation !== 'ALL STATIONS' && stn !== selectedStation) return;
+      // 🟢 OPSEC Filter logic applied internally to trends
+      if (selectedRegion !== 'ALL REGIONS') {
+        const belongsToRegion = reg === selectedRegion || 
+                                (REGIONAL_HIERARCHY[selectedRegion] && REGIONAL_HIERARCHY[selectedRegion].some(s => isStationEquivalent(s, stn)));
+        if (!belongsToRegion) return;
+      }
+      if (selectedStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(stn, selectedStation)) return;
+      }
 
       const weekId = getWeekIdentifier(o.date || o.timestamp);
       if (!weekId) return;
@@ -628,10 +693,10 @@ const AnalyticsDashboard = ({
           <select 
             value={selectedRegion} 
             onChange={(e) => { setSelectedRegion(e.target.value); setSelectedStation('ALL STATIONS'); }}
-            disabled={!canViewGlobalActive}
+            disabled={!canViewGlobalLevel}
             className="border border-[#e2d6c3] rounded-md px-2 py-1 text-[11px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer disabled:bg-[#f4eee2] disabled:text-[#736450]"
           >
-            {canViewGlobalActive ? (
+            {canViewGlobalLevel ? (
               <>
                 <option value="ALL REGIONS">ALL REGIONS</option>
                 {Object.keys(REGIONAL_HIERARCHY).map(reg => (
@@ -639,17 +704,17 @@ const AnalyticsDashboard = ({
                 ))}
               </>
             ) : (
-              <option value={currentUser?.region || 'KMP HEADQUARTERS'}>{currentUser?.region || 'KMP HEADQUARTERS'}</option>
+              <option value={userRegClean}>{userRegClean}</option>
             )}
           </select>
 
           <select 
             value={selectedStation} 
             onChange={(e) => setSelectedStation(e.target.value)}
-            disabled={!canViewGlobalActive}
+            disabled={!(canViewGlobalLevel || isRegionalCommand)}
             className="border border-[#e2d6c3] rounded-md px-2 py-1 text-[11px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer disabled:bg-[#f4eee2] disabled:text-[#736450]"
           >
-            {canViewGlobalActive ? (
+            {(canViewGlobalLevel || isRegionalCommand) ? (
               <>
                 <option value="ALL STATIONS">ALL STATIONS</option>
                 {selectedRegion !== 'ALL REGIONS' && (REGIONAL_HIERARCHY[selectedRegion] || []).map(stn => (
@@ -657,7 +722,7 @@ const AnalyticsDashboard = ({
                 ))}
               </>
             ) : (
-              <option value={currentUser?.station || 'KMP HEADQUARTERS'}>{currentUser?.station || 'KMP HEADQUARTERS'}</option>
+              <option value={stripHtmlTags(currentUser?.station || '').toUpperCase()}>{stripHtmlTags(currentUser?.station || '').toUpperCase()}</option>
             )}
           </select>
 
@@ -790,7 +855,7 @@ const AnalyticsDashboard = ({
                             {isExpanded && reg.stationList.map((stn, sIdx) => (
                                <tr key={`dep-${sIdx}`} className="bg-white hover:bg-[#f7f3eb] transition-colors">
                                   <td className="px-3 py-1.5 pl-7 text-[10px] font-semibold text-[#594d3c] uppercase sticky left-0 bg-white shadow-[1px_0_0_#e2d6c3]">
-                                     — {stn.station}
+                                      — {stn.station}
                                   </td>
                                   {manpowerAnalysis.uniqueUnits.map(u => (
                                      <td key={u} className="px-2 py-1.5 text-[10px] text-center font-medium text-slate-700 border-l border-[#e2d6c3]/50">{stn.units[u] || ''}</td>
@@ -852,7 +917,7 @@ const AnalyticsDashboard = ({
                             {isExpanded && reg.stationList.map((stn, sIdx) => (
                                <tr key={`non-${sIdx}`} className="bg-white hover:bg-[#f7f3eb] transition-colors">
                                   <td className="px-3 py-1.5 pl-7 text-[10px] font-semibold text-[#594d3c] uppercase sticky left-0 bg-white shadow-[1px_0_0_#e2d6c3]">
-                                     — {stn.station}
+                                      — {stn.station}
                                   </td>
                                   {manpowerAnalysis.uniqueReasons.map(r => (
                                      <td key={r} className="px-2 py-1.5 text-[10px] text-center font-medium text-slate-700 border-l border-[#e2d6c3]/50">{stn.reasons[r] || ''}</td>

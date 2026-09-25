@@ -1,12 +1,22 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
+from datetime import datetime
 
 from app import models, schemas
 from app.database import get_db
 from auth import get_current_user
 
 router = APIRouter(prefix="/api/v1", tags=["Lockup Matrix & Operations"])
+
+# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
+REGIONAL_HIERARCHY = {
+    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+    "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+    "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+}
 
 def get_officer_signature(user):
     if not user:
@@ -15,6 +25,87 @@ def get_officer_signature(user):
     rank = (user.rank or "").strip()
     name = (user.name or "").strip()
     return f"{fnum} {rank} {name}".strip().upper()
+
+# 🟢 CORE OPSEC SCOPING ENGINE
+def apply_opsec_scope(current_user, query, ModelClass):
+    if not ModelClass:
+        return query
+    
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    user_pos = str(current_user.position).strip().upper() if current_user.position else ""
+    user_reg = str(current_user.region).strip().upper() if current_user.region else ""
+    user_stn = str(current_user.station).strip().upper() if current_user.station else ""
+
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+
+    is_absolute_global = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        "KMP COMMANDER" in user_pos or
+        "DEPUTY KMP COMMANDER" in user_pos or
+        "KMP ADMIN" in user_pos or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True
+    )
+
+    is_kmp_sys_mgr = (
+        user_role == "SYSTEM_MANAGER" and
+        user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos
+    )
+
+    is_kmp_specialist = (
+        user_role == "ASSISTANT_SYSTEM_MANAGER" and
+        user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos
+    )
+
+    is_regional_command = (
+        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"] and
+        not is_kmp_sys_mgr and
+        not is_kmp_specialist
+    )
+
+    if is_absolute_global or is_kmp_sys_mgr:
+        return query
+        
+    elif is_kmp_specialist and hasattr(ModelClass, 'region'):
+        return query.filter(func.upper(ModelClass.region) == user_reg)
+        
+    elif is_regional_command or user_reg in REGIONAL_HIERARCHY:
+        conds = []
+        if hasattr(ModelClass, 'region'):
+            conds.append(func.upper(ModelClass.region) == user_reg)
+        
+        # 🟢 Station Dual-Equivalence Check for missing regional tags (plus Headquarters totals)
+        if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
+            expanded_stns = set()
+            for s in REGIONAL_HIERARCHY[user_reg]:
+                expanded_stns.add(s)
+                expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
+                expanded_stns.add(s + ' HEADQUARTERS')
+                expanded_stns.add(s + ' HQ')
+            
+            expanded_stns.add("HEADQUARTERS GENERAL TOTAL")
+            expanded_stns.add("KMP HEADQUARTERS")
+            
+            conds.append(func.upper(ModelClass.station).in_(list(expanded_stns)))
+            
+        if conds:
+            return query.filter(or_(*conds))
+        return query.filter(text("1=0"))
+        
+    elif hasattr(ModelClass, 'station'):
+        return query.filter(
+            or_(
+                func.upper(ModelClass.station) == user_stn,
+                func.upper(ModelClass.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
+            )
+        )
+        
+    return query.filter(text("1=0"))
 
 # --- LOCKUP MATRIX ---
 @router.post("/lockup-matrix", response_model=schemas.LockupMatrixResponse)
@@ -40,40 +131,8 @@ def get_lockup_entries(
     db: Session = Depends(get_db), 
     current_user: models.Users = Depends(get_current_user)
 ):
-    position = (current_user.position or "").upper()
-    role = (current_user.role or "").upper()
-    user_region = (current_user.region or "").strip().upper()
-    user_station = (current_user.station or "").strip().upper()
-    
-    perms = current_user.permissions or {}
-    is_global = (
-        role in ["SUPER_ADMIN", "ADMIN"] or
-        perms.get("global_observer", False) == True or 
-        "IGP" in position or 
-        "DIRECTOR" in position or 
-        "KMP COMMANDER" in position or
-        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
-    )
-    
-    is_regional = role == "RPC" or "RPC" in position or "DEPUTY" in position
     query = db.query(models.LockupMatrix)
-    
-    if is_global:
-        pass
-    elif is_regional:
-        query = query.filter(
-            or_(
-                func.upper(models.LockupMatrix.region) == user_region,
-                func.upper(models.LockupMatrix.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
-            )
-        )
-    else:
-        query = query.filter(
-            or_(
-                func.upper(models.LockupMatrix.station) == user_station,
-                func.upper(models.LockupMatrix.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
-            )
-        )
+    query = apply_opsec_scope(current_user, query, models.LockupMatrix)
         
     return query.order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).all()
 
@@ -88,19 +147,15 @@ def update_lockup_entry(
     if not existing_entry:
         raise HTTPException(status_code=404, detail="Lockup matrix entry not found.")
     
-    position = (current_user.position or "").upper()
-    role = (current_user.role or "").upper()
-    user_region = (current_user.region or "").strip().upper()
+    user_role = (current_user.role or "").strip().upper()
     user_station = (current_user.station or "").strip().upper()
-    
     perms = current_user.permissions or {}
+    
     is_global = (
-        role in ["SUPER_ADMIN", "ADMIN"] or
-        perms.get("global_observer", False) == True or 
-        "IGP" in position or 
-        "DIRECTOR" in position or 
-        "KMP COMMANDER" in position or
-        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
+        user_role in ["SUPER_ADMIN", "ADMIN"] or
+        perms.get("global_observer", False) is True or 
+        user_role in ["RPC", "DEPUTY COMMANDER"] or
+        str(current_user.region).strip().upper() in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
     )
     
     if not is_global:
@@ -115,9 +170,9 @@ def update_lockup_entry(
         existing_entry.station = entry.station
         existing_entry.suspects = entry.suspects
         existing_entry.male_count = entry.male_count
-        existing_entry.male_juvenile_count = entry.male_juvenile_count          # 🟢 Added
+        existing_entry.male_juvenile_count = entry.male_juvenile_count       
         existing_entry.female_count = entry.female_count
-        existing_entry.female_juvenile_count = entry.female_juvenile_count      # 🟢 Added
+        existing_entry.female_juvenile_count = entry.female_juvenile_count     
         existing_entry.detention_1day = entry.detention_1day
         existing_entry.detention_2days = entry.detention_2days
         existing_entry.detention_3days_over = entry.detention_3days_over
@@ -134,12 +189,7 @@ def update_lockup_entry(
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     query = db.query(models.Operational_Statistics)
-    if current_user.role == "SUPER_ADMIN":
-        pass
-    elif current_user.role in ["ADMIN", "RPC"]:
-        query = query.filter(models.Operational_Statistics.region == current_user.region)
-    else:
-        query = query.filter(models.Operational_Statistics.station == current_user.station)
+    query = apply_opsec_scope(current_user, query, models.Operational_Statistics)
         
     return query.order_by(models.Operational_Statistics.sn.desc()).all()
 

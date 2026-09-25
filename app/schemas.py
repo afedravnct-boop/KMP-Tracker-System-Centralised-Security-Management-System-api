@@ -191,7 +191,6 @@ class NominalRollCreate(BaseModel):
     section: Optional[str] = ""
     dir: Optional[str] = ""
     
-    # Reintegration specific fields
     reintegration_reason: Optional[str] = None 
     previous_fnum: Optional[str] = None
     
@@ -203,7 +202,6 @@ class NominalRollCreate(BaseModel):
 
 class NominalRollResponse(NominalRollCreate):
     id: int
-
 
 # ==========================================
 # 6. NOMINAL ROLL ARCHIVE (Historical Ledger)
@@ -432,6 +430,39 @@ class AgricSummaryResponse(AgricSummaryBase):
     id: int
     sn: Optional[int] = None
     last_updated_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+# ==========================================
+# 11. IMPOUNDED FLEET & EXHIBITS REGISTRY
+# ==========================================
+class ExhibitBase(BaseModel):
+    category: str = "MOTOR VEHICLE"
+    reg_no: Optional[str] = "NIL"
+    type_make: str
+    colour: str
+    date_impounded: str
+    case_no: str
+    reason: str
+    status: str = "UNDER INVESTIGATION"
+    unit_responsible: str = "CID"
+    assorted_items: Optional[str] = "NIL"
+    comment: Optional[str] = "NIL"
+    region: str
+    station: str
+    impounded_by_fnum: Optional[str] = None
+    impounded_by_rank: Optional[str] = None
+    impounded_by_name: Optional[str] = None
+    date_cleared: Optional[str] = None
+    entered_by: Optional[str] = None
+
+class ExhibitCreate(ExhibitBase):
+    pass
+
+class ExhibitResponse(ExhibitBase):
+    id: int
+    sn: Optional[int] = None
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)

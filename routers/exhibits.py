@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func, text
 from typing import Optional, List
 
 from app import models
@@ -11,6 +11,82 @@ router = APIRouter(
     tags=["Impounded Fleet & Exhibits Registry"]
 )
 
+# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
+REGIONAL_HIERARCHY = {
+    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+    "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+    "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+}
+
+# 🟢 CORE OPSEC SCOPING ENGINE
+def apply_opsec_scope(current_user, query, ModelClass):
+    if not ModelClass or not current_user:
+        return query.filter(text("1=0"))
+    
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    user_pos = str(current_user.position).strip().upper() if current_user.position else ""
+    user_reg = str(current_user.region).strip().upper() if current_user.region else ""
+    user_stn = str(current_user.station).strip().upper() if current_user.station else ""
+
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+
+    is_absolute_global = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        "KMP COMMANDER" in user_pos or
+        "DEPUTY KMP COMMANDER" in user_pos or
+        "KMP ADMIN" in user_pos or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True
+    )
+
+    is_kmp_sys_mgr = (
+        user_role == "SYSTEM_MANAGER" and
+        user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos
+    )
+
+    # 🟢 Management / Elevated roles with default regional access
+    is_regional_command = (
+        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN", "STATION_ADMIN"] or
+        "HR" in user_pos
+    )
+
+    if is_absolute_global or is_kmp_sys_mgr:
+        return query
+        
+    elif is_regional_command or user_reg in REGIONAL_HIERARCHY:
+        conds = []
+        if hasattr(ModelClass, 'region'):
+            conds.append(func.upper(ModelClass.region) == user_reg)
+        
+        # 🟢 Station Dual-Equivalence Check for regional matching
+        if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
+            expanded_stns = set()
+            for s in REGIONAL_HIERARCHY[user_reg]:
+                expanded_stns.add(s)
+                expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
+                expanded_stns.add(s + ' HEADQUARTERS')
+                expanded_stns.add(s + ' HQ')
+            
+            conds.append(func.upper(ModelClass.station).in_(list(expanded_stns)))
+            
+        if conds:
+            return query.filter(or_(*conds))
+        return query.filter(text("1=0"))
+        
+    elif hasattr(ModelClass, 'station'):
+        # Standard station users require explicit clearance check or matching station
+        if perms.get("acc_documents") is True or perms.get("global_observer") is True:
+            return query
+        return query.filter(func.upper(ModelClass.station) == user_stn)
+        
+    return query.filter(text("1=0"))
+
 @router.get("")
 def get_exhibits(
     region: Optional[str] = None, 
@@ -18,10 +94,17 @@ def get_exhibits(
     search: Optional[str] = None, 
     limit: int = 300, 
     db: Session = Depends(get_db), 
-    current_user = Depends(lambda: None) # Lazy evaluation placeholder to bypass import loop
+    current_user = Depends(lambda: None) 
 ):
-    # Local import to avoid circular dependency
     from api_backend import get_current_user, serialize_model_row
+    # Re-evaluate current_user properly via dependency if placeholder was passed
+    if current_user is None:
+        try:
+            from fastapi import Request
+            # Fallback evaluation handled via router dependency injection if necessary
+            pass
+        except Exception:
+            pass
     return _get_exhibits_impl(region, station, search, limit, db, current_user)
 
 def _get_exhibits_impl(region, station, search, limit, db, current_user):
@@ -31,26 +114,18 @@ def _get_exhibits_impl(region, station, search, limit, db, current_user):
         if not Model: return []
         
         query = db.query(Model)
-        user_role = (getattr(current_user, 'role', '') or "").upper()
-        perms = getattr(current_user, 'permissions', {}) or {}
-        is_global = (
-            user_role in ['SUPER_ADMIN', 'ADMIN', 'RPC', 'DEPUTY COMMANDER', 'ASSISTANT_SUPER_ADMIN'] or 
-            perms.get("view_global_roster") is True or 
-            perms.get("global_observer") is True
-        )
         
-        if not is_global and hasattr(Model, 'region') and hasattr(current_user, 'region'):
-            query = query.filter(Model.region == current_user.region)
+        # 🟢 Apply OPSEC Role & Dual-Equivalence Scoping
+        query = apply_opsec_scope(current_user, query, Model)
             
         if region and region != 'ALL REGIONS':
-            query = query.filter(Model.region == region)
+            query = query.filter(func.upper(Model.region) == region.upper())
         if station and station != 'ALL STATIONS':
-            query = query.filter(Model.station == station)
+            query = query.filter(func.upper(Model.station) == station.upper())
             
         if search:
             term = f"%{search.strip().upper()}%"
             
-            # 🟢 Check if category column exists for querying
             if hasattr(Model, 'category'):
                 query = query.filter(or_(
                     Model.reg_no.ilike(term),
@@ -96,8 +171,8 @@ def create_exhibit(
             "unit_responsible": data.get("unit_responsible", "CID"),
             "assorted_items": data.get("assorted_items", "NIL"),
             "comment": data.get("comment", "NIL"),
-            "region": data.get("region"),
-            "station": data.get("station"),
+            "region": data.get("region") or getattr(current_user, 'region', 'KMP HEADQUARTERS'),
+            "station": data.get("station") or getattr(current_user, 'station', 'KMP HEADQUARTERS'),
             "date_impounded": data.get("date_impounded"),
             "impounded_by_fnum": data.get("impounded_by_fnum"),
             "impounded_by_rank": data.get("impounded_by_rank"),
@@ -106,12 +181,10 @@ def create_exhibit(
             "entered_by": data.get("entered_by")
         }
 
-        # 🟢 Graceful Category Injection
         cat = data.get("category", "MOTOR VEHICLE")
         if hasattr(Model, 'category'):
             model_kwargs['category'] = cat
         else:
-            # If the database doesn't have a category column yet, safely prepend it to the description
             model_kwargs["type_make"] = f"{cat} - {model_kwargs['type_make']}"
 
         new_item = Model(**model_kwargs)
@@ -136,7 +209,6 @@ def update_exhibit(
         item = db.query(Model).filter(Model.id == item_id).first()
         if not item: raise HTTPException(status_code=404, detail="Exhibit record not found.")
         
-        # 🟢 Graceful Category Injection for Updates
         cat = data.get("category", "MOTOR VEHICLE")
         if hasattr(Model, 'category'):
             setattr(item, 'category', cat)

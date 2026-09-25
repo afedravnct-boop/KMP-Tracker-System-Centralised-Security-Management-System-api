@@ -23,7 +23,6 @@ export default function Registration({ activeTab, user }) {
     
     // PAYLOAD ALIGNED WITH BACKEND CRIME REGISTRY ENDPOINT EXPECTATIONS
     const payload = { 
-      sd_ref: sdRef.trim(),
       sdRef: sdRef.trim(),
       region: user?.region || "KMP HEADQUARTERS",
       station: user?.station || "KMP HEADQUARTERS",
@@ -33,7 +32,7 @@ export default function Registration({ activeTab, user }) {
       narrative: narrative.trim(), 
       status: status, 
       suspects: parseInt(suspects, 10) || 0,
-      last_updated_by: user?.fnum || "",
+      lastUpdatedBy: user?.fnum || "",
       suspectDetails: []
     };
 

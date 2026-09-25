@@ -20,6 +20,15 @@ from auth import get_current_user
 
 router = APIRouter(prefix="/api/v1/hr", tags=["HR & Establishments"])
 
+# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
+REGIONAL_HIERARCHY = {
+    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+    "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+    "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+}
+
 def normalize_education_level(educ_str):
     """Normalizes high school levels: keeps uncertified s1-s3 as entered, maps others to UCE or UACE."""
     if not educ_str:
@@ -44,25 +53,106 @@ def export_hr_establishments_zip(
     current_user = Depends(get_current_user)
 ):
     try:
-        # 1. Scope Jurisdiction using unified global clearance rules
-        user_role = (current_user.role or "").upper()
+        user_role = str(current_user.role).strip().upper() if current_user.role else ""
+        user_pos = str(current_user.position).strip().upper() if current_user.position else ""
+        user_reg = str(current_user.region).strip().upper() if current_user.region else ""
+        user_stn = str(current_user.station).strip().upper() if current_user.station else ""
+
         perms = current_user.permissions or {}
-        is_global = (
-            user_role in ['SUPER_ADMIN', 'ADMIN', 'RPC', 'DEPUTY COMMANDER'] or
-            (current_user.region or "").strip().upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'] or
+        if isinstance(perms, str):
+            try: perms = json.loads(perms)
+            except Exception: perms = {}
+
+        # 🟢 OPSEC Role Classification Engine
+        is_absolute_global = (
+            user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+            "KMP COMMANDER" in user_pos or
+            "DEPUTY KMP COMMANDER" in user_pos or
+            "KMP ADMIN" in user_pos or
             perms.get("view_global_roster") is True or
             perms.get("global_observer") is True
         )
-        
+
+        is_kmp_sys_mgr = (
+            user_role == "SYSTEM_MANAGER" and
+            user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+            "KMP" in user_pos
+        )
+
+        is_kmp_specialist = (
+            user_role == "ASSISTANT_SYSTEM_MANAGER" and
+            user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+            "KMP" in user_pos
+        )
+
+        is_regional_command = (
+            user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] and
+            not is_kmp_sys_mgr and
+            not is_kmp_specialist
+        )
+
         nr_query = "SELECT fnum, name, rank, sex, region, station, position, educ_level, status FROM nominal_roll"
         est_query = "SELECT id, region, division, station, personnel_in_station, sub_station, personnel_in_sub_station, post, personnel_in_post, booths, personnel_in_booth, installed_by, location, status, comment, last_updated_by, created_at FROM establishments"
-        
-        if not is_global:
-            nr_query += f" WHERE region = '{current_user.region}'"
-            est_query += f" WHERE region = '{current_user.region}'"
+
+        nr_where = ""
+        est_where = ""
+        params = {}
+
+        # 1. Scope Jurisdiction using unified clearance rules directly mapped to SQL
+        if is_absolute_global or is_kmp_sys_mgr:
+            pass # Global scope: No WHERE clause required
             
-        nr_records = db.execute(text(nr_query)).fetchall()
-        est_records = db.execute(text(est_query)).fetchall()
+        elif is_kmp_specialist:
+            specs = []
+            if "CID" in user_pos: specs.append("CID")
+            if "CI" in user_pos or "CRIME INT" in user_pos: specs.append("CI")
+            if "TRAFFIC" in user_pos: specs.append("TRAFFIC")
+            
+            if specs:
+                conds = []
+                for i, spec in enumerate(specs):
+                    conds.append(f"(UPPER(section) LIKE :spec_{i} OR UPPER(dir) LIKE :spec_{i} OR UPPER(position) LIKE :spec_{i})")
+                    params[f"spec_{i}"] = f"%{spec}%"
+                nr_where = " WHERE " + " OR ".join(conds)
+            else:
+                nr_where = " WHERE 1=0"
+                
+            # Allow full structural view of establishments for KMP Specialists
+            pass
+
+        elif is_regional_command:
+            conds = ["UPPER(region) = :user_reg"]
+            params['user_reg'] = user_reg
+            
+            if user_reg in REGIONAL_HIERARCHY:
+                expanded_stns = set()
+                for s in REGIONAL_HIERARCHY[user_reg]:
+                    expanded_stns.add(s)
+                    expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
+                    expanded_stns.add(s + ' HEADQUARTERS')
+                    expanded_stns.add(s + ' HQ')
+                    
+                stn_keys = []
+                for i, s in enumerate(expanded_stns):
+                    key = f"stn_{i}"
+                    params[key] = s
+                    stn_keys.append(f":{key}")
+                
+                if stn_keys:
+                    in_clause = ", ".join(stn_keys)
+                    conds.append(f"UPPER(station) IN ({in_clause})")
+                    
+            where_clause = " WHERE " + " OR ".join(conds)
+            nr_where = where_clause
+            est_where = where_clause
+            
+        else:
+            params['user_stn'] = user_stn
+            nr_where = " WHERE UPPER(station) = :user_stn"
+            est_where = " WHERE UPPER(station) = :user_stn"
+
+        nr_records = db.execute(text(nr_query + nr_where), params).fetchall()
+        est_records = db.execute(text(est_query + est_where), params).fetchall()
 
         # 2. Build Excel File in Memory with Normalized Education Levels
         wb = openpyxl.Workbook()
@@ -105,7 +195,8 @@ def export_hr_establishments_zip(
 
         sub_p = doc.add_paragraph()
         sub_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        sub_run = sub_p.add_run(f"Jurisdiction Scope: {current_user.region} | Generated: {datetime.now().strftime('%Y-%m-%d')}")
+        jurisdiction_str = "GLOBAL / KMP HEADQUARTERS" if (is_absolute_global or is_kmp_sys_mgr) else (user_reg if is_regional_command else user_stn)
+        sub_run = sub_p.add_run(f"Jurisdiction Scope: {jurisdiction_str} | Generated: {datetime.now().strftime('%Y-%m-%d')}")
         sub_run.font.name = 'Arial'
         sub_run.font.size = Pt(9)
         sub_run.font.color.rgb = RGBColor(100, 116, 139)
@@ -179,6 +270,7 @@ def export_hr_establishments_zip(
         zip_stream = io.BytesIO()
         zip_password = str(current_user.fnum).strip().encode('utf-8')
 
+        # 4. Bind and AES Encrypt Data Export Packages 
         with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
             excel_filename = f"{officer_fnum.replace('/', '_')}_HR_Ledger_{eat_time.strftime('%Y%m%d')}.xlsx"
