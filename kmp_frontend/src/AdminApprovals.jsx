@@ -857,17 +857,19 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             <div className="p-8 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database...</div>
           ) : matrixView === 'ACTIVE' ? (
             <div className="w-full overflow-x-auto custom-scrollbar">
-              <div className="min-w-[1400px]">
+              <div className="min-w-[1550px]">
                 <table className="w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs table-fixed">
                   <thead className="bg-slate-100 dark:bg-slate-950/50 text-slate-700 dark:text-slate-300 uppercase font-black text-[10px]">
                     <tr>
-                      <th className="py-4 px-3 text-left md:sticky md:left-0 z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[240px] min-w-[240px]">Officer Details</th>
-                      <th className="py-4 px-3 text-center md:sticky md:left-[240px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[130px] min-w-[130px]">Administrative Tier</th>
-                      <th className="py-4 px-3 text-center md:sticky md:left-[370px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[110px] min-w-[110px]">Quick Actions</th>
+                      <th className="py-3 px-3 text-left md:sticky md:left-0 z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[240px] min-w-[240px] shadow-[2px_0_5px_rgba(0,0,0,0.05)]">Officer Details</th>
+                      <th className="py-3 px-3 text-center md:sticky md:left-[240px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[130px] min-w-[130px] shadow-[2px_0_5px_rgba(0,0,0,0.05)]">Administrative Tier</th>
+                      <th className="py-3 px-3 text-center md:sticky md:left-[370px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[110px] min-w-[110px] shadow-[2px_0_5px_rgba(0,0,0,0.05)]">Quick Actions</th>
                       {CLEARANCE_MATRIX_COLS.map((col, idx) => (
-                        <th key={idx} className="py-4 px-1.5 border-l border-slate-300 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 w-24 min-w-[96px] align-middle">
-                          <div className="w-24 min-w-[96px] text-[9px] text-blue-900 dark:text-blue-100 font-bold tracking-tight whitespace-normal break-words leading-snug text-center px-1" title={col.label}>
-                            {col.label}
+                        <th key={idx} className="py-2 px-1 border-l border-slate-300 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 w-28 min-w-[112px] align-middle">
+                          <div className="h-16 flex items-center justify-center text-center px-1">
+                            <span className="text-[9px] font-extrabold text-blue-900 dark:text-blue-100 tracking-tight whitespace-normal break-words leading-tight" title={col.label}>
+                              {col.label}
+                            </span>
                           </div>
                         </th>
                       ))}
@@ -881,8 +883,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
                       return (
                         <tr key={u.fnum} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                          <td className="py-3 px-3 md:sticky md:left-0 z-10 bg-white dark:bg-slate-900 font-extrabold text-[11px] text-slate-900 dark:text-slate-100 w-[240px] min-w-[240px] truncate" title={formatOfficerHeader(u)}>{formatOfficerHeader(u)}</td>
-                          <td className="py-3 px-3 text-center md:sticky md:left-[240px] z-10 bg-white dark:bg-slate-900 w-[130px] min-w-[130px]">
+                          <td className="py-3 px-3 md:sticky md:left-0 z-10 bg-white dark:bg-slate-900 font-extrabold text-[11px] text-slate-900 dark:text-slate-100 w-[240px] min-w-[240px] truncate shadow-[2px_0_5px_rgba(0,0,0,0.05)]" title={formatOfficerHeader(u)}>{formatOfficerHeader(u)}</td>
+                          <td className="py-3 px-3 text-center md:sticky md:left-[240px] z-10 bg-white dark:bg-slate-900 w-[130px] min-w-[130px] shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                             <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf || !canModifyThisUser} className="border border-slate-300 dark:border-slate-700 rounded-md px-1.5 py-1 font-bold outline-none uppercase text-[10px] w-full truncate bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 disabled:opacity-50">
                               <option value="USER">USER</option>
                               <option value="STATION_USER">STATION USER</option>
@@ -899,7 +901,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                               <option value="SUPER_ADMIN">SUPER ADMIN</option>
                             </select>
                           </td>
-                          <td className="py-3 px-3 text-center md:sticky md:left-[370px] z-10 bg-white dark:bg-slate-900 w-[110px] min-w-[110px]">
+                          <td className="py-3 px-3 text-center md:sticky md:left-[370px] z-10 bg-white dark:bg-slate-900 w-[110px] min-w-[110px] shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
                             <div className="flex items-center justify-center space-x-1.5">
                               {canModifyThisUser && (
                                 <>
@@ -920,7 +922,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             const isDisabled = isSelf || isMutuallyDisabled || !canModifyThisUser;
 
                             return (
-                              <td key={idx} className="py-3 px-1.5 text-center border-l border-slate-100 dark:border-slate-800 w-24 min-w-[96px]">
+                              <td key={idx} className="py-3 px-1.5 text-center border-l border-slate-100 dark:border-slate-800 w-28 min-w-[112px]">
                                 <input 
                                   type="checkbox" 
                                   checked={p[col.key] !== false ? (['SUPER_ADMIN', 'ADMIN'].includes(u.role) || Boolean(p[col.key])) : false} 

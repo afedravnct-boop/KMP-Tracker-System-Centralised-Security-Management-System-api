@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, text
@@ -5,13 +6,13 @@ from typing import Optional, List
 
 from app import models
 from app.database import get_db
+from auth import get_current_user  # 🟢 Ensure get_current_user is imported
 
 router = APIRouter(
     prefix="/api/v1/exhibits",
     tags=["Impounded Fleet & Exhibits Registry"]
 )
 
-# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 REGIONAL_HIERARCHY = {
     "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
     "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -20,7 +21,6 @@ REGIONAL_HIERARCHY = {
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
 
-# 🟢 CORE OPSEC SCOPING ENGINE
 def apply_opsec_scope(current_user, query, ModelClass):
     if not ModelClass or not current_user:
         return query.filter(text("1=0"))
@@ -50,7 +50,6 @@ def apply_opsec_scope(current_user, query, ModelClass):
         "KMP" in user_pos
     )
 
-    # 🟢 Management / Elevated roles with default regional access
     is_regional_command = (
         user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN", "STATION_ADMIN"] or
         "HR" in user_pos
@@ -64,7 +63,6 @@ def apply_opsec_scope(current_user, query, ModelClass):
         if hasattr(ModelClass, 'region'):
             conds.append(func.upper(ModelClass.region) == user_reg)
         
-        # 🟢 Station Dual-Equivalence Check for regional matching
         if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
             expanded_stns = set()
             for s in REGIONAL_HIERARCHY[user_reg]:
@@ -80,7 +78,6 @@ def apply_opsec_scope(current_user, query, ModelClass):
         return query.filter(text("1=0"))
         
     elif hasattr(ModelClass, 'station'):
-        # Standard station users require explicit clearance check or matching station
         if perms.get("acc_documents") is True or perms.get("global_observer") is True:
             return query
         return query.filter(func.upper(ModelClass.station) == user_stn)
@@ -94,20 +91,8 @@ def get_exhibits(
     search: Optional[str] = None, 
     limit: int = 300, 
     db: Session = Depends(get_db), 
-    current_user = Depends(lambda: None) 
+    current_user = Depends(get_current_user)  # 🟢 Fixed to use real authentication
 ):
-    from api_backend import get_current_user, serialize_model_row
-    # Re-evaluate current_user properly via dependency if placeholder was passed
-    if current_user is None:
-        try:
-            from fastapi import Request
-            # Fallback evaluation handled via router dependency injection if necessary
-            pass
-        except Exception:
-            pass
-    return _get_exhibits_impl(region, station, search, limit, db, current_user)
-
-def _get_exhibits_impl(region, station, search, limit, db, current_user):
     from api_backend import serialize_model_row
     try:
         Model = getattr(models, 'Impounded_Exhibits', getattr(models, 'ImpoundedExhibits', None))
@@ -115,7 +100,7 @@ def _get_exhibits_impl(region, station, search, limit, db, current_user):
         
         query = db.query(Model)
         
-        # 🟢 Apply OPSEC Role & Dual-Equivalence Scoping
+        # 🟢 Apply OPSEC Role & Dual-Equivalence Scoping with active user credentials
         query = apply_opsec_scope(current_user, query, Model)
             
         if region and region != 'ALL REGIONS':
@@ -154,7 +139,7 @@ def _get_exhibits_impl(region, station, search, limit, db, current_user):
 def create_exhibit(
     data: dict, 
     db: Session = Depends(get_db), 
-    current_user = Depends(lambda: None)
+    current_user = Depends(get_current_user)  # 🟢 Fixed to use real authentication
 ):
     from api_backend import serialize_model_row
     try:
@@ -201,7 +186,7 @@ def update_exhibit(
     item_id: int, 
     data: dict, 
     db: Session = Depends(get_db), 
-    current_user = Depends(lambda: None)
+    current_user = Depends(get_current_user)  # 🟢 Fixed to use real authentication
 ):
     from api_backend import serialize_model_row
     try:
