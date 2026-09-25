@@ -42,6 +42,35 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
   const [matrixView, setMatrixView] = useState('ACTIVE');
   
+  // 🟢 1. DECLARE ROLE & GLOBAL FLAGS FIRST TO PREVENT REFERENCE ERRORS
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
+  const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
+
+  const isGlobalTier = isSuperAdmin || 
+    userRoleClean === 'ASSISTANT_SUPER_ADMIN' ||
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) ||
+    currentUser?.permissions?.view_global_roster === true;
+
+  const isRPC = ['RPC', 'DEPUTY_RPC'].includes(userRoleClean) || 
+    (userRoleClean === 'SYSTEM_MANAGER' && !isGlobalTier) ||
+    userPosClean.includes('RPC') || 
+    userPosClean.includes('REGIONAL POLICE COMMANDER');
+
+  const isTopCommand = isGlobalTier || isRPC || 
+    ['ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN'].includes(userRoleClean) || 
+    userPosClean.includes('HR');
+
+  const hasDelegatedApprovalPower = currentUser?.permissions?.can_approve === true || currentUser?.permissions?.system_admin === true;
+  const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true;
+
+  const canViewGlobalActive = canViewGlobal || isGlobalTier;
+  const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && !currentUser?.permissions?.global_open && !isSuperAdmin;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState('ALL STATIONS');
+
   const [modRequests, setModRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
   
@@ -85,34 +114,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     Object.keys(lockdownData.stations).forEach(s => { if (lockdownData.stations[s]) list.push(`🔒 STATION: ${s}`); });
     return list;
   }, [lockdownData]);
-
-  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
-  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
-  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
-  const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
-
-  const isGlobalTier = isSuperAdmin || 
-    userRoleClean === 'ASSISTANT_SUPER_ADMIN' ||
-    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) ||
-    currentUser?.permissions?.view_global_roster === true;
-
-  const isRPC = ['RPC', 'DEPUTY_RPC'].includes(userRoleClean) || 
-    (userRoleClean === 'SYSTEM_MANAGER' && !isGlobalTier) ||
-    userPosClean.includes('RPC') || 
-    userPosClean.includes('REGIONAL POLICE COMMANDER');
-
-  const isTopCommand = isGlobalTier || isRPC || 
-    ['ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN'].includes(userRoleClean) || 
-    userPosClean.includes('HR');
-
-  const hasDelegatedApprovalPower = currentUser?.permissions?.can_approve === true || currentUser?.permissions?.system_admin === true;
-  const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true;
-
-  const canViewGlobalActive = canViewGlobal || isGlobalTier;
-  const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && !currentUser?.permissions?.global_open && !isSuperAdmin;
-
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
-  const [filterStation, setFilterStation] = useState('ALL STATIONS');
 
   useEffect(() => {
     if (canViewGlobalActive) {
@@ -970,7 +971,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           <Eye size={12} className="mr-1.5"/> Inspect Dossier
                         </button>
                         
-                        {/* 🟢 RESTORE BUTTON: Click to regrant access instantly */}
                         <button onClick={() => handleRegrantAccess(u.fnum, u.name)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
                           <Unlock size={12} className="mr-1.5"/> Restore
                         </button>
@@ -1129,7 +1129,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 WIDER DELEGATION MODAL WITH SEARCH BOX */}
+      {/* WIDER DELEGATION MODAL */}
       {showDelegationModal && (
         <div className="fixed inset-0 bg-black/70 z-[999999] flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl p-6 space-y-4 shadow-2xl text-white">
@@ -1142,7 +1142,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             
             <p className="text-xs text-slate-400">Search and select an officer in your command jurisdiction to delegate authorization and matrix approval privileges.</p>
             
-            {/* 🟢 Search Input for Delegation Modal */}
             <div className="relative flex items-center">
               <Search size={14} className="absolute left-3 text-slate-400" />
               <input 
