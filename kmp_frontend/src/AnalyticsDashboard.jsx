@@ -53,6 +53,7 @@ const normalizeAnalyticsRank = (rankStr) => {
   return r;
 };
 
+// 🟢 Unit Normalization Engine to eliminate spelling & abbreviation repetitions
 const normalizeUnitName = (rawUnit) => {
   if (!rawUnit) return 'GENERAL DUTIES';
   let clean = String(rawUnit).trim().toUpperCase();
@@ -197,27 +198,30 @@ const AnalyticsDashboard = ({
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
 
-  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
+  const isSuperAdmin = userRoleClean === 'SUPER_ADMIN' || userRoleClean === 'ADMIN';
+  const isGlobalTier = isSuperAdmin || 
+    ['ASSISTANT_SUPER_ADMIN', 'ADMIN'].includes(userRoleClean) || 
     ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
-    currentUser?.permissions?.view_global_roster === true;
+    currentUser?.permissions?.view_global_roster === true ||
+    !currentUser;
 
   const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
   const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
 
   const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
 
-  const [selectedRegion, setSelectedRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
+  const [selectedRegion, setSelectedRegion] = useState('ALL REGIONS');
   const [selectedStation, setSelectedStation] = useState('ALL STATIONS');
 
   useEffect(() => {
-    if (canViewGlobalLevel) {
+    if (canViewGlobalLevel || !currentUser) {
       setSelectedRegion('ALL REGIONS');
       setSelectedStation('ALL STATIONS');
     } else {
-      setSelectedRegion(userRegClean);
+      setSelectedRegion(userRegClean || 'KMP HEADQUARTERS');
       setSelectedStation('ALL STATIONS');
     }
-  }, [canViewGlobalLevel, userRegClean]);
+  }, [canViewGlobalLevel, userRegClean, currentUser]);
 
   const currentDataset = useMemo(() => {
     let baseData = [];
@@ -561,7 +565,7 @@ const AnalyticsDashboard = ({
     const allWeeksSet = new Set();
 
     ops.forEach(o => {
-      let stn = stripHtmlTags(o.station || 'UNKNOWN').trim().toUpperCase();
+      let stn = stripHtmlTags(o.station || '').trim().toUpperCase();
       if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
 
       const reg = getOfficialRegionForStation(stn, o.region);

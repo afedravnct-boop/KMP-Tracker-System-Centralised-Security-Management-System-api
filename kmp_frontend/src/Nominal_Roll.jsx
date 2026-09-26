@@ -7,7 +7,7 @@ import { authFetch } from './api';
 import BulkNominalRollUpload from './BulkNominalRollUpload';
 import OfficerDossierModal from './OfficerDossierModal';
 
-// 🟢 Fully mapping Regions to their core HQs and Sub-stations
+// 🟢 Initial Major Regions & Stations mapping
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -192,7 +192,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const userPosClean = cleanStr(currentUser?.position);
   const userRegClean = cleanStr(currentUser?.region);
 
-  // 🟢 Enhanced Scope Resolutions
   const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
     ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
     currentUser?.permissions?.view_global_roster === true;
@@ -252,19 +251,31 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
   });
 
+  // 🟢 Stations List strictly combining initial major stations first, followed by discovered DB entries
   const availableStationsList = useMemo(() => {
     const list = new Set();
+    const activeReg = filterRegion;
+
+    // First load initial major stations mapped to this region (or all if ALL REGIONS)
+    if (activeReg && activeReg !== 'ALL REGIONS' && REGIONAL_HIERARCHY[activeReg]) {
+      REGIONAL_HIERARCHY[activeReg].forEach(stn => list.add(stn));
+    } else {
+      Object.values(REGIONAL_HIERARCHY).forEach(arr => arr.forEach(stn => list.add(stn)));
+    }
+
+    // Next append discovered stations from database entries
     (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).forEach(n => {
       if (n.station) {
         const cleaned = cleanStr(n.station);
-        if (cleaned) list.add(cleaned);
+        const reg = getOfficialRegionForStation(cleaned, cleanStr(n.region));
+        if (cleaned && (activeReg === 'ALL REGIONS' || reg === activeReg)) {
+          list.add(cleaned);
+        }
       }
     });
-    if (list.size === 0) {
-      Object.values(REGIONAL_HIERARCHY).forEach(arr => arr.forEach(stn => list.add(stn)));
-    }
-    return Array.from(list).sort();
-  }, [Nominal_Rolls]);
+
+    return Array.from(list);
+  }, [Nominal_Rolls, filterRegion]);
 
   const populateUpdateForm = (data) => setFormData({ ...data, fnum: data.fnum || data.f_num || '' });
 
@@ -702,7 +713,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Master Nominal Roll</h1>
         <h3 className="text-xs sm:text-sm text-blue-700 mt-0.5 font-semibold uppercase tracking-wider">Man-Power Auditing & Deployment Registry</h3>
       </div>
-       
+        
       <div className="bg-white/90 backdrop-blur p-3.5 rounded-xl border border-slate-200 shadow-sm relative">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
           <h4 className="text-xs font-extrabold text-slate-500 uppercase tracking-wider flex items-center">
@@ -1023,7 +1034,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                             </p>
                           </div>
                         </div>
-                          
+                         
                         <div className="space-y-2.5 bg-white p-2.5 rounded-md border border-amber-100">
                           <div>
                             <label className="block text-[10px] font-bold text-slate-700 mb-0.5">Re-integration Authority / Reason *</label>
@@ -1091,7 +1102,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       </span>
                   )}
               </div>
-                
+               
               {bulkSelectMode && selectedOfficers.length > 0 && (
                   <div className="flex flex-col sm:flex-row items-center gap-2 animate-in fade-in slide-in-from-left-4 bg-white p-2.5 rounded-lg shadow-xs border border-red-200">
                       <select
@@ -1143,12 +1154,12 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             <div className="flex flex-col sm:flex-row gap-2.5 flex-1">
               <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalLevel} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
                 {canViewGlobalLevel ? (
-                  <><option value="ALL REGIONS">ALL REGIONS</option>{Array.from(new Set([...Object.keys(REGIONAL_HIERARCHY), ...(filteredRolls || []).map(n => cleanStr(n.region)).filter(Boolean)])).sort().map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+                  <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
                 ) : <option value={userRegClean}>{userRegClean}</option>}
               </select>
               <select value={filterStation} onChange={(e) => setFilterStation(e.target.value) } disabled={!(canViewGlobalLevel || isRegionalCommand)} className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
                 {(canViewGlobalLevel || isRegionalCommand) ? (
-                  <><option value="ALL STATIONS">ALL STATIONS</option>{Array.from(new Set([...(REGIONAL_HIERARCHY[filterRegion] || []), ...(filteredRolls || []).filter(n => filterRegion === 'ALL REGIONS' || cleanStr(n.region) === filterRegion).map(n => cleanStr(n.station)).filter(Boolean)])).sort().map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
+                  <><option value="ALL STATIONS">ALL STATIONS</option>{availableStationsList.map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
                 ) : <option value={currentUser?.station}>{cleanStr(currentUser?.station)}</option>}
               </select>
             </div>

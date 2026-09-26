@@ -334,9 +334,9 @@ def get_eat_time():
     eat_tz = pytz.timezone('Africa/Nairobi')
     return datetime.now(eat_tz).strftime('%Y-%m-%d %H:%M:%S')
 
-# 🟢 REUSABLE FORENSIC INDEPENDENT LOGGING HELPER
+# 🟢 ROBUST FORENSIC ACTIVITY RECORDER FOR ACTIVE COMPONENT CLICKS
 def log_independent_activity(logs_db: Session, fnum: str, action: str, module: str, details: str):
-    """Writes an immutable forensic event directly to the independent Neon activity logs branch."""
+    """Writes meaningful forensic clicks, authorizations, and module interactions directly to activity logs."""
     try:
         new_activity = models.Activity_Logs(
             fnum=str(fnum or "SYSTEM").strip().upper(),
@@ -578,13 +578,12 @@ def get_pending_users(
     logs_db: Session = Depends(get_logs_db), 
     current_user: models.Users = Depends(require_admin_or_observer)
 ):
-    # 🟢 FORENSIC VECTOR 3: Captures access to the secure Approvals queue
     log_independent_activity(
         logs_db=logs_db,
         fnum=current_user.fnum,
         action="ACCESS_APPROVALS_TAB_VIEW",
         module="ADMIN_APPROVALS",
-        details=f"Administrator {current_user.name} ({current_user.fnum}) accessed the secure Access Approvals and Authorizations dashboard."
+        details=f"Officer {current_user.name} ({current_user.fnum}) accessed Access & Command Approvals."
     )
     try:
         pending = db.query(models.Users).filter(models.Users.is_approved == False).all()
@@ -611,7 +610,18 @@ def get_pending_users(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/requests")
-def get_system_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin_or_observer)):
+def get_system_requests(
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(require_admin_or_observer)
+):
+    log_independent_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action="VIEW_HR_TRANSFERS",
+        module="HR_TRANSFERS",
+        details=f"Officer {current_user.name} ({current_user.fnum}) viewed active HR modification and transfer requests."
+    )
     try:
         ReqModel = getattr(models, 'modification_requests', getattr(models, 'Modification_Requests', None))
         if not ReqModel:
@@ -643,7 +653,12 @@ def get_system_requests(db: Session = Depends(get_db), current_user: models.User
         return []
 
 @app.post("/api/v1/requests")
-def create_system_request(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def create_system_request(
+    data: dict, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     try:
         target_rank = (data.get("requested_rank") or current_user.rank or "").strip().upper()
         target_fnum = (data.get("requested_fnum") or current_user.fnum or "").strip().upper()
@@ -652,10 +667,10 @@ def create_system_request(data: dict, db: Session = Depends(get_db), current_use
         is_fnum_numeric = target_fnum.isdigit()
         
         if target_rank in nco_ranks and not is_fnum_numeric:
-            raise HTTPException(status_code=400, detail=f"PROTOCOL ERROR: Rank {target_rank} requires a purely numeric Force Number (e.g., 26000). Target FNUM is {target_fnum}.")
+            raise HTTPException(status_code=400, detail=f"PROTOCOL ERROR: Rank {target_rank} requires a purely numeric Force Number.")
             
         if target_rank not in nco_ranks and is_fnum_numeric and target_rank != "":
-            raise HTTPException(status_code=400, detail=f"PROTOCOL ERROR: Rank {target_rank} requires an alphanumeric Force/File Number (e.g., A/2400). Target FNUM is {target_fnum}.")
+            raise HTTPException(status_code=400, detail=f"PROTOCOL ERROR: Rank {target_rank} requires an alphanumeric Force/File Number.")
 
         ReqModel = getattr(models, 'Modification_Requests', getattr(models, 'modification_requests', None))
         if not ReqModel:
@@ -673,6 +688,15 @@ def create_system_request(data: dict, db: Session = Depends(get_db), current_use
         )
         db.add(new_request)
         db.commit()
+
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="SUBMIT_HR_MODIFICATION",
+            module="HR_TRANSFERS",
+            details=f"Officer {current_user.name} ({current_user.fnum}) submitted an HR modification/transfer request."
+        )
+
         return {"status": "success", "message": "HR Modification request submitted successfully."}
     except HTTPException:
         raise
@@ -682,7 +706,13 @@ def create_system_request(data: dict, db: Session = Depends(get_db), current_use
 
 @app.patch("/api/v1/requests/{req_id}")
 @app.put("/api/v1/requests/{req_id}")
-def review_system_request(req_id: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin)):
+def review_system_request(
+    req_id: int, 
+    data: dict, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(require_admin)
+):
     ReqModel = getattr(models, 'Modification_Requests', getattr(models, 'modification_requests', None))
     req = db.query(ReqModel).filter(ReqModel.id == req_id).first()
     
@@ -704,18 +734,47 @@ def review_system_request(req_id: int, data: dict, db: Session = Depends(get_db)
         req.reviewed_by = current_user.fnum
         req.reviewed_at = get_eat_time()
         db.commit()
+
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="APPROVE_HR_TRANSFER",
+            module="HR_TRANSFERS",
+            details=f"Admin {current_user.name} ({current_user.fnum}) approved HR transfer request for officer {req.fnum}."
+        )
+
         return {"status": "success", "message": "Modification approved and executed."}
         
     elif action_status == "REJECTED":
         db.delete(req)
         db.commit()
+
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="REJECT_HR_TRANSFER",
+            module="HR_TRANSFERS",
+            details=f"Admin {current_user.name} ({current_user.fnum}) rejected HR transfer request for officer {req.fnum}."
+        )
+
         return {"status": "success", "message": "Modification request rejected."}
         
     else:
         raise HTTPException(status_code=400, detail="Invalid action status provided.")
 
 @app.get("/api/v1/audit-logs")
-def get_audit_logs(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin_or_observer)):
+def get_audit_logs(
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(require_admin_or_observer)
+):
+    log_independent_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action="VIEW_AUDIT_LOGS",
+        module="AUDIT_LOGS",
+        details=f"Officer {current_user.name} ({current_user.fnum}) accessed the secure System Audit Logs tab."
+    )
     try:
         AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
         if not AuditModel:
@@ -785,13 +844,12 @@ def update_user_access(
         db.commit()
         db.refresh(user)
 
-        # 🟢 FORENSIC VECTOR 4: Captures authorizations, matrix permissions, and tier promotions
         log_independent_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
             action="USER_ACCESS_UPDATE",
             module="ACCESS_MATRIX",
-            details=f"Command Authorizations: Admin {current_user.name} ({current_user.fnum}) updated matrix clearance for officer {clean_fnum}. Role Tier: {user.role}, Approved: {user.is_approved}."
+            details=f"Admin {current_user.name} ({current_user.fnum}) modified clearance matrix for officer {clean_fnum}. Role Tier: {user.role}"
         )
 
         return {
@@ -829,13 +887,12 @@ def force_user_password(
         
     target_user.hashed_password = pwd_context.hash(new_pass)
     
-    # 🟢 FORENSIC VECTOR: Force password reset action logged
     log_independent_activity(
         logs_db=logs_db,
         fnum=current_user.fnum,
         action="FORCE_PASSWORD_RESET",
         module="SECURITY_VAULT",
-        details=f"Super Admin {current_user.name} ({current_user.fnum}) forcibly overrode and reset the security key for officer {target_fnum}."
+        details=f"Super Admin {current_user.name} ({current_user.fnum}) forcibly reset the security key for officer {target_fnum}."
     )
 
     if hasattr(models, 'Audit_Logs'):
@@ -852,7 +909,18 @@ def force_user_password(
     return {"status": "success", "message": f"Password forcibly updated for {target_fnum}"}
 
 @app.get("/api/v1/admin/reset-requests")
-def get_reset_requests(db: Session = Depends(get_db), current_user: models.Users = Depends(require_admin_or_observer)):
+def get_reset_requests(
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(require_admin_or_observer)
+):
+    log_independent_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action="VIEW_PASSWORD_RESETS",
+        module="PASSWORD_RESETS",
+        details=f"Officer {current_user.name} ({current_user.fnum}) viewed the password recovery requests tab."
+    )
     try:
         target_model = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
         if target_model:
@@ -897,8 +965,8 @@ def execute_password_reset(
             logs_db=logs_db,
             fnum=current_user.fnum,
             action="PASSWORD_RESET_APPROVED",
-            module="SECURITY_VAULT",
-            details=f"Admin {current_user.name} ({current_user.fnum}) approved password recovery for officer {target_fnum}."
+            module="PASSWORD_RESETS",
+            details=f"Admin {current_user.name} ({current_user.fnum}) authorized password recovery for officer {target_fnum}."
         )
 
         return {"status": "success", "new_password": temp_password}
@@ -910,7 +978,7 @@ def execute_password_reset(
             logs_db=logs_db,
             fnum=current_user.fnum,
             action="PASSWORD_RESET_REJECTED",
-            module="SECURITY_VAULT",
+            module="PASSWORD_RESETS",
             details=f"Admin {current_user.name} ({current_user.fnum}) rejected password recovery for officer {target_fnum}."
         )
 
@@ -1071,7 +1139,6 @@ def get_recipients_list(db: Session = Depends(get_db), current_user: models.User
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch recipients: {str(e)}")
 
-# 🟢 FORENSIC VECTOR 5 & 6: REVOCATION AND PERMANENT PURGE WITH INDEPENDENT LOGS BRANCH
 @app.delete("/api/v1/users/{fnum:path}/revoke")
 def revoke_user_access(
     fnum: str,
@@ -1097,7 +1164,7 @@ def revoke_user_access(
             fnum=current_user.fnum,
             action="REVOKE_USER_ACCESS",
             module="ACCESS_MATRIX",
-            details=f"SECURITY ACTION: Administrator {current_user.name} ({current_user.fnum}) revoked access for officer {target_user.name} ({clean_fnum}). Reason: {reason}"
+            details=f"Admin {current_user.name} ({current_user.fnum}) revoked system access for officer {clean_fnum}. Reason: {reason}"
         )
 
         if hasattr(models, 'Audit_Logs'):
@@ -1135,13 +1202,12 @@ def permanently_delete_user(
     officer_name = target_user.name
     
     try:
-        # 🟢 FORENSIC VECTOR 6: Permanent erasure logging to independent storage
         log_independent_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
             action="PERMANENT_ACCOUNT_PURGE",
             module="SECURITY_VAULT",
-            details=f"CRITICAL OVERRIDE: Super Admin {current_user.name} ({current_user.fnum}) permanently purged officer record {officer_name} ({target_fnum}) from Neon database."
+            details=f"Super Admin {current_user.name} ({current_user.fnum}) permanently purged officer record {officer_name} ({target_fnum})."
         )
 
         if hasattr(models, 'Audit_Logs'):
@@ -1157,7 +1223,7 @@ def permanently_delete_user(
         db.delete(target_user)
         db.commit()
         
-        return {"status": "success", "message": f"Officer record {target_fnum} permanently purged and logged to independent storage."}
+        return {"status": "success", "message": f"Officer record {target_fnum} permanently purged."}
     except Exception as e:
         db.rollback()
         logs_db.rollback()
@@ -1214,10 +1280,6 @@ def get_consolidated_ledger(
         print(f"Consolidated Ledger DB Query Error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch consolidated data: {str(e)}")
 
-# ====================================================================
-# SECURE ENCRYPTED ZIP EXPORTS (AUDIT LOGS & HR LEDGER)
-# ====================================================================
-
 @app.get("/api/v1/audit-logs/export")
 def export_audit_logs_excel(
     db: Session = Depends(get_db), 
@@ -1225,13 +1287,12 @@ def export_audit_logs_excel(
     current_user: models.Users = Depends(require_export_privilege)
 ):
     try:
-        # 🟢 FORENSIC VECTOR 8: Master Audit Export Logging
         log_independent_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
             action="AUDIT_LOGS_EXPORT",
             module="EXCEL_EXPORTS",
-            details=f"Security Alert: Officer {current_user.name} ({current_user.fnum}) downloaded the encrypted audit logs vault archive."
+            details=f"Officer {current_user.name} ({current_user.fnum}) downloaded the encrypted audit logs vault archive."
         )
 
         AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
@@ -1313,13 +1374,12 @@ def export_hr_ledger(
     current_user: models.Users = Depends(require_export_privilege)
 ):
     try:
-        # 🟢 FORENSIC VECTOR 8: HR Ledger Export Logging
         log_independent_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
             action="HR_LEDGER_EXPORT",
             module="EXCEL_EXPORTS",
-            details=f"Security Alert: Officer {current_user.name} ({current_user.fnum}) downloaded the secure encrypted HR establishments ledger archive."
+            details=f"Officer {current_user.name} ({current_user.fnum}) downloaded the secure encrypted HR establishments ledger archive."
         )
 
         NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
@@ -1398,13 +1458,12 @@ def export_master_database(
     current_user: models.Users = Depends(require_export_privilege)
 ):
     try:
-        # 🟢 FORENSIC VECTOR 8: Master DB Export Logging
         log_independent_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
             action="MASTER_DATABASE_EXPORT",
             module="EXCEL_EXPORTS",
-            details=f"Security Alert: Officer {current_user.name} ({current_user.fnum}) downloaded the encrypted master database archive (Scope: {scope or 'ALL'}, Value: {value or 'GENERAL'})."
+            details=f"Officer {current_user.name} ({current_user.fnum}) downloaded the encrypted master database archive."
         )
 
         CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
