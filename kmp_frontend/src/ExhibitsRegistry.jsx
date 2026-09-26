@@ -10,8 +10,8 @@ const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
   "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
-  "POLICE HEADQUARTERS": ["NAGURU"]
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 };
 
 const EXHIBIT_CATEGORIES = [
@@ -27,7 +27,7 @@ const STATUS_OPTIONS = [
 ];
 
 const POLICE_UNITS = [
-  'CID', 'CRIME INTELLIGENCE', 'TRAFFIC', 'FFU', '999 ERU', 'K9 UNIT', 'COUNTER TERRORISM', 'SPECIAL OPERATIONS'
+  'CID', 'CRIME INTELLIGENCE', 'TRAFFIC', 'FFU', '999 ERU', 'K9 UNIT', 'COUNTER TERRORISM', 'SFC', 'PPG', 'SHACU', 'IGG', 'EPPU', 'PMPU', 'IOV', 'COURT PROPERTY', 'UPDF', 'MILITARY POLICE', 'CUSTOM'
 ];
 
 const isStationEquivalent = (statA, statB) => {
@@ -110,6 +110,10 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState((canViewGlobalActive || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
+
+  // 🟢 Custom Input Toggle States
+  const [isCustomUnit, setIsCustomUnit] = useState(false);
+  const [customUnitInput, setCustomUnitInput] = useState('');
 
   const isFilterInitialized = useRef(false);
   useEffect(() => {
@@ -215,6 +219,8 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       entered_by: `${stripHtmlTags(currentUser?.name || '')} (${stripHtmlTags(currentUser?.fnum || '')})`
     });
     setCustomStatusInput('');
+    setIsCustomUnit(false);
+    setCustomUnitInput('');
   };
 
   const handleInputChange = (e) => {
@@ -223,6 +229,17 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     
     if (name === 'status' && clean === 'CUSTOM') {
       setFormData(prev => ({ ...prev, status: 'CUSTOM' }));
+      return;
+    }
+
+    if (name === 'unit_responsible') {
+      if (clean === 'CUSTOM') {
+        setIsCustomUnit(true);
+        setFormData(prev => ({ ...prev, unit_responsible: 'CUSTOM' }));
+      } else {
+        setIsCustomUnit(false);
+        setFormData(prev => ({ ...prev, unit_responsible: clean.toUpperCase() }));
+      }
       return;
     }
 
@@ -246,12 +263,14 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     }
 
     const finalStatus = formData.status === 'CUSTOM' ? customStatusInput.toUpperCase() : formData.status;
+    const finalUnit = formData.unit_responsible === 'CUSTOM' ? customUnitInput.toUpperCase() : formData.unit_responsible;
 
     const payload = {
       ...formData,
       reg_no: formData.reg_no.trim() || 'NIL',
       case_no: finalCaseNo,
       status: finalStatus,
+      unit_responsible: finalUnit,
       region: getOfficialRegionForStation(formData.station, formData.region),
       entered_by: `${currentUser.name} (${currentUser.fnum})`,
       timestamp: new Date().toISOString(),
@@ -287,6 +306,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     setOperation('update');
     
     let isStandardStatus = STATUS_OPTIONS.includes((item.status || '').toUpperCase());
+    let isStandardUnit = POLICE_UNITS.includes((item.unit_responsible || '').toUpperCase());
     
     let extractedPrefix = '';
     let extractedValue = item.case_no || '';
@@ -319,6 +339,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       category: extractedCategory,
       type_make: extractedTypeMake,
       status: isStandardStatus ? item.status : 'CUSTOM',
+      unit_responsible: isStandardUnit ? item.unit_responsible : 'CUSTOM',
       date_cleared: item.date_cleared || '',
       case_no_prefix: extractedPrefix,
       case_no_value: extractedValue
@@ -326,6 +347,14 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     
     if (!isStandardStatus) {
       setCustomStatusInput(item.status);
+    }
+
+    if (!isStandardUnit) {
+      setIsCustomUnit(true);
+      setCustomUnitInput(item.unit_responsible);
+    } else {
+      setIsCustomUnit(false);
+      setCustomUnitInput('');
     }
     
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -536,6 +565,9 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                       <option value="GENERAL">GENERAL POLICE</option>
                       {POLICE_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
                     </select>
+                    {formData.unit_responsible === 'CUSTOM' && (
+                      <input type="text" placeholder="Specify Unit" value={customUnitInput} onChange={(e) => setCustomUnitInput(e.target.value)} required className="w-full border rounded-lg p-2 mt-1 uppercase font-bold bg-amber-50 dark:bg-slate-700 outline-none focus:ring-2 focus:ring-amber-500" />
+                    )}
                   </div>
                 </div>
 
@@ -699,12 +731,12 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                           <td className="px-3 py-2.5 uppercase font-semibold">{stripHtmlTags(item.reason)}</td>
                           <td className="px-3 py-2.5 text-center">
                             <span className={`px-2 py-0.5 rounded-full font-extrabold text-[9px] ${
-                              (item.status || '').toUpperCase() === 'IN COURT' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
-                              (item.status || '').toUpperCase() === 'PENDING COURT' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' :
-                              (item.status || '').toUpperCase() === 'UNDER INVESTIGATION' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
-                              (item.status || '').toUpperCase() === 'CLEARED' || (item.status || '').toUpperCase() === 'DISPOSED BY COURT' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
-                              (item.status || '').toUpperCase() === 'FORFEITED' ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' :
-                              'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            (item.status || '').toUpperCase() === 'IN COURT' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                            (item.status || '').toUpperCase() === 'PENDING COURT' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' :
+                            (item.status || '').toUpperCase() === 'UNDER INVESTIGATION' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
+                            (item.status || '').toUpperCase() === 'CLEARED' || (item.status || '').toUpperCase() === 'DISPOSED BY COURT' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                            (item.status || '').toUpperCase() === 'FORFEITED' ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' :
+                            'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
                             }`}>
                               {stripHtmlTags(item.status)}
                             </span>

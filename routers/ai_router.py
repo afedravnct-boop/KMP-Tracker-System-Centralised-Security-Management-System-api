@@ -107,6 +107,7 @@ async def process_tactical_query(
         live_data_context = ""
         agric_records = []
         stats_records = []
+        exhibits_records = []
         hr_aggregates = []
         hr_sample = []
 
@@ -114,6 +115,7 @@ async def process_tactical_query(
             try:
                 AgricModel = getattr(models, 'Agricultural_Crime_Summary', getattr(models, 'AgriculturalCrimeSummary', None))
                 StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', None))
+                ExhibitsModel = getattr(models, 'Exhibits', getattr(models, 'exhibits', getattr(models, 'ImpoundedExhibits', None)))
                 
                 HrModel = None
                 for m_name in ['Nominal_Roll', 'NominalRoll', 'nominal_roll', 'NominalRolls']:
@@ -125,15 +127,20 @@ async def process_tactical_query(
                 
                 agric_query = db.query(AgricModel) if AgricModel else None
                 stats_query = db.query(StatsModel) if StatsModel else None
+                exhibits_query = db.query(ExhibitsModel) if ExhibitsModel else None
 
                 if not is_global_viewer:
+                    user_station_val = str(current_user.station).strip().upper()
                     if AgricModel and hasattr(AgricModel, 'station'): 
-                        agric_query = agric_query.filter(func.upper(AgricModel.station) == str(current_user.station).strip().upper())
+                        agric_query = agric_query.filter(func.upper(AgricModel.station) == user_station_val)
                     if StatsModel and hasattr(StatsModel, 'station'): 
-                        stats_query = stats_query.filter(func.upper(StatsModel.station) == str(current_user.station).strip().upper())
+                        stats_query = stats_query.filter(func.upper(StatsModel.station) == user_station_val)
+                    if ExhibitsModel and hasattr(ExhibitsModel, 'station'): 
+                        exhibits_query = exhibits_query.filter(func.upper(ExhibitsModel.station) == user_station_val)
 
                 agric_records = agric_query.limit(20).all() if agric_query else []
                 stats_records = stats_query.limit(20).all() if stats_query else []
+                exhibits_records = exhibits_query.limit(20).all() if exhibits_query else []
 
                 live_data_context = "LIVE OPERATIONAL DATABASE EXTRACTS (Tier-Restricted):\n"
                 if agric_records:
@@ -144,6 +151,14 @@ async def process_tactical_query(
                     live_data_context += "- Disruptive OPS Weekly Metrics:\n"
                     for s in stats_records:
                         live_data_context += f"  * [{s.region} / {s.station}] Date: {s.date} | Arrested={s.arrested}, Remanded={s.remanded}, Convicted={s.convicted}\n"
+                if exhibits_records:
+                    live_data_context += "- Impounded Fleet & Exhibits Register:\n"
+                    for e in exhibits_records:
+                        e_reg = getattr(e, 'reg_no', 'NIL')
+                        e_desc = getattr(e, 'type_make', getattr(e, 'category', 'EXHIBIT'))
+                        e_status = getattr(e, 'status', 'UNKNOWN')
+                        e_case = getattr(e, 'case_no', 'N/A')
+                        live_data_context += f"  * [{getattr(e, 'region', 'KMP')} / {getattr(e, 'station', 'HQ')}] Reg/Serial: {e_reg} | Desc: {e_desc} | Case: {e_case} | Status: {e_status}\n"
                 
                 if has_ai_hr_access and HrModel:
                     fnum_attr = getattr(HrModel, 'f_num', getattr(HrModel, 'fnum', getattr(HrModel, 'fNum', None)))
@@ -233,6 +248,7 @@ async def process_tactical_query(
             "  * CRIME REGISTRY: Navigate to the 'Crime / Incident Registry' module from the main sidebar. Click the appropriate buttons to log Station Diary (SD) references, offenses, and suspect lock-up matrices.\n"
             "  * ESTABLISHMENTS: Navigate to the 'Establishments' module from the main dashboard to view or update structural command allocations across main stations, sub-stations, police posts, and security booths.\n"
             "  * NOMINAL ROLL & HR TRANSFERS: Access the dedicated 'Nominal Roll' module directly from the dashboard. To update personnel data in bulk, instruct the user to click the 'Upload / Import Nominal Roll' button. The uploaded Excel file MUST contain the following exact 29 column headers: id, sn, f_num, rank, name, sex, position, dob, doe, do_post, do_pro, contact, educ_level, ipps, tin, nin, home_dist, tribe, acc_no, bank_branch, station, district, region, section, dir, status, last_updated_by, created_at, reintegration_reason. Individual personnel transfers and updates are handled via the modification request queue.\n"
+            "  * IMPOUNDED EXHIBITS: Access the 'Impounded Exhibits' register to view and log confiscated vehicles, motorcycles, currency, and property items along with their holding status and unit responsible.\n"
             "  * NOMINAL ROLL ARCHIVE: If asked about deleted or transferred officers, explain the Archive system. When personnel are removed, their full profiles are transferred to the Historical Ledger (Archive) along with the 'Archive Reason' and 'Archive Date'. This preserves operational continuity.\n"
             "  * EXPORTS & REPORTS: To download data, navigate to the Reports module and click 'Export Master Database' or 'Export HR Ledger'. Crucial instruction: Remind them that the downloaded ZIP file is AES-256 encrypted, and their exact Force Number (e.g., A/2408) is the decryption password.\n"
             "  * AI CONSOLE: Type queries in the bottom input bar and click the blue 'Execute' button. Note that Super Admins have a 'Kill AI DB Query' toggle button at the top to suspend direct database access if needed.\n"
@@ -268,8 +284,7 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-        # 🟢 Updated candidate models with retry logic for 503 traffic spikes and valid identifiers
-        candidate_models = ['gemini-3.8-flash', 'gemini-3.7-flash']
+        candidate_models = ['gemini-2.5-flash', 'gemini-2.5-pro']
         response = None
         used_model = None
         last_exception = None
@@ -322,7 +337,7 @@ async def process_tactical_query(
             "metadata": {
                 "database_query_status": "Active (Tier Restricted)" if db_queries_allowed else "Disabled by Super Admin",
                 "jurisdiction_tier": user_tier_scope,
-                "structured_records_count": len(agric_records) + len(stats_records) + len(hr_aggregates) + len(hr_sample) if db_queries_allowed else 0,
+                "structured_records_count": len(agric_records) + len(stats_records) + len(exhibits_records) + len(hr_aggregates) + len(hr_sample) if db_queries_allowed else 0,
                 "semantic_chunks_retrieved": len(results),
                 "ai_model_used": used_model
             }
