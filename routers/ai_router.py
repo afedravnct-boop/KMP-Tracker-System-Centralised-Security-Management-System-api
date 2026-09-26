@@ -284,7 +284,7 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-        candidate_models = ['gemini-2.5-flash', 'gemini-2.5-pro']
+        candidate_models = ['gemini-3.8-flash', 'gemini-3.7-pro']
         response = None
         used_model = None
         last_exception = None
