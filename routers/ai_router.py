@@ -284,8 +284,8 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-        # 🟢 Using valid active Gemini model IDs
-        candidate_models = ['gemini-2.5-flash']
+        # 🟢 Using valid stable Gemini model IDs compatible with google-genai SDK
+        candidate_models = ['gemini-2.0-flash', 'gemini-3.5-flash']
         response = None
         used_model = None
         last_exception = None
