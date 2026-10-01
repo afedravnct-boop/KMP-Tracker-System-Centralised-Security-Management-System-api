@@ -46,10 +46,15 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
 
 const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, selectedRegion, selectedStation, currentUser, onRefreshData }) => {
   const [lockupFilter, setLockupFilter] = useState('ALL');
-  const [activeTab, setActiveTab] = useState('LEDGER'); // 'LEDGER' or 'LOG_FORM'
+  
+  // 🟢 Set default tab to 'LOG_FORM' (Log Census first)
+  const [activeTab, setActiveTab] = useState('LOG_FORM'); 
   const [notification, setNotification] = useState(null);
 
-  // Form input state matching your NeonDB columns exactly
+  // 🟢 Filter states inside the ledger view
+  const [ledgerFilterRegion, setLedgerFilterRegion] = useState(selectedRegion || 'ALL REGIONS');
+  const [ledgerFilterStation, setLedgerFilterStation] = useState(selectedStation || 'ALL STATIONS');
+
   const [formInput, setFormInput] = useState({
     station: currentUser?.station || 'CPS KAMPALA',
     region: currentUser?.region || 'KMP SOUTH',
@@ -75,15 +80,15 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
       const stn = stripHtml(row.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, row.region);
 
-      if (selectedRegion && selectedRegion !== 'ALL REGIONS') {
-        const cleanTargetRegion = selectedRegion.trim().toUpperCase();
+      if (ledgerFilterRegion && ledgerFilterRegion !== 'ALL REGIONS') {
+        const cleanTargetRegion = ledgerFilterRegion.trim().toUpperCase();
         const belongsToRegion = reg === cleanTargetRegion || 
                                 (REGIONAL_HIERARCHY[cleanTargetRegion] && REGIONAL_HIERARCHY[cleanTargetRegion].some(s => isStationEquivalent(s, stn)));
         if (!belongsToRegion) return false;
       }
 
-      if (selectedStation && selectedStation !== 'ALL STATIONS') {
-        const cleanTargetStation = selectedStation.trim().toUpperCase();
+      if (ledgerFilterStation && ledgerFilterStation !== 'ALL STATIONS') {
+        const cleanTargetStation = ledgerFilterStation.trim().toUpperCase();
         if (!isStationEquivalent(stn, cleanTargetStation)) return false;
       }
 
@@ -130,7 +135,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
         hasPrev: true 
       };
     });
-  }, [lockupEntries, lockupFilter, selectedRegion, selectedStation]);
+  }, [lockupEntries, lockupFilter, ledgerFilterRegion, ledgerFilterStation]);
 
   const totals = useMemo(() => {
     return filteredLockupEntries.reduce((acc, row) => {
@@ -190,38 +195,43 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     }
   };
 
+  // 🟢 Dynamic UI Theme Color Switching based on Active Tab
+  const headerBgClass = activeTab === 'LOG_FORM' ? 'bg-emerald-800' : 'bg-amber-800';
+  const buttonActiveBg = activeTab === 'LOG_FORM' ? 'bg-emerald-500 text-emerald-950' : 'bg-amber-500 text-amber-950';
+  const buttonInactiveBg = activeTab === 'LOG_FORM' ? 'text-emerald-200 hover:text-white' : 'text-amber-200 hover:text-white';
+  const innerNavBg = activeTab === 'LOG_FORM' ? 'bg-emerald-900 border-emerald-700' : 'bg-amber-900 border-amber-700';
+
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[99999] flex items-center justify-center p-2 sm:p-4 animate-in fade-in zoom-in-95 duration-200">
-      {/* 🟢 Expanded Width to max-w-[95vw] to fit all wrapped headers comfortably */}
-      <div className="bg-white shadow-2xl max-w-[95vw] w-full flex flex-col max-h-[92vh] rounded-xl overflow-hidden border border-amber-300">
+      <div className="bg-white shadow-2xl max-w-[95vw] w-full flex flex-col max-h-[92vh] rounded-xl overflow-hidden border border-slate-300">
         
-        {/* HEADER */}
-        <div className="bg-amber-800 px-6 py-4 flex justify-between items-center shrink-0 shadow-md z-10">
+        {/* DYNAMIC HEADER */}
+        <div className={`${headerBgClass} px-6 py-4 flex justify-between items-center shrink-0 shadow-md z-10 transition-colors duration-300`}>
           <div>
             <h3 className="text-xs sm:text-sm font-extrabold text-white tracking-wider uppercase flex items-center">
               <Shield className="w-4 h-4 mr-2" />
-              Independent Daily Suspect Lock-Up Matrix Ledger
+              {activeTab === 'LOG_FORM' ? 'Station Daily Cell Census & Lock-Up Entry' : 'Independent Daily Suspect Lock-Up Matrix Ledger'}
             </h3>
-            <p className="text-[10px] text-amber-200 font-medium mt-0.5">
-              Showing records for: <span className="text-white font-bold">{selectedRegion || 'ALL REGIONS'}</span> {selectedStation && selectedStation !== 'ALL STATIONS' ? `➔ ${selectedStation}` : ''}
+            <p className="text-[10px] text-white/80 font-medium mt-0.5">
+              Active Mode: <span className="text-white font-bold">{activeTab === 'LOG_FORM' ? 'Logging Census' : 'Reviewing Matrix Ledger'}</span>
             </p>
           </div>
           <div className="flex items-center space-x-3">
-            <div className="flex bg-amber-900 rounded-lg p-0.5 border border-amber-700">
-              <button 
-                onClick={() => setActiveTab('LEDGER')} 
-                className={`px-3 py-1 text-[11px] font-extrabold uppercase rounded transition ${activeTab === 'LEDGER' ? 'bg-amber-500 text-amber-950 shadow' : 'text-amber-200 hover:text-white'}`}
-              >
-                Matrix Ledger
-              </button>
+            <div className={`flex ${innerNavBg} rounded-lg p-0.5 border shadow-inner`}>
               <button 
                 onClick={() => setActiveTab('LOG_FORM')} 
-                className={`px-3 py-1 text-[11px] font-extrabold uppercase rounded transition flex items-center ${activeTab === 'LOG_FORM' ? 'bg-amber-500 text-amber-950 shadow' : 'text-amber-200 hover:text-white'}`}
+                className={`px-3 py-1 text-[11px] font-extrabold uppercase rounded transition flex items-center cursor-pointer ${activeTab === 'LOG_FORM' ? `${buttonActiveBg} shadow` : buttonInactiveBg}`}
               >
                 <PlusCircle className="w-3 h-3 mr-1" /> Log Census
               </button>
+              <button 
+                onClick={() => setActiveTab('LEDGER')} 
+                className={`px-3 py-1 text-[11px] font-extrabold uppercase rounded transition cursor-pointer ${activeTab === 'LEDGER' ? `${buttonActiveBg} shadow` : buttonInactiveBg}`}
+              >
+                Matrix Ledger
+              </button>
             </div>
-            <button onClick={onClose} className="text-amber-200 hover:text-white hover:bg-amber-700 p-1.5 rounded transition-colors cursor-pointer">
+            <button onClick={onClose} className="text-white/80 hover:text-white p-1.5 rounded transition-colors cursor-pointer">
               <X size={20} />
             </button>
           </div>
@@ -234,16 +244,136 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
           </div>
         )}
 
-        {/* 🟢 TAB 1: LEDGER VIEW */}
+        {/* 🟢 TAB 1: LOG CENSUS FORM (NOW FIRST) */}
+        {activeTab === 'LOG_FORM' && (
+          <div className="p-6 overflow-y-auto flex-1 bg-slate-50 max-w-3xl mx-auto w-full">
+            <h4 className="text-sm font-black text-slate-800 uppercase mb-4 pb-2 border-b flex items-center">
+              <PlusCircle className="w-4 h-4 mr-2 text-emerald-700" /> Log Station Daily Cell Census & Breakdown
+            </h4>
+            <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Region *</label>
+                  <select 
+                    value={formInput.region} 
+                    onChange={e => setFormInput({...formInput, region: e.target.value, station: REGIONAL_HIERARCHY[e.target.value]?.[0] || ''})} 
+                    required 
+                    className="w-full p-2.5 border rounded uppercase bg-white font-bold text-slate-800 cursor-pointer"
+                  >
+                    {Object.keys(REGIONAL_HIERARCHY).map(reg => (
+                      <option key={reg} value={reg}>{reg}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Station *</label>
+                  <select 
+                    value={formInput.station} 
+                    onChange={e => setFormInput({...formInput, station: e.target.value})} 
+                    required 
+                    className="w-full p-2.5 border rounded uppercase bg-white font-bold text-slate-800 cursor-pointer"
+                  >
+                    {(REGIONAL_HIERARCHY[formInput.region] || []).map(stat => (
+                      <option key={stat} value={stat}>{stat}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 bg-emerald-50 p-4 rounded-xl border border-emerald-200">
+                <div className="sm:col-span-1">
+                  <label className="block font-black text-emerald-900 mb-1">Total Suspects *</label>
+                  <input 
+                    type="number" 
+                    min="0" 
+                    value={formInput.suspects} 
+                    onChange={e => setFormInput({...formInput, suspects: e.target.value})} 
+                    required 
+                    className="w-full p-2.5 border rounded bg-white font-black text-emerald-900 text-sm" 
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-blue-800 mb-1">Male Adults</label>
+                  <input type="number" min="0" value={formInput.male_count} onChange={e => setFormInput({...formInput, male_count: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block font-bold text-indigo-800 mb-1">Male Juveniles</label>
+                  <input type="number" min="0" value={formInput.male_juvenile_count} onChange={e => setFormInput({...formInput, male_juvenile_count: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block font-bold text-pink-800 mb-1">Female Adults</label>
+                  <input type="number" min="0" value={formInput.female_count} onChange={e => setFormInput({...formInput, female_count: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block font-bold text-purple-800 mb-1">Female Juveniles</label>
+                  <input type="number" min="0" value={formInput.female_juvenile_count} onChange={e => setFormInput({...formInput, female_juvenile_count: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 bg-slate-100 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Detention: 1 Day</label>
+                  <input type="number" min="0" value={formInput.detention_1day} onChange={e => setFormInput({...formInput, detention_1day: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Detention: 2 Days</label>
+                  <input type="number" min="0" value={formInput.detention_2days} onChange={e => setFormInput({...formInput, detention_2days: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Detention: 3 Days & Over</label>
+                  <input type="number" min="0" value={formInput.detention_3days_over} onChange={e => setFormInput({...formInput, detention_3days_over: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button type="submit" className="px-6 py-3 bg-emerald-700 hover:bg-emerald-800 text-white font-black uppercase rounded-xl shadow cursor-pointer text-xs tracking-wider transition">
+                  💾 Save Census to Database Ledger
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* 🟢 TAB 2: MATRIX LEDGER VIEW WITH REGION & STATION FILTERS */}
         {activeTab === 'LEDGER' && (
           <>
-            <div className="bg-amber-50 px-6 py-3 border-b border-amber-200 flex justify-end shrink-0">
+            <div className="bg-amber-50 px-6 py-3 border-b border-amber-200 flex flex-col sm:flex-row justify-between items-center gap-3 shrink-0">
+              {/* REGION & STATION FILTER DROPDOWNS */}
+              <div className="flex items-center space-x-2 w-full sm:w-auto">
+                <Filter className="w-4 h-4 text-amber-800 shrink-0" />
+                <select 
+                  value={ledgerFilterRegion} 
+                  onChange={e => { setLedgerFilterRegion(e.target.value); setLedgerFilterStation('ALL STATIONS'); }}
+                  className="border border-amber-300 text-amber-900 font-bold rounded-lg px-2.5 py-1 text-xs bg-white outline-none cursor-pointer"
+                >
+                  <option value="ALL REGIONS">ALL REGIONS</option>
+                  {Object.keys(REGIONAL_HIERARCHY).map(reg => (
+                    <option key={reg} value={reg}>{reg}</option>
+                  ))}
+                </select>
+
+                <select 
+                  value={ledgerFilterStation} 
+                  onChange={e => setLedgerFilterStation(e.target.value)}
+                  className="border border-amber-300 text-amber-900 font-bold rounded-lg px-2.5 py-1 text-xs bg-white outline-none cursor-pointer"
+                >
+                  <option value="ALL STATIONS">ALL STATIONS</option>
+                  {ledgerFilterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[ledgerFilterRegion] ? (
+                    REGIONAL_HIERARCHY[ledgerFilterRegion].map(stat => (
+                      <option key={stat} value={stat}>{stat}</option>
+                    ))
+                  ) : null}
+                </select>
+              </div>
+
+              {/* TIMEFRAME FILTERS */}
               <div className="flex bg-amber-900 rounded-lg p-0.5 shadow-inner border border-amber-700/50 overflow-x-auto max-w-full custom-scrollbar">
                 {['TODAY', 'WEEK', 'MONTH', 'YEAR', 'ALL'].map((f) => (
                   <button
                     key={f}
                     onClick={() => setLockupFilter(f)}
-                    className={`px-4 py-1.5 text-[11px] font-extrabold uppercase rounded-md transition-colors whitespace-nowrap cursor-pointer ${
+                    className={`px-3 py-1 text-[11px] font-extrabold uppercase rounded-md transition-colors whitespace-nowrap cursor-pointer ${
                       lockupFilter === f
                         ? 'bg-amber-500 text-amber-950 shadow-sm'
                         : 'text-amber-200 hover:text-white hover:bg-amber-800/80'
@@ -259,7 +389,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
               <table className="w-full text-left border-collapse table-auto">
                 <thead className="bg-amber-100 sticky top-0 border-b border-amber-200 shadow-sm z-20">
                   <tr>
-                    {/* 🟢 Added whitespace-normal and min-w constraints for wrapping headers */}
                     <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200 text-center w-[4%] whitespace-normal">S/N</th>
                     <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200 min-w-[90px] whitespace-normal">Date Logged</th>
                     <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200 min-w-[140px] whitespace-normal">Station / Origin</th>
@@ -347,93 +476,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
               </div>
             </div>
           </>
-        )}
-
-        {/* 🟢 TAB 2: DEDICATED CENSUS LOGGING FORM */}
-        {activeTab === 'LOG_FORM' && (
-          <div className="p-6 overflow-y-auto flex-1 bg-slate-50 max-w-3xl mx-auto w-full">
-            <h4 className="text-sm font-black text-slate-800 uppercase mb-4 pb-2 border-b flex items-center">
-              <PlusCircle className="w-4 h-4 mr-2 text-amber-700" /> Log Station Daily Cell Census & Breakdown
-            </h4>
-            <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Station *</label>
-                  <input 
-                    type="text" 
-                    value={formInput.station} 
-                    onChange={e => setFormInput({...formInput, station: e.target.value})} 
-                    required 
-                    className="w-full p-2.5 border rounded uppercase bg-white font-bold" 
-                    placeholder="e.g. KAWEMPE" 
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Region *</label>
-                  <input 
-                    type="text" 
-                    value={formInput.region} 
-                    onChange={e => setFormInput({...formInput, region: e.target.value})} 
-                    required 
-                    className="w-full p-2.5 border rounded uppercase bg-white font-bold" 
-                    placeholder="e.g. KMP NORTH" 
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 bg-amber-50 p-4 rounded-xl border border-amber-200">
-                <div className="sm:col-span-1">
-                  <label className="block font-black text-amber-900 mb-1">Total Suspects *</label>
-                  <input 
-                    type="number" 
-                    min="0" 
-                    value={formInput.suspects} 
-                    onChange={e => setFormInput({...formInput, suspects: e.target.value})} 
-                    required 
-                    className="w-full p-2.5 border rounded bg-white font-black text-amber-900 text-sm" 
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-blue-800 mb-1">Male Adults</label>
-                  <input type="number" min="0" value={formInput.male_count} onChange={e => setFormInput({...formInput, male_count: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
-                </div>
-                <div>
-                  <label className="block font-bold text-indigo-800 mb-1">Male Juveniles</label>
-                  <input type="number" min="0" value={formInput.male_juvenile_count} onChange={e => setFormInput({...formInput, male_juvenile_count: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
-                </div>
-                <div>
-                  <label className="block font-bold text-pink-800 mb-1">Female Adults</label>
-                  <input type="number" min="0" value={formInput.female_count} onChange={e => setFormInput({...formInput, female_count: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
-                </div>
-                <div>
-                  <label className="block font-bold text-purple-800 mb-1">Female Juveniles</label>
-                  <input type="number" min="0" value={formInput.female_juvenile_count} onChange={e => setFormInput({...formInput, female_juvenile_count: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 bg-slate-100 p-4 rounded-xl border border-slate-200">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Detention: 1 Day</label>
-                  <input type="number" min="0" value={formInput.detention_1day} onChange={e => setFormInput({...formInput, detention_1day: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Detention: 2 Days</label>
-                  <input type="number" min="0" value={formInput.detention_2days} onChange={e => setFormInput({...formInput, detention_2days: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Detention: 3 Days & Over</label>
-                  <input type="number" min="0" value={formInput.detention_3days_over} onChange={e => setFormInput({...formInput, detention_3days_over: e.target.value})} className="w-full p-2.5 border rounded bg-white" placeholder="0" />
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-2">
-                <button type="submit" className="px-6 py-3 bg-amber-700 hover:bg-amber-800 text-white font-black uppercase rounded-xl shadow cursor-pointer text-xs tracking-wider transition">
-                  💾 Save Census to Database Ledger
-                </button>
-              </div>
-            </form>
-          </div>
         )}
 
       </div>
