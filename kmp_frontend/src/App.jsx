@@ -33,7 +33,7 @@ import AICommandConsole from "./AICommandConsole";
 import { authFetch, hasValidSession, getAuthToken, setAuthSession, clearAuthSession } from './api';
 import { FullUserPolicyText } from './policyContent';
 import ExhibitsRegistry from './ExhibitsRegistry';
-import LockupMatrixPage from './LockupMatrixPage';
+import LockupMatrixLedger from './LockupMatrixLedger';
 
 // ====================================================================
 // 1. CONSTANTS & CONFIGURATION
@@ -330,9 +330,10 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const canViewEst = checkClearance(currentUser, 'acc_est', true);
   const canViewAnalytics = checkClearance(currentUser, 'acc_analytics', true);
   const canViewHR = checkClearance(currentUser, 'acc_hr', true);
-  
-  // 🟢 Added Clearance Check for Exhibits
   const canViewExhibits = checkClearance(currentUser, 'acc_exhibits', true);
+  
+  // 🟢 Clearance check for Daily Lock-up Matrix module
+  const canViewLockup = checkClearance(currentUser, 'acc_lockup', true);
   
   const canViewApprovals = checkClearance(currentUser, 'acc_approvals', isAdmin || ['RPC', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role));
   const canViewConsolidated = checkClearance(currentUser, 'acc_consolidated', isAdmin || currentUser?.permissions?.consolidated);
@@ -397,6 +398,19 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
             <div>
               <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Crime Registry</h3>
               <p className="text-[11px] text-slate-500 dark:text-blue-200/70 font-medium mt-0.5 leading-snug">Log and track daily incidents.</p>
+            </div>
+          </div>
+        )}
+
+        {/* 🟢 DAILY SUSPECTS LOCK-UP MATRIX CARD */}
+        {canViewLockup && (
+          <div onClick={() => setCurrentPage('lockup-matrix')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-amber-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-amber-400 dark:hover:border-amber-500 dark:hover:bg-slate-800 group">
+            <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center mr-3 group-hover:bg-amber-500 group-hover:text-white dark:group-hover:bg-amber-500 dark:group-hover:shadow-[0_0_15px_rgba(245,158,11,0.5)] transition-all shrink-0">
+              <Lock size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Daily Lock-up Matrix</h3>
+              <p className="text-[11px] text-slate-500 dark:text-amber-200/70 font-medium mt-0.5 leading-snug">Cell census & detention durations.</p>
             </div>
           </div>
         )}
@@ -473,7 +487,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
           </div>
         )}
 
-        {/* 🟢 DOCUMENTS & REPORTS CARD (Positioned immediately after Nominal Roll) */}
         {checkClearance(currentUser, 'acc_documents', true) && (
           <div onClick={() => setCurrentPage('reports_hub')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-blue-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-400 dark:hover:border-blue-500 dark:hover:bg-slate-800 group">
             <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center mr-3 group-hover:bg-blue-600 group-hover:text-white dark:group-hover:bg-blue-500 dark:group-hover:shadow-[0_0_15px_rgba(59,130,246,0.5)] transition-all shrink-0">
@@ -486,7 +499,6 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
           </div>
         )}
 
-        {/* 🟢 AI COMMAND CONSOLE CARD (Positioned immediately after Documents) */}
         {checkClearance(currentUser, 'acc_ai', true) && (
           <div onClick={() => setCurrentPage('ai_console')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-amber-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-amber-400 dark:hover:border-amber-500 dark:hover:bg-slate-800 group">
             <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center mr-3 group-hover:bg-amber-500 group-hover:text-white dark:group-hover:bg-amber-500 dark:group-hover:shadow-[0_0_15px_rgba(245,158,11,0.5)] transition-all shrink-0">
@@ -2162,10 +2174,10 @@ const DashboardLayout = ({
     } : null,
     checkClearance(currentUser, 'acc_crime', true) ? { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> } : null,
     checkClearance(currentUser, 'acc_lockup', true) ? { 
-      name: 'Daily Suspects Lock-up', 
-      id: 'lockup-matrix', 
-      icon: <Lock size={20} className="text-amber-400" /> 
-    } : null,
+    name: 'Daily Suspects Lock-up', 
+    id: 'lockup-matrix', 
+    icon: <Lock size={20} className="text-amber-400" /> 
+  } : null,
     checkClearance(currentUser, 'acc_ops', true) ? { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> } : null,
     checkClearance(currentUser, 'acc_stories', true) ? { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> } : null,
     checkClearance(currentUser, 'acc_est', true) ? { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> } : null,
@@ -3019,7 +3031,17 @@ const App = () => {
 
       case 'lockup-matrix': 
         return checkClearance(currentUser, 'acc_lockup', true) ? (
-          <LockupMatrixPage currentUser={currentUser} />
+          <div className="p-4 md:p-6 max-w-[1600px] mx-auto">
+            <LockupMatrixLedger 
+              lockupEntries={reports} // or your fetched lockup records array
+              allTimeLockupTotal={grandTotals.displayTotal}
+              onClose={() => handlePageChange('home')}
+              selectedRegion={currentUser?.region || 'ALL REGIONS'}
+              selectedStation={currentUser?.station || 'ALL STATIONS'}
+              currentUser={currentUser}
+              onRefreshData={() => window.location.reload()}
+            />
+          </div>
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 
