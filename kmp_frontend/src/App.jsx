@@ -33,6 +33,7 @@ import AICommandConsole from "./AICommandConsole";
 import { authFetch, hasValidSession, getAuthToken, setAuthSession, clearAuthSession } from './api';
 import { FullUserPolicyText } from './policyContent';
 import ExhibitsRegistry from './ExhibitsRegistry';
+import LockupMatrixPage from './LockupMatrixPage';
 
 // ====================================================================
 // 1. CONSTANTS & CONFIGURATION
@@ -2160,6 +2161,11 @@ const DashboardLayout = ({
       )
     } : null,
     checkClearance(currentUser, 'acc_crime', true) ? { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> } : null,
+    checkClearance(currentUser, 'acc_lockup', true) ? { 
+      name: 'Daily Suspects Lock-up', 
+      id: 'lockup-matrix', 
+      icon: <Lock size={20} className="text-amber-400" /> 
+    } : null,
     checkClearance(currentUser, 'acc_ops', true) ? { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> } : null,
     checkClearance(currentUser, 'acc_stories', true) ? { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> } : null,
     checkClearance(currentUser, 'acc_est', true) ? { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> } : null,
@@ -3010,6 +3016,21 @@ const App = () => {
             onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
           />
         ); 
+
+      case 'lockup-matrix': 
+        return checkClearance(currentUser, 'acc_lockup', true) ? (
+          <LockupMatrixPage currentUser={currentUser} />
+        ) : (
+          <HomeDashboard 
+            currentUser={currentUser} 
+            setCurrentPage={handlePageChange} 
+            onMasterExport={handleMasterExport} 
+            onViewConsolidated={handleViewConsolidated} 
+            adminCommsData={adminCommsData} 
+            onAcknowledgeComm={handleAcknowledgeComm} 
+            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
+          />
+        );
 
       case 'ai_console':
         return (
