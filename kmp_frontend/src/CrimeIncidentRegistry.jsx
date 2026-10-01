@@ -536,7 +536,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         : getOfficialRegionForStation(formData.station, formData.region);
 
       if (isEditingLockup && editLockupTarget) {
-        const targetId = editLockupTarget.id || editLockupTarget.sn;
+        const targetId = editLockupTarget.sn || editLockupTarget.id;
         if (!targetId) throw new Error("Record ID lost. Please select the record again.");
 
         const updatePayload = {
