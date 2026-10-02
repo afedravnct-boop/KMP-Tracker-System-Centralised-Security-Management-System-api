@@ -13,7 +13,7 @@ import {
 } from './adminUtils';
 
 import { 
-  SignupDossierModal, HRModificationModal, LockdownMatrixModal, RevocationModal, ToggleSwitch 
+  HRModificationModal, LockdownMatrixModal, RevocationModal, ToggleSwitch 
 } from './AdminModals';
 
 // 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
@@ -36,6 +36,58 @@ const isStationEquivalent = (statA, statB) => {
   const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
 
   return cleanA === cleanB && cleanA.length > 0;
+};
+
+// 🟢 Streamlined Dossier Modal handling both Pending Authorizations and Revoked Vault Inspection
+const SignupDossierModal = ({ user, onClose, isProcessingAction, handleRejectUser, handleApproveUser, handleRegrantAccess, handlePermanentDelete, isSuperAdmin }) => {
+  if (!user) return null;
+  const isRevoked = user.role === 'REVOKED' || user.is_approved === false;
+
+  return (
+    <div className="fixed inset-0 bg-black/80 z-[99999] flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl text-white">
+        <div className="bg-slate-950 px-6 py-4 flex justify-between items-center border-b border-slate-800">
+          <h3 className="font-extrabold text-sm uppercase tracking-wider flex items-center">
+            📋 Officer Dossier — {user.rank} {user.name} ({user.fnum})
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
+        </div>
+        
+        <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar text-xs">
+          <div className="grid grid-cols-2 gap-4 bg-slate-800/60 p-4 rounded-xl border border-slate-700">
+            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Force Number (F/No)</span><span className="font-mono font-bold text-sm text-blue-400">{user.fnum}</span></div>
+            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">IPPS Number</span><span className="font-mono font-bold text-sm">{user.ipps || 'N/A'}</span></div>
+            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">NIN</span><span className="font-mono font-bold text-sm">{user.nin || 'N/A'}</span></div>
+            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">System Role / Status</span><span className="font-bold text-sm text-yellow-400">{user.role}</span></div>
+            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Station / Jurisdiction</span><span className="font-bold">{user.station} / {user.region}</span></div>
+            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Contact Phone</span><span className="font-bold">{user.phone || 'N/A'}</span></div>
+          </div>
+        </div>
+
+        <div className="bg-slate-950 px-6 py-4 border-t border-slate-800 flex justify-end space-x-3">
+          <button onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs cursor-pointer">Close Dossier</button>
+          
+          {isRevoked ? (
+            <>
+              <button onClick={() => { handleRegrantAccess(user.fnum, user.name); onClose(); }} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs cursor-pointer flex items-center">
+                <Unlock size={14} className="mr-1.5"/> Restore Access
+              </button>
+              {isSuperAdmin && (
+                <button onClick={() => { handlePermanentDelete(user.fnum, user.name); onClose(); }} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs cursor-pointer flex items-center">
+                  <Trash2 size={14} className="mr-1.5"/> Purge Record
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <button onClick={() => handleRejectUser(user)} disabled={isProcessingAction} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs cursor-pointer">Reject</button>
+              <button onClick={() => handleApproveUser(user)} disabled={isProcessingAction} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs cursor-pointer">Approve Authorization</button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 };
 
 const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
@@ -280,7 +332,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const isGlobalAssign = ['ASSISTANT_SUPER_ADMIN'].includes(assignedRole) || 
         (assignedRole === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userToApprove.region?.toUpperCase()));
 
-      // 🟢 Added daily suspects lockup write permissions into approved user clearances
       const grantedPermissions = {
         view_nominal_roll: true,
         upload_hr: true,
@@ -355,6 +406,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       alert(`✅ Access completely revoked for ${fnum}.`);
       fetchAllSystemUsers();
       fetchPendingUsers(); 
+      fetchAuditLogs();
     } catch (err) {
       alert(`Revocation Failed: ${err.message}`);
     }
@@ -372,6 +424,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       if (!res.ok) throw new Error(await res.text());
       alert(`✅ Account ${fnum} permanently purged.`);
       fetchPendingUsers(); 
+      fetchAllSystemUsers();
     } catch (err) {
       alert(`Deletion Failed: ${err.message}`);
     }
@@ -687,13 +740,19 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     });
   }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
 
+  // 🟢 FIXED: Robust Revocation Reason Extractor
   const getRevocationReason = useCallback((fnum) => {
-    const log = auditLogs.find(l => l.event_type === 'REVOKE_USER_ACCESS' && l.target_user === fnum);
+    const cleanF = String(fnum || '').trim().toUpperCase();
+    const log = auditLogs.find(l => 
+      (l.event_type === 'REVOKE_USER_ACCESS' || l.event_type === 'REVOCATION') && 
+      (String(l.target_user || '').trim().toUpperCase() === cleanF || String(l.details || '').toUpperCase().includes(cleanF))
+    );
     if (log && log.details) {
-      const match = log.details.match(/Remarks:\s*(.*)/);
-      return match ? match[1] : 'Administrative Revocation';
+      const match = log.details.match(/Reason:\s*(.*)/i) || log.details.match(/Remarks:\s*(.*)/i);
+      if (match && match[1]) return match[1].trim();
+      return log.details;
     }
-    return 'No reason logged';
+    return 'Administrative Revocation';
   }, [auditLogs]);
 
   return (
@@ -1185,7 +1244,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       )}
 
       {/* MODALS */}
-      <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} canModifyUser={canControlTargetUser} />
+      <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} handleRegrantAccess={handleRegrantAccess} handlePermanentDelete={handlePermanentDelete} isSuperAdmin={isSuperAdmin} canModifyUser={canControlTargetUser} />
       <HRModificationModal req={selectedModRequest} onClose={() => setSelectedModRequest(null)} currentUser={currentUser} isProcessingAction={isProcessingAction} handleReviewRequest={handleReviewRequest} />
       <LockdownMatrixModal isOpen={showLockdownModal} onClose={() => setShowLockdownModal(false)} activeLockdownSummary={activeLockdownSummary} lockdownData={lockdownData} handleToggleLockdown={handleToggleLockdown} lockdownRegionFilter={lockdownRegionFilter} setLockdownRegionFilter={setLockdownRegionFilter} />
       <RevocationModal prompt={revokePrompt} setPrompt={setRevokePrompt} executeRoleChange={() => {}} executePermissionChange={() => {}} />
@@ -1200,4 +1259,4 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   );
 };
 
-export Data AdminApprovals;
+export default AdminApprovals;
