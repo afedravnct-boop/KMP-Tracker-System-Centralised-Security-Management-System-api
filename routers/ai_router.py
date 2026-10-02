@@ -35,23 +35,38 @@ def is_db_query_globally_enabled(db: Session) -> bool:
         return False
     return True
 
-def check_global_view(user):
+def check_ai_db_query_clearance(user) -> bool:
     role = (user.role or "").upper()
     perms = user.permissions or {}
-    return (
-        role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
-        (user.region or "").strip().upper() in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
-        perms.get("view_global_roster") is True or
-        perms.get("global_observer") is True
-    )
+    if isinstance(perms, str):
+        try:
+            perms = json.loads(perms)
+        except Exception:
+            perms = {}
+
+    is_super_tier = role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"]
+    has_delegated_power = perms.get("can_approve") is True or perms.get("system_admin") is True or perms.get("ai_hr_access") is True
+    
+    return is_super_tier or has_delegated_power
 
 @router.post("/admin/toggle-db-query")
 async def toggle_ai_database_queries(
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.role not in ['SUPER_ADMIN', 'ADMIN']:
-        raise HTTPException(status_code=403, detail="Clearance Denied: Super Admin authorization required.")
+    role = (current_user.role or "").upper()
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try:
+            perms = json.loads(perms)
+        except Exception:
+            perms = {}
+
+    is_super_tier = role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"]
+    has_delegated_power = perms.get("can_approve") is True or perms.get("system_admin") is True or perms.get("ai_hr_access") is True
+
+    if not (is_super_tier or has_delegated_power):
+        raise HTTPException(status_code=403, detail="Clearance Denied: Super Admin, Assistant Super Admin, or delegated authorization required to toggle the global AI kill switch.")
     
     ConfigModel = getattr(models, 'SystemConfig', None)
     if not ConfigModel:
@@ -66,8 +81,8 @@ async def toggle_ai_database_queries(
         config.config_value = new_state_str
     else:
         new_state_str = "false"
-        new_conf = ConfigModel(config_key="ai_database_query_enabled", config_value=new_state_str)
-        db.add(new_conf)
+        new_config = ConfigModel(config_key="ai_database_query_enabled", config_value=new_state_str)
+        db.add(new_config)
         
     db.commit()
     new_bool_state = new_state_str == "true"
@@ -92,7 +107,7 @@ async def process_tactical_query(
         client = genai.Client(api_key=api_key)
         db_queries_allowed = is_db_query_globally_enabled(db)
 
-        is_global_viewer = check_global_view(current_user)
+        can_run_db_query = check_ai_db_query_clearance(current_user)
 
         user_perms = current_user.permissions or {}
         if isinstance(user_perms, str):
@@ -101,21 +116,23 @@ async def process_tactical_query(
             except Exception:
                 user_perms = {}
                 
-        has_ai_hr_access = current_user.role in ['SUPER_ADMIN', 'ADMIN'] or user_perms.get('ai_hr_access') is True
-        user_tier_scope = "Global Scope (All Regions/Stations)" if is_global_viewer else f"Restricted Tier Scope: Station {current_user.station}, Region {current_user.region}"
+        has_ai_hr_access = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'] or user_perms.get('ai_hr_access') is True or user_perms.get('can_approve') is True
+        user_tier_scope = f"Station Scope: Station {current_user.station}, Region {current_user.region}"
 
         live_data_context = ""
         agric_records = []
         stats_records = []
         exhibits_records = []
+        lockup_records = []
         hr_aggregates = []
         hr_sample = []
 
-        if db_queries_allowed:
+        if db_queries_allowed and can_run_db_query:
             try:
                 AgricModel = getattr(models, 'Agricultural_Crime_Summary', getattr(models, 'AgriculturalCrimeSummary', None))
                 StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', None))
                 ExhibitsModel = getattr(models, 'Exhibits', getattr(models, 'exhibits', getattr(models, 'ImpoundedExhibits', None)))
+                LockupMatrixModel = getattr(models, 'Lockup_Matrix', getattr(models, 'LockupMatrix', getattr(models, 'lockup_matrix', None)))
                 
                 HrModel = None
                 for m_name in ['Nominal_Roll', 'NominalRoll', 'nominal_roll', 'NominalRolls']:
@@ -128,21 +145,25 @@ async def process_tactical_query(
                 agric_query = db.query(AgricModel) if AgricModel else None
                 stats_query = db.query(StatsModel) if StatsModel else None
                 exhibits_query = db.query(ExhibitsModel) if ExhibitsModel else None
+                lockup_query = db.query(LockupMatrixModel) if LockupMatrixModel else None
 
-                if not is_global_viewer:
+                if not can_run_db_query:
                     user_station_val = str(current_user.station).strip().upper()
-                    if AgricModel and hasattr(AgricModel, 'station'): 
+                    if agric_query and hasattr(AgricModel, 'station'): 
                         agric_query = agric_query.filter(func.upper(AgricModel.station) == user_station_val)
-                    if StatsModel and hasattr(StatsModel, 'station'): 
+                    if stats_query and hasattr(StatsModel, 'station'): 
                         stats_query = stats_query.filter(func.upper(StatsModel.station) == user_station_val)
-                    if ExhibitsModel and hasattr(ExhibitsModel, 'station'): 
+                    if exhibits_query and hasattr(ExhibitsModel, 'station'): 
                         exhibits_query = exhibits_query.filter(func.upper(ExhibitsModel.station) == user_station_val)
+                    if lockup_query and hasattr(LockupMatrixModel, 'station'):
+                        lockup_query = lockup_query.filter(func.upper(LockupMatrixModel.station) == user_station_val)
 
                 agric_records = agric_query.limit(20).all() if agric_query else []
                 stats_records = stats_query.limit(20).all() if stats_query else []
                 exhibits_records = exhibits_query.limit(20).all() if exhibits_query else []
+                lockup_records = lockup_query.limit(20).all() if lockup_query else []
 
-                live_data_context = "LIVE OPERATIONAL DATABASE EXTRACTS (Tier-Restricted):\n"
+                live_data_context = "LIVE OPERATIONAL DATABASE EXTRACTS:\n"
                 if agric_records:
                     live_data_context += "- Agricultural/Produce Crimes Summary:\n"
                     for r in agric_records:
@@ -159,6 +180,10 @@ async def process_tactical_query(
                         e_status = getattr(e, 'status', 'UNKNOWN')
                         e_case = getattr(e, 'case_no', 'N/A')
                         live_data_context += f"  * [{getattr(e, 'region', 'KMP')} / {getattr(e, 'station', 'HQ')}] Reg/Serial: {e_reg} | Desc: {e_desc} | Case: {e_case} | Status: {e_status}\n"
+                if lockup_records:
+                    live_data_context += "- Daily Suspects Lock-up Matrix (Cell Populations & Detention Thresholds):\n"
+                    for l in lockup_records:
+                        live_data_context += f"  * [{getattr(l, 'region', 'KMP')} / {getattr(l, 'station', 'HQ')}] Date: {getattr(l, 'date', 'N/A')} | Total Suspects: {getattr(l, 'suspects', 0)} (Male: {getattr(l, 'male_count', 0)}, Female: {getattr(l, 'female_count', 0)}) | >3 Days: {getattr(l, 'detention_3days_over', 0)}\n"
                 
                 if has_ai_hr_access and HrModel:
                     fnum_attr = getattr(HrModel, 'f_num', getattr(HrModel, 'fnum', getattr(HrModel, 'fNum', None)))
@@ -170,7 +195,7 @@ async def process_tactical_query(
                         getattr(HrModel, 'status', 'status'),
                         func.count(id_col)
                     )
-                    if not is_global_viewer and hasattr(HrModel, 'station'):
+                    if not can_run_db_query and hasattr(HrModel, 'station'):
                         agg_query = agg_query.filter(func.upper(HrModel.station) == str(current_user.station).strip().upper())
                         
                     hr_aggregates = agg_query.group_by(
@@ -185,11 +210,10 @@ async def process_tactical_query(
                             live_data_context += f"  * Rank: {r_rank} | Sex: {r_sex} | Status: {r_status} => Total: {r_count}\n"
                     
                     hr_sample_query = db.query(HrModel)
-                    if not is_global_viewer and hasattr(HrModel, 'station'):
+                    if not can_run_db_query and hasattr(HrModel, 'station'):
                         hr_sample_query = hr_sample_query.filter(func.upper(HrModel.station) == str(current_user.station).strip().upper())
                     
                     stop_words = {"what", "is", "the", "for", "who", "where", "tell", "me", "about", "find", "search", "officer", "stationed", "details", "give", "show", "can", "you", "of", "in", "on", "at", "and", "a", "an", "how", "many", "does", "have", "age", "unit", "rank", "sex", "name"}
-                    
                     raw_words = re.findall(r'\b\w+\b', payload.prompt.lower())
                     search_terms = [w for w in raw_words if w not in stop_words and len(w) > 2]
                     
@@ -232,42 +256,22 @@ async def process_tactical_query(
                 print(f"Error fetching live data for AI: {db_fetch_err}")
                 live_data_context += "\n[Database extraction skipped due to formatting error]"
         else:
-            live_data_context = "🛑 System Note: Super Admin has disabled direct database querying for the AI. Responses are restricted to navigation guidance and uploaded document searches."
+            live_data_context = "🛑 System Note: Direct database querying for the AI is either globally disabled or restricted by your command clearance tier."
 
         system_rules = (
             "You are the Kampala Metropolitan Police (KMP) Tactical AI Assistant. "
             f"CRITICAL PROTOCOL: Address the user using their full official credential: {current_user.fnum} {current_user.rank} {current_user.name}. "
             "Maintain a highly professional, concise, law-enforcement tone.\n\n"
             "SECURITY PROTOCOL: You are strictly forbidden from processing or hallucinating sensitive PII. "
-            "You only have access to the OPSEC-cleared columns: Force Number, Rank, Name, Age, Sex, IPPS, and Unit. "
-            "If a user asks for other details (Bank, NIN, TIN, Phone), inform them to check the full encrypted Officer Dossier.\n\n"
-            "SYSTEM DOCUMENTATION, UI NAVIGATION & COMPLIANCE KNOWLEDGE:\n"
-            "- DATA INGESTION VS. OPSEC RESTRICTIONS: When instructing users on how to upload, import, or update the Nominal Roll, you MUST explicitly state that the uploaded file must contain ALL columns, including sensitive administrative data. Direct them to fill out the complete standard template. Clarify to the user: 'While the AI Command Console strictly masks and restricts querying this sensitive PII for OPSEC reasons, the raw database upload MUST contain the complete and unredacted dossier to maintain HR ledger integrity.' Never tell a user to remove sensitive columns from their upload files.\n"
-            "- UI NAVIGATION & USAGE GUIDE: When a user asks how to use the system, guide them using these exact UI features:\n"
-            "  * AUTHENTICATION & SIGNUP: Users must fill the Registration Form completely. It requires a 14-character NIN (starting with CM/CF), an exactly 10-digit phone number, and a mandatory profile photo. They must check the 'Terms & Security Policy' box and click the 'Submit Registration Request' button.\n"
-            "  * CRIME REGISTRY: Navigate to the 'Crime / Incident Registry' module from the main sidebar. Click the appropriate buttons to log Station Diary (SD) references, offenses, and suspect lock-up matrices.\n"
-            "  * ESTABLISHMENTS: Navigate to the 'Establishments' module from the main dashboard to view or update structural command allocations across main stations, sub-stations, police posts, and security booths.\n"
-            "  * NOMINAL ROLL & HR TRANSFERS: Access the dedicated 'Nominal Roll' module directly from the dashboard. To update personnel data in bulk, instruct the user to click the 'Upload / Import Nominal Roll' button. The uploaded Excel file MUST contain the following exact 29 column headers: id, sn, f_num, rank, name, sex, position, dob, doe, do_post, do_pro, contact, educ_level, ipps, tin, nin, home_dist, tribe, acc_no, bank_branch, station, district, region, section, dir, status, last_updated_by, created_at, reintegration_reason. Individual personnel transfers and updates are handled via the modification request queue.\n"
-            "  * IMPOUNDED EXHIBITS: Access the 'Impounded Exhibits' register to view and log confiscated vehicles, motorcycles, currency, and property items along with their holding status and unit responsible.\n"
-            "  * NOMINAL ROLL ARCHIVE: If asked about deleted or transferred officers, explain the Archive system. When personnel are removed, their full profiles are transferred to the Historical Ledger (Archive) along with the 'Archive Reason' and 'Archive Date'. This preserves operational continuity.\n"
-            "  * EXPORTS & REPORTS: To download data, navigate to the Reports module and click 'Export Master Database' or 'Export HR Ledger'. Crucial instruction: Remind them that the downloaded ZIP file is AES-256 encrypted, and their exact Force Number (e.g., A/2408) is the decryption password.\n"
-            "  * AI CONSOLE: Type queries in the bottom input bar and click the blue 'Execute' button. Note that Super Admins have a 'Kill AI DB Query' toggle button at the top to suspend direct database access if needed.\n"
-            "- TERMS & CONDITIONS: KMP-CSDMS access is restricted solely to active UPF personnel and authorized stakeholders under command approval. Unauthorized code replication or extraction is prohibited.\n"
-            "- USER POLICY & OPSEC: Credentials are non-transferable. Leaving terminals unattended without the idle standby curtain or sharing passwords is a severe disciplinary breach. All downloads (.xlsx, .docx) are classified as RESTRICTED LAW ENFORCEMENT RECORDS, cryptographically stamped, and AES-256 encrypted keyed to the officer's Force Number.\n"
-            "- TROUBLESHOOTING: Force numbers must use uppercase formatting (e.g., A/2408). Failed login attempts trigger a 30-second security lockout after 3 tries.\n\n"
-            "CAPABILITIES: You can answer direct operational questions using live database extracts, guide users through system navigation using the UI features mentioned above, answer platform policy questions, and search uploaded command files.\n"
-            "SECURITY BOUNDARY: You must respect the user's tier scope. Do not reveal data outside their jurisdiction unless they have global clearance."
+            "You only have access to the OPSEC-cleared columns: Force Number, Rank, Name, Age, Sex, IPPS, and Unit.\n\n"
+            "CAPABILITIES: You can answer direct operational questions using live database extracts, guide users through system navigation, answer platform policy questions, and search uploaded command files."
         )
 
         prompt_vector = get_embedding_vector(payload.prompt)
         vector_str = str(prompt_vector)
         
-        if is_global_viewer:
-            search_query = text("SELECT title, content, region, station FROM operational_document_embeddings ORDER BY embedding <=> CAST(:vector AS vector) LIMIT 3")
-            results = db.execute(search_query, {"vector": vector_str}).fetchall()
-        else:
-            search_query = text("SELECT title, content, region, station FROM operational_document_embeddings WHERE region = :user_region OR station = :user_station ORDER BY embedding <=> CAST(:vector AS vector) LIMIT 3")
-            results = db.execute(search_query, {"vector": vector_str, "user_region": current_user.region, "user_station": current_user.station}).fetchall()
+        search_query = text("SELECT title, content, region, station FROM operational_document_embeddings ORDER BY embedding <=> CAST(:vector AS vector) LIMIT 3")
+        results = db.execute(search_query, {"vector": vector_str}).fetchall()
         
         retrieved_docs = ""
         if results:
@@ -284,7 +288,6 @@ async def process_tactical_query(
             f"USER QUERY: {payload.prompt}"
         )
 
-        # 🟢 Using valid stable Gemini model IDs compatible with google-genai SDK
         candidate_models = ['gemini-2.0-flash', 'gemini-3.5-flash']
         response = None
         used_model = None
@@ -304,14 +307,13 @@ async def process_tactical_query(
                     break
                 except Exception as mod_err:
                     last_exception = mod_err
-                    print(f">> [AI Model Notice] Model {m} (attempt {attempt+1}) encountered load issue: {mod_err}. Retrying...")
                     time.sleep(1.5 * (attempt + 1))
             if success:
                 break
             time.sleep(0.5)
 
         if not response:
-            raise Exception(f"All Google AI servers are temporarily busy due to high demand (503). Please wait a moment and try again. Details: {str(last_exception)}")
+            raise Exception(f"All Google AI servers are temporarily busy. Details: {str(last_exception)}")
 
         try:
             LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
@@ -325,25 +327,21 @@ async def process_tactical_query(
                 )
                 db.add(new_ai_log)
                 db.commit()
-                print(">> [AI LOG SUCCESS] Captured query in ai_command_logs table.")
-            else:
-                print(">> [AI LOG WARN] models.AI_Command_Logs model not located.")
         except Exception as db_err:
             db.rollback()
-            print(f">> [AI LOG ERROR] Failed to write query log: {db_err}")
-            traceback.print_exc()
 
         return {
             "response": response.text if hasattr(response, 'text') else str(response),
             "metadata": {
-                "database_query_status": "Active (Tier Restricted)" if db_queries_allowed else "Disabled by Super Admin",
+                "database_query_status": "Active" if (db_queries_allowed and can_run_db_query) else "Restricted / Disabled",
                 "jurisdiction_tier": user_tier_scope,
-                "structured_records_count": len(agric_records) + len(stats_records) + len(exhibits_records) + len(hr_aggregates) + len(hr_sample) if db_queries_allowed else 0,
+                "structured_records_count": len(agric_records) + len(stats_records) + len(exhibits_records) + len(lockup_records) + len(hr_aggregates) + len(hr_sample) if (db_queries_allowed and can_run_db_query) else 0,
                 "semantic_chunks_retrieved": len(results),
                 "ai_model_used": used_model
             }
         }
 
     except Exception as e:
-        traceback.print_exc()
+        tracecode = traceback.format_exc()
+        print(tracecode)
         raise HTTPException(status_code=500, detail=f"Google API Connectivity Issue: {str(e)}")

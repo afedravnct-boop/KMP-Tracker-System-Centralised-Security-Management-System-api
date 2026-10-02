@@ -160,6 +160,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const hasDelegatedApprovalPower = currentUser?.permissions?.can_approve === true || currentUser?.permissions?.system_admin === true;
   const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true;
 
+  // 🟢 Allowed to view/click Kill AI DB Query button (Super Admin, Asst Super Admin, or delegated power)
+  const canToggleKillSwitch = isSuperAdmin || userRoleClean === 'ASSISTANT_SUPER_ADMIN' || hasDelegatedApprovalPower || currentUser?.permissions?.ai_hr_access === true;
+
   const canViewGlobalActive = canViewGlobal || isGlobalTier;
   const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && !currentUser?.permissions?.global_open && !isSuperAdmin;
 
@@ -463,6 +466,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
        
       fetchAllSystemUsers();
       fetchPendingUsers(); 
+      fetchAuditLogs();
     } catch (err) {
       alert(`Restoration Failed: ${err.message}`);
     } finally {
@@ -665,7 +669,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   useEffect(() => {
     if (activeTab === 'approvals') fetchPendingUsers();
-    else if (activeTab === 'matrix' || activeTab === 'roster') fetchAllSystemUsers();
+    else if (activeTab === 'matrix' || activeTab === 'roster') { fetchAllSystemUsers(); fetchAuditLogs(); }
     else if (activeTab === 'requests') fetchModRequests();
     else if (activeTab === 'logs') { fetchAuditLogs(); fetchAllSystemUsers(); }
     else if (activeTab === 'resets') fetchResets();
@@ -740,7 +744,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     });
   }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
 
-  // 🟢 FIXED: Robust Revocation Reason Extractor
   const getRevocationReason = useCallback((fnum) => {
     const cleanF = String(fnum || '').trim().toUpperCase();
     const log = auditLogs.find(l => 
@@ -824,7 +827,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               <span>🔒</span><span>{activeLockdownCount > 0 ? `Lockdowns (${activeLockdownCount} Active)` : 'Lockdowns'}</span>
             </button>
           )}
-          {isSuperAdmin && (
+          {canToggleKillSwitch && (
             <button onClick={handleKillSwitchToggle} disabled={loadingKillSwitch} className={`font-bold px-4 py-2 rounded-lg text-xs flex items-center transition cursor-pointer shadow-sm border ${isDbKillActive ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-600 text-emerald-800 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-950/40 border-red-400 dark:border-red-600 text-red-800 dark:text-red-300'}`}>
               {loadingKillSwitch ? <Loader2 size={14} className="mr-2 animate-spin text-slate-500" /> : <ShieldAlert size={14} className={`mr-2 ${isDbKillActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`} />}
               {isDbKillActive ? 'AI DB Query: ON' : 'AI DB Query: KILLED'}
@@ -908,19 +911,17 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
             <div className="p-8 text-center text-slate-400 font-medium animate-pulse text-xs">Syncing user database...</div>
           ) : matrixView === 'ACTIVE' ? (
             <div className="w-full overflow-x-auto custom-scrollbar">
-              <div className="min-w-[1550px]">
+              <div className="min-w-[1200px]">
                 <table className="w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs table-fixed">
                   <thead className="bg-slate-100 dark:bg-slate-950/50 text-slate-700 dark:text-slate-300 uppercase font-black text-[10px]">
                     <tr>
-                      <th className="py-3 px-3 text-left md:sticky md:left-0 z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[240px] min-w-[240px] shadow-[2px_0_5px_rgba(0,0,0,0.05)]">Officer Details</th>
-                      <th className="py-3 px-3 text-center md:sticky md:left-[240px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[130px] min-w-[130px] shadow-[2px_0_5px_rgba(0,0,0,0.05)]">Administrative Tier</th>
-                      <th className="py-3 px-3 text-center md:sticky md:left-[370px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[110px] min-w-[110px] shadow-[2px_0_5px_rgba(0,0,0,0.05)]">Quick Actions</th>
+                      <th className="p-2.5 text-left md:sticky md:left-0 z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[240px] min-w-[240px]">Officer Details</th>
+                      <th className="p-2.5 text-center md:sticky md:left-[240px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[120px] min-w-[120px]">Administrative Tier</th>
+                      <th className="p-2.5 text-center md:sticky md:left-[360px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[100px] min-w-[100px]">Quick Actions</th>
                       {CLEARANCE_MATRIX_COLS.map((col, idx) => (
-                        <th key={idx} className="py-2 px-1 border-l border-slate-300 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 w-28 min-w-[112px] align-middle">
-                          <div className="h-16 flex items-center justify-center text-center px-1">
-                            <span className="text-[9px] font-extrabold text-blue-900 dark:text-blue-100 tracking-tight whitespace-normal break-words leading-tight" title={col.label}>
-                              {col.label}
-                            </span>
+                        <th key={idx} className="p-2 border-l border-slate-300 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 w-20 min-w-[80px] align-middle">
+                          <div className="w-20 min-w-[80px] text-[9px] text-blue-900 dark:text-blue-100 font-bold whitespace-normal break-words leading-tight text-center px-0.5" title={col.label}>
+                            {col.label}
                           </div>
                         </th>
                       ))}
@@ -934,8 +935,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
                       return (
                         <tr key={u.fnum} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                          <td className="py-3 px-3 md:sticky md:left-0 z-10 bg-white dark:bg-slate-900 font-extrabold text-[11px] text-slate-900 dark:text-slate-100 w-[240px] min-w-[240px] truncate shadow-[2px_0_5px_rgba(0,0,0,0.05)]" title={formatOfficerHeader(u)}>{formatOfficerHeader(u)}</td>
-                          <td className="py-3 px-3 text-center md:sticky md:left-[240px] z-10 bg-white dark:bg-slate-900 w-[130px] min-w-[130px] shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                          <td className="p-2.5 md:sticky md:left-0 z-10 bg-white dark:bg-slate-900 font-extrabold text-[11px] text-slate-900 dark:text-slate-100 w-[240px] min-w-[240px] truncate" title={formatOfficerHeader(u)}>{formatOfficerHeader(u)}</td>
+                          <td className="p-2.5 text-center md:sticky md:left-[240px] z-10 bg-white dark:bg-slate-900 w-[120px] min-w-[120px]">
                             <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf || !canModifyThisUser} className="border border-slate-300 dark:border-slate-700 rounded-md px-1.5 py-1 font-bold outline-none uppercase text-[10px] w-full truncate bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 disabled:opacity-50">
                               <option value="USER">USER</option>
                               <option value="STATION_USER">STATION USER</option>
@@ -952,8 +953,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                               <option value="SUPER_ADMIN">SUPER ADMIN</option>
                             </select>
                           </td>
-                          <td className="py-3 px-3 text-center md:sticky md:left-[370px] z-10 bg-white dark:bg-slate-900 w-[110px] min-w-[110px] shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
-                            <div className="flex items-center justify-center space-x-1.5">
+                          <td className="p-2.5 text-center md:sticky md:left-[360px] z-10 bg-white dark:bg-slate-900 w-[100px] min-w-[100px]">
+                            <div className="flex items-center justify-center space-x-1">
                               {canModifyThisUser && (
                                 <>
                                   <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 cursor-pointer"><CheckSquare size={12} /></button>
@@ -973,13 +974,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             const isDisabled = isSelf || isMutuallyDisabled || !canModifyThisUser;
 
                             return (
-                              <td key={idx} className="py-3 px-1.5 text-center border-l border-slate-100 dark:border-slate-800 w-28 min-w-[112px]">
+                              <td key={idx} className="p-2 text-center border-l border-slate-100 dark:border-slate-800 w-20 min-w-[80px]">
                                 <input 
                                   type="checkbox" 
                                   checked={p[col.key] !== false ? (['SUPER_ADMIN', 'ADMIN'].includes(u.role) || Boolean(p[col.key])) : false} 
                                   disabled={isDisabled}
                                   onChange={e => handleGranularPermissionChange(u.fnum, col.key, e.target.checked)} 
-                                  className={`w-4 h-4 rounded ${isDisabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'} accent-blue-600`} 
+                                  className={`w-3.5 h-3.5 rounded ${isDisabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'} accent-blue-600`} 
                                 />
                               </td>
                             );
