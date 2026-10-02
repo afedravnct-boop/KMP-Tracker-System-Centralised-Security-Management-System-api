@@ -20,6 +20,17 @@ REGIONAL_HIERARCHY = {
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
 
+def is_station_equivalent(stat_a: Optional[str], stat_b: Optional[str]) -> bool:
+    a = (stat_a or "").strip().upper()
+    b = (stat_b or "").strip().upper()
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    clean_a = re.sub(r'(\s+HEADQUARTERS|\s+HQ)$', '', a)
+    clean_b = re.sub(r'(\s+HEADQUARTERS|\s+HQ)$', '', b)
+    return clean_a == clean_b and len(clean_a) > 0
+
 def get_officer_signature(user):
     if not user:
         return "UNKNOWN COMMANDER"
@@ -51,7 +62,6 @@ def clean_model_dict(obj):
         else:
             clean[k] = v
             
-    # Normalize common field aliases for ledger tables
     ref_val = clean.get('sd_ref') or clean.get('sdRef') or ''
     clean['sd_ref'] = ref_val
     clean['sdRef'] = ref_val
@@ -61,8 +71,10 @@ def clean_model_dict(obj):
 
     return clean
 
-# 🟢 CORE OPSEC SCOPING ENGINE
+# 🟢 CORE OPSEC SCOPING ENGINE WITH DUAL-EQUIVALENCE
 def apply_opsec_scope(current_user, query, ModelClass):
+    import json
+    import re
     if not ModelClass:
         return query
         
@@ -129,7 +141,6 @@ def apply_opsec_scope(current_user, query, ModelClass):
         if hasattr(ModelClass, 'region'):
             conds.append(func.upper(ModelClass.region) == user_reg)
         
-        # 🟢 Station Dual-Equivalence Check for missing regional tags
         if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
             expanded_stns = set()
             for s in REGIONAL_HIERARCHY[user_reg]:
@@ -145,7 +156,15 @@ def apply_opsec_scope(current_user, query, ModelClass):
         return query.filter(text("1=0"))
         
     elif hasattr(ModelClass, 'station'):
-        return query.filter(func.upper(ModelClass.station) == user_stn)
+        # 🟢 Station-level user: match exact station or dual-equivalence (e.g. "CPS KAMPALA" matches records)
+        clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
+        return query.filter(
+            or_(
+                func.upper(ModelClass.station) == user_stn,
+                func.upper(ModelClass.station) == clean_user_stn,
+                func.upper(ModelClass.station) == f"{clean_user_stn} HEADQUARTERS"
+            )
+        )
         
     return query.filter(text("1=0"))
 
@@ -165,20 +184,23 @@ def get_reports(
     if not CrimeModel:
         return []
 
-    # 1. Start the Base Database Query
     query = db.query(CrimeModel)
-    
-    # 2. Enforce Strict OPSEC Security Clearances
     query = apply_opsec_scope(current_user, query, CrimeModel)
 
-    # 3. APPLY DYNAMIC UI FILTERS (Memory Optimization)
     if region and region.upper() not in ["ALL REGIONS", "ALL"]:
         if hasattr(CrimeModel, 'region'):
             query = query.filter(func.upper(CrimeModel.region) == region.upper())
         
     if station and station.upper() not in ["ALL STATIONS", "ALL"]:
         if hasattr(CrimeModel, 'station'):
-            query = query.filter(func.upper(CrimeModel.station) == station.upper())
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(CrimeModel.station) == station.upper(),
+                    func.upper(CrimeModel.station) == clean_stn,
+                    func.upper(CrimeModel.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
 
     if search:
         search_term = f"%{search.strip()}%"
@@ -192,28 +214,24 @@ def get_reports(
         if search_conditions:
             query = query.filter(or_(*search_conditions))
 
-    # 4. Execute Query with Limit & Order By
     pk_col = getattr(CrimeModel, 'sn', getattr(CrimeModel, 'id', None))
     if pk_col is not None:
         reports = query.order_by(pk_col.desc()).limit(limit).all()
     else:
         reports = query.limit(limit).all()
     
-    # 5. Format and return data
     SuspectModel = get_model_safe('Suspect_Lockup', 'SuspectLockup', 'suspect_lockup')
     
     result = []
     for r in reports:
         c_dict = clean_model_dict(r)
         
-        # Attach nested suspects natively
         if SuspectModel and hasattr(r, 'id'):
             suspects = db.query(SuspectModel).filter(SuspectModel.report_id == r.id).all()
             c_dict['suspectDetails'] = [clean_model_dict(s) for s in suspects]
         else:
             c_dict['suspectDetails'] = getattr(r, 'suspect_details', getattr(r, 'suspectDetails', []))
             
-        # Standardize strictly typed keys for the React frontend
         c_dict['sn'] = getattr(r, 'sn', getattr(r, 'id', 1))
         c_dict['sdRef'] = getattr(r, 'sd_ref', getattr(r, 'sdRef', ''))
         c_dict['region'] = getattr(r, 'region', 'KMP HEADQUARTERS')
@@ -262,7 +280,6 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
                 data["region"] = current_user.region
                 data["station"] = current_user.station
 
-        # Duplicate check
         incoming_sd_ref = (data.get("sd_ref") or "").strip().lower()
         incoming_station = (data.get("station") or "").strip().lower()
         if incoming_sd_ref and hasattr(CrimeModel, 'station') and hasattr(CrimeModel, 'sd_ref'):
@@ -399,7 +416,6 @@ def get_consolidated_ledger(
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'success_stories', 'Stories', 'stories')
         SuspectModel = get_model_safe('Suspect_Lockup', 'SuspectLockup', 'suspect_lockup')
         
-        # 1. Fetch & Filter Crime Reports
         crimes_data = []
         if CrimeModel:
             q_crimes = db.query(CrimeModel)
@@ -416,7 +432,14 @@ def get_consolidated_ledger(
                     q_crimes = q_crimes.filter(func.upper(CrimeModel.region) == region.upper())
             if station and station.upper() not in ['ALL STATIONS', 'ALL']:
                 if hasattr(CrimeModel, 'station'):
-                    q_crimes = q_crimes.filter(func.upper(CrimeModel.station) == station.upper())
+                    clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+                    q_crimes = q_crimes.filter(
+                        or_(
+                            func.upper(CrimeModel.station) == station.upper(),
+                            func.upper(CrimeModel.station) == clean_stn,
+                            func.upper(CrimeModel.station) == f"{clean_stn} HEADQUARTERS"
+                        )
+                    )
                     
             crimes = q_crimes.all()
             
@@ -427,7 +450,6 @@ def get_consolidated_ledger(
                     c_dict['suspectDetails'] = [clean_model_dict(s) for s in suspects]
                 crimes_data.append(c_dict)
 
-        # 2. Fetch & Filter Operational Statistics
         stats_data = []
         if StatsModel:
             q_stats = db.query(StatsModel)
@@ -444,12 +466,18 @@ def get_consolidated_ledger(
                     q_stats = q_stats.filter(func.upper(StatsModel.region) == region.upper())
             if station and station.upper() not in ['ALL STATIONS', 'ALL']:
                 if hasattr(StatsModel, 'station'):
-                    q_stats = q_stats.filter(func.upper(StatsModel.station) == station.upper())
+                    clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+                    q_stats = q_stats.filter(
+                        or_(
+                            func.upper(StatsModel.station) == station.upper(),
+                            func.upper(StatsModel.station) == clean_stn,
+                            func.upper(StatsModel.station) == f"{clean_stn} HEADQUARTERS"
+                        )
+                    )
                     
             stats = q_stats.all()
             stats_data = [clean_model_dict(s) for s in stats]
 
-        # 3. Fetch & Filter Success Stories
         stories_data = []
         if StoryModel:
             q_stories = db.query(StoryModel)
@@ -466,7 +494,14 @@ def get_consolidated_ledger(
                     q_stories = q_stories.filter(func.upper(StoryModel.region) == region.upper())
             if station and station.upper() not in ['ALL STATIONS', 'ALL']:
                 if hasattr(StoryModel, 'station'):
-                    q_stories = q_stories.filter(func.upper(StoryModel.station) == station.upper())
+                    clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+                    q_stories = q_stories.filter(
+                        or_(
+                            func.upper(StoryModel.station) == station.upper(),
+                            func.upper(CrimeModel.station) == clean_stn,
+                            func.upper(CrimeModel.station) == f"{clean_stn} HEADQUARTERS"
+                        )
+                    )
                     
             stories = q_stories.all()
             stories_data = [clean_model_dict(st) for st in stories]
