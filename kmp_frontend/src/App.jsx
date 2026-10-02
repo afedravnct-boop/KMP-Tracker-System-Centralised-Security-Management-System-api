@@ -2173,11 +2173,12 @@ const DashboardLayout = ({
       )
     } : null,
     checkClearance(currentUser, 'acc_crime', true) ? { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> } : null,
-    checkClearance(currentUser, 'acc_lockup', true) ? { 
-    name: 'Daily Suspects Lock-up', 
-    id: 'lockup-matrix', 
-    icon: <Lock size={20} className="text-amber-400" /> 
-  } : null,
+    // 🟢 Set default to false so unchecking the matrix permission hides the tab
+    checkClearance(currentUser, 'acc_lockup', false) ? { 
+      name: 'Daily Suspects Lock-up', 
+      id: 'lockup-matrix', 
+      icon: <Lock size={20} className="text-amber-400" /> 
+    } : null,
     checkClearance(currentUser, 'acc_ops', true) ? { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> } : null,
     checkClearance(currentUser, 'acc_stories', true) ? { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> } : null,
     checkClearance(currentUser, 'acc_est', true) ? { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> } : null,
@@ -2185,7 +2186,8 @@ const DashboardLayout = ({
     checkClearance(currentUser, 'acc_analytics', true) ? { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> } : null,
     checkClearance(currentUser, 'acc_hr', true) ? { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> } : null,
     checkClearance(currentUser, 'acc_documents', true) ? { name: 'Documents & Reports', id: 'reports_hub', icon: <FileText size={20} /> } : null,
-    checkClearance(currentUser, 'acc_ai', true) ? { 
+    // 🟢 Set default to false here as well
+    checkClearance(currentUser, 'acc_ai', false) ? { 
       name: 'AI Command Console', 
       id: 'ai_console', 
       icon: <Sparkles size={20} className="text-amber-400" /> 
@@ -3030,10 +3032,10 @@ const App = () => {
         ); 
 
       case 'lockup-matrix': 
-        return checkClearance(currentUser, 'acc_lockup', true) ? (
+        return checkClearance(currentUser, 'acc_lockup', false) ? (
           <div className="p-4 md:p-6 max-w-[1600px] mx-auto">
             <LockupMatrixLedger 
-              lockupEntries={reports} // or your fetched lockup records array
+              lockupEntries={reports}
               allTimeLockupTotal={grandTotals.displayTotal}
               onClose={() => handlePageChange('home')}
               selectedRegion={currentUser?.region || 'ALL REGIONS'}
@@ -3043,24 +3045,18 @@ const App = () => {
             />
           </div>
         ) : (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
+          <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} />
         );
 
       case 'ai_console':
-        return (
+        return checkClearance(currentUser, 'acc_ai', false) ? (
           <AICommandConsole 
             currentUser={currentUser} 
             canViewGlobal={canViewGlobal}
             onBack={() => handlePageChange('home')}
           />
+        ) : (
+          <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} />
         );
 
       case 'approvals':  
