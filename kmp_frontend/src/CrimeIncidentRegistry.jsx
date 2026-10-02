@@ -1035,7 +1035,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
             </select>
             <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!(canViewGlobalActive || isRegionalCommand)} className="border dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs shadow-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
               {(canViewGlobalActive || isRegionalCommand) ? (
-                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
+                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
               ) : (
                 <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>
               )}

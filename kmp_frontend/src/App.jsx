@@ -86,14 +86,23 @@ export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = t
 
   const perms = currentUser.permissions || {};
 
-  // 🟢 If either global viewing mode is active, unlock the navigation tab visibility
+  // 🟢 CRITICAL OVERRIDE: If an admin explicitly unchecks a permission, it is stored as 'false'. 
+  // This must take absolute priority to deny access, bypassing all defaults.
+  if (perms[permissionKey] === false) {
+    return false;
+  }
+
+  // If explicitly checked true, grant access
+  if (perms[permissionKey] === true) {
+    return true;
+  }
+
+  // Global bypasses
   if (perms.global_observer === true || perms.view_global_roster === true || perms.global_open === true) {
     return true;
   }
 
-  if (typeof perms[permissionKey] === 'boolean') {
-    return perms[permissionKey];
-  }
+  // Fallback to default role/module access if the permission key hasn't been explicitly toggled
   return Boolean(defaultRoleAccess);
 };
 
