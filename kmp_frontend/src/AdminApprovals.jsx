@@ -41,13 +41,13 @@ const isStationEquivalent = (statA, statB) => {
 const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [activeTab, setActiveTab] = useState('approvals');
   const [matrixView, setMatrixView] = useState('ACTIVE');
-  
+   
   const [modRequests, setModRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
-  
+   
   const [auditLogs, setAuditLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
-  
+   
   const [realPendingUsers, setRealPendingUsers] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
 
@@ -69,7 +69,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const [showLockdownModal, setShowLockdownModal] = useState(false);
   const [lockdownRegionFilter, setLockdownRegionFilter] = useState("KMP NORTH");
   const [lockdownData, setLockdownData] = useState({ system: false, regions: {}, stations: {} });
-  
+   
   const [searchTerm, setSearchTerm] = useState('');
   const [showDelegationModal, setShowDelegationModal] = useState(false);
   const [delegationSearchTerm, setDelegationSearchTerm] = useState('');
@@ -125,7 +125,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const canControlTargetUser = useCallback((targetUser) => {
     if (!targetUser) return false;
     const targetRole = (targetUser.role || '').toUpperCase();
-    
+     
     if (targetRole === 'SUPER_ADMIN' && !isSuperAdmin) return false; 
     if (isSuperAdmin) return true; 
 
@@ -221,7 +221,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         body: JSON.stringify({ status: actionStatus })
       });
       if (!res.ok) throw new Error("Failed to process request on server.");
-      
+       
       setModRequests(prev => prev.filter(r => (r.id || r.sn) !== reqId));
       setSelectedModRequest(null); 
       alert(`Request ${actionStatus.toLowerCase()} successfully!`);
@@ -254,22 +254,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       return;
     }
 
-    if (cleanFnum.includes('/')) {
-      const prefix = cleanFnum.split('/')[0];
-      const nameInitial = userName.charAt(0);
-      
-      if (prefix.match(/^[A-Z]+$/) && prefix !== nameInitial) {
-        alert(`⛔ CRITICAL DATA MISMATCH: Officer name is "${userName}" (starts with '${nameInitial}'), but File Number is "${cleanFnum}". Under standard UPF conventions, the prefix must match the first letter of the name (e.g., ${nameInitial}/${cleanFnum.split('/')[1] || '10000'}). Please correct before approval.`);
-        setIsProcessingAction(false);
-        return;
-      }
-    }
-
     setIsProcessingAction(true);
     try {
       let assignedRole = customAssignedRole;
       const pos = stripHtmlTags(userToApprove.position || '').toUpperCase();
-      
+       
       if (pos.includes('KMP COMMANDER') || pos.includes('DEPUTY KMP COMMANDER') || pos === 'KMP ADMIN OFFICER') {
         assignedRole = 'ASSISTANT_SUPER_ADMIN';
       } else if (pos.includes('RPC') && !pos.includes('DEPUTY')) {
@@ -291,6 +280,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const isGlobalAssign = ['ASSISTANT_SUPER_ADMIN'].includes(assignedRole) || 
         (assignedRole === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userToApprove.region?.toUpperCase()));
 
+      // 🟢 Added daily suspects lockup write permissions into approved user clearances
       const grantedPermissions = {
         view_nominal_roll: true,
         upload_hr: true,
@@ -299,6 +289,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         log_crime: true,
         view_lockup: true,
         log_lockup: true,
+        log_daily_lockup: true,
         view_exhibits: true,
         log_exhibits: true,
         view_global_roster: isGlobalAssign,
@@ -399,6 +390,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         log_crime: true,
         view_lockup: true,
         log_lockup: true,
+        log_daily_lockup: true,
         view_exhibits: true,
         log_exhibits: true,
       };
@@ -415,7 +407,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
       if (!res.ok) throw new Error(await res.text());
       alert(`✅ Access successfully restored for ${fnum}. Please review their clearance matrix to adjust permissions.`);
-      
+       
       fetchAllSystemUsers();
       fetchPendingUsers(); 
     } catch (err) {
@@ -624,7 +616,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     else if (activeTab === 'requests') fetchModRequests();
     else if (activeTab === 'logs') { fetchAuditLogs(); fetchAllSystemUsers(); }
     else if (activeTab === 'resets') fetchResets();
-    
+     
     fetchLockdownStatus();
   }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
 
@@ -667,9 +659,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const revokedUsersList = useMemo(() => realPendingUsers.filter(u => u.role === 'REVOKED'), [realPendingUsers]);
 
   const filteredPending = useMemo(() => filterByRegionStation(pendingAuthsList, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'nin', 'ipps', 'phone', 'email']), [pendingAuthsList, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
-  
+   
   const filteredRevoked = useMemo(() => filterByRegionStation(revokedUsersList, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'nin', 'ipps', 'phone', 'email']), [revokedUsersList, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
-  
+   
   const filteredRequests = useMemo(() => filterByRegionStation(modRequests, 'current_region', 'current_station', ['fnum', 'current_name', 'current_station', 'current_region', 'requested_station', 'requested_name']), [modRequests, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
   const filteredResets = useMemo(() => filterByRegionStation(resetRequests, 'region', 'station', ['fnum', 'name', 'station', 'region']), [resetRequests, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
   const filteredSystemUsers = useMemo(() => filterByRegionStation(allSystemUsers, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'ipps', 'phone', 'email', 'role']), [allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
@@ -683,14 +675,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
       if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
-      
+       
       const belongsToRegion = activeReg === 'ALL REGIONS' || 
                               logRegion === activeReg || 
                               (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, logStation)));
 
       if (!belongsToRegion) return false;
       if (activeStat && activeStat !== 'ALL STATIONS' && !isStationEquivalent(logStation, activeStat)) return false;
-      
+       
       return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
     });
   }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
@@ -706,7 +698,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   return (
     <div className="dark p-4 max-w-[1800px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300 text-slate-100">
-      
+       
       <div className="bg-slate-900 dark:bg-slate-950 text-white px-6 py-5 rounded-2xl shadow-lg border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
           <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 object-contain contrast-200 brightness-110 drop-shadow-md" onError={(e) => e.target.style.display = 'none'} />
@@ -748,7 +740,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               </>
             ) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
           </select>
-          
+           
           <div className="relative flex items-center min-w-[240px]">
             <Search size={14} className="absolute left-3 text-slate-400 dark:text-slate-500" />
             <input 
@@ -971,11 +963,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                         <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedPendingUser(u); }} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-lg text-[10px] shadow-sm inline-flex items-center transition cursor-pointer">
                           <Eye size={12} className="mr-1.5"/> Inspect Dossier
                         </button>
-                        
+                         
                         <button onClick={() => handleRegrantAccess(u.fnum, u.name)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
                           <Unlock size={12} className="mr-1.5"/> Restore
                         </button>
-                        
+                         
                         {isSuperAdmin ? (
                           <button onClick={() => handlePermanentDelete(u.fnum, u.name)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
                             <Trash2 size={12} className="mr-1.5"/> Purge
@@ -1076,7 +1068,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                 {filteredLogs.map((log) => (
                   <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800">
                     <td className="px-4 py-2.5 font-mono text-[10px] text-slate-500 dark:text-slate-400 whitespace-nowrap">{log.created_at}</td>
-                    
+                     
                     <td className="px-4 py-2.5 font-extrabold text-blue-700 dark:text-blue-400 whitespace-nowrap">
                       {log.user_fnum} {log.user_name ? `- ${log.user_name}` : ''}
                     </td>
@@ -1130,7 +1122,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 🟢 WIDER DELEGATION MODAL WITH SEARCH BOX */}
+      {/* WIDER DELEGATION MODAL WITH SEARCH BOX */}
       {showDelegationModal && (
         <div className="fixed inset-0 bg-black/70 z-[999999] flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl p-6 space-y-4 shadow-2xl text-white">
@@ -1140,10 +1132,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               </h3>
               <button onClick={() => setShowDelegationModal(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
             </div>
-            
+             
             <p className="text-xs text-slate-400">Search and select an officer in your command jurisdiction to delegate authorization and matrix approval privileges.</p>
-            
-            {/* 🟢 Search Input for Delegation Modal */}
+             
             <div className="relative flex items-center">
               <Search size={14} className="absolute left-3 text-slate-400" />
               <input 
@@ -1185,7 +1176,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                   </div>
                 ))}
             </div>
-            
+             
             <div className="flex justify-end pt-2 border-t border-slate-800">
               <button onClick={() => setShowDelegationModal(false)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs cursor-pointer">Done</button>
             </div>
@@ -1209,4 +1200,4 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   );
 };
 
-export default AdminApprovals;
+export Data AdminApprovals;

@@ -71,7 +71,7 @@ def clean_model_dict(obj):
 
     return clean
 
-# 🟢 CORE OPSEC SCOPING ENGINE WITH DUAL-EQUIVALENCE
+# 🟢 CORE OPSEC SCOPING ENGINE (Allows station/regional users to view global entries scoped to their station/region)
 def apply_opsec_scope(current_user, query, ModelClass):
     import json
     import re
@@ -156,7 +156,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
         return query.filter(text("1=0"))
         
     elif hasattr(ModelClass, 'station'):
-        # 🟢 Station-level user: match exact station or dual-equivalence (e.g. "CPS KAMPALA" matches records)
+        # 🟢 Station-level user: see records explicitly logged for their station, regardless of who entered them (including Super Admin assignments)
         clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
         return query.filter(
             or_(
@@ -276,6 +276,7 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
             data["station"] = "HEADQUARTERS GENERAL TOTAL"
             data["offence"] = data.get("offence", "HQ GENERAL SUSPECT LOCK-UP TOTAL")
         else:
+            # 🟢 Allow Super Admins/RPCs to explicitly assign reports to selected regions/stations during creation
             if current_user.role not in ["SUPER_ADMIN", "RPC"]:
                 data["region"] = current_user.region
                 data["station"] = current_user.station
