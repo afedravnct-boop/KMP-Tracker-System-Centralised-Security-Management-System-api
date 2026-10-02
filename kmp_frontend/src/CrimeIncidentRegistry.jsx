@@ -341,23 +341,31 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     let hasLockupUpdateToday = false;
       
     lockupData.forEach(l => {
-      const lStation = stripHtmlTags(l.station || '');
+      const lStation = stripHtmlTags(l.station || '').trim().toUpperCase();
       const lRegion = getOfficialRegionForStation(lStation, l.region);
-      const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' || lRegion === 'KMP HEADQUARTERS';
+      
+      // 🟢 Check if this entry is an HQ Master entry or General Total log
+      const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' || 
+                        lStation.includes('GENERAL TOTAL') || 
+                        lRegion === 'KMP HEADQUARTERS';
       
       if (isHQTotal) {
-        if (l.date === todayStr && l.suspects > 0) hqGrandTotalToday = l.suspects;
-        if (!latestHqGrandTotal && l.suspects > 0) latestHqGrandTotal = l.suspects;
+        if (l.date === todayStr && Number(l.suspects) > 0) hqGrandTotalToday = Number(l.suspects);
+        if (!latestHqGrandTotal && Number(l.suspects) > 0) latestHqGrandTotal = Number(l.suspects);
       } else {
         if (l.date === todayStr) {
-          stationCellPop[lStation] = l.suspects;
+          stationCellPop[lStation] = Number(l.suspects) || 0;
           if (isStationEquivalent(lStation, filterStation)) hasLockupUpdateToday = true;
         }
       }
     });
       
     const calculatedGlobalSum = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
-    const kmpGeneralTotal = hqGrandTotalToday !== null ? hqGrandTotalToday : calculatedGlobalSum > 0 ? calculatedGlobalSum : latestHqGrandTotal;
+    
+    // 🟢 Priority: 1. Today's HQ manual paper total, 2. Sum of all station cell populations, 3. Most recent HQ log
+    const kmpGeneralTotal = hqGrandTotalToday !== null ? hqGrandTotalToday : 
+                            calculatedGlobalSum > 0 ? calculatedGlobalSum : 
+                            latestHqGrandTotal;
 
     let localJurisdictionTotal = 0;
     if (filterStation && filterStation !== 'ALL STATIONS') {
@@ -375,8 +383,8 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
     return {
       localLockup: (hasLockupUpdateToday || localJurisdictionTotal > 0) ? localJurisdictionTotal : "Pending",
-      // 🟢 KMP Master Lock-up is now universally visible across all stations and user scopes
-      kmpGeneralLockup: kmpGeneralTotal !== null && kmpGeneralTotal !== undefined ? kmpGeneralTotal : "Pending",
+      // 🟢 Universal Fallback: If no explicit master total is found, fallback to the computed sum so it never shows "Pending" for station users
+      kmpGeneralLockup: kmpGeneralTotal !== null && kmpGeneralTotal !== undefined && kmpGeneralTotal !== 0 ? kmpGeneralTotal : (calculatedGlobalSum > 0 ? calculatedGlobalSum : "Pending"),
       newCases: finalFilteredReports.length,
       active: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ACTIVE INVESTIGATION').length,
       sanctioned: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'FORWARDED TO COURT').length,
@@ -385,42 +393,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       totalSuspects: totalCaseSuspects
     };
   }, [finalFilteredReports, lockupData, filterRegion, filterStation]);
-
-  const { generalCrimes, processedLockups, allTimeLockupTotal, crimeGrandTotal, suspectGrandTotal } = useMemo(() => {
-    const crimeMap = {};
-    const now = new Date();
-
-    finalFilteredReports.forEach(r => {
-      let includeInSummary = true;
-      const rDate = new Date(r.date);
-      if (summaryTimeFilter === 'TODAY') includeInSummary = rDate.toDateString() === now.toDateString();
-      else if (summaryTimeFilter === 'WEEK') includeInSummary = rDate >= new Date(now.setDate(now.getDate() - 7)) && rDate <= new Date();
-      else if (summaryTimeFilter === 'MONTH') includeInSummary = rDate.getMonth() === now.getMonth() && rDate.getFullYear() === now.getFullYear();
-      else if (summaryTimeFilter === 'YEAR') includeInSummary = rDate.getFullYear() === now.getFullYear();
-
-      if (includeInSummary) {
-        const offenceName = stripHtmlTags(r.offence || 'GENERAL CRIME').toUpperCase();
-        if (!crimeMap[offenceName]) crimeMap[offenceName] = { offence: offenceName, cases: 0, suspects: 0 };
-        crimeMap[offenceName].cases += 1;
-        crimeMap[offenceName].suspects += (r.suspectDetails || r.suspect_details || []).length;
-      }
-    });
-    const crimesArray = Object.values(crimeMap).sort((a, b) => b.cases - a.cases);
-
-    const sortedLockups = [...lockupData].sort((a, b) => new Date(b.date) - new Date(a.date));
-    const lockupsWithVar = sortedLockups.map((log, index, arr) => {
-      if (index === arr.length - 1) return { ...log, variation: 0, hasPrev: false };
-      return { ...log, variation: log.suspects - arr[index + 1].suspects, hasPrev: true };
-    });
-      
-    return {
-      generalCrimes: crimesArray,
-      processedLockups: lockupsWithVar,
-      allTimeLockupTotal: lockupData.reduce((acc, l) => acc + (parseInt(l.suspects) || 0), 0),
-      crimeGrandTotal: crimesArray.reduce((acc, curr) => acc + curr.cases, 0),
-      suspectGrandTotal: crimesArray.reduce((acc, curr) => acc + curr.suspects, 0)
-    };
-  }, [finalFilteredReports, lockupData, summaryTimeFilter]);
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
