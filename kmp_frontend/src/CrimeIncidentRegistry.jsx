@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {  
   Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2
 } from 'lucide-react';
@@ -16,7 +16,6 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
 const isStationEquivalent = (statA, statB) => {
   const a = stripHtmlTags(statA || '').trim().toUpperCase();
   const b = stripHtmlTags(statB || '').trim().toUpperCase();
@@ -109,7 +108,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
   const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
 
-  // 🟢 OPSEC Role Classification Engine
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
@@ -121,7 +119,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
   const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
 
-  // 🟢 FIXED: Defined both canViewGlobalLevel and canViewGlobalActive to prevent ReferenceErrors
   const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
   const canViewGlobalActive = canViewGlobalLevel;
   
@@ -203,10 +200,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     setIsFetchingReports(true);
     try {
       const params = new URLSearchParams();
-      if (filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
-      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      // 🟢 Always fetch full reports list when global or regional to ensure all stations can view entries logged for them
+      if (!canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') {
+        params.append('region', filterRegion);
+      }
       if (debouncedSearch) params.append('search', debouncedSearch);
-      params.append('limit', '200');
+      params.append('limit', '300');
 
       const response = await authFetch(`/api/v1/reports?${params.toString()}`);
       if (response.ok) {
@@ -219,7 +218,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     } finally {
       setIsFetchingReports(false);
     }
-  }, [filterRegion, filterStation, debouncedSearch, setReports]);
+  }, [filterRegion, debouncedSearch, setReports, canViewGlobalActive]);
 
   useEffect(() => {
     fetchFilteredDatabaseReports();
@@ -253,7 +252,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     });
   };
 
-  // 🟢 OPSEC Filter Engine for Crime Reports
+  // 🟢 Enhanced Filtering Engine: Guarantees station-level users see cases logged for their station regardless of who logged it
   const finalFilteredReports = useMemo(() => {
     if (!Array.isArray(serverReports)) return [];
       
@@ -277,7 +276,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         }
       }
 
-      // Agri-Crime Frontend Filter
       if (showAgriculturalOnly) {
         const offenceText = stripHtmlTags(r.offence || '').toLowerCase();
         const narrativeText = extractPlainText(r.narrative || '').toLowerCase();
@@ -294,7 +292,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         if (!isAgriCrimeMatch) return false;
       }
         
-      // Date Frontend Filter
       const diffDays = Math.ceil(Math.abs(new Date() - new Date(r.date)) / (1000 * 60 * 60 * 24));
       if (dateFilter === 'TODAY') {
         const todayStr = getTodayString();
@@ -348,21 +345,13 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const lRegion = getOfficialRegionForStation(lStation, l.region);
       const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' || lRegion === 'KMP HEADQUARTERS';
       
-      const belongsToJurisdiction = (filterRegion === 'ALL REGIONS') || 
-                                    (lRegion === filterRegion) || 
-                                    (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, lStation)));
-
-      if (belongsToJurisdiction) {
-        if (filterStation === 'ALL STATIONS' || isStationEquivalent(lStation, filterStation)) {
-          if (isHQTotal) {
-            if (l.date === todayStr && l.suspects > 0) hqGrandTotalToday = l.suspects;
-            if (!latestHqGrandTotal && l.suspects > 0) latestHqGrandTotal = l.suspects;
-          } else {
-            if (l.date === todayStr) {
-              stationCellPop[lStation] = l.suspects;
-              if (isStationEquivalent(lStation, filterStation)) hasLockupUpdateToday = true;
-            }
-          }
+      if (isHQTotal) {
+        if (l.date === todayStr && l.suspects > 0) hqGrandTotalToday = l.suspects;
+        if (!latestHqGrandTotal && l.suspects > 0) latestHqGrandTotal = l.suspects;
+      } else {
+        if (l.date === todayStr) {
+          stationCellPop[lStation] = l.suspects;
+          if (isStationEquivalent(lStation, filterStation)) hasLockupUpdateToday = true;
         }
       }
     });
@@ -386,6 +375,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
     return {
       localLockup: (hasLockupUpdateToday || localJurisdictionTotal > 0) ? localJurisdictionTotal : "Pending",
+      // 🟢 KMP Master Lock-up is now universally visible across all stations and user scopes
       kmpGeneralLockup: kmpGeneralTotal !== null && kmpGeneralTotal !== undefined ? kmpGeneralTotal : "Pending",
       newCases: finalFilteredReports.length,
       active: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ACTIVE INVESTIGATION').length,
@@ -527,9 +517,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     if (totalVal === 0 && maleVal === 0 && femaleVal === 0) {
       return setNotification("Error: Please enter valid cell population numbers.");
     }
-      
+        
     setNotification(isEditingLockup ? "⏳ Updating Daily Cell Population..." : "⏳ Logging Daily Cell Population to Independent Matrix...");
-      
+        
     try {
       const activeSubmissionRegion = canViewGlobalActive
         ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
@@ -557,9 +547,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         const response = await authFetch(`/api/v1/lockup-matrix/${targetId}`, {
           method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatePayload)
         });  
-          
+            
         if (!response.ok) throw new Error("Database rejected the lockup update.");
-          
+            
         setLockupData(lockupData.map(l => (l.id || l.sn) === targetId ? updatePayload : l));
         setNotification(`✅ Daily Cell Population updated & reassigned successfully for ${stripHtmlTags(formData.station)}!`);
         setIsEditingLockup(false);
@@ -568,7 +558,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       } else {
         const cleanStationSub = stripHtmlTags(formData.station).substring(0,3).toUpperCase();
         const popRef = `POP-${cleanStationSub}-${Date.now().toString().slice(-6)}`;
-          
+            
         const apiPayload = {
           sd_ref: popRef, 
           region: activeSubmissionRegion, 
@@ -590,12 +580,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload)
         });  
         if (!response.ok) throw new Error("Database rejected the lockup entry. Did you already log one today?");
-          
+            
         const newLockup = await response.json();
         setLockupData([newLockup, ...lockupData]);
         setNotification(`✅ Daily Cell Population successfully logged to the Independent Matrix for ${stripHtmlTags(formData.station)}!`);
       }
-        
+          
       setStandalonePopInput({ total: '', male: '', male_juvenile: '', female: '', female_juvenile: '', d1: '', d2: '', d3: '' }); 
       setTimeout(() => setNotification(null), 5000);
     } catch (err) {
@@ -606,7 +596,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   const handleHqGrandTotalSubmit = async (e) => {
     e.preventDefault();
     if (!hqGrandTotalInput && hqGrandTotalInput !== 0) return alert("Please enter a valid Grand Total.");
-      
+        
     setNotification("⏳ Submitting HQ General Grand Total to Independent Matrix...");
     const hqRef = `HQ-GRAND-${Date.now().toString().slice(-6)}`;
 
@@ -646,7 +636,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-      
+        
     let formattedTime = stripHtmlTags(formData.time || '');
     if (formattedTime && !/hrs$/i.test(formattedTime.trim())) formattedTime = `${formattedTime.trim()}Hrs`;
 
@@ -865,7 +855,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
               <option value="LAST 180 DAYS">LAST 180 DAYS</option>
             </select>
         </div>
-         
+          
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
           <MetricCard title={filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? "Computed Sum (All)" : filterStation === 'ALL STATIONS' ? `${filterRegion} Lock-up` : `${filterStation} Lock-up`} value={metrics.localLockup} colorClass="text-slate-800 dark:text-slate-100" />
           <MetricCard title="KMP Master Lock-up" value={metrics.kmpGeneralLockup} colorClass="text-amber-600 dark:text-amber-400" />
@@ -884,7 +874,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
             <div className="bg-slate-900 dark:bg-slate-950 px-3.5 py-2.5 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center">
               <h3 className="text-white font-semibold text-xs flex items-center"><Shield className="w-4 h-4 mr-1.5 text-blue-400" /> ⚙️ File Controls</h3>
             </div>
-             
+              
             <div className="p-4 space-y-4">
               <div className="flex space-x-1.5 bg-gray-100 dark:bg-slate-900 p-0.5 rounded-lg">
                 <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-1.5 text-xs font-medium rounded transition-all ${operation === 'new' ? 'bg-white dark:bg-slate-800 shadow text-blue-700 dark:text-blue-400 font-bold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><PlusCircle className="w-3.5 h-3.5 inline mr-1" /> Register New</button>
@@ -1073,25 +1063,26 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
             </select>
             <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!(canViewGlobalActive || isRegionalCommand)} className="border dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs shadow-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
               {(canViewGlobalActive || isRegionalCommand) ? (
-                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
+                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)}</>
               ) : (
                 <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>
               )}
             </select>
           </div>
 
+          {/* 🟢 HORIZONTAL & VERTICAL SCROLLABLE CRIME LEDGER */}
           <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (typeof setSidebarOpen === 'function') setSidebarOpen(!expanded); }}>
-            <div className="overflow-x-hidden overflow-y-auto w-full max-h-[65vh] custom-scrollbar">
-              <table className="w-full divide-y divide-gray-200 dark:divide-slate-700 table-fixed">
+            <div className="overflow-x-auto overflow-y-auto w-full max-h-[65vh] custom-scrollbar">
+              <table className="min-w-[1100px] w-full divide-y divide-gray-200 dark:divide-slate-700">
                 <thead className="bg-gray-50 dark:bg-slate-900 sticky top-0 z-10 shadow-sm">
                   <tr>
-                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[5%]">SN</th>
-                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[15%]">REFERENCE</th>
-                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[12%]">Date & Time</th>
-                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[15%]">Region/Post</th>
-                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[35%]">Incident Narrative</th>
-                    <th className="px-3.5 py-2.5 text-center text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[8%]">Suspects</th>
-                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-[10%]">Status</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-16">SN</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-40">REFERENCE</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-32">Date & Time</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-44">Region/Post</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider min-w-[320px]">Incident Narrative</th>
+                    <th className="px-3.5 py-2.5 text-center text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-24">Suspects</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-40">Status</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700 text-xs">
