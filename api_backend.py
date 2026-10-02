@@ -1828,10 +1828,10 @@ def run_weekly_tactical_briefing_job():
             except Exception as inner_err:
                 print(f"Secondary scheduler dispatch failed: {inner_err}")
 
-    except Exception as e:
-        print(f"Dynamic scheduler error: {e}")
-    finally:
-        db.close()
+        except Exception as e:
+            print(f"Dynamic scheduler error: {e}")
+        finally:
+            db.close()
 
 @app.post("/api/v1/admin/trigger-briefs")
 def trigger_briefs_manually(

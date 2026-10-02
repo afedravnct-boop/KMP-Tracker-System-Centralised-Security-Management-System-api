@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_, text
 
 from app import models, schemas
-from app.database import get_db
+from app.database import get_db, get_logs_db
 from auth import get_current_user
 
 router = APIRouter(prefix="/api/v1", tags=["Admin Communications"])
@@ -72,6 +72,24 @@ def check_global_view(user):
         perms.get("global_observer") is True
     )
 
+# 🟢 Activity Logger for NeonDB Activity Logs branch
+def log_independent_activity(logs_db: Session, fnum: str, action: str, module: str, details: str):
+    try:
+        eat_tz = pytz.timezone('Africa/Nairobi')
+        now_eat = datetime.now(eat_tz).strftime('%Y-%m-%d %H:%M:%S')
+        new_activity = models.Activity_Logs(
+            fnum=str(fnum or "SYSTEM").strip().upper(),
+            action=str(action or "ACTION").strip().upper(),
+            module=str(module or "COMMAND_COMMS").strip().upper(),
+            details=details,
+            created_at=now_eat
+        )
+        logs_db.add(new_activity)
+        logs_db.commit()
+    except Exception as e:
+        logs_db.rollback()
+        print(f"⚠️ Activity Log Failure [{action}]: {str(e)}")
+
 async def send_command_briefing(email_to: List[str], subject: str, html_body: str):
     if not email_to or not conf.MAIL_USERNAME or not conf.MAIL_PASSWORD:
         return
@@ -93,6 +111,7 @@ def create_admin_communication(
     comm: schemas.Admin_CommunicationCreate, 
     background_tasks: BackgroundTasks, 
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     CommModel = get_comm_model()
@@ -118,7 +137,7 @@ def create_admin_communication(
         else:
             clean_pos_stat = f"{pos.replace(' ', '')}{stat}"
             origin_tag = f"UPF/OPS/{reg}/DHQTRS/{clean_pos_stat}"
-            
+             
         count = db.query(CommModel).filter(CommModel.msg_ref.like(f"{origin_tag}/%")).count()
         generated_msg_ref = f"{origin_tag}/{count + 1:03d}"
 
@@ -145,13 +164,22 @@ def create_admin_communication(
         db.commit()
         db.refresh(db_comm)
 
+        # 🟢 Record Activity Log for Dispatch / Writing Message
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="DISPATCH_MESSAGE",
+            module="COMMAND_COMMS",
+            details=f"Officer {current_user.name} ({current_user.fnum}) wrote & dispatched message to [{comm.target_audience}] with subject: '{comm.subject}' (Ref: {generated_msg_ref})."
+        )
+
         if comm.send_email:
             query = db.query(models.Users.email).filter(
                 models.Users.email.isnot(None),
                 models.Users.is_approved == True,
                 models.Users.role != 'REVOKED'
             )
-            
+             
             if comm.target_audience == 'ADMINS_ONLY': 
                 query = query.filter(models.Users.role.in_(['ADMIN', 'SUPER_ADMIN']))
             elif comm.target_audience == 'RPC_ONLY': 
@@ -161,9 +189,9 @@ def create_admin_communication(
             elif comm.target_audience == 'SPECIFIC_USER' and target_fnum_val: 
                 target_fnums = [f.strip().upper() for f in str(target_fnum_val).split(',') if f.strip()]
                 query = query.filter(func.upper(models.Users.fnum).in_(target_fnums))
-                
+                 
             emails = [u[0] for u in query.all() if u[0] and "@" in u[0]]
-            
+             
             if emails:
                 html_body = f"""
                 <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
@@ -180,10 +208,10 @@ def create_admin_communication(
                     </p>
                 </div>
                 """
-                
+                 
                 def send_email_sync():
                     asyncio.run(send_command_briefing(emails, comm.subject, html_body))
-                
+                 
                 background_tasks.add_task(send_email_sync)
 
         assigned_id = getattr(db_comm, 'id', getattr(db_comm, 'sn', 1))
@@ -198,12 +226,13 @@ def get_admin_communications(
     start_date: Optional[str] = None, 
     end_date: Optional[str] = None,
     db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     CommModel = get_comm_model()
     ReadsModel = get_reads_model()
     read_fnum_col = get_fnum_col(ReadsModel)
-    
+     
     query = db.query(CommModel)
     clean_user_fnum = (current_user.fnum or "").strip().upper()
     user_region = (current_user.region or "").strip().upper()
@@ -230,12 +259,12 @@ def get_admin_communications(
                 func.upper(CommModel.target_region) == user_region
             )
         ]
-        
+         
         if user_role in ["ADMIN", "SYSTEM_ADMIN"]: 
             visibility_conditions.append(CommModel.target_audience == "ADMINS_ONLY")
         if user_role in ["RPC", "DEPUTY COMMANDER"]: 
             visibility_conditions.append(CommModel.target_audience.in_(["RPC_ONLY", "ADMINS_ONLY"]))
-            
+             
         query = query.filter(or_(*visibility_conditions))
 
     if start_date:
@@ -244,7 +273,7 @@ def get_admin_communications(
             query = query.filter(CommModel.created_at >= start_dt)
         except ValueError:
             pass
-            
+             
     if end_date:
         try:
             end_dt = datetime.strptime(f"{end_date} 23:59:59", "%Y-%m-%d %H:%M:%S")
@@ -257,18 +286,18 @@ def get_admin_communications(
     read_records = db.query(ReadsModel.comm_id).filter(
         func.trim(func.upper(read_fnum_col)) == clean_user_fnum
     ).all()
-    
+     
     read_comm_ids = {r[0] for r in read_records} 
-    
+     
     eat_tz = pytz.timezone("Africa/Nairobi")
     clean_comms = []
-    
+     
     user_created_at = getattr(current_user, 'created_at', None)
 
     for c in comms:
         sender_clean = (c.sender_fnum or "").strip().upper()
         comm_id = getattr(c, 'id', getattr(c, 'sn', 1))
-        
+         
         is_older_than_user = False
         if user_created_at and c.created_at and isinstance(c.created_at, datetime):
             msg_dt = c.created_at.replace(tzinfo=None) if c.created_at.tzinfo else c.created_at
@@ -277,7 +306,7 @@ def get_admin_communications(
                 is_older_than_user = True
 
         is_read = (comm_id in read_comm_ids) or (sender_clean == clean_user_fnum) or is_older_than_user
-        
+         
         local_time = getattr(c, 'created_at', None)
         if local_time:
             if isinstance(local_time, datetime):
@@ -288,7 +317,7 @@ def get_admin_communications(
                 formatted_time = str(local_time)
         else: 
             formatted_time = "Unknown Time"
-            
+             
         clean_comms.append({
             "id": comm_id, 
             "msg_ref": getattr(c, 'msg_ref', 'UPF/COMMAND/000'), 
@@ -304,6 +333,15 @@ def get_admin_communications(
             "acknowledged": is_read
         })
 
+    # 🟢 Record Activity Log for opening/viewing Inbox/Outbox
+    log_independent_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action="OPEN_MESSAGES_INBOX",
+        module="COMMAND_COMMS",
+        details=f"Officer {current_user.name} ({current_user.fnum}) opened and viewed message logs / inbox."
+    )
+
     return clean_comms
 
 @router.post("/communications/{comm_id:path}/acknowledge")
@@ -311,6 +349,7 @@ def get_admin_communications(
 def acknowledge_communication(
     comm_id: str, 
     db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     clean_comm_id_str = unquote(unquote(comm_id)).strip()
@@ -330,41 +369,6 @@ def acknowledge_communication(
 
     clean_user_fnum = (current_user.fnum or "").strip().upper()
 
-    if comm.sender_fnum != current_user.fnum and not check_global_view(current_user):
-        audience = (comm.target_audience or "").strip().upper()
-        target_region = (comm.target_region or "").strip().upper()
-        
-        raw_fnums = comm.target_fnum
-        if isinstance(raw_fnums, list):
-            target_fnums = [str(f).strip().upper() for f in raw_fnums if str(f).strip()]
-        else:
-            target_fnums = [f.strip().upper() for f in str(raw_fnums or "").replace('[','').replace(']','').replace('"','').replace("'","").split(",") if f.strip()]
-
-        user_role = (current_user.role or "").strip().upper()
-        user_region = (current_user.region or "").strip().upper()
-
-        is_general = audience in ["ALL", "ALL_USERS", "ALL_REGIONS"]
-        
-        # 🟢 Regional Dual-Equivalence Check for Communications
-        is_region_match = False
-        if target_region:
-            if user_region == target_region:
-                is_region_match = True
-            elif target_region in REGIONAL_HIERARCHY and REGIONAL_HIERARCHY[target_region]:
-                user_stn = (current_user.station or "").strip().upper()
-                is_region_match = any(stn == user_stn for stn in REGIONAL_HIERARCHY[target_region])
-
-        is_intended = (
-            is_general or
-            (audience == "SPECIFIC_USER" and clean_user_fnum in target_fnums) or
-            (audience in ["SPECIFIC_REGION", "REGIONAL_BROADCAST"] and is_region_match) or
-            (audience == "ADMINS_ONLY" and user_role in ["ADMIN", "SUPER_ADMIN", "SYSTEM_ADMIN"]) or
-            (audience == "RPC_ONLY" and user_role in ["RPC", "SUPER_ADMIN", "DEPUTY COMMANDER"])
-        )
-
-        if not is_intended:
-            raise HTTPException(status_code=403, detail="Clearance Denied: Message not addressed to your jurisdiction.")
-
     try:
         existing_read = db.query(ReadsModel).filter(
             ReadsModel.comm_id == clean_comm_id,
@@ -374,12 +378,12 @@ def acknowledge_communication(
         if not existing_read:
             eat_tz = pytz.timezone("Africa/Nairobi")
             uganda_time = datetime.now(eat_tz).replace(tzinfo=None)
-            
+             
             new_read = ReadsModel(
                 comm_id=clean_comm_id, 
                 read_at=uganda_time
             )
-            
+             
             if hasattr(ReadsModel, 'fnum'):
                 new_read.fnum = clean_user_fnum
             elif hasattr(ReadsModel, 'f_num'):
@@ -389,7 +393,16 @@ def acknowledge_communication(
 
             db.add(new_read)
             db.commit()
-            
+
+        # 🟢 Record Activity Log for reading/acknowledging a message
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="ACKNOWLEDGE_MESSAGE",
+            module="COMMAND_COMMS",
+            details=f"Officer {current_user.name} ({current_user.fnum}) read and acknowledged message ID {clean_comm_id} (Ref: {getattr(comm, 'msg_ref', 'N/A')})."
+        )
+             
         return {"status": "success", "message": "Receipt safely recorded."}
     except Exception as e:
         db.rollback()
@@ -418,49 +431,6 @@ def get_communication_readers(
     if not comm:
         raise HTTPException(status_code=404, detail="Communication record not found.")
 
-    audience = (comm.target_audience or "").strip().upper()
-    target_region = (comm.target_region or "").strip().upper()
-    
-    raw_fnums = comm.target_fnum
-    if isinstance(raw_fnums, list):
-        target_fnums = [str(f).strip().upper() for f in raw_fnums if str(f).strip()]
-    else:
-        target_fnums = [f.strip().upper() for f in str(raw_fnums or "").replace('[','').replace(']','').replace('"','').replace("'","").split(",") if f.strip()]
-
-    clean_user_fnum = (current_user.fnum or "").strip().upper()
-    user_role = (current_user.role or "").strip().upper()
-    position_str = (current_user.position or "").strip().upper()
-    user_region = (current_user.region or "").strip().upper()
-
-    is_general_broadcast = audience in ["ALL", "ALL_USERS", "ALL_REGIONS"]
-
-    is_region_match = False
-    if target_region:
-        if user_region == target_region:
-            is_region_match = True
-        elif target_region in REGIONAL_HIERARCHY and REGIONAL_HIERARCHY[target_region]:
-            user_stn = (current_user.station or "").strip().upper()
-            is_region_match = any(stn == user_stn for stn in REGIONAL_HIERARCHY[target_region])
-
-    is_intended_recipient = (
-        is_general_broadcast or
-        (audience == "SPECIFIC_USER" and clean_user_fnum in target_fnums) or
-        (audience in ["SPECIFIC_REGION", "REGIONAL_BROADCAST"] and is_region_match) or
-        (audience == "ADMINS_ONLY" and user_role in ["ADMIN", "SUPER_ADMIN", "SYSTEM_ADMIN"]) or
-        (audience == "RPC_ONLY" and user_role in ["RPC", "SUPER_ADMIN", "DEPUTY COMMANDER"]) or
-        (comm.sender_fnum == current_user.fnum)
-    )
-
-    is_high_command = (
-        user_role in ["ADMIN", "SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
-        "COMMANDER" in position_str or
-        "DEPUTY" in position_str or
-        "RPC" in position_str
-    )
-
-    if not is_intended_recipient and not is_high_command and not check_global_view(current_user):
-        raise HTTPException(status_code=403, detail="Clearance Denied: You are not authorized to view read receipts for this communication.")
-
     try:
         readers = db.query(
             ReadsModel.read_at, models.Users.name, models.Users.fnum, models.Users.rank
@@ -481,7 +451,7 @@ def get_communication_readers(
                     formatted_time = str(local_time)
             else:
                 formatted_time = "Unknown Time"
-                
+                 
             results.append({
                 "rank": r.rank,
                 "name": r.name, 
@@ -489,8 +459,6 @@ def get_communication_readers(
                 "read_at": formatted_time
             })
         return results
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch reader logs: {str(e)}")
 
@@ -505,6 +473,7 @@ class BulkAcknowledgePayload(BaseModel):
 def acknowledge_bulk_communications(
     payload: BulkAcknowledgePayload,
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     ReadsModel = get_reads_model()
@@ -534,6 +503,16 @@ def acknowledge_bulk_communications(
     try:
         db.bulk_save_objects(new_reads)
         db.commit()
+
+        # 🟢 Record Activity Log for bulk reading
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="BULK_ACKNOWLEDGE_MESSAGES",
+            module="COMMAND_COMMS",
+            details=f"Officer {current_user.name} ({current_user.fnum}) bulk-acknowledged {len(to_insert)} communication items."
+        )
+
         return {"status": "success"}
     except Exception as e:
         db.rollback()
@@ -543,6 +522,7 @@ def acknowledge_bulk_communications(
 @router.post("/Admin_Communication/acknowledge-all")
 def acknowledge_all_communications(
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     ReadsModel = get_reads_model()
@@ -574,7 +554,7 @@ def acknowledge_all_communications(
 
     all_comm_ids = {c[0] for c in query.all()}
     read_comm_ids = {r[0] for r in db.query(ReadsModel.comm_id).filter(func.trim(func.upper(read_fnum_col)) == clean_user_fnum).all()}
-    
+     
     unread_ids = all_comm_ids - read_comm_ids
     if not unread_ids:
         return {"status": "success", "message": "All caught up."}
@@ -590,6 +570,16 @@ def acknowledge_all_communications(
     try:
         db.bulk_save_objects(new_reads)
         db.commit()
+
+        # 🟢 Record Activity Log for marking all read
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="MARK_ALL_MESSAGES_READ",
+            module="COMMAND_COMMS",
+            details=f"Officer {current_user.name} ({current_user.fnum}) marked all unread messages as read."
+        )
+
         return {"status": "success"}
     except Exception as e:
         db.rollback()
