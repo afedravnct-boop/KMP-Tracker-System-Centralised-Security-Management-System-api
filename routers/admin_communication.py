@@ -333,14 +333,9 @@ def get_admin_communications(
             "acknowledged": is_read
         })
 
-    # 🟢 Record Activity Log for opening/viewing Inbox/Outbox
-    log_independent_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action="OPEN_MESSAGES_INBOX",
-        module="COMMAND_COMMS",
-        details=f"Officer {current_user.name} ({current_user.fnum}) opened and viewed message logs / inbox."
-    )
+    # 🟢 FIXED: Removed log_independent_activity("OPEN_MESSAGES_INBOX") here to prevent 
+    # false positive logs from background API polling. User intent tracking is now strictly 
+    # handled by the frontend PAGE_ACCESS hook.
 
     return clean_comms
 

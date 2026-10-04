@@ -510,6 +510,15 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const cleanRefNumber = stripHtmlTags(formData.ref_number).toUpperCase();
       const final_reference = `${cleanRefType} ${cleanRefNumber}`.trim();
         
+      // 🟢 STRICT REFERENCE VALIDATION
+      // Rejects anything that isn't the exact prefix followed by strictly numbers and slashes.
+      const referenceRegex = /^(SD Ref:|CRB:|DEF:|GEF:|TAR:|CID:)\s*\d+(\/\d+)+$/i;
+      
+      if (!referenceRegex.test(final_reference)) {
+        setNotification("⚠️ Invalid Reference Format. Do NOT type station names. The number field must only contain digits and slashes (e.g., 04/2026 or 12/05/11/2026).");
+        return; // 🛑 Stops submission
+      }
+
       const isDuplicate = serverReports.some(r => stripHtmlTags(r.station) === stripHtmlTags(formData.station) && ((stripHtmlTags(r.sdRef || r.sd_ref || '')).trim().toLowerCase() === final_reference.toLowerCase() || extractPlainText(r.narrative || '').trim().toLowerCase() === plainTextForDuplicate.toLowerCase()));
       if (isDuplicate) return setNotification(`Error: This specific ${cleanRefType} entry or identical narrative already exists.`);
 
@@ -1048,30 +1057,33 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
               </div>
               {selectedCase.suspectDetails && selectedCase.suspectDetails.length > 0 && (
                 <div className="bg-white dark:bg-slate-800 p-4 border border-red-200 dark:border-red-900 shadow-sm rounded-lg">
-                  <div className="text-[10px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-2 mb-3 flex items-center"><Lock size={14} className="mr-1.5"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})</div>
+                  <div className="text-[10px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-2 mb-3 flex items-center">
+                    <Lock size={14} className="mr-1.5"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})
+                  </div>
                   
-                  {/* 🟢 Removed md:grid-cols-2. Changed to flex-col so each card takes the full width */}
-                  <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-4 w-full">
                     {selectedCase.suspectDetails.map((s, idx) => {
                       const isValidPhoto = s.photo_url && !s.photo_url.startsWith('blob:');
 
                       return (
-                        <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-4 rounded-xl border border-red-200 dark:border-red-900 flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-6 shadow-sm">
+                        // 🟢 FIXED: Forced strict "flex-row" and "gap-5" so they always sit side-by-side perfectly
+                        <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-4 rounded-xl border border-red-200 dark:border-red-900 flex flex-row items-start gap-5 shadow-sm w-full">
+                          
+                          {/* 🟢 Photo Container - Fixed Width so it doesn't shrink */}
                           <div className="shrink-0">
                             {isValidPhoto ? ( 
-                              {/* 🟢 Massively increased photo size to w-32 h-32 (128x128 pixels) */}
-                              <img src={s.photo_url} alt={s.name} className="w-24 h-24 sm:w-32 sm:h-32 rounded-lg object-cover border-4 border-red-300 dark:border-red-800 shadow-md" onError={(e) => { e.target.style.display = 'none'; }} /> 
+                              <img src={s.photo_url} alt={s.name} className="w-28 h-28 rounded-lg object-cover border-4 border-red-300 dark:border-red-800 shadow-md bg-white" onError={(e) => { e.target.style.display = 'none'; }} /> 
                             ) : ( 
-                              {/* 🟢 Matched placeholder size to new photo dimensions */}
-                              <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-lg bg-red-100 dark:bg-red-900 text-red-400 dark:text-red-300 flex flex-col items-center justify-center font-bold text-[10px] border-2 border-dashed border-red-300 dark:border-red-800 text-center p-2 uppercase leading-tight shadow-inner">
+                              <div className="w-28 h-28 rounded-lg bg-red-100 dark:bg-red-900 text-red-400 dark:text-red-300 flex flex-col items-center justify-center font-bold text-[10px] border-2 border-dashed border-red-300 dark:border-red-800 text-center p-2 uppercase leading-tight shadow-inner">
                                 <Camera size={24} className="mb-2 opacity-60"/>
                                 No Photo
                               </div> 
                             )}
                           </div>
                           
-                          <div className="flex-1 min-w-0 flex flex-col justify-center">
-                            <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-sm mb-1.5">{idx + 1}. {stripHtmlTags(s.name)}</div>
+                          {/* 🟢 Text Container - flex-1 allows it to take up all remaining horizontal space to the right */}
+                          <div className="flex-1 min-w-0 py-1">
+                            <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-sm mb-1">{idx + 1}. {stripHtmlTags(s.name)}</div>
                             <div className="text-xs text-red-900 dark:text-red-300 font-bold mb-1.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
                             <div className="text-xs text-slate-700 dark:text-slate-300 mb-2"><span className="font-black text-slate-900 dark:text-slate-100">Res:</span> {stripHtmlTags(s.residence || 'N/A')} &nbsp;|&nbsp; <span className="font-black text-slate-900 dark:text-slate-100">Tel:</span> {stripHtmlTags(s.contact || 'N/A')}</div>
                             
@@ -1081,13 +1093,13 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                               </div> 
                             )}
                           </div>
+
                         </div>
                       );
                     })}
                   </div>
                 </div>
               )}
-
               <div className="text-center pt-4 opacity-40"><p className="text-[9px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">End of Official Record Extract</p><p className="text-[8px] text-slate-400 dark:text-slate-500 mt-0.5">System Audit ID: {selectedCase.id || selectedCase.sn} • Printed: {new Date().toLocaleString()}</p></div>
             </div>
             <div className="bg-slate-100 dark:bg-slate-950 p-3 border-t border-slate-300 dark:border-slate-800 flex justify-end shrink-0 shadow-inner z-10">
