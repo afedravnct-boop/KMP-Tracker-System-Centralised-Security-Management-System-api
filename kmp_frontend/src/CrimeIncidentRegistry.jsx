@@ -1048,32 +1048,38 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
               </div>
               {selectedCase.suspectDetails && selectedCase.suspectDetails.length > 0 && (
                 <div className="bg-white dark:bg-slate-800 p-4 border border-red-200 dark:border-red-900 shadow-sm rounded-lg">
-                  <div className="text-[9px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-1.5 mb-3 flex items-center"><Lock size={12} className="mr-1.5"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="text-[10px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-2 mb-3 flex items-center"><Lock size={14} className="mr-1.5"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})</div>
+                  
+                  {/* 🟢 Removed md:grid-cols-2. Changed to flex-col so each card takes the full width */}
+                  <div className="flex flex-col gap-4">
                     {selectedCase.suspectDetails.map((s, idx) => {
-                      // 🟢 Explicitly prevents ERR_FILE_NOT_FOUND by rejecting temporary browser memory URLs
                       const isValidPhoto = s.photo_url && !s.photo_url.startsWith('blob:');
 
                       return (
-                        <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-3 rounded-lg border border-red-200 dark:border-red-900 flex items-start space-x-3">
+                        <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-4 rounded-xl border border-red-200 dark:border-red-900 flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-6 shadow-sm">
                           <div className="shrink-0">
                             {isValidPhoto ? ( 
-                              {/* 🟢 Increased image size to w-24 h-24 (96x96 pixels) */}
-                              <img src={s.photo_url} alt={s.name} className="w-24 h-24 rounded object-cover border-2 border-red-300 dark:border-red-800 shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} /> 
+                              {/* 🟢 Massively increased photo size to w-32 h-32 (128x128 pixels) */}
+                              <img src={s.photo_url} alt={s.name} className="w-24 h-24 sm:w-32 sm:h-32 rounded-lg object-cover border-4 border-red-300 dark:border-red-800 shadow-md" onError={(e) => { e.target.style.display = 'none'; }} /> 
                             ) : ( 
-                              <div className="w-24 h-24 rounded bg-red-100 dark:bg-red-900 text-red-400 dark:text-red-300 flex flex-col items-center justify-center font-bold text-[10px] border border-dashed border-red-200 dark:border-red-800 text-center p-1 uppercase leading-tight">
-                                <Camera size={18} className="mb-1 opacity-50"/>
+                              {/* 🟢 Matched placeholder size to new photo dimensions */}
+                              <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-lg bg-red-100 dark:bg-red-900 text-red-400 dark:text-red-300 flex flex-col items-center justify-center font-bold text-[10px] border-2 border-dashed border-red-300 dark:border-red-800 text-center p-2 uppercase leading-tight shadow-inner">
+                                <Camera size={24} className="mb-2 opacity-60"/>
                                 No Photo
                               </div> 
                             )}
-                          </div> 
-                            )}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-xs truncate">{idx + 1}. {stripHtmlTags(s.name)}</div>
-                            <div className="text-[11px] text-red-900 dark:text-red-300 font-medium mt-0.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
-                            <div className="text-[11px] text-slate-700 dark:text-slate-300 mt-0.5"><span className="font-bold">Res:</span> {stripHtmlTags(s.residence || 'N/A')} | <span className="font-bold">Tel:</span> {stripHtmlTags(s.contact || 'N/A')}</div>
-                            {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( <div className="inline-block mt-1.5 text-[9px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-bold px-1.5 py-0.5 rounded-sm">Status: {stripHtmlTags(s.mental_health_status)}</div> )}
+                          
+                          <div className="flex-1 min-w-0 flex flex-col justify-center">
+                            <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-sm mb-1.5">{idx + 1}. {stripHtmlTags(s.name)}</div>
+                            <div className="text-xs text-red-900 dark:text-red-300 font-bold mb-1.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
+                            <div className="text-xs text-slate-700 dark:text-slate-300 mb-2"><span className="font-black text-slate-900 dark:text-slate-100">Res:</span> {stripHtmlTags(s.residence || 'N/A')} &nbsp;|&nbsp; <span className="font-black text-slate-900 dark:text-slate-100">Tel:</span> {stripHtmlTags(s.contact || 'N/A')}</div>
+                            
+                            {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( 
+                              <div className="inline-flex mt-1 text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-black px-2.5 py-1 rounded shadow-sm uppercase tracking-wider w-max">
+                                Status: {stripHtmlTags(s.mental_health_status)}
+                              </div> 
+                            )}
                           </div>
                         </div>
                       );
@@ -1081,6 +1087,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                   </div>
                 </div>
               )}
+
               <div className="text-center pt-4 opacity-40"><p className="text-[9px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">End of Official Record Extract</p><p className="text-[8px] text-slate-400 dark:text-slate-500 mt-0.5">System Audit ID: {selectedCase.id || selectedCase.sn} • Printed: {new Date().toLocaleString()}</p></div>
             </div>
             <div className="bg-slate-100 dark:bg-slate-950 p-3 border-t border-slate-300 dark:border-slate-800 flex justify-end shrink-0 shadow-inner z-10">
