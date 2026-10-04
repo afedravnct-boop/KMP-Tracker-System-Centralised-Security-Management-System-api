@@ -16,6 +16,9 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+// 🟢 Standard offenses list for dropdown matching
+const STANDARD_OFFENCES = ["Murder", "Aggravated Robbery", "Theft", "Assault", "Burglary", "Defilement / Rape", "Traffic Accident (Fatal)", "Traffic Accident (Minor)", "Fraud / Forgery", "Drug Offenses"];
+
 const isStationEquivalent = (statA, statB) => {
   const a = stripHtmlTags(statA || '').trim().toUpperCase();
   const b = stripHtmlTags(statB || '').trim().toUpperCase();
@@ -98,13 +101,9 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
 const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports, setSidebarOpen, isReadOnlyObserver }) => {
   const [serverReports, setServerReports] = useState([]);
   const [isFetchingReports, setIsFetchingReports] = useState(false);
+  
+  // Lockup API data used strictly for metrics calculation. Data entry is handled by LockupMatrixLedger.
   const [lockupData, setLockupData] = useState([]);
-
-  const [standalonePopInput, setStandalonePopInput] = useState({ 
-    total: '', male: '', male_juvenile: '', female: '', female_juvenile: '', d1: '', d2: '', d3: '' 
-  });
-  const [isEditingLockup, setIsEditingLockup] = useState(false);
-  const [editLockupTarget, setEditLockupTarget] = useState(null);
 
   const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
 
@@ -157,7 +156,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   const [updateSearch, setUpdateSearch] = useState('');
-  const [summaryTimeFilter, setSummaryTimeFilter] = useState('ALL');
 
   const [showLockup, setShowLockup] = useState(false);
   const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', nationality: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' });
@@ -196,11 +194,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
   const fetchFilteredDatabaseReports = useCallback(async () => {
     if (!hasValidSession()) return;
-
     setIsFetchingReports(true);
     try {
       const params = new URLSearchParams();
-      // 🟢 Always fetch full reports list when global or regional to ensure all stations can view entries logged for them
       if (!canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') {
         params.append('region', filterRegion);
       }
@@ -240,19 +236,19 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     if (mode === 'new') resetFormToBlank();
   };
 
+  // 🟢 Simply loads the actual database string straight into formData.offence without mapping logic
   const populateUpdateCrimeForm = (caseData) => {
     setFormData({ 
       ...caseData, 
       sn: caseData.sn || caseData.id, 
       sd_ref: stripHtmlTags(caseData.sdRef || caseData.sd_ref), 
-      offence: stripHtmlTags(caseData.offence || 'Other'),
-      customOffence: '', 
+      offence: stripHtmlTags(caseData.offence || 'Other'), // Safely carries over the custom text
+      customOffence: '',
       suspectDetails: caseData.suspectDetails || [], 
       updateText: '' 
     });
   };
 
-  // 🟢 Enhanced Filtering Engine: Guarantees station-level users see cases logged for their station regardless of who logged it
   const finalFilteredReports = useMemo(() => {
     if (!Array.isArray(serverReports)) return [];
       
@@ -333,69 +329,60 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   }, [finalFilteredReports, updateSearch, canViewGlobalActive, userRegClean]);
 
   const metrics = useMemo(() => {
-  const stationCellPop = {};
-  const todayStr = getTodayString(); // Current date e.g., "YYYY-MM-DD"
-  
-  let hqGrandTotalToday = 0; // Default to 0 when no entry exists for the current 24h cycle
-  let hasLockupUpdateToday = false;
-  let masterLockupSubmitted = false;
-
-  lockupData.forEach(l => {
-    const lStation = stripHtmlTags(l.station || '').trim().toUpperCase();
-    const lRegion = getOfficialRegionForStation(lStation, l.region);
+    const stationCellPop = {};
+    const todayStr = getTodayString(); 
     
-    const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' || 
-                       lStation.includes('GENERAL TOTAL') || 
-                       lRegion === 'KMP HEADQUARTERS';
+    let hqGrandTotalToday = 0; 
+    let hasLockupUpdateToday = false;
 
-    // Strictly check for TODAY's date log only
-    if (l.date === todayStr) {
-      if (isHQTotal) {
-        hqGrandTotalToday = Number(l.suspects) || 0;
-        masterLockupSubmitted = true;
-      } else {
-        stationCellPop[lStation] = Number(l.suspects) || 0;
-        if (isStationEquivalent(lStation, filterStation)) {
-          hasLockupUpdateToday = true;
+    lockupData.forEach(l => {
+      const lStation = stripHtmlTags(l.station || '').trim().toUpperCase();
+      const lRegion = getOfficialRegionForStation(lStation, l.region);
+      
+      const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' || 
+                         lStation.includes('GENERAL TOTAL') || 
+                         lRegion === 'KMP HEADQUARTERS';
+
+      if (l.date === todayStr) {
+        if (isHQTotal) {
+          hqGrandTotalToday = Number(l.suspects) || 0;
+        } else {
+          stationCellPop[lStation] = Number(l.suspects) || 0;
+          if (isStationEquivalent(lStation, filterStation)) {
+            hasLockupUpdateToday = true;
+          }
         }
       }
+    });
+
+    const calculatedGlobalSum = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
+    const kmpGeneralTotal = hqGrandTotalToday !== 0 ? hqGrandTotalToday : calculatedGlobalSum;
+
+    let localJurisdictionTotal = 0;
+    if (filterStation && filterStation !== 'ALL STATIONS') {
+      localJurisdictionTotal = Object.keys(stationCellPop)
+        .filter(stn => isStationEquivalent(stn, filterStation))
+        .reduce((sum, stn) => sum + stationCellPop[stn], 0);
+    } else if (filterRegion && filterRegion !== 'ALL REGIONS') {
+      const regionStations = REGIONAL_HIERARCHY[filterRegion] || [];
+      localJurisdictionTotal = regionStations.reduce((sum, stat) => sum + (stationCellPop[stat] || 0), 0);
+    } else {
+      localJurisdictionTotal = calculatedGlobalSum;
     }
-  });
 
-  const calculatedGlobalSum = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
-  
-  // Priority: 1. Today's HQ manual paper total, 2. Sum of all station cell populations, 3. Fallback to 0
-  const kmpGeneralTotal = hqGrandTotalToday !== 0 ? hqGrandTotalToday : calculatedGlobalSum;
+    const totalCaseSuspects = finalFilteredReports.reduce((sum, r) => sum + (r.suspectDetails || r.suspect_details || []).length, 0);
 
-  let localJurisdictionTotal = 0;
-  if (filterStation && filterStation !== 'ALL STATIONS') {
-    localJurisdictionTotal = Object.keys(stationCellPop)
-      .filter(stn => isStationEquivalent(stn, filterStation))
-      .reduce((sum, stn) => sum + stationCellPop[stn], 0);
-  } else if (filterRegion && filterRegion !== 'ALL REGIONS') {
-    const regionStations = REGIONAL_HIERARCHY[filterRegion] || [];
-    localJurisdictionTotal = regionStations.reduce((sum, stat) => sum + (stationCellPop[stat] || 0), 0);
-  } else {
-    localJurisdictionTotal = calculatedGlobalSum;
-  }
-
-  const totalCaseSuspects = finalFilteredReports.reduce((sum, r) => sum + (r.suspectDetails || r.suspect_details || []).length, 0);
-
-  return {
-    stationCellPop,
-    hqGrandTotal: hqGrandTotalToday,
-    masterLockupSubmitted,
-    hasLockupUpdateToday,
-    localLockup: (hasLockupUpdateToday || localJurisdictionTotal > 0) ? localJurisdictionTotal : "Pending",
-    kmpGeneralLockup: kmpGeneralTotal !== 0 ? kmpGeneralTotal : (calculatedGlobalSum > 0 ? calculatedGlobalSum : "Pending"),
-    newCases: finalFilteredReports.length,
-    active: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ACTIVE INVESTIGATION').length,
-    sanctioned: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'FORWARDED TO COURT').length,
-    closed: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'CLOSED / CONVICTED').length,
-    adr: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ADR').length,
-    totalSuspects: totalCaseSuspects
-  };
-}, [finalFilteredReports, lockupData, filterRegion, filterStation]);
+    return {
+      localLockup: (hasLockupUpdateToday || localJurisdictionTotal > 0) ? localJurisdictionTotal : "Pending",
+      kmpGeneralLockup: kmpGeneralTotal !== 0 ? kmpGeneralTotal : (calculatedGlobalSum > 0 ? calculatedGlobalSum : "Pending"),
+      newCases: finalFilteredReports.length,
+      active: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ACTIVE INVESTIGATION').length,
+      sanctioned: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'FORWARDED TO COURT').length,
+      closed: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'CLOSED / CONVICTED').length,
+      adr: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ADR').length,
+      totalSuspects: totalCaseSuspects
+    };
+  }, [finalFilteredReports, lockupData, filterRegion, filterStation]);
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
@@ -436,141 +423,32 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       uploadData.append("case_id", stripHtmlTags(formData.sd_ref || "NEW_CASE"));
 
       try {
-        const token = localStorage.getItem('kmp_authToken') || sessionStorage.getItem('kmp_authToken');
-        const API_URL = import.meta.env?.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
-        const response = await fetch(`${API_URL}/api/v1/investigation/upload/`, { method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: uploadData });
+        // 🟢 Replaced manual fetch with authFetch and REMOVED the trailing slash
+        // Note: Do NOT set 'Content-Type' when sending FormData. The browser handles the multipart boundary automatically.
+        const response = await authFetch(`/api/v1/investigation/upload`, { 
+          method: "POST", 
+          body: uploadData 
+        });
+        
+        if (!response.ok) throw new Error(`Upload failed with status: ${response.status}`);
+        
         const data = await response.json();
+        
         if (data.full_s3_url || data.cloud_storage_path) {
-          setNewSuspect({ ...newSuspect, photo_url: stripHtmlTags(data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}`) });
+          setNewSuspect({ 
+            ...newSuspect, 
+            photo_url: stripHtmlTags(data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}`) 
+          });
           setNotification("✅ Mugshot uploaded securely!");
-        } else throw new Error("Invalid response");
+        } else {
+          throw new Error("Invalid response format from server");
+        }
       } catch (error) {
+        console.error("Upload Error:", error);
+        // Fallback to local blob preview if upload fails
         setNewSuspect({ ...newSuspect, photo_url: URL.createObjectURL(file) });
         setNotification("⚠️ API unreachable. Using temporary local preview.");
       }
-    }
-  };
-
-  const handleEditLockupToggle = () => {
-  if (isEditingLockup) {
-    setIsEditingLockup(false);
-    setEditLockupTarget(null);
-    setStandalonePopInput({ total: '', male: '', male_juvenile: '', female: '', female_juvenile: '', d1: '', d2: '', d3: '' });
-  } else {
-    const todayStr = getTodayString();
-    const cleanFormStation = stripHtmlTags(formData.station || '').trim().toUpperCase();
-
-    // Safely match using cleaned, uppercase strings on both ends
-    const existingEntry = lockupData.find(l => {
-      const cleanEntryStation = stripHtmlTags(l.station || '').trim().toUpperCase();
-      return cleanEntryStation === cleanFormStation && l.date === todayStr;
-    });
-      
-    if (existingEntry) {
-      setEditLockupTarget(existingEntry);
-      setStandalonePopInput({
-        total: (existingEntry.suspects ?? 0).toString(),
-        male: (existingEntry.male_count || 0).toString(),
-        male_juvenile: (existingEntry.male_juvenile_count || 0).toString(),
-        female: (existingEntry.female_count || 0).toString(),
-        female_juvenile: (existingEntry.female_juvenile_count || 0).toString(),
-        d1: (existingEntry.detention_1day || 0).toString(),
-        d2: (existingEntry.detention_2days || 0).toString(),
-        d3: (existingEntry.detention_3days_over || 0).toString()
-      });
-      setIsEditingLockup(true);
-    } else {
-      alert(`No cell population logged for ${formData.station} today yet. Please log a new entry.`);
-    }
-  }
-};
-
-  const handleStandalonePopSubmit = async () => {
-    const totalVal = parseInt(standalonePopInput.total) || 0;
-    const maleVal = parseInt(standalonePopInput.male) || 0;
-    const maleJuvVal = parseInt(standalonePopInput.male_juvenile) || 0;
-    const femaleVal = parseInt(standalonePopInput.female) || 0;
-    const femaleJuvVal = parseInt(standalonePopInput.female_juvenile) || 0;
-    const d1Val = parseInt(standalonePopInput.d1) || 0;
-    const d2Val = parseInt(standalonePopInput.d2) || 0;
-    const d3Val = parseInt(standalonePopInput.d3) || 0;
-
-    if (totalVal === 0 && maleVal === 0 && femaleVal === 0) {
-      return setNotification("Error: Please enter valid cell population numbers.");
-    }
-        
-    setNotification(isEditingLockup ? "⏳ Updating Daily Cell Population..." : "⏳ Logging Daily Cell Population to Independent Matrix...");
-        
-    try {
-      const activeSubmissionRegion = canViewGlobalActive
-        ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
-        : getOfficialRegionForStation(formData.station, formData.region);
-
-      if (isEditingLockup && editLockupTarget) {
-        const targetId = editLockupTarget.sn || editLockupTarget.id;
-        if (!targetId) throw new Error("Record ID lost. Please select the record again.");
-
-        const updatePayload = {
-          ...editLockupTarget,
-          suspects: totalVal,
-          male_count: maleVal,
-          male_juvenile_count: maleJuvVal,
-          female_count: femaleVal,
-          female_juvenile_count: femaleJuvVal,
-          detention_1day: d1Val,
-          detention_2days: d2Val,
-          detention_3days_over: d3Val,
-          region: activeSubmissionRegion, 
-          station: stripHtmlTags(formData.station), 
-          last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})`
-        };
-
-        const response = await authFetch(`/api/v1/lockup-matrix/${targetId}`, {
-          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatePayload)
-        });  
-            
-        if (!response.ok) throw new Error("Database rejected the lockup update.");
-            
-        setLockupData(lockupData.map(l => (l.id || l.sn) === targetId ? updatePayload : l));
-        setNotification(`✅ Daily Cell Population updated & reassigned successfully for ${stripHtmlTags(formData.station)}!`);
-        setIsEditingLockup(false);
-        setEditLockupTarget(null);
-
-      } else {
-        const cleanStationSub = stripHtmlTags(formData.station).substring(0,3).toUpperCase();
-        const popRef = `POP-${cleanStationSub}-${Date.now().toString().slice(-6)}`;
-            
-        const apiPayload = {
-          sd_ref: popRef, 
-          region: activeSubmissionRegion, 
-          station: stripHtmlTags(formData.station),
-          date: getTodayString(), 
-          time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-          suspects: totalVal,
-          male_count: maleVal,
-          male_juvenile_count: maleJuvVal,
-          female_count: femaleVal,
-          female_juvenile_count: femaleJuvVal,
-          detention_1day: d1Val,
-          detention_2days: d2Val,
-          detention_3days_over: d3Val,
-          last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})`
-        };
-
-        const response = await authFetch(`/api/v1/lockup-matrix`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload)
-        });  
-        if (!response.ok) throw new Error("Database rejected the lockup entry. Did you already log one today?");
-            
-        const newLockup = await response.json();
-        setLockupData([newLockup, ...lockupData]);
-        setNotification(`✅ Daily Cell Population successfully logged to the Independent Matrix for ${stripHtmlTags(formData.station)}!`);
-      }
-          
-      setStandalonePopInput({ total: '', male: '', male_juvenile: '', female: '', female_juvenile: '', d1: '', d2: '', d3: '' }); 
-      setTimeout(() => setNotification(null), 5000);
-    } catch (err) {
-      setNotification(`❌ Error: ${stripHtmlTags(err.message)}`);
     }
   };
 
@@ -671,11 +549,15 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
           updatedNarrative = `${formData.narrative}<p><br></p><p><strong style="color: #2563eb;">[UPDATE ${new Date().toLocaleString()}]:</strong></p>${formData.updateText}`;
       }
         
+      // 🟢 Always takes the value loaded in formData.offence as it was handled natively
+      const finalOffenceValue = formData.offence === 'Other' ? stripHtmlTags(formData.customOffence).toUpperCase() : stripHtmlTags(formData.offence);
+
       const updatedRecord = { 
         ...formData, 
         region: getOfficialRegionForStation(formData.station, formData.region),
         time: formattedTime, 
         narrative: updatedNarrative, 
+        offence: finalOffenceValue, 
         status: formData.status,
         suspects: formData.suspectDetails.length,
         last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})`, 
@@ -685,6 +567,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       delete updatedRecord.updateText; 
       delete updatedRecord.ref_type; 
       delete updatedRecord.ref_number;
+      delete updatedRecord.customOffence; 
         
       try {
         const response = await authFetch(`/api/v1/reports/${formData.sn}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord) });
@@ -937,8 +820,19 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                   <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Offence / Incident Type *</label>
                   <select name="offence" value={formData.offence} onChange={handleInputChange} required disabled={operation === 'update'} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
                     <option value="" disabled>-- Select Official Offence Category --</option>
-                    <option value="Murder">Murder</option><option value="Aggravated Robbery">Aggravated Robbery</option><option value="Theft">Theft</option><option value="Assault">Assault</option><option value="Burglary">Burglary</option><option value="Defilement / Rape">Defilement / Rape</option><option value="Traffic Accident (Fatal)">Traffic Accident (Fatal)</option><option value="Traffic Accident (Minor)">Traffic Accident (Minor)</option><option value="Fraud / Forgery">Fraud / Forgery</option><option value="Drug Offenses">Drug Offenses</option><option value="Other">Other (Specify Below)</option>
+                    {STANDARD_OFFENCES.map(off => (
+                      <option key={off} value={off}>{off}</option>
+                    ))}
+                    
+                    {/* 🟢 THE FIX: Safely injects the raw custom database string into the options array if it isn't standard, preventing the browser from defaulting to 'Murder' */}
+                    {formData.offence && formData.offence !== 'Other' && !STANDARD_OFFENCES.some(o => o.toUpperCase() === formData.offence.toUpperCase()) && (
+                      <option value={formData.offence}>{formData.offence}</option>
+                    )}
+                    
+                    <option value="Other">Other (Specify Below)</option>
                   </select>
+                  
+                  {/* 🟢 Only display the custom manual entry box when creating a brand NEW case */}
                   {formData.offence === 'Other' && operation === 'new' && (
                     <input type="text" name="customOffence" required value={stripHtmlTags(formData.customOffence || '')} onChange={handleInputChange} placeholder="Type the specific offence here..." className="mt-1.5 w-full text-xs border-blue-400 dark:border-slate-700 rounded shadow-sm border p-1.5 focus:ring-blue-500 bg-blue-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 uppercase" />
                   )}
@@ -1051,7 +945,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
             </select>
           </div>
 
-          {/* 🟢 HORIZONTAL & VERTICAL SCROLLABLE CRIME LEDGER */}
           <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (typeof setSidebarOpen === 'function') setSidebarOpen(!expanded); }}>
             <div className="overflow-x-auto overflow-y-auto w-full max-h-[65vh] custom-scrollbar">
               <table className="min-w-[1100px] w-full divide-y divide-gray-200 dark:divide-slate-700">
@@ -1111,7 +1004,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       {showLockupMatrixModal && (
         <LockupMatrixLedger 
           lockupEntries={lockupData} 
-          allTimeLockupTotal={allTimeLockupTotal} 
+          allTimeLockupTotal={null} 
           onClose={() => setShowLockupMatrixModal(false)} 
           selectedRegion={filterRegion}
           selectedStation={filterStation}

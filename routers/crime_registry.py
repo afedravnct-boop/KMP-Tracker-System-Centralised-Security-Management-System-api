@@ -1,15 +1,27 @@
+import os
+import uuid
+import boto3
 from typing import Optional, List, Union
 from datetime import datetime, date
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, text
+from botocore.exceptions import ClientError
 
 from app import models
 from app.database import get_db
 from auth import get_current_user
 
 router = APIRouter(prefix="/api/v1", tags=["Crime Registry"])
+
+s3_client = boto3.client(
+    "s3",
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+    region_name=os.getenv("AWS_REGION")
+)
+BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 
 # 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 REGIONAL_HIERARCHY = {
@@ -21,6 +33,7 @@ REGIONAL_HIERARCHY = {
 }
 
 def is_station_equivalent(stat_a: Optional[str], stat_b: Optional[str]) -> bool:
+    import re
     a = (stat_a or "").strip().upper()
     b = (stat_b or "").strip().upper()
     if not a or not b:
@@ -71,7 +84,7 @@ def clean_model_dict(obj):
 
     return clean
 
-# 🟢 CORE OPSEC SCOPING ENGINE (Allows station/regional users to view global entries scoped to their station/region)
+# 🟢 CORE OPSEC SCOPING ENGINE
 def apply_opsec_scope(current_user, query, ModelClass):
     import json
     import re
@@ -156,7 +169,6 @@ def apply_opsec_scope(current_user, query, ModelClass):
         return query.filter(text("1=0"))
         
     elif hasattr(ModelClass, 'station'):
-        # 🟢 Station-level user: see records explicitly logged for their station, regardless of who entered them (including Super Admin assignments)
         clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
         return query.filter(
             or_(
@@ -169,7 +181,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
     return query.filter(text("1=0"))
 
 # ====================================================================
-# 1. RETRIEVE CRIME REPORTS (UPGRADED ENTERPRISE SQL FILTERING)
+# 1. RETRIEVE CRIME REPORTS
 # ====================================================================
 @router.get("/reports")
 def get_reports(
@@ -250,7 +262,41 @@ def get_reports(
     return result
 
 # ====================================================================
-# 2. CREATE CRIME REPORT
+# 2. FILE UPLOADS (MUGSHOTS & INVESTIGATIONS)
+# ====================================================================
+# 🟢 Centralized the upload route here and removed the trailing slash
+@router.post("/investigation/upload")
+def upload_investigation_file(file: UploadFile = File(...)):
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="No file was provided.")
+
+    file_extension = file.filename.split('.')[-1]
+    unique_id = uuid.uuid4().hex[:8]
+    s3_key = f"investigations/{unique_id}.{file_extension}"
+    full_s3_url = None
+
+    try:
+        s3_client.upload_fileobj(
+            file.file, BUCKET_NAME, s3_key,
+            ExtraArgs={"ContentType": file.content_type, "ServerSideEncryption": "AES256"}
+        )
+        full_s3_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
+        
+        return {
+            "status": "success", 
+            "message": "Investigation file uploaded successfully!", 
+            "cloud_storage_path": s3_key,
+            "full_s3_url": full_s3_url
+        }
+        
+    except ClientError as e:
+        print(f"❌ S3 Error: {e}")
+        raise HTTPException(status_code=500, detail="Cloud upload failed.")
+    finally:
+        file.file.close()
+
+# ====================================================================
+# 3. CREATE CRIME REPORT (WITH COMMAND FALLBACK LOGIC)
 # ====================================================================
 @router.post("/reports")
 def create_report(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -267,6 +313,7 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
         user_region = (current_user.region or "").strip().upper()
         is_hq_admin = current_user.role in ["SUPER_ADMIN", "ADMIN"] or "HEADQUARTERS" in user_station or "HEADQUARTERS" in user_region or "999" in (current_user.position or "").upper()
 
+        # 🟢 Fallback Check implemented
         is_hq_general_total = data.pop('is_hq_general_total', False)
 
         if is_hq_general_total:
@@ -276,7 +323,6 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
             data["station"] = "HEADQUARTERS GENERAL TOTAL"
             data["offence"] = data.get("offence", "HQ GENERAL SUSPECT LOCK-UP TOTAL")
         else:
-            # 🟢 Allow Super Admins/RPCs to explicitly assign reports to selected regions/stations during creation
             if current_user.role not in ["SUPER_ADMIN", "RPC"]:
                 data["region"] = current_user.region
                 data["station"] = current_user.station
@@ -335,7 +381,7 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
         raise HTTPException(status_code=500, detail=str(e))
 
 # ====================================================================
-# 3. UPDATE CRIME REPORT
+# 4. UPDATE CRIME REPORT
 # ====================================================================
 @router.put("/reports/{sn}")
 def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -400,7 +446,7 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
         raise HTTPException(status_code=500, detail=str(e))
 
 # ====================================================================
-# 4. CONSOLIDATED LEDGER ENDPOINT WITH FULL POPULATION & FILTERING
+# 5. CONSOLIDATED LEDGER ENDPOINT
 # ====================================================================
 @router.get("/reports/consolidated-ledger")
 def get_consolidated_ledger(
