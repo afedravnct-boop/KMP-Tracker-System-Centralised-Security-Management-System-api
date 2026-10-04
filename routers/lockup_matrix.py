@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, text
-from datetime import datetime
+from datetime import date, timedelta
+import json
 
 from app import models, schemas
 from app.database import get_db
@@ -126,15 +127,78 @@ def create_lockup_entry(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to log cell population: {str(e)}")
 
-@router.get("/lockup-matrix", response_model=list[schemas.LockupMatrixResponse])
+@router.get("/lockup-matrix")
 def get_lockup_entries(
+    search: str = Query(None, description="Search term for station, region, or update signature"),
+    todays_only: bool = Query(False, description="Filter strictly for current 24-hour cycle"),
     db: Session = Depends(get_db), 
     current_user: models.Users = Depends(get_current_user)
 ):
     query = db.query(models.LockupMatrix)
     query = apply_opsec_scope(current_user, query, models.LockupMatrix)
-        
-    return query.order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).all()
+
+    # 🟢 24-Hour Active Cycle vs Historical Back-Search
+    if todays_only:
+        today_str = date.today().isoformat()
+        query = query.filter(func.date(models.LockupMatrix.date) == today_str)
+
+    # 🟢 Back-Searching / Text Search across station, region, or signature
+    if search:
+        search_term = f"%{search.strip().upper()}%"
+        query = query.filter(
+            or_(
+                func.upper(models.LockupMatrix.station).like(search_term),
+                func.upper(models.LockupMatrix.region).like(search_term),
+                func.upper(models.LockupMatrix.last_updated_by).like(search_term)
+            )
+        )
+
+    entries = query.order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).all()
+
+    # 🟢 Calculate increment/decrement margins against previous day's sitrep totals
+    # We fetch historical comparison data to calculate +/- margins relative to previous record totals
+    enhanced_entries = []
+    for idx, entry in enumerate(entries):
+        entry_dict = {
+            "sn": entry.sn,
+            "date": entry.date,
+            "time": entry.time,
+            "region": entry.region,
+            "station": entry.station,
+            "suspects": entry.suspects,
+            "male_count": entry.male_count,
+            "male_juvenile_count": entry.male_juvenile_count,
+            "female_count": entry.female_count,
+            "female_juvenile_count": entry.female_juvenile_count,
+            "detention_1day": entry.detention_1day,
+            "detention_2days": entry.detention_2days,
+            "detention_3days_over": entry.detention_3days_over,
+            "last_updated_by": entry.last_updated_by,
+            "margin_diff": 0,
+            "margin_str": "0"
+        }
+
+        # Compare with previous chronological record for the same station/region to compute margin
+        prev_entry = db.query(models.LockupMatrix).filter(
+            func.upper(models.LockupMatrix.station) == str(entry.station).upper(),
+            models.LockupMatrix.date < entry.date
+        ).order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).first()
+
+        if prev_entry:
+            diff = int(entry.suspects or 0) - int(prev_entry.suspects or 0)
+            entry_dict["margin_diff"] = diff
+            if diff > 0:
+                entry_dict["margin_str"] = f"+{diff}"
+            elif diff < 0:
+                entry_dict["margin_str"] = f"{diff}"
+            else:
+                entry_dict["margin_str"] = "0"
+        else:
+            entry_dict["margin_str"] = "BASELINE"
+
+        enhanced_entries.append(entry_dict)
+
+    return enhanced_entries
 
 @router.put("/lockup-matrix/{sn}", response_model=schemas.LockupMatrixResponse)
 def update_lockup_entry(
@@ -170,7 +234,7 @@ def update_lockup_entry(
         existing_entry.station = entry.station
         existing_entry.suspects = entry.suspects
         existing_entry.male_count = entry.male_count
-        existing_entry.male_juvenile_count = entry.male_juvenile_count       
+        existing_entry.male_juvenile_count = entry.male_juvenile_count        
         existing_entry.female_count = entry.female_count
         existing_entry.female_juvenile_count = entry.female_juvenile_count     
         existing_entry.detention_1day = entry.detention_1day

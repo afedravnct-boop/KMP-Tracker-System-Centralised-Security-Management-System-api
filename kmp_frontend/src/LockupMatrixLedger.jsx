@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { X, Filter, TrendingUp, TrendingDown, Minus, PlusCircle, Shield, CheckCircle, AlertTriangle } from 'lucide-react';
+import { X, Filter, TrendingUp, TrendingDown, Minus, PlusCircle, Shield, CheckCircle, AlertTriangle, Search, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
 import { authFetch } from './api';
 
 const REGIONAL_HIERARCHY = {
@@ -46,12 +46,13 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
 
 const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, selectedRegion, selectedStation, currentUser, onRefreshData }) => {
   const [lockupFilter, setLockupFilter] = useState('ALL');
-  
-  // 🟢 Set default tab to 'LOG_FORM' (Log Census first)
+  const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('LOG_FORM'); 
   const [notification, setNotification] = useState(null);
 
-  // 🟢 Filter states inside the ledger view
+  // Collapsible dropdown state for historical entries grouped by date/day
+  const [expandedDates, setExpandedDates] = useState({});
+
   const [ledgerFilterRegion, setLedgerFilterRegion] = useState(selectedRegion || 'ALL REGIONS');
   const [ledgerFilterStation, setLedgerFilterStation] = useState(selectedStation || 'ALL STATIONS');
 
@@ -73,6 +74,13 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     return String(str).toUpperCase();
   };
 
+  const toggleDateCollapse = (dateStr) => {
+    setExpandedDates(prev => ({
+      ...prev,
+      [dateStr]: !prev[dateStr]
+    }));
+  };
+
   const filteredLockupEntries = useMemo(() => {
     let filtered = Array.isArray(lockupEntries) ? [...lockupEntries] : [];
 
@@ -90,6 +98,16 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
       if (ledgerFilterStation && ledgerFilterStation !== 'ALL STATIONS') {
         const cleanTargetStation = ledgerFilterStation.trim().toUpperCase();
         if (!isStationEquivalent(stn, cleanTargetStation)) return false;
+      }
+
+      // Back-search query filter across station, region, or updated signature
+      if (searchQuery.trim()) {
+        const query = searchQuery.trim().toUpperCase();
+        const matchStation = stn.includes(query);
+        const matchRegion = reg.includes(query);
+        const matchSignature = stripHtml(row.last_updated_by || '').toUpperCase().includes(query);
+        const matchDate = stripHtml(row.date || '').toUpperCase().includes(query);
+        if (!matchStation && !matchRegion && !matchSignature && !matchDate) return false;
       }
 
       return true;
@@ -126,16 +144,24 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     filtered.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
     return filtered.map((log, index, arr) => {
-      if (index === arr.length - 1) return { ...log, variation: 0, hasPrev: false };
+      // Calculate increment/decrement margin relative to prior entry
+      if (index === arr.length - 1) return { ...log, variation: 0, hasPrev: false, marginStr: '0' };
       const prevSuspects = Number(arr[index + 1]?.suspects || 0);
       const currentSuspects = Number(log?.suspects || 0);
+      const diff = currentSuspects - prevSuspects;
+      
+      let marginStr = '0';
+      if (diff > 0) marginStr = `+${diff}`;
+      else if (diff < 0) marginStr = `${diff}`;
+
       return { 
         ...log, 
-        variation: currentSuspects - prevSuspects, 
+        variation: diff, 
+        marginStr,
         hasPrev: true 
       };
     });
-  }, [lockupEntries, lockupFilter, ledgerFilterRegion, ledgerFilterStation]);
+  }, [lockupEntries, lockupFilter, ledgerFilterRegion, ledgerFilterStation, searchQuery]);
 
   const totals = useMemo(() => {
     return filteredLockupEntries.reduce((acc, row) => {
@@ -195,7 +221,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     }
   };
 
-  // 🟢 Dynamic UI Theme Color Switching based on Active Tab
   const headerBgClass = activeTab === 'LOG_FORM' ? 'bg-emerald-800' : 'bg-amber-800';
   const buttonActiveBg = activeTab === 'LOG_FORM' ? 'bg-emerald-500 text-emerald-950' : 'bg-amber-500 text-amber-950';
   const buttonInactiveBg = activeTab === 'LOG_FORM' ? 'text-emerald-200 hover:text-white' : 'text-amber-200 hover:text-white';
@@ -213,7 +238,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
               {activeTab === 'LOG_FORM' ? 'Station Daily Cell Census & Lock-Up Entry' : 'Independent Daily Suspect Lock-Up Matrix Ledger'}
             </h3>
             <p className="text-[10px] text-white/80 font-medium mt-0.5">
-              Active Mode: <span className="text-white font-bold">{activeTab === 'LOG_FORM' ? 'Logging Census' : 'Reviewing Matrix Ledger'}</span>
+              Active Mode: <span className="text-white font-bold">{activeTab === 'LOG_FORM' ? 'Logging Census' : 'Reviewing Matrix Ledger & Historical Reports'}</span>
             </p>
           </div>
           <div className="flex items-center space-x-3">
@@ -244,7 +269,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
           </div>
         )}
 
-        {/* 🟢 TAB 1: LOG CENSUS FORM (NOW FIRST) */}
+        {/* CENSUS SUBMISSION FORM */}
         {activeTab === 'LOG_FORM' && (
           <div className="p-6 overflow-y-auto flex-1 bg-slate-50 max-w-3xl mx-auto w-full">
             <h4 className="text-sm font-black text-slate-800 uppercase mb-4 pb-2 border-b flex items-center">
@@ -335,36 +360,56 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
           </div>
         )}
 
-        {/* 🟢 TAB 2: MATRIX LEDGER VIEW WITH REGION & STATION FILTERS */}
+        {/* MATRIX LEDGER VIEW WITH SEARCH, MARGINS, AND COLLAPSIBLE HISTORICAL DROPDOWNS */}
         {activeTab === 'LEDGER' && (
           <>
-            <div className="bg-amber-50 px-6 py-3 border-b border-amber-200 flex flex-col sm:flex-row justify-between items-center gap-3 shrink-0">
+            <div className="bg-amber-50 px-6 py-3 border-b border-amber-200 flex flex-col md:flex-row justify-between items-center gap-3 shrink-0">
+              
               {/* REGION & STATION FILTER DROPDOWNS */}
-              <div className="flex items-center space-x-2 w-full sm:w-auto">
-                <Filter className="w-4 h-4 text-amber-800 shrink-0" />
-                <select 
-                  value={ledgerFilterRegion} 
-                  onChange={e => { setLedgerFilterRegion(e.target.value); setLedgerFilterStation('ALL STATIONS'); }}
-                  className="border border-amber-300 text-amber-900 font-bold rounded-lg px-2.5 py-1 text-xs bg-white outline-none cursor-pointer"
-                >
-                  <option value="ALL REGIONS">ALL REGIONS</option>
-                  {Object.keys(REGIONAL_HIERARCHY).map(reg => (
-                    <option key={reg} value={reg}>{reg}</option>
-                  ))}
-                </select>
+              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                <div className="flex items-center space-x-2">
+                  <Filter className="w-4 h-4 text-amber-800 shrink-0" />
+                  <select 
+                    value={ledgerFilterRegion} 
+                    onChange={e => { setLedgerFilterRegion(e.target.value); setLedgerFilterStation('ALL STATIONS'); }}
+                    className="border border-amber-300 text-amber-900 font-bold rounded-lg px-2.5 py-1.5 text-xs bg-white outline-none cursor-pointer"
+                  >
+                    <option value="ALL REGIONS">ALL REGIONS</option>
+                    {Object.keys(REGIONAL_HIERARCHY).map(reg => (
+                      <option key={reg} value={reg}>{reg}</option>
+                    ))}
+                  </select>
 
-                <select 
-                  value={ledgerFilterStation} 
-                  onChange={e => setLedgerFilterStation(e.target.value)}
-                  className="border border-amber-300 text-amber-900 font-bold rounded-lg px-2.5 py-1 text-xs bg-white outline-none cursor-pointer"
-                >
-                  <option value="ALL STATIONS">ALL STATIONS</option>
-                  {ledgerFilterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[ledgerFilterRegion] ? (
-                    REGIONAL_HIERARCHY[ledgerFilterRegion].map(stat => (
-                      <option key={stat} value={stat}>{stat}</option>
-                    ))
-                  ) : null}
-                </select>
+                  <select 
+                    value={ledgerFilterStation} 
+                    onChange={e => setLedgerFilterStation(e.target.value)}
+                    className="border border-amber-300 text-amber-900 font-bold rounded-lg px-2.5 py-1.5 text-xs bg-white outline-none cursor-pointer"
+                  >
+                    <option value="ALL STATIONS">ALL STATIONS</option>
+                    {ledgerFilterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[ledgerFilterRegion] ? (
+                      REGIONAL_HIERARCHY[ledgerFilterRegion].map(stat => (
+                        <option key={stat} value={stat}>{stat}</option>
+                      ))
+                    ) : null}
+                  </select>
+                </div>
+
+                {/* BACK-SEARCH BOX */}
+                <div className="relative flex items-center min-w-[200px]">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 text-amber-700" />
+                  <input
+                    type="text"
+                    placeholder="Back-search station, user..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-semibold text-amber-900 placeholder:text-amber-500/70 outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                  {searchQuery && (
+                    <button onClick={() => setSearchQuery('')} className="absolute right-2 text-xs font-bold text-amber-700 hover:text-amber-900">
+                      ×
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* TIMEFRAME FILTERS */}
@@ -390,14 +435,14 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 <thead className="bg-amber-100 sticky top-0 border-b border-amber-200 shadow-sm z-20">
                   <tr>
                     <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200 text-center w-[4%] whitespace-normal">S/N</th>
-                    <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200 min-w-[90px] whitespace-normal">Date Logged</th>
+                    <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200 min-w-[110px] whitespace-normal">Date & Day Log</th>
                     <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200 min-w-[140px] whitespace-normal">Station / Origin</th>
                     <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-white uppercase bg-amber-900 border-r border-amber-800 text-center min-w-[90px] whitespace-normal">Total Suspects</th>
                     
                     <th colSpan="4" className="px-2 py-2 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200 text-center bg-amber-200/50 whitespace-normal">SEX & AGE CATEGORY</th>
                     <th colSpan="3" className="px-2 py-2 text-[10px] font-black text-amber-900 uppercase border-r border-amber-200 text-center bg-amber-100 whitespace-normal">DURATION IN DETENTION</th>
                     
-                    <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 uppercase text-center border-r border-amber-200 min-w-[100px] whitespace-normal">Daily Net Variation</th>
+                    <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 uppercase text-center border-r border-amber-200 min-w-[100px] whitespace-normal">Increment / Margin</th>
                     <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 uppercase min-w-[140px] whitespace-normal">Last Updated By</th>
                   </tr>
                   <tr className="bg-amber-50 border-b-2 border-amber-200">
@@ -413,46 +458,93 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 </thead>
                 <tbody className="divide-y divide-amber-100 bg-white">
                   {filteredLockupEntries.length > 0 ? (
-                    filteredLockupEntries.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-amber-50/50 transition-colors">
-                        <td className="px-3 py-3 text-xs font-bold text-slate-400 text-center border-r border-slate-100">{idx + 1}</td>
-                        <td className="px-3 py-3 text-xs font-bold text-slate-800 border-r border-slate-100 whitespace-nowrap">{row.date}</td>
-                        <td className="px-3 py-3 text-xs font-bold text-slate-600 uppercase border-r border-slate-100">{row.station}</td>
-                        <td className="px-3 py-3 text-sm font-black text-amber-900 text-center bg-amber-50/30 border-r border-slate-100">{row.suspects}</td>
-                        
-                        <td className="px-2 py-3 text-xs font-bold text-blue-700 text-center border-r border-slate-100 bg-blue-50/20">{row.male_count || row.male || 0}</td>
-                        <td className="px-2 py-3 text-xs font-bold text-indigo-700 text-center border-r border-slate-100 bg-indigo-50/20">{row.male_juvenile_count || row.male_juvenile || 0}</td>
-                        <td className="px-2 py-3 text-xs font-bold text-pink-700 text-center border-r border-slate-100 bg-pink-50/20">{row.female_count || row.female || 0}</td>
-                        <td className="px-2 py-3 text-xs font-bold text-purple-700 text-center border-r border-slate-100 bg-purple-50/20">{row.female_juvenile_count || row.female_juvenile || 0}</td>
+                    filteredLockupEntries.map((row, idx) => {
+                      const isExpanded = !!expandedDates[row.date];
+                      const dateObj = row.date ? new Date(row.date) : null;
+                      const dayName = dateObj && !isNaN(dateObj) ? dateObj.toLocaleDateString('en-US', { weekday: 'short' }) : 'LOG';
 
-                        <td className="px-2 py-3 text-xs font-medium text-slate-700 text-center border-r border-slate-100">{row.detention_1day || 0}</td>
-                        <td className="px-2 py-3 text-xs font-medium text-slate-700 text-center border-r border-slate-100">{row.detention_2days || 0}</td>
-                        <td className="px-2 py-3 text-xs font-medium text-slate-700 text-center border-r border-slate-100">{row.detention_3days_over || 0}</td>
+                      return (
+                        <React.Fragment key={idx}>
+                          <tr className="hover:bg-amber-50/50 transition-colors">
+                            <td className="px-3 py-3 text-xs font-bold text-slate-400 text-center border-r border-slate-100">{idx + 1}</td>
+                            <td className="px-3 py-3 text-xs font-bold text-slate-800 border-r border-slate-100 whitespace-nowrap">
+                              <div className="flex items-center justify-between">
+                                <span>{row.date} <span className="text-[10px] text-amber-800 font-semibold">({dayName})</span></span>
+                                <button 
+                                  onClick={() => toggleDateCollapse(row.date)}
+                                  className="ml-2 p-1 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 transition cursor-pointer"
+                                  title="Toggle Day Details"
+                                >
+                                  {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                                </button>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-xs font-bold text-slate-600 uppercase border-r border-slate-100">{row.station}</td>
+                            <td className="px-3 py-3 text-sm font-black text-amber-900 text-center bg-amber-50/30 border-r border-slate-100">{row.suspects}</td>
+                            
+                            <td className="px-2 py-3 text-xs font-bold text-blue-700 text-center border-r border-slate-100 bg-blue-50/20">{row.male_count || row.male || 0}</td>
+                            <td className="px-2 py-3 text-xs font-bold text-indigo-700 text-center border-r border-slate-100 bg-indigo-50/20">{row.male_juvenile_count || row.male_juvenile || 0}</td>
+                            <td className="px-2 py-3 text-xs font-bold text-pink-700 text-center border-r border-slate-100 bg-pink-50/20">{row.female_count || row.female || 0}</td>
+                            <td className="px-2 py-3 text-xs font-bold text-purple-700 text-center border-r border-slate-100 bg-purple-50/20">{row.female_juvenile_count || row.female_juvenile || 0}</td>
 
-                        <td className="px-3 py-3 text-xs font-bold text-center border-r border-slate-100">
-                          {!row.hasPrev ? (
-                            <span className="text-slate-400 flex items-center justify-center"><Minus className="w-3 h-3 mr-1"/> Base</span>
-                          ) : row.variation > 0 ? (
-                            <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100 flex items-center justify-center max-w-max mx-auto">
-                              <TrendingUp className="w-3 h-3 mr-1" /> +{row.variation}
-                            </span>
-                          ) : row.variation < 0 ? (
-                            <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 flex items-center justify-center max-w-max mx-auto">
-                              <TrendingDown className="w-3 h-3 mr-1" /> {row.variation}
-                            </span>
-                          ) : (
-                            <span className="text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 flex items-center justify-center max-w-max mx-auto">
-                              <Minus className="w-3 h-3 mr-1" /> 0
-                            </span>
+                            <td className="px-2 py-3 text-xs font-medium text-slate-700 text-center border-r border-slate-100">{row.detention_1day || 0}</td>
+                            <td className="px-2 py-3 text-xs font-medium text-slate-700 text-center border-r border-slate-100">{row.detention_2days || 0}</td>
+                            <td className="px-2 py-3 text-xs font-medium text-slate-700 text-center border-r border-slate-100">{row.detention_3days_over || 0}</td>
+
+                            <td className="px-3 py-3 text-xs font-bold text-center border-r border-slate-100">
+                              {row.marginStr.startsWith('+') ? (
+                                <span className="text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100 flex items-center justify-center max-w-max mx-auto">
+                                  <TrendingUp className="w-3 h-3 mr-1" /> {row.marginStr}
+                                </span>
+                              ) : row.marginStr.startsWith('-') ? (
+                                <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 flex items-center justify-center max-w-max mx-auto">
+                                  <TrendingDown className="w-3 h-3 mr-1" /> {row.marginStr}
+                                </span>
+                              ) : (
+                                <span className="text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 flex items-center justify-center max-w-max mx-auto">
+                                  <Minus className="w-3 h-3 mr-1" /> 0
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-[11px] font-semibold text-slate-500 uppercase">{formatOfficerDisplay(row.last_updated_by)}</td>
+                          </tr>
+
+                          {/* COLLAPSIBLE HISTORICAL DAY DETAILS DROPDOWN */}
+                          {isExpanded && (
+                            <tr className="bg-amber-50/80 border-b border-amber-200">
+                              <td colSpan="13" className="px-6 py-3">
+                                <div className="bg-white p-3 rounded-lg border border-amber-300 shadow-sm text-xs space-y-2">
+                                  <div className="font-bold text-amber-900 uppercase flex items-center">
+                                    <Calendar className="w-3.5 h-3.5 mr-1.5 text-amber-700" /> Historical Snapshot for {row.date} ({dayName}) - {row.station}
+                                  </div>
+                                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-700">
+                                    <div className="bg-slate-50 p-2 rounded border">
+                                      <span className="font-bold text-slate-900">Total Census:</span> {row.suspects}
+                                    </div>
+                                    <div className="bg-blue-50/50 p-2 rounded border border-blue-100">
+                                      <span className="font-bold text-blue-900">Adult Males:</span> {row.male_count || row.male || 0}
+                                    </div>
+                                    <div className="bg-pink-50/50 p-2 rounded border border-pink-100">
+                                      <span className="font-bold text-pink-900">Adult Females:</span> {row.female_count || row.female || 0}
+                                    </div>
+                                    <div className="bg-purple-50/50 p-2 rounded border border-purple-100">
+                                      <span className="font-bold text-purple-900">Juveniles (M/F):</span> {(row.male_juvenile_count || row.male_juvenile || 0) + (row.female_juvenile_count || row.female_juvenile || 0)}
+                                    </div>
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 font-medium">
+                                    Recorded Time: <span className="font-bold text-slate-700">{row.time || 'N/A'}</span> | Logged Reference: <span className="font-bold text-slate-700">{row.sd_ref || 'N/A'}</span> | Verified By: <span className="font-bold text-slate-700">{formatOfficerDisplay(row.last_updated_by)}</span>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                        <td className="px-3 py-3 text-[11px] font-semibold text-slate-500 uppercase">{formatOfficerDisplay(row.last_updated_by)}</td>
-                      </tr>
-                    ))
+                        </React.Fragment>
+                      );
+                    })
                   ) : (
                     <tr>
                       <td colSpan="13" className="px-6 py-12 text-center text-sm text-slate-500 font-bold">
-                        No independent lock-up records found for this jurisdiction and period.
+                        No independent lock-up records found matching your search or jurisdiction filter.
                       </td>
                     </tr>
                   )}
