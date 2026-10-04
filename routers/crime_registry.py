@@ -419,25 +419,27 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
         
         if SuspectModel and hasattr(existing_report, 'id'):
             report_pk = existing_report.id
-            existing_lockups = db.query(SuspectModel).filter(SuspectModel.report_id == report_pk).all()
-            existing_names = [getattr(lockup, 'name', '') for lockup in existing_lockups]
             
+            # 🟢 THE FIX: Clear the old suspects from the database first so the updated ones (with photos) can be saved
+            db.query(SuspectModel).filter(SuspectModel.report_id == report_pk).delete()
+            
+            # Now safely insert the fresh suspect list from the frontend
             for s in suspects_data:
-                if s.get('name') not in existing_names:
-                    valid_s_cols = [c.key for c in SuspectModel.__table__.columns]
-                    s_payload = {
-                        "report_id": report_pk, 
-                        "name": s.get('name'), 
-                        "sex": s.get('sex'), 
-                        "age": str(s.get('age')) if s.get('age') else None,
-                        "tribe": s.get('tribe'), 
-                        "residence": s.get('residence'), 
-                        "contact": s.get('contact'),
-                        "mental_health_status": s.get('mental_health_status'),
-                        "photo_url": s.get('photo_url') 
-                    }
-                    safe_s_payload = {k: v for k, v in s_payload.items() if k in valid_s_cols}
-                    db.add(SuspectModel(**safe_s_payload))
+                valid_s_cols = [c.key for c in SuspectModel.__table__.columns]
+                s_payload = {
+                    "report_id": report_pk, 
+                    "name": s.get('name'), 
+                    "sex": s.get('sex'), 
+                    "age": str(s.get('age')) if s.get('age') else None,
+                    "tribe": s.get('tribe'),
+                    "nationality": s.get('nationality'),
+                    "residence": s.get('residence'), 
+                    "contact": s.get('contact'),
+                    "mental_health_status": s.get('mental_health_status'),
+                    "photo_url": s.get('photo_url') 
+                }
+                safe_s_payload = {k: v for k, v in s_payload.items() if k in valid_s_cols}
+                db.add(SuspectModel(**safe_s_payload))
 
         db.commit()
         return {"status": "success"}

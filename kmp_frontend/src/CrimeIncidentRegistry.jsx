@@ -423,29 +423,32 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       uploadData.append("case_id", stripHtmlTags(formData.sd_ref || "NEW_CASE"));
 
       try {
-        // 🟢 Replaced manual fetch with authFetch and REMOVED the trailing slash
-        // Note: Do NOT set 'Content-Type' when sending FormData. The browser handles the multipart boundary automatically.
-        const response = await authFetch(`/api/v1/investigation/upload`, { 
-          method: "POST", 
-          body: uploadData 
+        const token = localStorage.getItem('kmp_authToken') || sessionStorage.getItem('kmp_authToken');
+        const API_URL = import.meta.env?.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
+        
+        // 🟢 THE FIX: The trailing slash is strictly removed from the URL here
+        const response = await fetch(`${API_URL}/api/v1/investigation/upload`, { 
+            method: "POST", 
+            headers: { "Authorization": `Bearer ${token}` }, 
+            body: uploadData 
         });
         
-        if (!response.ok) throw new Error(`Upload failed with status: ${response.status}`);
+        if (!response.ok) throw new Error("Upload failed");
         
         const data = await response.json();
         
-        if (data.full_s3_url || data.cloud_storage_path) {
+        // Safely handles either response payload structure from the backend
+        if (data.full_s3_url || data.cloud_storage_path || data.url) {
           setNewSuspect({ 
-            ...newSuspect, 
-            photo_url: stripHtmlTags(data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}`) 
+              ...newSuspect, 
+              photo_url: stripHtmlTags(data.url || data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}`) 
           });
           setNotification("✅ Mugshot uploaded securely!");
         } else {
-          throw new Error("Invalid response format from server");
+            throw new Error("Invalid response");
         }
       } catch (error) {
-        console.error("Upload Error:", error);
-        // Fallback to local blob preview if upload fails
+        console.error("Upload error:", error);
         setNewSuspect({ ...newSuspect, photo_url: URL.createObjectURL(file) });
         setNotification("⚠️ API unreachable. Using temporary local preview.");
       }
@@ -724,7 +727,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
           <MetricCard title={filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? "Computed Sum (All)" : filterStation === 'ALL STATIONS' ? `${filterRegion} Lock-up` : `${filterStation} Lock-up`} value={metrics.localLockup} colorClass="text-slate-800 dark:text-slate-100" />
           <MetricCard title="KMP Master Lock-up" value={metrics.kmpGeneralLockup} colorClass="text-amber-600 dark:text-amber-400" />
           <MetricCard title="Total Cases" value={metrics.newCases} colorClass="text-blue-700 dark:text-blue-400" />
-          <MetricCard title="Suspects (Case)" value={metrics.totalSuspects} colorClass="text-red-600 dark:text-red-400" />
+          <MetricCard title="Suspects (Arrested in Case)" value={metrics.totalSuspects} colorClass="text-red-600 dark:text-red-400" />
           <MetricCard title="Active" value={metrics.active} colorClass="text-yellow-600 dark:text-yellow-400" />
           <MetricCard title="Sanctioned" value={metrics.sanctioned} colorClass="text-purple-600 dark:text-purple-400" />
           <MetricCard title="Closed" value={metrics.closed} colorClass="text-green-600 dark:text-green-400" />
@@ -1047,17 +1050,34 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                 <div className="bg-white dark:bg-slate-800 p-4 border border-red-200 dark:border-red-900 shadow-sm rounded-lg">
                   <div className="text-[9px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-1.5 mb-3 flex items-center"><Lock size={12} className="mr-1.5"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})</div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {selectedCase.suspectDetails.map((s, idx) => (
-                      <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-3 rounded-lg border border-red-200 dark:border-red-900 flex items-start space-x-3">
-                        <div className="shrink-0">{s.photo_url ? ( <img src={s.photo_url} alt={s.name} className="w-12 h-12 rounded object-cover border-2 border-red-300 dark:border-red-800 shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} /> ) : ( <div className="w-12 h-12 rounded bg-red-100 dark:bg-red-900 text-red-400 dark:text-red-300 flex items-center justify-center font-bold text-[9px] border border-dashed border-red-200 dark:border-red-800 text-center p-1">No Photo</div> )}</div>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-xs truncate">{idx + 1}. {stripHtmlTags(s.name)}</div>
-                          <div className="text-[11px] text-red-900 dark:text-red-300 font-medium mt-0.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
-                          <div className="text-[11px] text-slate-700 dark:text-slate-300 mt-0.5"><span className="font-bold">Res:</span> {stripHtmlTags(s.residence || 'N/A')} | <span className="font-bold">Tel:</span> {stripHtmlTags(s.contact || 'N/A')}</div>
-                          {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( <div className="inline-block mt-1.5 text-[9px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-bold px-1.5 py-0.5 rounded-sm">Status: {stripHtmlTags(s.mental_health_status)}</div> )}
+                    {selectedCase.suspectDetails.map((s, idx) => {
+                      // 🟢 Explicitly prevents ERR_FILE_NOT_FOUND by rejecting temporary browser memory URLs
+                      const isValidPhoto = s.photo_url && !s.photo_url.startsWith('blob:');
+
+                      return (
+                        <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-3 rounded-lg border border-red-200 dark:border-red-900 flex items-start space-x-3">
+                          <div className="shrink-0">
+                            {isValidPhoto ? ( 
+                              {/* 🟢 Increased image size to w-24 h-24 (96x96 pixels) */}
+                              <img src={s.photo_url} alt={s.name} className="w-24 h-24 rounded object-cover border-2 border-red-300 dark:border-red-800 shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} /> 
+                            ) : ( 
+                              <div className="w-24 h-24 rounded bg-red-100 dark:bg-red-900 text-red-400 dark:text-red-300 flex flex-col items-center justify-center font-bold text-[10px] border border-dashed border-red-200 dark:border-red-800 text-center p-1 uppercase leading-tight">
+                                <Camera size={18} className="mb-1 opacity-50"/>
+                                No Photo
+                              </div> 
+                            )}
+                          </div> 
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-xs truncate">{idx + 1}. {stripHtmlTags(s.name)}</div>
+                            <div className="text-[11px] text-red-900 dark:text-red-300 font-medium mt-0.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
+                            <div className="text-[11px] text-slate-700 dark:text-slate-300 mt-0.5"><span className="font-bold">Res:</span> {stripHtmlTags(s.residence || 'N/A')} | <span className="font-bold">Tel:</span> {stripHtmlTags(s.contact || 'N/A')}</div>
+                            {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( <div className="inline-block mt-1.5 text-[9px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-bold px-1.5 py-0.5 rounded-sm">Status: {stripHtmlTags(s.mental_health_status)}</div> )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
