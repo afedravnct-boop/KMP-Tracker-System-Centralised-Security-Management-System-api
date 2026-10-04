@@ -333,66 +333,69 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   }, [finalFilteredReports, updateSearch, canViewGlobalActive, userRegClean]);
 
   const metrics = useMemo(() => {
-    const stationCellPop = {};
-    const todayStr = getTodayString();
-      
-    let hqGrandTotalToday = null;
-    let latestHqGrandTotal = null;
-    let hasLockupUpdateToday = false;
-      
-    lockupData.forEach(l => {
-      const lStation = stripHtmlTags(l.station || '').trim().toUpperCase();
-      const lRegion = getOfficialRegionForStation(lStation, l.region);
-      
-      // 🟢 Check if this entry is an HQ Master entry or General Total log
-      const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' || 
-                        lStation.includes('GENERAL TOTAL') || 
-                        lRegion === 'KMP HEADQUARTERS';
-      
+  const stationCellPop = {};
+  const todayStr = getTodayString(); // Current date e.g., "YYYY-MM-DD"
+  
+  let hqGrandTotalToday = 0; // Default to 0 when no entry exists for the current 24h cycle
+  let hasLockupUpdateToday = false;
+  let masterLockupSubmitted = false;
+
+  lockupData.forEach(l => {
+    const lStation = stripHtmlTags(l.station || '').trim().toUpperCase();
+    const lRegion = getOfficialRegionForStation(lStation, l.region);
+    
+    const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' || 
+                       lStation.includes('GENERAL TOTAL') || 
+                       lRegion === 'KMP HEADQUARTERS';
+
+    // Strictly check for TODAY's date log only
+    if (l.date === todayStr) {
       if (isHQTotal) {
-        if (l.date === todayStr && Number(l.suspects) > 0) hqGrandTotalToday = Number(l.suspects);
-        if (!latestHqGrandTotal && Number(l.suspects) > 0) latestHqGrandTotal = Number(l.suspects);
+        hqGrandTotalToday = Number(l.suspects) || 0;
+        masterLockupSubmitted = true;
       } else {
-        if (l.date === todayStr) {
-          stationCellPop[lStation] = Number(l.suspects) || 0;
-          if (isStationEquivalent(lStation, filterStation)) hasLockupUpdateToday = true;
+        stationCellPop[lStation] = Number(l.suspects) || 0;
+        if (isStationEquivalent(lStation, filterStation)) {
+          hasLockupUpdateToday = true;
         }
       }
-    });
-      
-    const calculatedGlobalSum = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
-    
-    // 🟢 Priority: 1. Today's HQ manual paper total, 2. Sum of all station cell populations, 3. Most recent HQ log
-    const kmpGeneralTotal = hqGrandTotalToday !== null ? hqGrandTotalToday : 
-                            calculatedGlobalSum > 0 ? calculatedGlobalSum : 
-                            latestHqGrandTotal;
-
-    let localJurisdictionTotal = 0;
-    if (filterStation && filterStation !== 'ALL STATIONS') {
-      localJurisdictionTotal = Object.keys(stationCellPop)
-        .filter(stn => isStationEquivalent(stn, filterStation))
-        .reduce((sum, stn) => sum + stationCellPop[stn], 0);
-    } else if (filterRegion && filterRegion !== 'ALL REGIONS') {
-      const regionStations = REGIONAL_HIERARCHY[filterRegion] || [];
-      localJurisdictionTotal = regionStations.reduce((sum, stat) => sum + (stationCellPop[stat] || 0), 0);
-    } else {
-      localJurisdictionTotal = calculatedGlobalSum;
     }
+  });
 
-    const totalCaseSuspects = finalFilteredReports.reduce((sum, r) => sum + (r.suspectDetails || r.suspect_details || []).length, 0);
+  const calculatedGlobalSum = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
+  
+  // Priority: 1. Today's HQ manual paper total, 2. Sum of all station cell populations, 3. Fallback to 0
+  const kmpGeneralTotal = hqGrandTotalToday !== 0 ? hqGrandTotalToday : calculatedGlobalSum;
 
-    return {
-      localLockup: (hasLockupUpdateToday || localJurisdictionTotal > 0) ? localJurisdictionTotal : "Pending",
-      // 🟢 Universal Fallback: If no explicit master total is found, fallback to the computed sum so it never shows "Pending" for station users
-      kmpGeneralLockup: kmpGeneralTotal !== null && kmpGeneralTotal !== undefined && kmpGeneralTotal !== 0 ? kmpGeneralTotal : (calculatedGlobalSum > 0 ? calculatedGlobalSum : "Pending"),
-      newCases: finalFilteredReports.length,
-      active: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ACTIVE INVESTIGATION').length,
-      sanctioned: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'FORWARDED TO COURT').length,
-      closed: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'CLOSED / CONVICTED').length,
-      adr: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ADR').length,
-      totalSuspects: totalCaseSuspects
-    };
-  }, [finalFilteredReports, lockupData, filterRegion, filterStation]);
+  let localJurisdictionTotal = 0;
+  if (filterStation && filterStation !== 'ALL STATIONS') {
+    localJurisdictionTotal = Object.keys(stationCellPop)
+      .filter(stn => isStationEquivalent(stn, filterStation))
+      .reduce((sum, stn) => sum + stationCellPop[stn], 0);
+  } else if (filterRegion && filterRegion !== 'ALL REGIONS') {
+    const regionStations = REGIONAL_HIERARCHY[filterRegion] || [];
+    localJurisdictionTotal = regionStations.reduce((sum, stat) => sum + (stationCellPop[stat] || 0), 0);
+  } else {
+    localJurisdictionTotal = calculatedGlobalSum;
+  }
+
+  const totalCaseSuspects = finalFilteredReports.reduce((sum, r) => sum + (r.suspectDetails || r.suspect_details || []).length, 0);
+
+  return {
+    stationCellPop,
+    hqGrandTotal: hqGrandTotalToday,
+    masterLockupSubmitted,
+    hasLockupUpdateToday,
+    localLockup: (hasLockupUpdateToday || localJurisdictionTotal > 0) ? localJurisdictionTotal : "Pending",
+    kmpGeneralLockup: kmpGeneralTotal !== 0 ? kmpGeneralTotal : (calculatedGlobalSum > 0 ? calculatedGlobalSum : "Pending"),
+    newCases: finalFilteredReports.length,
+    active: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ACTIVE INVESTIGATION').length,
+    sanctioned: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'FORWARDED TO COURT').length,
+    closed: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'CLOSED / CONVICTED').length,
+    adr: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ADR').length,
+    totalSuspects: totalCaseSuspects
+  };
+}, [finalFilteredReports, lockupData, filterRegion, filterStation]);
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
@@ -449,32 +452,38 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   };
 
   const handleEditLockupToggle = () => {
-    if (isEditingLockup) {
-      setIsEditingLockup(false);
-      setEditLockupTarget(null);
-      setStandalonePopInput({ total: '', male: '', male_juvenile: '', female: '', female_juvenile: '', d1: '', d2: '', d3: '' });
+  if (isEditingLockup) {
+    setIsEditingLockup(false);
+    setEditLockupTarget(null);
+    setStandalonePopInput({ total: '', male: '', male_juvenile: '', female: '', female_juvenile: '', d1: '', d2: '', d3: '' });
+  } else {
+    const todayStr = getTodayString();
+    const cleanFormStation = stripHtmlTags(formData.station || '').trim().toUpperCase();
+
+    // Safely match using cleaned, uppercase strings on both ends
+    const existingEntry = lockupData.find(l => {
+      const cleanEntryStation = stripHtmlTags(l.station || '').trim().toUpperCase();
+      return cleanEntryStation === cleanFormStation && l.date === todayStr;
+    });
+      
+    if (existingEntry) {
+      setEditLockupTarget(existingEntry);
+      setStandalonePopInput({
+        total: (existingEntry.suspects ?? 0).toString(),
+        male: (existingEntry.male_count || 0).toString(),
+        male_juvenile: (existingEntry.male_juvenile_count || 0).toString(),
+        female: (existingEntry.female_count || 0).toString(),
+        female_juvenile: (existingEntry.female_juvenile_count || 0).toString(),
+        d1: (existingEntry.detention_1day || 0).toString(),
+        d2: (existingEntry.detention_2days || 0).toString(),
+        d3: (existingEntry.detention_3days_over || 0).toString()
+      });
+      setIsEditingLockup(true);
     } else {
-      const todayStr = getTodayString();
-      const existingEntry = lockupData.find(l => stripHtmlTags(l.station) === formData.station && l.date === todayStr);
-        
-      if (existingEntry) {
-        setEditLockupTarget(existingEntry);
-        setStandalonePopInput({
-          total: existingEntry.suspects.toString(),
-          male: (existingEntry.male_count || 0).toString(),
-          male_juvenile: (existingEntry.male_juvenile_count || 0).toString(),
-          female: (existingEntry.female_count || 0).toString(),
-          female_juvenile: (existingEntry.female_juvenile_count || 0).toString(),
-          d1: (existingEntry.detention_1day || 0).toString(),
-          d2: (existingEntry.detention_2days || 0).toString(),
-          d3: (existingEntry.detention_3days_over || 0).toString()
-        });
-        setIsEditingLockup(true);
-      } else {
-        alert(`No cell population logged for ${formData.station} today yet. Please log a new entry.`);
-      }
+      alert(`No cell population logged for ${formData.station} today yet. Please log a new entry.`);
     }
-  };
+  }
+};
 
   const handleStandalonePopSubmit = async () => {
     const totalVal = parseInt(standalonePopInput.total) || 0;
