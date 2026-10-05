@@ -969,8 +969,8 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage, onLogout })
                     <input type="password" required value={passwordData.old_password} onChange={(e) => setPasswordData({...passwordData, old_password: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">New Password (Min 6 Chars)</label>
-                    <input type="password" required value={passwordData.new_password} onChange={(e) => setPasswordData({...passwordData, new_password: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs" />
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">New Password (Min 8 Chars, Upper, Lower, Number, Symbol)</label>
+                    <input type="password" required value={passwordData.new_password} onChange={(e) => setPasswordData({...passwordData, new_password: e.target.value})} placeholder="8+ chars with A-Z, a-z, 0-9, symbol" className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs" />
                   </div>
                 </div>
                 <div className="flex justify-end pt-4 mt-2 border-t border-slate-100">
