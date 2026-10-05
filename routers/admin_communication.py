@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_, text
+from pydantic import BaseModel
 
 from app import models, schemas
 from app.database import get_db, get_logs_db
@@ -457,8 +458,6 @@ def get_communication_readers(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch reader logs: {str(e)}")
 
-from pydantic import BaseModel
-from typing import List
 
 class BulkAcknowledgePayload(BaseModel):
     comm_ids: List[int]
@@ -575,6 +574,14 @@ def acknowledge_all_communications(
             details=f"Officer {current_user.name} ({current_user.fnum}) marked all unread messages as read."
         )
 
+        return {"status": "success"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ====================================================================
+# SILENT BACKGROUND PING ROUTE
+# ====================================================================
 @router.get("/communications/ping-unread")
 @router.get("/Admin_Communication/ping-unread")
 def ping_unread_communications(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -634,8 +641,3 @@ def ping_unread_communications(db: Session = Depends(get_db), current_user: mode
 
     # Absolutely NO activity logging here. Returns a tiny boolean payload.
     return {"hasUnread": has_unread}
-
-        return {"status": "success"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))

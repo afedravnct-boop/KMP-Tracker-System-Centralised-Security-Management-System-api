@@ -6,7 +6,7 @@ import {
   AlertTriangle, RadioReceiver, Eye, X, Building, Image, 
   Camera, Users, Home, Unlock, Send, Archive, PieChart,
   Bell, MessageSquare, Upload, ArrowLeft, ArrowRight, Globe, WifiOff, Wifi, FileText, Sparkles,
-  Truck // 🟢 Add Truck here
+  Truck, HelpCircle // 🟢 Add Truck here
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReactQuill from 'react-quill-new';
@@ -1060,6 +1060,9 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   // 🟢 Mandatory Policy Agreement State (Strictly for Signup)
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   
+  // 🟢 NEW: State for the Help / Support Guide
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  
   const [signupData, setSignupData] = useState({
     fnum: '', 
     ipps: '', 
@@ -1182,7 +1185,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     if (!signupData.profile_photo_path) return setAuthMessage("⚠️ Error: Profile photo upload is mandatory.");
     if (!/^\d{10}$/.test(signupData.phone)) return setAuthMessage("⚠️ Error: Contact number must be exactly 10 digits.");
 
-    // Strict NIN Validation: Must start with CM or CF and be exactly 14 characters
     if (signupData.nin) {
       const cleanNin = signupData.nin.trim().toUpperCase();
       if (!/^C[MF][A-Z0-9]{12}$/.test(cleanNin)) {
@@ -1348,6 +1350,16 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
       {/* 🟢 MAIN CARD CONTAINER */}
       <div className="max-w-xl w-full bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden relative z-10">
         <div className="bg-slate-900 p-6 text-center relative">
+          
+          {/* 🟢 HELP BUTTON */}
+          <button
+            onClick={() => setShowHelpModal(true)}
+            className="absolute top-5 right-5 text-slate-400 hover:text-blue-400 transition-colors cursor-pointer bg-slate-800/50 hover:bg-slate-800 p-2 rounded-full border border-slate-700 shadow-sm"
+            title="System Access Help Guide"
+          >
+            <HelpCircle size={20} />
+          </button>
+
           <img 
             src="/upf_badge.png" 
             alt="UPF Logo" 
@@ -1574,7 +1586,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     />
                   </div>
 
-                  {/* 🟢 MANDATORY POLICY AGREEMENT CHECKBOX FOR SIGNUP ONLY */}
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                     <div className="flex items-start space-x-2">
                       <input 
@@ -1693,7 +1704,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         </div>
       </div>
 
-      {/* 🟢 POLICY & TERMS MODAL FOR SIGNUP WHEN LINK IS CLICKED */}
+      {/* 🟢 POLICY & TERMS MODAL FOR SIGNUP */}
       {showPolicyModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[85vh]">
@@ -1746,6 +1757,66 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
           </div>
         </div>
       )}
+
+      {/* 🟢 SYSTEM HELP & USER GUIDE MODAL */}
+      {showHelpModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[85vh]">
+            <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
+              <h3 className="font-extrabold uppercase text-xs tracking-wider flex items-center">
+                <HelpCircle size={16} className="mr-2 text-blue-400" />
+                System Access Support Guide
+              </h3>
+              <button onClick={() => setShowHelpModal(false)} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer text-slate-300 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-6 text-xs text-slate-700 leading-relaxed custom-scrollbar bg-slate-50 flex-1">
+              <div>
+                <h4 className="font-black text-sm text-slate-900 uppercase border-b pb-2 mb-3 text-blue-800">1. Force Number Format</h4>
+                <p>Your Force Number or File Number must be entered exactly as officially recorded. Examples:</p>
+                <ul className="list-disc pl-5 mt-2 space-y-1 font-medium">
+                  <li>For standard force numbers: <strong>63034</strong></li>
+                  <li>For file numbers (include the slash): <strong>A/2408</strong></li>
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="font-black text-sm text-slate-900 uppercase border-b pb-2 mb-3 text-blue-800">2. Registration Strict Formats</h4>
+                <p>When requesting access (Sign Up), the system enforces strict national data standards to prevent database pollution:</p>
+                <ul className="list-disc pl-5 mt-2 space-y-1 font-medium">
+                  <li><strong>National ID (NIN):</strong> Must be exactly 14 characters and begin with <strong>CM</strong> or <strong>CF</strong>.</li>
+                  <li><strong>Telephone:</strong> Must be exactly 10 digits (e.g., 0772123456).</li>
+                  <li><strong>IPPS Number:</strong> Maximum of 6 digits.</li>
+                  <li><strong>Mugshot:</strong> A clear, official profile photo is mandatory for command verification.</li>
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="font-black text-sm text-slate-900 uppercase border-b pb-2 mb-3 text-blue-800">3. Access Approval Process</h4>
+                <p>Completing the Sign-Up form does <strong>not</strong> grant immediate access. Your account will be placed in a <em>Pending</em> state until a System Administrator or your Regional Commander verifies your credentials against the active HR Nominal Roll and approves the account.</p>
+              </div>
+
+              <div>
+                <h4 className="font-black text-sm text-slate-900 uppercase border-b pb-2 mb-3 text-blue-800">4. Forgotten Passwords & Lockouts</h4>
+                <p>If you fail to log in 3 consecutive times, your account will be temporarily locked for 30 seconds to prevent unauthorized brute-force attempts. If you have forgotten your Security Key, click <strong>"Forgot Security Key?"</strong> to initiate a reset request to Central Command.</p>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
+              <button 
+                type="button"
+                onClick={() => setShowHelpModal(false)} 
+                className="px-5 py-2.5 bg-slate-900 hover:bg-black text-white rounded-xl font-black text-xs uppercase tracking-wider shadow cursor-pointer transition"
+              >
+                Close Guide
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
@@ -2754,7 +2825,14 @@ const App = () => {
         if (resDocs && resDocs.ok) setGeneralDocs(await resDocs.json());
         
         // 🟢 Store just the boolean indicator
+        if (resDocs && resDocs.ok) setGeneralDocs(await resDocs.json());
+        
+        // 🟢 Store just the boolean indicator
         if (resCommsPing && resCommsPing.ok) setAdminCommsData(await resCommsPing.json());
+
+        // 🟢 RESTORED THE MISSING `if` BLOCK
+        if (resUsers && resUsers.ok) {
+          const allUsers = await resUsers.json();
           setUsers(allUsers);
           
           const myFnum = currentUser?.fnum;
@@ -2854,19 +2932,6 @@ const App = () => {
 
   const handleClearAllPings = () => {
     setAdminCommsData({ hasUnread: false });
-      if (Array.isArray(prevData)) {
-        return prevData.map(c => ({ ...c, acknowledged: true }));
-      } else if (prevData && typeof prevData === 'object') {
-        const listKey = Array.isArray(prevData.data) ? 'data' : Array.isArray(prevData.items) ? 'items' : null;
-        if (listKey) {
-          return {
-            ...prevData,
-            [listKey]: prevData[listKey].map(c => ({ ...c, acknowledged: true }))
-          };
-        }
-      }
-      return prevData;
-    });
   };
 
   const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
