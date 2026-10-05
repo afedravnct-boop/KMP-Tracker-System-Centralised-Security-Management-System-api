@@ -575,6 +575,66 @@ def acknowledge_all_communications(
             details=f"Officer {current_user.name} ({current_user.fnum}) marked all unread messages as read."
         )
 
+@router.get("/communications/ping-unread")
+@router.get("/Admin_Communication/ping-unread")
+def ping_unread_communications(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+    """
+    Lightweight, completely silent route for the 15-second background UI pulse.
+    Does NOT write to activity logs. Does NOT download message bodies.
+    """
+    CommModel = get_comm_model()
+    ReadsModel = get_reads_model()
+    read_fnum_col = get_fnum_col(ReadsModel)
+     
+    query = db.query(CommModel.id, CommModel.sender_fnum, CommModel.created_at)
+    clean_user_fnum = (current_user.fnum or "").strip().upper()
+    user_region = (current_user.region or "").strip().upper()
+    user_role = (current_user.role or "").strip().upper()
+
+    if not check_global_view(current_user):
+        visibility_conditions = [
+            or_(
+                CommModel.target_audience == "ALL",
+                CommModel.target_audience == "ALL_USERS",
+                CommModel.target_audience == "ALL_REGIONS"
+            ),
+            CommModel.sender_fnum == current_user.fnum,
+            and_(CommModel.target_audience == "SPECIFIC_USER", CommModel.target_fnum.like(f"%{current_user.fnum}%")),
+            and_(CommModel.target_audience == "SPECIFIC_REGION", func.upper(CommModel.target_region) == user_region),
+            and_(CommModel.target_audience == "REGIONAL_BROADCAST", func.upper(CommModel.target_region) == user_region)
+        ]
+        if user_role in ["ADMIN", "SYSTEM_ADMIN"]: visibility_conditions.append(CommModel.target_audience == "ADMINS_ONLY")
+        if user_role in ["RPC", "DEPUTY COMMANDER"]: visibility_conditions.append(CommModel.target_audience.in_(["RPC_ONLY", "ADMINS_ONLY"]))
+        query = query.filter(or_(*visibility_conditions))
+
+    # Only check the 50 most recent messages to keep the ping lightning fast
+    comms = query.order_by(CommModel.created_at.desc()).limit(50).all()
+    
+    read_records = db.query(ReadsModel.comm_id).filter(func.trim(func.upper(read_fnum_col)) == clean_user_fnum).all()
+    read_comm_ids = {r[0] for r in read_records} 
+     
+    user_created_at = getattr(current_user, 'created_at', None)
+    has_unread = False
+
+    for c_id, c_sender, c_created in comms:
+        sender_clean = (c_sender or "").strip().upper()
+        if c_id in read_comm_ids or sender_clean == clean_user_fnum:
+            continue
+             
+        is_older_than_user = False
+        if user_created_at and c_created and isinstance(c_created, datetime):
+            msg_dt = c_created.replace(tzinfo=None) if c_created.tzinfo else c_created
+            usr_dt = user_created_at.replace(tzinfo=None) if user_created_at.tzinfo else user_created_at
+            if msg_dt < usr_dt:
+                is_older_than_user = True
+
+        if not is_older_than_user:
+            has_unread = True
+            break
+
+    # Absolutely NO activity logging here. Returns a tiny boolean payload.
+    return {"hasUnread": has_unread}
+
         return {"status": "success"}
     except Exception as e:
         db.rollback()

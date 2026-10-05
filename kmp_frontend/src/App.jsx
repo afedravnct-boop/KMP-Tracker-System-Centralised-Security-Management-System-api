@@ -348,7 +348,7 @@ const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], 
   const canViewConsolidated = checkClearance(currentUser, 'acc_consolidated', isAdmin || currentUser?.permissions?.consolidated);
   const canExportData = checkClearance(currentUser, 'export_data', isRPC || currentUser?.permissions?.export_data);
 
-  const hasUnread = safeComms.some(c => !c.acknowledged);
+  const hasUnread = adminCommsData?.hasUnread === true;
 
   return (
     <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
@@ -2162,7 +2162,7 @@ const DashboardLayout = ({
     return false;
   });
 
-  const hasUnreadComms = relevantComms.some(c => !c.acknowledged);
+  const hasUnreadComms = adminCommsData?.hasUnread === true;
 
   const navItems = [
     checkClearance(currentUser, 'acc_home', true) ? { 
@@ -2734,15 +2734,15 @@ const App = () => {
       if (isUserIdle) return;
 
       try {
-        const [resUsers, resStats, resStories, resEst, resNom, resArc, resComms, resDocs] = await Promise.all([
+        const [resUsers, resStats, resStories, resEst, resNom, resArc, resCommsPing, resDocs] = await Promise.all([
           authFetch('/api/v1/users', { signal: controller.signal }).catch(() => null),
-          // 🟢 Removed authFetch('/api/v1/reports') so CrimeRegistry handles it directly via SQL
           authFetch('/api/v1/stats', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/stories', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/establishments', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/nominal-roll', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/nominal-roll-archive', { signal: controller.signal }).catch(() => null), 
-          authFetch('/api/v1/communications', { signal: controller.signal }).catch(() => null),
+          // 🟢 THE FIX: Poll the lightweight ping route instead of the full database
+          authFetch('/api/v1/communications/ping-unread', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/general-documents', { signal: controller.signal }).catch(() => null)
         ]);
 
@@ -2751,11 +2751,10 @@ const App = () => {
         if (resEst && resEst.ok) setEstablishments(await resEst.json());
         if (resNom && resNom.ok) setNominal_Rolls(await resNom.json());
         if (resArc && resArc.ok) setNominal_Roll_archives(await resArc.json());
-        if (resComms && resComms.ok) setAdminCommsData(await resComms.json());
         if (resDocs && resDocs.ok) setGeneralDocs(await resDocs.json());
-
-        if (resUsers && resUsers.ok) {
-          const allUsers = await resUsers.json();
+        
+        // 🟢 Store just the boolean indicator
+        if (resCommsPing && resCommsPing.ok) setAdminCommsData(await resCommsPing.json());
           setUsers(allUsers);
           
           const myFnum = currentUser?.fnum;
@@ -2854,7 +2853,7 @@ const App = () => {
   };
 
   const handleClearAllPings = () => {
-    setAdminCommsData(prevData => {
+    setAdminCommsData({ hasUnread: false });
       if (Array.isArray(prevData)) {
         return prevData.map(c => ({ ...c, acknowledged: true }));
       } else if (prevData && typeof prevData === 'object') {

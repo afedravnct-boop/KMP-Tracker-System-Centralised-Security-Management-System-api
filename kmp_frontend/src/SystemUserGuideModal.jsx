@@ -12,7 +12,7 @@ export default function SystemUserGuideModal({ isOpen, onClose }) {
           <div className="flex items-center space-x-2">
             <BookOpen className="w-5 h-5 text-blue-400" />
             <h3 className="font-extrabold uppercase text-xs tracking-wider">
-              KMP-CSDMS SYSTEM USER GUIDE
+              KMP-CSDMS-TRACKER SYSTEM USER GUIDE
             </h3>
           </div>
           <button onClick={onClose} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer text-slate-300 hover:text-white">
