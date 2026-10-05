@@ -273,6 +273,45 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
     arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0
   });
 
+  // 🟢 WEEKLY COMPLIANCE CHECK ENGINE
+  const complianceWarning = useMemo(() => {
+    // 1. Calculate time in East Africa Time (EAT)
+    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Nairobi" }));
+    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 5 = Friday, 6 = Saturday
+
+    // 2. Determine if we are in the Warning Window (Friday 00:00 to Sunday 23:59)
+    const isWarningPeriod = dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0;
+    
+    if (!isWarningPeriod) return null; // No warnings required Monday through Thursday
+
+    // 3. Find the exact date string for Monday of the current week
+    const startOfWeek = new Date(now);
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    startOfWeek.setDate(now.getDate() + diffToMonday);
+    
+    const yyyy = startOfWeek.getFullYear();
+    const mm = String(startOfWeek.getMonth() + 1).padStart(2, '0');
+    const dd = String(startOfWeek.getDate()).padStart(2, '0');
+    const mondayDateStr = `${yyyy}-${mm}-${dd}`;
+
+    // 4. Identify the station to check compliance for
+    const targetStation = filterStation !== 'ALL STATIONS' ? filterStation : cleanStr(currentUser?.station);
+    
+    // Global generic view bypasses the warning
+    if (targetStation === 'ALL STATIONS') return null;
+
+    // 5. Scan the ledger for ANY submission made by the target station since Monday
+    const hasSubmitted = currentDomainStats.some(s => {
+      return isStationEquivalent(s.station, targetStation) && s.date >= mondayDateStr;
+    });
+
+    if (!hasSubmitted) {
+      return `COMMAND COMPLIANCE WARNING: No ${statsDomain.toLowerCase()} statistics have been logged for ${targetStation} this week. Mandatory submission is required before Sunday 23:59Hrs.`;
+    }
+
+    return null;
+  }, [currentDomainStats, currentUser?.station, filterStation, statsDomain]);
+
   // 🟢 Apply OPSEC & Dual-Equivalence Engine filtering to stats
   const filteredStats = useMemo(() => {
     return (Array.isArray(currentDomainStats) ? currentDomainStats : []).filter(s => {
@@ -318,7 +357,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
       
       if (!canViewGlobalLevel) {
          const belongsToRegion = statRegion === userRegClean || 
-                                (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(st => isStationEquivalent(st, statStation)));
+                                 (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(st => isStationEquivalent(st, statStation)));
          if (!belongsToRegion) return false;
       }
 
@@ -488,6 +527,14 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
         <h3 className="text-sm sm:text-lg text-blue-700 dark:text-blue-400 mt-2 font-medium">Weekly Numerical Aggregates</h3>
       </div>
       
+      {/* 🟢 COMPLIANCE WARNING BANNER INJECTED HERE */}
+      {complianceWarning && (
+        <div className="bg-red-600 border border-red-800 shadow-lg rounded-xl p-4 flex items-center justify-center text-white animate-pulse transition-all">
+          <AlertTriangle className="w-6 h-6 mr-3 shrink-0" />
+          <span className="font-extrabold text-sm tracking-wide">{complianceWarning}</span>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <>
           <div className="lg:col-span-4 space-y-6">

@@ -1,6 +1,7 @@
-from pydantic import BaseModel, ConfigDict, Field, EmailStr, AliasChoices
+from pydantic import BaseModel, ConfigDict, Field, EmailStr, AliasChoices, validator
 from typing import Optional, List, Union, Dict, Any
 from datetime import datetime, date
+import re
 
 # ==========================================
 # 0. PASSWORD MANAGEMENT SCHEMAS
@@ -9,8 +10,36 @@ class PasswordChangeReq(BaseModel):
     old_password: str
     new_password: str
 
+    @validator('new_password')
+    def validate_password_strength(cls, v):
+        if len(v) < 8:
+            raise ValueError('New Security Key must be at least 8 characters long.')
+        if not re.search(r'[A-Z]', v):
+            raise ValueError('New Security Key must contain at least one uppercase letter (A-Z).')
+        if not re.search(r'[a-z]', v):
+            raise ValueError('New Security Key must contain at least one lowercase letter (a-z).')
+        if not re.search(r'\d', v):
+            raise ValueError('New Security Key must contain at least one digit (0-9).')
+        if not re.search(r'[@$!%*?&]', v):
+            raise ValueError('New Security Key must contain at least one special character (@$!%*?&).')
+        return v
+
 class ForcePasswordReq(BaseModel):
     new_password: str
+
+    @validator('new_password')
+    def validate_forced_password_strength(cls, v):
+        if len(v) < 8:
+            raise ValueError('Security Key must be at least 8 characters long.')
+        if not re.search(r'[A-Z]', v):
+            raise ValueError('Security Key must contain at least one uppercase letter (A-Z).')
+        if not re.search(r'[a-z]', v):
+            raise ValueError('Security Key must contain at least one lowercase letter (a-z).')
+        if not re.search(r'\d', v):
+            raise ValueError('Security Key must contain at least one digit (0-9).')
+        if not re.search(r'[@$!%*?&]', v):
+            raise ValueError('Security Key must contain at least one special character (@$!%*?&).')
+        return v
 
 class UserCreate(BaseModel):
     fnum: str

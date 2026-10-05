@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 
 from app.core import security
 from app import database, models, schemas
+from app.database import get_logs_db
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
@@ -532,17 +533,40 @@ async def request_password_reset(
 def change_password(
     data: schemas.PasswordChangeReq,
     current_user: models.Users = Depends(get_current_user),
+    logs_db: Session = Depends(get_logs_db),
     db: Session = Depends(database.get_db)
 ):
+    # 1. Verify current password is correct
     if not security.verify_password(data.old_password, current_user.hashed_password):
         raise HTTPException(status_code=400, detail="Current password incorrect.")
 
-    if len(data.new_password) < 6 or len(data.new_password) > 72:
-        raise HTTPException(status_code=400, detail="New password must be between 6 and 72 characters.")
+    # 2. Prevent repetition: Ensure new password is not identical to the old password
+    if data.old_password == data.new_password:
+        raise HTTPException(
+            status_code=400, 
+            detail="Security Error: Your new password cannot be the same as your current password. Please choose a unique key."
+        )
 
+    # 3. Hash and store the new secure key
     current_user.hashed_password = security.get_password_hash(data.new_password)
-    db.commit()
-    return {"status": "success", "message": "Password successfully updated."}
+    
+    try:
+        db.commit()
+        
+        # Log to activity ledger
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="PASSWORD_CHANGE",
+            module="SECURITY_VAULT",
+            details=f"Officer {current_user.name} ({current_user.fnum}) successfully updated their security key."
+        )
+        
+        return {"status": "success", "message": "Security Key successfully updated. Previous password has been invalidated."}
+    except Exception as e:
+        db.rollback()
+        logs_db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database commit error: {str(e)}")
 
 @router.put("/profile/update")
 @router.put("/api/v1/users/profile/update")
