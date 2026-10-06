@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, text
 from datetime import date, timedelta
 import json
+from typing import Optional
 
 from app import models, schemas
 from app.database import get_db, get_logs_db
@@ -143,7 +144,7 @@ def create_lockup_entry(
 
 @router.get("/lockup-matrix")
 def get_lockup_entries(
-    search: str = Query(None, description="Search term for station, region, or update signature"),
+    search: Optional[str] = Query(None, description="Search term for station, region, or update signature"),
     todays_only: bool = Query(False, description="Filter strictly for current 24-hour cycle"),
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
