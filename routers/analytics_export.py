@@ -1,5 +1,6 @@
 import io
 import json
+import re
 from datetime import datetime, timedelta
 import pytz
 import pyzipper
@@ -24,6 +25,58 @@ REGIONAL_HIERARCHY = {
     "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
     "POLICE HEADQUARTERS": ["NAGURU"]
 }
+
+def strip_html_tags(text_str: str) -> str:
+    if not text_str:
+        return ""
+    return re.sub('<.*?>', '', str(text_str))
+
+def parse_success_story_backend(raw_narrative: str):
+    plain_text = strip_html_tags(raw_narrative or '')
+    lower_text = plain_text.lower()
+    
+    suspects_count = 0
+    suspect_matches = [
+        re.search(r'(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang)', lower_text),
+        re.search(r'(?:arrest(?:ed|ing)?|apprehend(?:ed)?)\s*(?:of)?\s*(\d+)', lower_text)
+    ]
+    for m in suspect_matches:
+        if m and m.group(1):
+            suspects_count = int(m.group(1))
+            break
+
+    legal_status = 'UNDER INVESTIGATION'
+    if 'remand' in lower_text or 'remanded' in lower_text:
+        legal_status = 'REMANDED'
+    elif 'convict' in lower_text or 'sentenced' in lower_text:
+        legal_status = 'CONVICTED'
+    elif 'acquit' in lower_text:
+        legal_status = 'ACQUITTED'
+    elif 'court' in lower_text or 'trial' in lower_text or 'magistrate' in lower_text:
+        legal_status = 'UNDERGOING COURT TRIAL'
+
+    recoveries_list = []
+    recovery_matches = re.findall(r'(\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|money|cash|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|birds|chicken|produce|maize|beans|items))', lower_text, re.IGNORECASE)
+    for count_val, item_val in recovery_matches:
+        recoveries_list.append(f"{count_val} {item_val.strip()}")
+
+    if not recoveries_list and ('recovery' in lower_text or 'recovered' in lower_text or 'recover' in lower_text):
+        recoveries_list.append('Recovered exhibits / assets')
+
+    classification = 'Operational breakthrough & suspect apprehension'
+    if 'cattle' in lower_text or 'cow' in lower_text or 'livestock' in lower_text or 'farm' in lower_text or 'agric' in lower_text:
+        classification = 'Arrest of suspects in cattle / agricultural theft & recovery'
+    elif 'phone' in lower_text or 'computer' in lower_text or 'electronics' in lower_text:
+        classification = 'Apprehension of suspects & electronic asset recovery'
+    elif 'robbery' in lower_text or 'gang' in lower_text or 'theft' in lower_text:
+        classification = 'Dismantling of criminal gang & property recovery'
+
+    return {
+        "suspects": suspects_count,
+        "recoveries": ", ".join(recoveries_list) if recoveries_list else "None recorded",
+        "legalStatus": legal_status,
+        "classification": classification
+    }
 
 @router.get("/export")
 def export_analytics_report(
@@ -227,11 +280,14 @@ def export_analytics_report(
             date_val = str(getattr(st, 'date', ''))
             reg_val = getattr(st, 'region', '')
             stat_val = getattr(st, 'station', '')
-            suspects = getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0) or 0
-            recoveries = getattr(st, 'suspected_stolen_properties_recovered', '') or getattr(st, 'property_recovered', '') or 'None'
-            legal_status = getattr(st, 'legal_status', 'UNDER INVESTIGATION') or 'UNDER INVESTIGATION'
-            narrative = stripHtmlTags(getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.')))
-            success_detailed_data.append([reg_val, stat_val, date_val, suspects, recoveries, legal_status, narrative])
+            narrative_text = strip_html_tags(getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.')))
+            parsed = parse_success_story_backend(narrative_text)
+            
+            suspects = getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0) or parsed['suspects']
+            recoveries = getattr(st, 'suspected_stolen_properties_recovered', '') or getattr(st, 'property_recovered', '') or parsed['recoveries']
+            legal_status = getattr(st, 'legal_status', 'UNDER INVESTIGATION') or parsed['legalStatus']
+            
+            success_detailed_data.append([reg_val, stat_val, date_val, suspects, recoveries, legal_status, narrative_text])
 
         exhibit_summary_map = {}
         for ex in ex_records:
@@ -277,7 +333,7 @@ def export_analytics_report(
 
         comp_counts = {}
         for r in cr_records:
-            cat = getattr(r, 'offence', 'GENERAL CRIME') or 'GENERAL CRIME'
+            cat = str(getattr(r, 'offence', 'GENERAL CRIME') or 'GENERAL CRIME').strip().upper()
             comp_counts[cat] = comp_counts.get(cat, 0) + 1
         comp_data = [[k, v] for k, v in sorted(comp_counts.items(), key=lambda x: x[1], reverse=True)]
 
