@@ -108,7 +108,6 @@ def get_stories(
     query = db.query(models.Success_Stories)
     query = apply_opsec_scope(current_user, query, models.Success_Stories)
     
-    # 🟢 Apply search filtering if search term provided
     if search:
         term = f"%{search.strip().upper()}%"
         search_conds = []
@@ -122,7 +121,6 @@ def get_stories(
 
     records = query.order_by(models.Success_Stories.sn.desc()).all()
         
-    # 🟢 Precision forensic check: Log search query vs regular view
     if search:
         summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched success stories ledger for query: \"{search}\" (Returned {len(records)} matches)."
     else:
@@ -149,8 +147,14 @@ def create_story(
     try:
         data.pop('sn', None) 
         
-        data["region"] = current_user.region
-        data["station"] = current_user.station
+        # 🟢 Respect the selected region & station from frontend payload for admins/commanders
+        user_role = str(current_user.role or "").upper()
+        user_pos = str(current_user.position or "").upper()
+        is_global = user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or "KMP COMMANDER" in user_pos
+
+        if not is_global:
+            data["region"] = current_user.region
+            data["station"] = current_user.station
             
         new_record = models.Success_Stories(**data)
         new_record.last_updated_by = get_officer_signature(current_user)
@@ -158,14 +162,13 @@ def create_story(
         db.commit()
         db.refresh(new_record)
 
-        # 🟢 Record precise forensic REGISTER action to NeonDB activity branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
             action_type="REGISTER",
             module="SUCCESS_STORIES",
             target_id=str(new_record.sn),
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} registered new success story for station {current_user.station}."
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} registered new success story for region [{new_record.region}] station [{new_record.station}]."
         )
 
         return {"status": "success", "sn": new_record.sn}
@@ -202,7 +205,6 @@ def update_story(
         db.commit()
         db.refresh(record)
         
-        # 🟢 Record precise forensic UPDATE action to NeonDB activity branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,

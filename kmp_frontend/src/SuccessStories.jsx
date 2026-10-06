@@ -1,3 +1,4 @@
+// src/components/SuccessStories.jsx
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X, Filter, FileText, ChevronDown, ChevronUp, Shield } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
@@ -109,6 +110,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
+  const userStnClean = stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[userRegClean]?.[0] || 'KMP HEADQUARTERS').toUpperCase();
 
   const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
     ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
@@ -118,14 +120,12 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
   const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
 
   const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
-  
-  // 🟢 FIXED: Defined safely here to eliminate any ReferenceError
   const canViewGlobalActive = canViewGlobalLevel;
   
   const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
-  const [filterStation, setFilterStation] = useState((canViewGlobalActive || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
+  const [filterStation, setFilterStation] = useState((canViewGlobalActive || isRegionalCommand) ? 'ALL STATIONS' : userStnClean);
 
   const isFilterInitialized = useRef(false);
   useEffect(() => {
@@ -138,11 +138,11 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         setFilterStation('ALL STATIONS');
       } else {
         setFilterRegion(userRegClean);
-        setFilterStation(stripHtmlTags(currentUser?.station || '').toUpperCase());
+        setFilterStation(userStnClean);
       }
       isFilterInitialized.current = true;
     }
-  }, [canViewGlobalActive, isRegionalCommand, userRegClean, currentUser?.station]);
+  }, [canViewGlobalActive, isRegionalCommand, userRegClean, userStnClean, currentUser?.station]);
   
   const [notification, setNotification] = useState(null);
   const [updateSearch, setUpdateSearch] = useState('');
@@ -153,8 +153,11 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
   const getTodayString = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).split(',')[0].replace(/\//g, '-');
 
   const [formData, setFormData] = useState({
-    sn: null, region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
-    date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+    sn: null, 
+    region: canViewGlobalActive ? 'KMP NORTH' : userRegClean, 
+    station: canViewGlobalActive ? REGIONAL_HIERARCHY['KMP NORTH'][0] : userStnClean,
+    date: getTodayString(), 
+    time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
     narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: ''
   });
 
@@ -239,8 +242,12 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     const cleanValue = stripHtmlTags(value);
-    if (name === 'region') setFormData({ ...formData, region: cleanValue, station: REGIONAL_HIERARCHY[cleanValue]?.[0] || '' });
-    else setFormData({ ...formData, [name]: cleanValue });
+    if (name === 'region') {
+      const firstStation = REGIONAL_HIERARCHY[cleanValue]?.[0] || '';
+      setFormData({ ...formData, region: cleanValue, station: firstStation });
+    } else {
+      setFormData({ ...formData, [name]: cleanValue });
+    }
   };
 
   const handleExhibitUpload = async (e) => {
@@ -296,7 +303,9 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     setOperation(op); setNotification(null);
     if (op === 'new') {
       setFormData({
-        sn: null, region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
+        sn: null, 
+        region: canViewGlobalActive ? 'KMP NORTH' : userRegClean, 
+        station: canViewGlobalActive ? REGIONAL_HIERARCHY['KMP NORTH'][0] : userStnClean,
         date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
         narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: ''
       });
@@ -313,10 +322,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       ? formData.narrative.replace(/color:\s*(white|#fff|#ffffff);?/gi, '')
       : '';
 
-    const activeRegion = (canViewGlobalLevel && filterRegion !== 'ALL REGIONS') ? filterRegion : formData.region;
-    const activeStation = (canViewGlobalLevel && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
-
-    const submissionData = { ...formData, region: activeRegion, station: activeStation, narrative: cleanedNarrative };
+    const submissionData = { ...formData, narrative: cleanedNarrative };
 
     if (operation === 'new') {
       const cleanNewText = stripHtmlTags(submissionData.narrative).toLowerCase();
@@ -416,14 +422,18 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Select Region *</label>
-                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalLevel || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-gray-50 dark:bg-slate-800 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
+                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalLevel || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-gray-50 dark:bg-slate-800 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 cursor-pointer">
                       {canViewGlobalLevel ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={userRegClean}>{userRegClean}</option>}
                     </select>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(canViewGlobalLevel || isRegionalCommand) || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-gray-50 dark:bg-slate-800 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
-                      {operation === 'update' ? <option value={formData.station}>{stripHtmlTags(formData.station)}</option> : (canViewGlobalLevel || isRegionalCommand) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={stripHtmlTags(currentUser.station)}>{stripHtmlTags(currentUser.station)}</option>}
+                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-gray-50 dark:bg-slate-800 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 cursor-pointer">
+                      {operation === 'update' ? (
+                        <option value={formData.station}>{stripHtmlTags(formData.station)}</option>
+                      ) : (
+                        (REGIONAL_HIERARCHY[formData.region] || [formData.station]).map(stat => <option key={stat} value={stat}>{stat}</option>)
+                      )}
                     </select>
                   </div>
                 </div>
@@ -502,7 +512,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
             <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!(canViewGlobalLevel || isRegionalCommand)} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
               {(canViewGlobalLevel || isRegionalCommand) ? (
                 <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
-              ) : <option value={stripHtmlTags(currentUser?.station || '').toUpperCase()}>{stripHtmlTags(currentUser?.station || '').toUpperCase()}</option>}
+              ) : <option value={userStnClean}>{userStnClean}</option>}
             </select>
             <select 
               value={dateFilter} 
