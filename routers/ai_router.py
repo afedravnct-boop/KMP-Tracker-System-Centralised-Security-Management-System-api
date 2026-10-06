@@ -27,17 +27,28 @@ class QueryPayload(BaseModel):
     target_region: str = "ALL REGIONS"
     target_station: str = "ALL STATIONS"
 
-def is_db_query_globally_enabled(db: Session) -> bool:
+# 🟢 Respect global kill switch, but ONLY exempt Super and Assistant Super Admins
+def is_db_query_globally_enabled(user, db: Session) -> bool:
+    role = (user.role or "").upper()
+    if role in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]:
+        return True
+
     ConfigModel = getattr(models, 'SystemConfig', None)
     if not ConfigModel:
         return True 
     config = db.query(ConfigModel).filter(ConfigModel.config_key == "ai_database_query_enabled").first()
+    
+    # If kill switch is false, standard/delegated users are cut off
     if config and str(config.config_value).lower() == "false":
         return False
+        
     return True
 
 def check_ai_db_query_clearance(user) -> bool:
     role = (user.role or "").upper()
+    if role in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]:
+        return True
+
     perms = user.permissions or {}
     if isinstance(perms, str):
         try:
@@ -45,7 +56,7 @@ def check_ai_db_query_clearance(user) -> bool:
         except Exception:
             perms = {}
 
-    is_super_tier = role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"]
+    is_super_tier = role == "ADMIN"
     has_delegated_power = perms.get("can_approve") is True or perms.get("system_admin") is True or perms.get("ai_hr_access") is True
     
     return is_super_tier or has_delegated_power
@@ -57,18 +68,14 @@ async def toggle_ai_database_queries(
     logs_db: Session = Depends(get_logs_db)
 ):
     role = (current_user.role or "").upper()
-    perms = current_user.permissions or {}
-    if isinstance(perms, str):
-        try:
-            perms = json.loads(perms)
-        except Exception:
-            perms = {}
-
-    is_super_tier = role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"]
-    has_delegated_power = perms.get("can_approve") is True or perms.get("system_admin") is True or perms.get("ai_hr_access") is True
-
-    if not (is_super_tier or has_delegated_power):
-        raise HTTPException(status_code=403, detail="Clearance Denied: Super Admin, Assistant Super Admin, or delegated authorization required to toggle the global AI kill switch.")
+    if role not in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN", "ADMIN"]:
+        perms = current_user.permissions or {}
+        if isinstance(perms, str):
+            try: perms = json.loads(perms)
+            except Exception: perms = {}
+        has_delegated_power = perms.get("can_approve") is True or perms.get("system_admin") is True or perms.get("ai_hr_access") is True
+        if not has_delegated_power:
+            raise HTTPException(status_code=403, detail="Clearance Denied: Super Admin, Assistant Super Admin, or delegated authorization required to toggle the global AI kill switch.")
     
     ConfigModel = getattr(models, 'SystemConfig', None)
     if not ConfigModel:
@@ -89,7 +96,6 @@ async def toggle_ai_database_queries(
     db.commit()
     new_bool_state = new_state_str == "true"
 
-    # 🟢 Record precise forensic UPDATE activity into NeonDB Activity Logs branch
     record_neon_activity(
         logs_db=logs_db,
         fnum=current_user.fnum,
@@ -102,7 +108,7 @@ async def toggle_ai_database_queries(
     return {
         "status": "success", 
         "ai_database_query_enabled": new_bool_state,
-        "message": f"AI Database Querying has been {'ENABLED' if new_bool_state else 'DISABLED (Navigation & Docs Only)'}."
+        "message": f"AI Database Querying has been {'ENABLED' if new_bool_state else 'DISABLED (Navigation & Docs Only for standard users)'}."
     }
 
 @router.post("/query")
@@ -118,8 +124,12 @@ async def process_tactical_query(
 
     try:
         client = genai.Client(api_key=api_key)
-        db_queries_allowed = is_db_query_globally_enabled(db)
-
+        
+        user_role_upper = (current_user.role or "").upper()
+        is_top_admin = user_role_upper in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]
+        
+        # 🟢 Checking global enabled status while allowing top admins to seamlessly bypass it
+        db_queries_allowed = is_db_query_globally_enabled(current_user, db)
         can_run_db_query = check_ai_db_query_clearance(current_user)
 
         user_perms = current_user.permissions or {}
@@ -129,7 +139,7 @@ async def process_tactical_query(
             except Exception:
                 user_perms = {}
                 
-        has_ai_hr_access = current_user.role in ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'] or user_perms.get('ai_hr_access') is True or user_perms.get('can_approve') is True
+        has_ai_hr_access = is_top_admin or user_role_upper in ['ADMIN'] or user_perms.get('ai_hr_access') is True or user_perms.get('can_approve') is True
         user_tier_scope = f"Station Scope: Station {current_user.station}, Region {current_user.region}"
 
         live_data_context = ""
@@ -157,23 +167,23 @@ async def process_tactical_query(
                 
                 agric_query = db.query(AgricModel) if AgricModel else None
                 stats_query = db.query(StatsModel) if StatsModel else None
-                exhibits_query = db.query(ExhibitsModel) if ExhibitsModel else None
+                exports_query = db.query(ExhibitsModel) if ExhibitsModel else None
                 lockup_query = db.query(LockupMatrixModel) if LockupMatrixModel else None
 
-                if not can_run_db_query:
+                if not is_top_admin and not check_ai_db_query_clearance(current_user):
                     user_station_val = str(current_user.station).strip().upper()
                     if agric_query and hasattr(AgricModel, 'station'): 
                         agric_query = agric_query.filter(func.upper(AgricModel.station) == user_station_val)
                     if stats_query and hasattr(StatsModel, 'station'): 
                         stats_query = stats_query.filter(func.upper(StatsModel.station) == user_station_val)
-                    if exhibits_query and hasattr(ExhibitsModel, 'station'): 
-                        exhibits_query = exhibits_query.filter(func.upper(ExhibitsModel.station) == user_station_val)
+                    if exports_query and hasattr(ExhibitsModel, 'station'): 
+                        exports_query = exports_query.filter(func.upper(ExhibitsModel.station) == user_station_val)
                     if lockup_query and hasattr(LockupMatrixModel, 'station'):
                         lockup_query = lockup_query.filter(func.upper(LockupMatrixModel.station) == user_station_val)
 
                 agric_records = agric_query.limit(20).all() if agric_query else []
                 stats_records = stats_query.limit(20).all() if stats_query else []
-                exhibits_records = exhibits_query.limit(20).all() if exhibits_query else []
+                exhibits_records = exports_query.limit(20).all() if exports_query else []
                 lockup_records = lockup_query.limit(20).all() if lockup_query else []
 
                 live_data_context = "LIVE OPERATIONAL DATABASE EXTRACTS:\n"
@@ -208,7 +218,7 @@ async def process_tactical_query(
                         getattr(HrModel, 'status', 'status'),
                         func.count(id_col)
                     )
-                    if not can_run_db_query and hasattr(HrModel, 'station'):
+                    if not is_top_admin and not check_ai_db_query_clearance(current_user) and hasattr(HrModel, 'station'):
                         agg_query = agg_query.filter(func.upper(HrModel.station) == str(current_user.station).strip().upper())
                         
                     hr_aggregates = agg_query.group_by(
@@ -223,7 +233,7 @@ async def process_tactical_query(
                             live_data_context += f"  * Rank: {r_rank} | Sex: {r_sex} | Status: {r_status} => Total: {r_count}\n"
                     
                     hr_sample_query = db.query(HrModel)
-                    if not can_run_db_query and hasattr(HrModel, 'station'):
+                    if not is_top_admin and not check_ai_db_query_clearance(current_user) and hasattr(HrModel, 'station'):
                         hr_sample_query = hr_sample_query.filter(func.upper(HrModel.station) == str(current_user.station).strip().upper())
                     
                     stop_words = {"what", "is", "the", "for", "who", "where", "tell", "me", "about", "find", "search", "officer", "stationed", "details", "give", "show", "can", "you", "of", "in", "on", "at", "and", "a", "an", "how", "many", "does", "have", "age", "unit", "rank", "sex", "name"}
@@ -343,7 +353,6 @@ async def process_tactical_query(
         except Exception as db_err:
             db.rollback()
 
-        # 🟢 Record precise forensic REGISTER/QUERY activity into NeonDB Activity Logs branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
