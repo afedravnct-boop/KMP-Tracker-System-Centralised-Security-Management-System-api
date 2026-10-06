@@ -116,6 +116,32 @@ def is_uniformed_rank(rank_str: str) -> bool:
     }
     return r in uniformed_ranks
 
+# 🟢 Strict Pre-Upload Validation Gate to Prevent Stray Data in Any Column
+def is_invalid_roster_entry(r) -> bool:
+    name = str(getattr(r, 'name', '') or '').strip().upper()
+    rank = str(getattr(r, 'rank', '') or '').strip().upper()
+    fnum = str(getattr(r, 'fnum', getattr(r, 'f_num', '')) or '').strip().upper()
+    
+    combined = f"{fnum} {rank} {name}"
+    
+    # 1. Block separator lines and administrative headings
+    if "---" in combined or "___" in combined or "===" in combined: return True
+    
+    # 2. Block station/unit names accidentally mapping into officer columns
+    forbidden_terms = [
+        "POLICE STATION", "CANINE UNIT", "ATTACHED", "DEPARTMENT", 
+        "DIVISION HEADQUARTERS", "REGIONAL HQ", "POST", "BARRACKS", 
+        "SECTION", "OC STATION", "OC CID", "CRIME INVESTIGATION"
+    ]
+    if any(term in combined for term in forbidden_terms): return True
+    
+    # 3. Block if name contains numbers or suspicious patterns typical of misaligned columns
+    if any(char.isdigit() for char in name) and not any(r_term in rank for r_term in ['PC', 'SGT', 'CPL', 'ASP', 'IP']):
+        return True
+
+    if name in ["UNKNOWN", "", "NONE", "NAN"] and not is_uniformed_rank(rank): return True
+    return False
+
 def parse_safe_date(val) -> Optional[date]:
     if pd.isna(val) or val is None: return None
     if isinstance(val, date) and not isinstance(val, datetime):
@@ -360,6 +386,7 @@ def get_Nominal_Rolls(
     sequence_counter = 1
 
     for r in active_records:
+        if is_invalid_roster_entry(r): continue
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
         
@@ -382,6 +409,7 @@ def get_Nominal_Rolls(
         sequence_counter += 1
 
     for r in archive_records:
+        if is_invalid_roster_entry(r): continue
         r_dict = r.__dict__.copy()
         r_dict.pop("_sa_instance_state", None)
         
@@ -403,7 +431,6 @@ def get_Nominal_Rolls(
         clean_results.append(r_dict)
         sequence_counter += 1
         
-    # 🟢 Record VIEW activity into NeonDB Logs
     if search:
         summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched nominal roll for query: \"{search}\" (Returned {len(clean_results)} matches)."
     else:
@@ -487,9 +514,15 @@ async def bulk_upload_nominal_roll(
             source_filename = row.get("__source_file", "Batch Upload")
 
             row_text_signature = f"{fnum_val or ''} {rank_val or ''} {name_val or ''}".upper()
+            
+            # 🟢 Pre-Upload Validation Gate
             if (
                 not fnum_val and not rank_val and (not name_val or name_val == "UNKNOWN")
-            ) or any(term in row_text_signature for term in ["DEPARTMENT", "POL. POST", "POLICE POST", "SECTION", "DIV HEADQUARTERS", "OC STATION"]):
+            ) or any(term in row_text_signature for term in ["DEPARTMENT", "POL. POST", "POLICE POST", "SECTION", "DIV HEADQUARTERS", "OC STATION", "---", "___", "CANINE UNIT", "BUSEGA"]):
+                continue
+
+            # Block if station names leaked into rank or name columns
+            if rank_val and any(stn_term in rank_val for stn_term in ["STATION", "POST", "DIV", "UNIT", "HQ", "HEADQUARTERS"]):
                 continue
 
             if not fnum_val:
@@ -591,7 +624,6 @@ async def bulk_upload_nominal_roll(
 
         db.commit()
 
-        # 🟢 Record REGISTER activity into NeonDB Logs
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -633,6 +665,11 @@ def create_Nominal_Roll(
         clean_data = {}
         for k, v in data.items():
             clean_data[k] = None if v == "" else v
+
+        # 🟢 Validation Gate for manual creation
+        test_rank = str(clean_data.get('rank', '')).upper()
+        if any(stn_term in test_rank for stn_term in ["STATION", "POST", "DIV", "UNIT", "HQ", "HEADQUARTERS"]):
+            raise HTTPException(status_code=400, detail="Validation Error: Station or unit names cannot be entered into the Rank field.")
 
         perms = current_user.permissions or {}
         user_role = (current_user.role or "").upper()
@@ -718,7 +755,6 @@ def create_Nominal_Roll(
             
             assigned_id = getattr(new_record, 'id', getattr(new_record, 'sn', 1))
 
-            # 🟢 Record REGISTER activity into NeonDB Logs
             record_neon_activity(
                 logs_db=logs_db,
                 fnum=current_user.fnum,
@@ -742,7 +778,6 @@ def create_Nominal_Roll(
         
         assigned_id = getattr(new_record, 'id', getattr(new_record, 'sn', 1))
 
-        # 🟢 Record REGISTER activity into NeonDB Logs
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -823,7 +858,6 @@ def archive_personnel(
         db.delete(active_record)
         db.commit()
 
-        # 🟢 Record DELETE/ARCHIVE activity into NeonDB Logs
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -879,6 +913,10 @@ def update_Nominal_Roll(
     data.pop('id', None)
     data.pop('sn', None)
     
+    test_rank = str(data.get('rank', '')).upper()
+    if any(stn_term in test_rank for stn_term in ["STATION", "POST", "DIV", "UNIT", "HQ", "HEADQUARTERS"]):
+        raise HTTPException(status_code=400, detail="Validation Error: Station or unit names cannot be entered into the Rank field.")
+
     if 'educ_level' in data:
         data['educ_level'] = normalize_education_level(data['educ_level'])
         
@@ -919,7 +957,6 @@ def update_Nominal_Roll(
         db.commit()
         db.refresh(officer)
 
-        # 🟢 Record UPDATE activity into NeonDB Logs
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -953,6 +990,7 @@ def get_archived_personnel(
         archives = query.all()
         clean_list = []
         for a in archives:
+            if is_invalid_roster_entry(a): continue
             d = a.__dict__.copy()
             d.pop("_sa_instance_state", None)
             d['educ_level'] = normalize_education_level(d.get('educlevel') or d.get('educ_level'))
@@ -961,7 +999,6 @@ def get_archived_personnel(
                     d[k] = str(v)
             clean_list.append(d)
 
-        # 🟢 Record VIEW activity into NeonDB Logs
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -1042,7 +1079,6 @@ def bulk_archive_personnel(
 
         db.commit()
 
-        # 🟢 Record DELETE/ARCHIVE activity into NeonDB Logs
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -1087,6 +1123,7 @@ def export_missing_info_audit(
         missing_rows = []
 
         for r in records:
+            if is_invalid_roster_entry(r): continue
             r_stn = str(getattr(r, 'station', '')).strip().upper()
             r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
 
@@ -1182,7 +1219,6 @@ def export_missing_info_audit(
 
         zip_stream.seek(0)
 
-        # 🟢 Record secure export activity into NeonDB Logs
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -1223,6 +1259,7 @@ def export_station_nominal_roll(
         station_rows = []
 
         for r in records:
+            if is_invalid_roster_entry(r): continue
             r_stn = str(getattr(r, 'station', '')).strip().upper()
             r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
 
@@ -1343,7 +1380,6 @@ def export_station_nominal_roll(
 
         zip_stream.seek(0)
 
-        # 🟢 Record secure export activity into NeonDB Logs
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
