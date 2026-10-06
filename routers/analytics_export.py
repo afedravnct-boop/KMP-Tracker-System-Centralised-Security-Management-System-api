@@ -233,6 +233,18 @@ def export_analytics_report(
             narrative = stripHtmlTags(getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.')))
             success_detailed_data.append([reg_val, stat_val, date_val, suspects, recoveries, legal_status, narrative])
 
+        exhibit_summary_map = {}
+        for ex in ex_records:
+            cat = str(getattr(ex, 'category', 'GENERAL') or 'GENERAL').upper()
+            reg = str(getattr(ex, 'region', 'KMP GENERAL') or 'KMP GENERAL').upper()
+            div = str(getattr(ex, 'division', getattr(ex, 'station', 'N/A')) or 'N/A').upper()
+            stn = str(getattr(ex, 'station', 'N/A') or 'N/A').upper()
+            status = str(getattr(ex, 'status', 'IMPOUNDED') or 'IMPOUNDED').upper()
+            key = (cat, reg, div, stn, status)
+            exhibit_summary_map[key] = exhibit_summary_map.get(key, 0) + 1
+
+        exhibit_summary_data = [[k[0], k[1], k[2], k[3], k[4], v] for k, v in exhibit_summary_map.items()]
+
         disruptive_data = []
         region_ops_totals = {}
         for s in ops_records:
@@ -305,13 +317,13 @@ def export_analytics_report(
                 max_len = max([len(str(cell.value or '')) for cell in col], default=0)
                 ws.column_dimensions[col[0].column_letter].width = min(max_len + 3, 50)
 
-        add_sheet_data = add_individual_sheet
-        add_sheet_data("Manpower Analysis", manpower_headers, manpower_table_rows)
-        add_sheet_data("Agricultural Crimes", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
-        add_sheet_data("Success Stories", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties (Endless Items)", "Legal Status", "Narrative"], success_detailed_data)
-        add_sheet_data("Disruptive Ops", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
-        add_sheet_data("Comparative Trends", ["Category / Offence", "Total Volume"], comp_data)
-        add_sheet_data("Master Summary Aggregates", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
+        add_individual_sheet("Manpower Analysis", manpower_headers, manpower_table_rows)
+        add_individual_sheet("Agricultural Crimes", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
+        add_individual_sheet("Success Stories", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Narrative"], success_detailed_data)
+        add_individual_sheet("Exhibits Grouped", ["Category", "Region", "Division", "Station", "Status", "Total Count"], exhibit_summary_data)
+        add_individual_sheet("Disruptive Ops", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
+        add_individual_sheet("Comparative Trends", ["Category / Offence", "Total Volume"], comp_data)
+        add_individual_sheet("Master Summary Aggregates", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
 
         ws_gen = wb.create_sheet(title="General Analytics", index=0)
         
@@ -337,10 +349,11 @@ def export_analytics_report(
 
         append_stacked_section("1. Manpower Analysis (Officers & NCOs breakdown)", manpower_headers, manpower_table_rows)
         append_stacked_section("2. Agricultural Crimes Breakdown", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
-        append_stacked_section("3. Success Stories & Breakthrough Analytics", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Narrative"], success_detailed_data)
-        append_stacked_section("4. Disruptive Operations Grouped Weekly by Station", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
-        append_stacked_section("5. Comparative Distribution & Volume Trends", ["Category / Offence", "Total Volume"], comp_data)
-        append_stacked_section("6. Master Summary Table (General & Regional Totals)", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
+        append_stacked_section("3. Success Stories Breakdown", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Narrative"], success_detailed_data)
+        append_stacked_section("4. Exhibits Grouped Summary", ["Category", "Region", "Division", "Station", "Status", "Total Count"], exhibit_summary_data)
+        append_stacked_section("5. Disruptive Operations Grouped Weekly by Station", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
+        append_stacked_section("6. Comparative Distribution & Volume Trends", ["Category / Offence", "Total Volume"], comp_data)
+        append_stacked_section("7. Master Summary Table (General & Regional Totals)", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
 
         for col in ws_gen.columns:
             max_len = max([len(str(cell.value or '')) for cell in col], default=0)
