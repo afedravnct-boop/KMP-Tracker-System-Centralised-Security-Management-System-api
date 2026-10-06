@@ -11,14 +11,14 @@ LOGS_DATABASE_URL = os.getenv("LOGS_DATABASE_URL")
 if not SQLALCHEMY_DATABASE_URL or not LOGS_DATABASE_URL:
     raise ValueError("Database URLs are missing! Check your .env file or Render environment variables.")
 
-# 🟢 INCREASED LIMITS: 50 Base + 100 Overflow = 150 concurrent connections
+# 🟢 PRODUCTION SAFE LIMITS: 10 Base + 15 Overflow = 25 concurrent per engine
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=300,
-    pool_size=50,       
-    max_overflow=100,    
-    pool_timeout=60
+    pool_size=10,        
+    max_overflow=15,    
+    pool_timeout=30
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -26,9 +26,9 @@ logs_engine = create_engine(
     LOGS_DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=300,
-    pool_size=50,       
-    max_overflow=100,    
-    pool_timeout=60
+    pool_size=10,        
+    max_overflow=15,    
+    pool_timeout=30
 )
 LogsSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=logs_engine)
 
