@@ -1,6 +1,6 @@
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import pyzipper
 import openpyxl
@@ -100,6 +100,12 @@ def export_analytics_report(
                 AgricModel = getattr(models, name)
                 break
 
+        ExhibitModel = None
+        for name in ['Impounded_Exhibits', 'Exhibits', 'impounded_exhibits']:
+            if hasattr(models, name):
+                ExhibitModel = getattr(models, name)
+                break
+
         def get_scoped_records(ModelClass):
             if not ModelClass:
                 return []
@@ -152,6 +158,7 @@ def export_analytics_report(
         ss_records = get_scoped_records(StoryModel)
         nom_records = get_scoped_records(NomModel)
         agric_records = get_scoped_records(AgricModel)
+        ex_records = get_scoped_records(ExhibitModel)
 
         # 2. Build Specialized Datasets
         agric_breakdown = {"ANIMALS": [0, 0], "PRODUCE": [0, 0], "EQUIPMENT": [0, 0]}
@@ -215,14 +222,16 @@ def export_analytics_report(
                     row_entry.append(ranks_data[rk]['F'])
                 manpower_table_rows.append(row_entry)
 
-        success_data = []
+        success_detailed_data = []
         for st in ss_records:
             date_val = str(getattr(st, 'date', ''))
             reg_val = getattr(st, 'region', '')
             stat_val = getattr(st, 'station', '')
-            narrative = getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.'))
-            bullet_sentence = f"• Successful operational breakthrough achieved on {date_val} at {stat_val} ({reg_val}): {narrative}."
-            success_data.append([reg_val, stat_val, bullet_sentence])
+            suspects = getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0) or 0
+            recoveries = getattr(st, 'suspected_stolen_properties_recovered', '') or getattr(st, 'property_recovered', '') or 'None'
+            legal_status = getattr(st, 'legal_status', 'UNDER INVESTIGATION') or 'UNDER INVESTIGATION'
+            narrative = stripHtmlTags(getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.')))
+            success_detailed_data.append([reg_val, stat_val, date_val, suspects, recoveries, legal_status, narrative])
 
         disruptive_data = []
         region_ops_totals = {}
@@ -264,9 +273,10 @@ def export_analytics_report(
             ["Total General Manpower (Force-Wide)", len(nom_records)],
             ["Total General Male Personnel", total_male_general],
             ["Total General Female Personnel", total_female_general],
-            ["Total Success Stories (General Force-Wide)", len(ss_records)],
+            ["Total Success Stories / Breakthroughs", len(ss_records)],
             ["Total Recorded Incidents / Crime Reports", len(cr_records)],
             ["Total Disruptive Operations Logs", len(ops_records)],
+            ["Total Impounded Exhibits Tracked", len(ex_records)],
             ["Total Suspects Arrested Force-Wide", sum(getattr(s, 'arrested', 0) or 0 for s in ops_records)],
             ["Total Convictions Obtained Force-Wide", sum(getattr(s, 'convicted', 0) or 0 for s in ops_records)]
         ]
@@ -295,12 +305,13 @@ def export_analytics_report(
                 max_len = max([len(str(cell.value or '')) for cell in col], default=0)
                 ws.column_dimensions[col[0].column_letter].width = min(max_len + 3, 50)
 
-        add_individual_sheet("Manpower Analysis", manpower_headers, manpower_table_rows)
-        add_individual_sheet("Agricultural Crimes", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
-        add_individual_sheet("Success Stories", ["Region", "Station", "Operational Success Highlight (One-Line Bullet)"], success_data)
-        add_individual_sheet("Disruptive Ops", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
-        add_individual_sheet("Comparative Trends", ["Category / Offence", "Total Volume"], comp_data)
-        add_individual_sheet("Master Summary Aggregates", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
+        add_sheet_data = add_individual_sheet
+        add_sheet_data("Manpower Analysis", manpower_headers, manpower_table_rows)
+        add_sheet_data("Agricultural Crimes", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
+        add_sheet_data("Success Stories", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties (Endless Items)", "Legal Status", "Narrative"], success_detailed_data)
+        add_sheet_data("Disruptive Ops", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
+        add_sheet_data("Comparative Trends", ["Category / Offence", "Total Volume"], comp_data)
+        add_sheet_data("Master Summary Aggregates", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
 
         ws_gen = wb.create_sheet(title="General Analytics", index=0)
         
@@ -324,9 +335,9 @@ def export_analytics_report(
                     ws_gen.append([idx] + list(r))
             ws_gen.append([])
 
-        append_stacked_section("1. Manpower Analysis (Officers & NCOs breakdown with HCM/HC)", manpower_headers, manpower_table_rows)
-        append_stacked_section("2. Agricultural Crimes Breakdown (Animals, Produce, Equipment)", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
-        append_stacked_section("3. Success Stories & Breakthroughs (One-Line Bullet Sentences)", ["Region", "Station", "Operational Success Highlight"], success_data)
+        append_stacked_section("1. Manpower Analysis (Officers & NCOs breakdown)", manpower_headers, manpower_table_rows)
+        append_stacked_section("2. Agricultural Crimes Breakdown", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
+        append_stacked_section("3. Success Stories & Breakthrough Analytics", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Narrative"], success_detailed_data)
         append_stacked_section("4. Disruptive Operations Grouped Weekly by Station", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
         append_stacked_section("5. Comparative Distribution & Volume Trends", ["Category / Offence", "Total Volume"], comp_data)
         append_stacked_section("6. Master Summary Table (General & Regional Totals)", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
@@ -349,7 +360,6 @@ def export_analytics_report(
 
         zip_stream.seek(0)
 
-        # 🟢 Record secure analytics export activity into NeonDB Logs
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,

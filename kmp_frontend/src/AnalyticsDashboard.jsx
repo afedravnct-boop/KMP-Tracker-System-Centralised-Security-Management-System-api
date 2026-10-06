@@ -1,5 +1,6 @@
+// src/components/AnalyticsDashboard.jsx
 import React, { useState, useMemo, useEffect } from 'react';
-import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart, Clock, Users, Award, MapPin, Zap, CheckCircle2, GitCommit, Network, Loader2, BookOpen, ChevronDown, ChevronRight, Download, Truck } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart, Clock, Users, Award, MapPin, Zap, CheckCircle2, GitCommit, Network, Loader2, BookOpen, ChevronDown, ChevronRight, Download, Truck, Scale } from 'lucide-react';
 import { authFetch, hasValidSession } from './api';
 import { stripHtmlTags } from './App';
 
@@ -53,7 +54,6 @@ const normalizeAnalyticsRank = (rankStr) => {
   return r;
 };
 
-// 🟢 Unit Normalization Engine to eliminate spelling & abbreviation repetitions
 const normalizeUnitName = (rawUnit) => {
   if (!rawUnit) return 'GENERAL DUTIES';
   let clean = String(rawUnit).trim().toUpperCase();
@@ -190,7 +190,7 @@ const AnalyticsDashboard = ({
   const resolvedOperationalStats = operationalStats.length ? operationalStats : (stats.length ? stats : fetchedOps);
   const resolvedExhibits = impoundedExhibits.length ? impoundedExhibits : fetchedExhibits;
 
-  const [activeDomain, setActiveDomain] = useState('CRIME');
+  const [activeDomain, setActiveDomain] = useState('SUCCESS');
   const [metricCategory, setMetricCategory] = useState('CATEGORY');
   const [dateFilter, setDateFilter] = useState('ALL'); 
   
@@ -223,7 +223,7 @@ const AnalyticsDashboard = ({
     }
   }, [canViewGlobalLevel, userRegClean, currentUser]);
 
-  const currentDataset = useMemo(() => {
+  const timeFilteredDataset = useMemo(() => {
     let baseData = [];
     if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') baseData = resolvedCrimeRegistry.filter(r => !isLockupLog(r)); 
     else if (activeDomain === 'MANPOWER_DEEP') baseData = resolvedNominalRolls;
@@ -263,23 +263,79 @@ const AnalyticsDashboard = ({
         const itemDate = new Date(itemDateStr);
         if (isNaN(itemDate)) return true;
 
+        const diffDays = Math.ceil(Math.abs(now - itemDate) / (1000 * 60 * 60 * 24));
         if (dateFilter === 'TODAY' || dateFilter === 'today') return itemDate.toDateString() === now.toDateString();
-        if (dateFilter === 'WEEK' || dateFilter === 'week') {
-          const weekAgo = new Date();
-          weekAgo.setDate(now.getDate() - 7);
-          return itemDate >= weekAgo && itemDate <= now;
-        }
-        if (dateFilter === 'MONTH') return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
-        if (dateFilter === 'YEAR') return itemDate.getFullYear() === now.getFullYear();
+        if (dateFilter === '1DAY') return diffDays <= 1;
+        if (dateFilter === '7DAYS' || dateFilter === 'WEEK' || dateFilter === 'week') return diffDays <= 7;
+        if (dateFilter === '30DAYS' || dateFilter === 'MONTH') return diffDays <= 30;
+        if (dateFilter === '90DAYS') return diffDays <= 90;
+        if (dateFilter === '1YEAR') return diffDays <= 365;
         return true;
       });
     }
     return baseData;
   }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, resolvedExhibits, dateFilter, selectedRegion, selectedStation, canViewGlobalLevel, userRegClean]);
 
+  // Summary Table Aggregates based on active timeframe filter (1 Day to 1 Year)
+  const summaryAggregates = useMemo(() => {
+    const timeFilterFn = (list) => {
+      const now = new Date();
+      return list.filter(item => {
+        const dStr = item.date || item.createdAt || item.timestamp;
+        if (!dStr || dateFilter === 'ALL') return true;
+        const d = new Date(dStr);
+        if (isNaN(d)) return true;
+        const diffDays = Math.ceil(Math.abs(now - d) / (1000 * 60 * 60 * 24));
+        if (dateFilter === 'TODAY') return d.toDateString() === now.toDateString();
+        if (dateFilter === '1DAY') return diffDays <= 1;
+        if (dateFilter === '7DAYS') return diffDays <= 7;
+        if (dateFilter === '30DAYS') return diffDays <= 30;
+        if (dateFilter === '90DAYS') return diffDays <= 90;
+        if (dateFilter === '1YEAR') return diffDays <= 365;
+        return true;
+      });
+    };
+
+    const ops = timeFilterFn(resolvedOperationalStats);
+    const ss = timeFilterFn(resolvedSuccessStories);
+    const cr = timeFilterFn(resolvedCrimeRegistry);
+    const ex = timeFilterFn(resolvedExhibits);
+    const nom = resolvedNominalRolls;
+
+    return {
+      disruptiveOps: ops.length,
+      manpowerTotal: nom.length,
+      successOccasions: ss.length,
+      totalExhibits: ex.length,
+      totalArrests: ops.reduce((acc, curr) => acc + (Number(curr.arrests || curr.suspects) || 0), 0),
+      totalCrimes: cr.length
+    };
+  }, [resolvedOperationalStats, resolvedSuccessStories, resolvedCrimeRegistry, resolvedExhibits, resolvedNominalRolls, dateFilter]);
+
+  // Ops Trends: Week-over-week comparative matrix for Disruptive Ops vs Success Stories vs Crimes
+  const opsTrendsData = useMemo(() => {
+    const weeklyMap = {};
+    const addRecord = (list, type) => {
+      list.forEach(item => {
+        const dStr = item.date || item.createdAt || item.timestamp;
+        if (!dStr) return;
+        const d = new Date(dStr);
+        if (isNaN(d)) return;
+        const weekKey = `${d.getFullYear()}-W${Math.ceil(d.getDate() / 7)}`;
+        if (!weeklyMap[weekKey]) weeklyMap[weekKey] = { week: weekKey, ops: 0, successes: 0, crimes: 0 };
+        weeklyMap[weekKey][type] += 1;
+      });
+    };
+
+    addRecord(resolvedOperationalStats, 'ops');
+    addRecord(resolvedSuccessStories, 'successes');
+    addRecord(resolvedCrimeRegistry, 'crimes');
+
+    return Object.values(weeklyMap).sort((a, b) => a.week.localeCompare(b.week));
+  }, [resolvedOperationalStats, resolvedSuccessStories, resolvedCrimeRegistry]);
+
   const manpowerAnalysis = useMemo(() => {
     const rolls = Array.isArray(resolvedNominalRolls) ? resolvedNominalRolls : [];
-    
     const unitsSet = new Set();
     const reasonsSet = new Set();
     const regionMap = {};
@@ -297,7 +353,6 @@ const AnalyticsDashboard = ({
       const reg = getOfficialRegionForStation(stn, o.region);
 
       const activeTargetRegion = canViewGlobalLevel ? selectedRegion : userRegClean;
-
       if (activeTargetRegion !== 'ALL REGIONS') {
         const belongsToRegion = reg.toUpperCase() === activeTargetRegion.toUpperCase() || 
                                 (o.region && o.region.toUpperCase() === activeTargetRegion.toUpperCase()) ||
@@ -328,48 +383,43 @@ const AnalyticsDashboard = ({
       const isNonDeployable = nonDeployableKeywords.some(keyword => combinedText.includes(keyword));
 
       if (isNonDeployable) {
-          let reason = 'UNSPECIFIED';
-          
-          if (combinedText.includes('MISSION')) reason = 'MISSION';
-          else if (combinedText.includes('MATERNITY')) reason = 'MATERNITY LEAVE';
-          else if (combinedText.includes('SICK') || combinedText.includes('CHRONICALLY')) reason = 'SICK / CHRONICALLY SICK';
-          else if (combinedText.includes('MENTAL')) reason = 'MENTAL HEALTH ISSUE';
-          else if (combinedText.includes('DISABLED')) reason = 'DISABLED';
-          else if (combinedText.includes('COURSE') || combinedText.includes('STUDY')) reason = 'ON COURSE / STUDY LEAVE';
-          else if (combinedText.includes('INTERDICTED')) reason = 'INTERDICTED';
-          else if (combinedText.includes('SUSPENDED')) reason = 'SUSPENDED';
-          else if (combinedText.includes('DISCIPLINARY')) reason = 'DISCIPLINARY COURT';
-          else if (combinedText.includes('AWOL')) reason = 'AWOL';
-          else if (combinedText.includes('ANNUAL') || combinedText.includes('LEAVE')) reason = 'LEAVE';
-          else {
-              reason = statStr || casStr || 'NON-DEPLOYABLE';
-          }
+        let reason = 'UNSPECIFIED';
+        if (combinedText.includes('MISSION')) reason = 'MISSION';
+        else if (combinedText.includes('MATERNITY')) reason = 'MATERNITY LEAVE';
+        else if (combinedText.includes('SICK') || combinedText.includes('CHRONICALLY')) reason = 'SICK / CHRONICALLY SICK';
+        else if (combinedText.includes('MENTAL')) reason = 'MENTAL HEALTH ISSUE';
+        else if (combinedText.includes('DISABLED')) reason = 'DISABLED';
+        else if (combinedText.includes('COURSE') || combinedText.includes('STUDY')) reason = 'ON COURSE / STUDY LEAVE';
+        else if (combinedText.includes('INTERDICTED')) reason = 'INTERDICTED';
+        else if (combinedText.includes('SUSPENDED')) reason = 'SUSPENDED';
+        else if (combinedText.includes('DISCIPLINARY')) reason = 'DISCIPLINARY COURT';
+        else if (combinedText.includes('AWOL')) reason = 'AWOL';
+        else if (combinedText.includes('ANNUAL') || combinedText.includes('LEAVE')) reason = 'LEAVE';
+        else reason = statStr || casStr || 'NON-DEPLOYABLE';
 
-          reasonsSet.add(reason);
-          targetReg.reasons[reason] = (targetReg.reasons[reason] || 0) + 1;
-          targetStn.reasons[reason] = (targetStn.reasons[reason] || 0) + 1;
-          targetReg.totalNonDeployable += 1;
-          targetStn.totalNonDeployable += 1;
-          
-          grandTotals.reasons[reason] = (grandTotals.reasons[reason] || 0) + 1;
-          grandTotals.nonDeployableTotal += 1;
+        reasonsSet.add(reason);
+        targetReg.reasons[reason] = (targetReg.reasons[reason] || 0) + 1;
+        targetStn.reasons[reason] = (targetStn.reasons[reason] || 0) + 1;
+        targetReg.totalNonDeployable += 1;
+        targetStn.totalNonDeployable += 1;
+        
+        grandTotals.reasons[reason] = (grandTotals.reasons[reason] || 0) + 1;
+        grandTotals.nonDeployableTotal += 1;
       } else {
-          let unit = normalizeUnitName(o.section || o.dir || o.unit || 'GD');
-
-          unitsSet.add(unit);
-          targetReg.units[unit] = (targetReg.units[unit] || 0) + 1;
-          targetStn.units[unit] = (targetStn.units[unit] || 0) + 1;
-          targetReg.totalDeployable += 1;
-          targetStn.totalDeployable += 1;
-          
-          grandTotals.units[unit] = (grandTotals.units[unit] || 0) + 1;
-          grandTotals.deployableTotal += 1;
+        let unit = normalizeUnitName(o.section || o.dir || o.unit || 'GD');
+        unitsSet.add(unit);
+        targetReg.units[unit] = (targetReg.units[unit] || 0) + 1;
+        targetStn.units[unit] = (targetStn.units[unit] || 0) + 1;
+        targetReg.totalDeployable += 1;
+        targetStn.totalDeployable += 1;
+        
+        grandTotals.units[unit] = (grandTotals.units[unit] || 0) + 1;
+        grandTotals.deployableTotal += 1;
       }
     });
 
     const uniqueUnits = Array.from(unitsSet).sort();
     const uniqueReasons = Array.from(reasonsSet).sort();
-
     const rows = Object.values(regionMap).filter(r => r.totalDeployable > 0 || r.totalNonDeployable > 0).map(item => ({
       ...item,
       stationList: Object.values(item.stations).filter(s => s.totalDeployable > 0 || s.totalNonDeployable > 0).sort((a,b) => a.station.localeCompare(b.station))
@@ -380,46 +430,37 @@ const AnalyticsDashboard = ({
 
   const aggregatedData = useMemo(() => {
     const grouped = {};
-    currentDataset.forEach(item => {
+    timeFilteredDataset.forEach(item => {
       let key = 'UNCLASSIFIED';
-      if (activeDomain === 'CRIME') {
+      if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') {
         if (metricCategory === 'CATEGORY') key = normalizeOffenceCategory(item.crime_category || item.offence || 'GENERAL CRIME');
         else if (metricCategory === 'CASES') key = (item.status || 'PENDING').toUpperCase();
         else if (metricCategory === 'STATION') key = (item.station || 'UNKNOWN STATION').toUpperCase();
       } else if (activeDomain === 'SUCCESS') {
-        key = (item.impact_type || item.category || 'COMMUNITY RECOVERY').toUpperCase();
+        key = (item.legal_status || item.impact_type || item.category || 'UNDER INVESTIGATION').toUpperCase();
       } else if (activeDomain === 'OPERATIONS') {
         key = (item.operation_type || item.outcome || item.category || 'SNAP OPERATION / DISRUPTIVE SWEEP').toUpperCase();
       } else if (activeDomain === 'EXHIBITS') {
         key = (item.status || 'UNSPECIFIED STATUS').toUpperCase();
-      } else if (metricCategory === 'RANK') {
-        key = normalizeAnalyticsRank(item.rank);
       }
-
       if (!grouped[key]) grouped[key] = { label: key, count: 0 };
       grouped[key].count += 1;
     });
-
     return Object.values(grouped).sort((a, b) => b.count - a.count);
-  }, [currentDataset, activeDomain, metricCategory]);
+  }, [timeFilteredDataset, activeDomain, metricCategory]);
 
   const crimeSummaryData = useMemo(() => {
     const crimeCounts = {};
-    currentDataset.forEach(report => {
+    timeFilteredDataset.forEach(report => {
       const crimeName = report.offence || report.crime_category || "Unspecified";
-      if (crimeCounts[crimeName]) {
-        crimeCounts[crimeName] += 1;
-      } else {
-        crimeCounts[crimeName] = 1;
-      }
+      crimeCounts[crimeName] = (crimeCounts[crimeName] || 0) + 1;
     });
-
     return Object.keys(crimeCounts).map((crimeName, index) => ({
       sn: index + 1,
       incident: crimeName,
       total: crimeCounts[crimeName]
     })).sort((a, b) => b.total - a.total);
-  }, [currentDataset]);
+  }, [timeFilteredDataset]);
 
   const totalRecords = useMemo(() => aggregatedData.reduce((acc, curr) => acc + curr.count, 0), [aggregatedData]);
   const crimeSummaryGrandTotal = useMemo(() => crimeSummaryData.reduce((sum, item) => sum + item.total, 0), [crimeSummaryData]);
@@ -442,200 +483,17 @@ const AnalyticsDashboard = ({
     });
   }, [aggregatedData, totalRecords]);
 
-  const getWeekIdentifier = (dateStr) => {
-    if (!dateStr) return null;
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return null;
-    const target = new Date(d.valueOf());
-    const dayNr = (d.getDay() + 6) % 7;
-    target.setDate(target.getDate() - dayNr + 3);
-    const firstThursday = new Date(target.getFullYear(), 0, 4);
-    const weekNr = Math.ceil((((target - firstThursday) / 86400000) + 1) / 7);
-    return `${target.getFullYear()}-W${String(weekNr).padStart(2, '0')}`;
-  };
-
-  const relationalImpactMatrix = useMemo(() => {
-    const reports = Array.isArray(resolvedCrimeRegistry) ? resolvedCrimeRegistry.filter(r => !isLockupLog(r)) : [];
-    const ops = Array.isArray(resolvedOperationalStats) ? resolvedOperationalStats : [];
-    const successes = Array.isArray(resolvedSuccessStories) ? resolvedSuccessStories : [];
-    const exhibitsList = Array.isArray(resolvedExhibits) ? resolvedExhibits : [];
-
-    const regionMap = {};
-
-    Object.keys(REGIONAL_HIERARCHY).forEach(reg => {
-      regionMap[reg] = { region: reg, stations: {}, totalArrests: 0, totalSuccesses: 0, crimeCount: 0, totalExhibits: 0 };
-      REGIONAL_HIERARCHY[reg].forEach(stn => {
-        regionMap[reg].stations[stn] = { station: stn, arrests: 0, successes: 0, crimes: 0, exhibits: 0 };
-      });
-    });
-
-    ops.forEach(o => {
-      let stn = stripHtmlTags(o.station || '').trim().toUpperCase();
-      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
-
-      const reg = getOfficialRegionForStation(stn, o.region);
-      const arrestsCount = Number(o.arrests || o.suspects || o.suspects_arrested || 1);
-      
-      if (regionMap[reg] && regionMap[reg].stations[stn]) {
-        regionMap[reg].stations[stn].arrests += arrestsCount;
-        regionMap[reg].totalArrests += arrestsCount;
-      }
-    });
-
-    successes.forEach(s => {
-      let stn = stripHtmlTags(s.station || '').trim().toUpperCase();
-      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
-
-      const reg = getOfficialRegionForStation(stn, s.region);
-      if (regionMap[reg] && regionMap[reg].stations[stn]) {
-        regionMap[reg].stations[stn].successes += 1;
-        regionMap[reg].totalSuccesses += 1;
-      }
-    });
-
-    reports.forEach(r => {
-      let stn = stripHtmlTags(r.station || '').trim().toUpperCase();
-      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
-
-      const reg = getOfficialRegionForStation(stn, r.region);
-      if (regionMap[reg] && regionMap[reg].stations[stn]) {
-        regionMap[reg].stations[stn].crimes += 1;
-        regionMap[reg].crimeCount += 1;
-      }
-    });
-
-    exhibitsList.forEach(e => {
-      let stn = stripHtmlTags(e.station || '').trim().toUpperCase();
-      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
-
-      const reg = getOfficialRegionForStation(stn, e.region);
-      if (regionMap[reg] && regionMap[reg].stations[stn]) {
-        regionMap[reg].stations[stn].exhibits += 1;
-        regionMap[reg].totalExhibits += 1;
-      }
-    });
-
-    const rows = [];
-    Object.values(regionMap).forEach(regObj => {
-      const activeTargetRegion = canViewGlobalLevel ? selectedRegion : userRegClean;
-      if (activeTargetRegion !== 'ALL REGIONS' && regObj.region.toUpperCase() !== activeTargetRegion.toUpperCase()) return;
-
-      let hasMatchingStation = false;
-      const stationRows = [];
-
-      Object.values(regObj.stations).forEach(stnObj => {
-        if (selectedStation !== 'ALL STATIONS' && !isStationEquivalent(stnObj.station, selectedStation)) return;
-        
-        if (stnObj.arrests > 0 || stnObj.successes > 0 || stnObj.crimes > 0 || stnObj.exhibits > 0) {
-          hasMatchingStation = true;
-          stationRows.push({
-            isRegionHeader: false,
-            region: regObj.region,
-            station: stnObj.station,
-            arrests: stnObj.arrests,
-            successes: stnObj.successes,
-            crimes: stnObj.crimes,
-            exhibits: stnObj.exhibits,
-            disruptionRating: (stnObj.arrests + stnObj.exhibits) >= stnObj.crimes ? 'POSITIVE IMPACT (CRIME SUPPRESSED)' : 'ACTIVE SWEEP'
-          });
-        }
-      });
-
-      if (hasMatchingStation || selectedStation === 'ALL STATIONS') {
-        rows.push({
-          isRegionHeader: true,
-          region: regObj.region,
-          station: `${regObj.region} (REGIONAL COMMAND)`,
-          arrests: regObj.totalArrests,
-          successes: regObj.totalSuccesses,
-          crimes: regObj.crimeCount,
-          exhibits: regObj.totalExhibits,
-          disruptionRating: regObj.totalArrests > 10 ? 'HIGH DISRUPTION' : 'MODERATE'
-        });
-        rows.push(...stationRows);
-      }
-    });
-
-    return rows;
-  }, [resolvedCrimeRegistry, resolvedOperationalStats, resolvedSuccessStories, resolvedExhibits, selectedRegion, selectedStation, canViewGlobalLevel, userRegClean]);
-
-  const operationsTrendsData = useMemo(() => {
-    const ops = Array.isArray(resolvedOperationalStats) ? resolvedOperationalStats : [];
-    const stationWeeks = {};
-    const allWeeksSet = new Set();
-
-    ops.forEach(o => {
-      let stn = stripHtmlTags(o.station || '').trim().toUpperCase();
-      if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
-
-      const reg = getOfficialRegionForStation(stn, o.region);
-      const activeTargetRegion = canViewGlobalLevel ? selectedRegion : userRegClean;
-
-      if (activeTargetRegion !== 'ALL REGIONS' && reg.toUpperCase() !== activeTargetRegion.toUpperCase()) return;
-      if (selectedStation !== 'ALL STATIONS' && !isStationEquivalent(stn, selectedStation)) return;
-
-      const weekId = getWeekIdentifier(o.date || o.timestamp);
-      if (!weekId) return;
-      allWeeksSet.add(weekId);
-
-      if (!stationWeeks[stn]) stationWeeks[stn] = { region: reg, station: stn, weeks: {} };
-      if (!stationWeeks[stn].weeks[weekId]) stationWeeks[stn].weeks[weekId] = { arrests: 0, opsCount: 0 };
-      
-      stationWeeks[stn].weeks[weekId].arrests += Number(o.arrests || o.suspects || 1);
-      stationWeeks[stn].weeks[weekId].opsCount += 1;
-    });
-
-    const sortedWeeks = Array.from(allWeeksSet).sort();
-    const currentWeek = sortedWeeks[sortedWeeks.length - 1] || 'N/A';
-    const previousWeek = sortedWeeks[sortedWeeks.length - 2] || 'N/A';
-
-    const rows = Object.values(stationWeeks).map(item => {
-      const cur = item.weeks[currentWeek] || { arrests: 0, opsCount: 0 };
-      const prev = item.weeks[previousWeek] || { arrests: 0, opsCount: 0 };
-      const diffArrests = cur.arrests - prev.arrests;
-
-      return {
-        region: item.region,
-        station: item.station,
-        currentArrests: cur.arrests,
-        previousArrests: prev.arrests,
-        diffArrests
-      };
-    });
-
-    return { rows: rows.sort((a, b) => b.currentArrests - a.currentArrests), currentWeek, previousWeek };
-  }, [resolvedOperationalStats, selectedRegion, selectedStation, canViewGlobalLevel, userRegClean]);
-
   const handleExportExcel = async () => {
     try {
       const response = await authFetch('/api/v1/analytics/export'); 
       if (!response.ok) throw new Error("Failed to securely generate the report.");
-
       const blob = await response.blob();
-      
-      let finalFilename = 'SECURE_RELATIONAL_REPORT.zip'; 
-      const disposition = response.headers.get('content-disposition');
-      
-      if (disposition && disposition.indexOf('attachment') !== -1) {
-        const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
-        const matches = filenameRegex.exec(disposition);
-        if (matches != null && matches[1]) {
-          finalFilename = matches[1].replace(/['"]/g, ''); 
-        }
-      }
-
       const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      
-      link.setAttribute('download', finalFilename); 
-      
-      document.body.appendChild(link);
-      link.click();
-      link.parentNode.removeChild(link);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'SECURE_ANALYTICS_REPORT.zip';
+      a.click();
       window.URL.revokeObjectURL(url);
-      
-      alert(`🔒 Secure report generated. Use your Force Number to decrypt the ZIP archive.`);
     } catch (error) {
       alert(`Export Failed: ${error.message}`);
     }
@@ -648,7 +506,7 @@ const AnalyticsDashboard = ({
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#fbf8f3] px-4 py-2.5 rounded-xl shadow-xs border border-[#e2d6c3] gap-2">
         <div>
           <h1 className="text-lg font-extrabold text-[#3a3225] tracking-tight">KMP Relational Operations & Intelligence Dashboard</h1>
-          <p className="text-[11px] text-[#736450] font-medium">Tracking the dependency matrix: Disruptive Snap Operations ➔ Information Acquisition ➔ Asset Recovery & Gang Dismantling.</p>
+          <p className="text-[11px] text-[#736450] font-medium">Tracking success stories, open-ended property recoveries, suspect legal status, and multi-week operational trends.</p>
         </div>
         <button onClick={handleExportExcel} className="bg-[#596E47] hover:bg-[#4A5D4E] text-white px-3 py-1.5 rounded-lg font-bold text-[11px] shadow-xs transition flex items-center space-x-1.5 cursor-pointer shrink-0">
           <Download size={14} className="mr-1" />
@@ -666,7 +524,6 @@ const AnalyticsDashboard = ({
       <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-1.5">
         {[
           { id: 'OPERATIONS', label: '⚡ Disruptive Ops' },
-          { id: 'RELATIONAL', label: '🔗 Relational Matrix' },
           { id: 'MANPOWER_DEEP', label: '🛡️ Manpower Analysis' },
           { id: 'SUCCESS', label: '🌟 Success Stories' },
           { id: 'EXHIBITS', label: '🚚 Exhibits' },
@@ -697,7 +554,7 @@ const AnalyticsDashboard = ({
             value={selectedRegion} 
             onChange={(e) => { if (canViewGlobalLevel) { setSelectedRegion(e.target.value); setSelectedStation('ALL STATIONS'); } }}
             disabled={!canViewGlobalLevel}
-            className="border border-[#e2d6c3] rounded-md px-2 py-1 text-[11px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer disabled:bg-[#f4eee2] disabled:text-[#736450] disabled:opacity-90"
+            className="border border-[#e2d6c3] rounded-md px-2 py-1 text-[11px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer disabled:bg-[#f4eee2] disabled:text-[#736450]"
           >
             {canViewGlobalLevel ? (
               <>
@@ -707,7 +564,7 @@ const AnalyticsDashboard = ({
                 ))}
               </>
             ) : (
-              <option value={userRegClean}>{userRegClean} (LOCKED REGIONAL COMMAND)</option>
+              <option value={userRegClean}>{userRegClean} (LOCKED)</option>
             )}
           </select>
 
@@ -724,35 +581,34 @@ const AnalyticsDashboard = ({
             ) : null}
           </select>
 
-          {activeDomain !== 'RELATIONAL' && activeDomain !== 'MANPOWER_DEEP' && (
-            <select 
-              value={dateFilter} 
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="border border-[#e2d6c3] rounded-md px-2 py-1 text-[11px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer"
-            >
-              <option value="ALL">All Time</option>
-              <option value="TODAY">Today Only</option>
-              <option value="WEEK">This Week (Last 7 Days)</option>
-              <option value="MONTH">This Month</option>
-              <option value="YEAR">This Year</option>
-            </select>
-          )}
+          <select 
+            value={dateFilter} 
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="border border-[#e2d6c3] rounded-md px-2 py-1 text-[11px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer"
+          >
+            <option value="ALL">All Time</option>
+            <option value="1DAY">Last 1 Day</option>
+            <option value="7DAYS">Last 7 Days (1 Week)</option>
+            <option value="30DAYS">Last 30 Days (1 Month)</option>
+            <option value="90DAYS">Last 90 Days (3 Months)</option>
+            <option value="1YEAR">Last 365 Days (1 Year)</option>
+          </select>
         </div>
 
         <span className="text-[11px] font-extrabold text-[#596E47] bg-[#e9eedf] px-2 py-0.5 rounded border border-[#cfe1b9]">
-          Total: {activeDomain === 'RELATIONAL' ? relationalImpactMatrix.length : activeDomain === 'MANPOWER_DEEP' ? manpowerAnalysis.rows.length : activeDomain === 'CRIME_SUMMARY' ? crimeSummaryGrandTotal : totalRecords}
+          Total: {activeDomain === 'MANPOWER_DEEP' ? manpowerAnalysis.rows.length : activeDomain === 'CRIME_SUMMARY' ? crimeSummaryGrandTotal : timeFilteredDataset.length}
         </span>
       </div>
 
-      {/* Main View Area */}
-      {activeDomain === 'RELATIONAL' ? (
+      {/* SUCCESS STORIES TAB */}
+      {activeDomain === 'SUCCESS' && (
         <div className="space-y-3 pb-12">
           <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
             <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Network className="mr-2 text-[#C5A880] w-4 h-4" /> Operations ➔ Intelligence ➔ Crime Suppression Dependency Matrix
+              <Award className="mr-2 text-[#C5A880] w-4 h-4" /> Success Stories & Breakthrough Analytics
             </h2>
             <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
-              Demonstrating operational impact: Snap sweeps in crime hotspots generate arrests, secure impounded exhibits, and suppress active crimes.
+              Listing suspects arrested, open-ended recovered properties (phones, shoes, chairs, tables, money, computers, livestock, produce, etc.), and suspect legal status.
             </p>
           </div>
 
@@ -761,51 +617,116 @@ const AnalyticsDashboard = ({
               <table className="min-w-full divide-y divide-[#e2d6c3]">
                 <thead className="bg-[#efece6]">
                   <tr>
-                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Command Region</th>
-                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Station / Hotspot Division</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Snap Arrests</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Recoveries</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Impounds</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Active Crime</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Impact Status</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Station / Region</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Suspects Arrested</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Recovered Properties (Endless Items / Quantities)</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Suspect Legal Status</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Operational Highlight / Narrative</th>
                   </tr>
                 </thead>
                 <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
-                  {relationalImpactMatrix.map((row, index) => {
-                    if (row.isRegionHeader) {
-                      return (
-                        <tr key={`reg-${index}`} className="bg-[#efece6] font-extrabold text-[#3a3225] border-t border-[#d3c2a8]">
-                          <td className="px-3 py-2 text-[11px] uppercase tracking-wider" colSpan="2">🛡️ {row.station}</td>
-                          <td className="px-3 py-2 text-center font-black text-[#596E47] text-[11px]">{row.arrests} Arrests</td>
-                          <td className="px-3 py-2 text-center font-black text-amber-800 text-[11px]">{row.successes} Breakthroughs</td>
-                          <td className="px-3 py-2 text-center font-black text-teal-800 text-[11px]">{row.exhibits} Impounds</td>
-                          <td className="px-3 py-2 text-center font-bold text-[11px]">{row.crimes} Crimes</td>
-                          <td className="px-3 py-2 text-center">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#3a3225] text-[#f4eee2]">{row.disruptionRating}</span>
-                          </td>
-                        </tr>
-                      );
-                    }
-                    return (
-                      <tr key={`stn-${index}`} className="hover:bg-[#e9eedf]/30">
-                        <td className="px-3 py-1.5 pl-6 text-[11px] font-bold text-[#736450] uppercase">{row.region}</td>
-                        <td className="px-3 py-1.5 text-[11px] font-bold text-[#594d3c]">— {row.station}</td>
-                        <td className="px-3 py-1.5 text-[11px] text-center font-bold text-[#596E47]">{row.arrests}</td>
-                        <td className="px-3 py-1.5 text-[11px] text-center font-bold text-amber-800">{row.successes}</td>
-                        <td className="px-3 py-1.5 text-[11px] text-center font-bold text-teal-700">{row.exhibits}</td>
-                        <td className="px-3 py-1.5 text-[11px] text-center font-bold text-[#3a3225]">{row.crimes}</td>
-                        <td className="px-3 py-1.5 text-center text-[11px]">
-                          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${row.disruptionRating.includes('POSITIVE') ? 'bg-[#e9eedf] text-[#3b4c2e]' : 'bg-slate-200 text-slate-700'}`}>{row.disruptionRating}</span>
+                  {timeFilteredDataset.length > 0 ? (
+                    timeFilteredDataset.map((st, idx) => (
+                      <tr key={idx} className="hover:bg-[#e9eedf]/30">
+                        <td className="px-3 py-2 text-[11px] font-bold text-[#3a3225]">
+                          {st.station}<br/><span className="text-[10px] text-[#736450]">{st.region}</span>
                         </td>
+                        <td className="px-3 py-2 text-center font-bold text-[#596E47] text-[11px]">{st.suspects_arrested || st.suspects_arrested_count || 0}</td>
+                        <td className="px-3 py-2 text-[11px] text-[#594d3c] font-medium">
+                          {st.suspected_stolen_properties_recovered || st.property_recovered || 'None recorded'}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-[#3a3225] text-[#f4eee2] uppercase">
+                            {st.legal_status || 'UNDER INVESTIGATION'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-[11px] text-[#3a3225]" dangerouslySetInnerHTML={{ __html: st.narrative }} />
                       </tr>
-                    );
-                  })}
+                    ))
+                  ) : (
+                    <tr><td colSpan="5" className="text-center py-6 text-[11px] text-[#736450]">No success stories found matching your filter criteria.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         </div>
-      ) : activeDomain === 'MANPOWER_DEEP' ? (
+      )}
+
+      {/* SUMMARY TABLE TAB */}
+      {activeDomain === 'CRIME_SUMMARY' && (
+        <div className="space-y-3 pb-24">
+          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
+            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <BarChart3 className="mr-2 text-[#C5A880] w-4 h-4" /> Master Summary Table (Aggregated Metrics)
+            </h2>
+            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
+              Summarizing disruptive operations, manpower, success occasions, and exhibits as per the selected timeframe (1 day to 1 year).
+            </p>
+          </div>
+
+          <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden max-w-2xl mx-auto">
+            <table className="min-w-full divide-y divide-[#e2d6c3]">
+              <thead className="bg-[#efece6]">
+                <tr>
+                  <th className="px-4 py-2.5 text-left text-[11px] font-bold text-[#594d3c] uppercase">Operational Metric Attribute</th>
+                  <th className="px-4 py-2.5 text-right text-[11px] font-bold text-[#594d3c] uppercase">Aggregate Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#e2d6c3]">
+                <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225]">Total Disruptive Operations Registered</td><td className="px-4 py-2 text-right font-black text-[#596E47] text-xs">{summaryAggregates.disruptiveOps}</td></tr>
+                <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225]">Force-Wide Manpower (Nominal Roll)</td><td className="px-4 py-2 text-right font-black text-[#3a3225] text-xs">{summaryAggregates.manpowerTotal}</td></tr>
+                <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225]">Total Success Occasions / Breakthroughs</td><td className="px-4 py-2 text-right font-black text-amber-800 text-xs">{summaryAggregates.successOccasions}</td></tr>
+                <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225]">Total Impounded Exhibits Tracked</td><td className="px-4 py-2 text-right font-black text-teal-800 text-xs">{summaryAggregates.totalExhibits}</td></tr>
+                <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225]">Total Suspects Arrested (Ops)</td><td className="px-4 py-2 text-right font-black text-[#596E47] text-xs">{summaryAggregates.totalArrests}</td></tr>
+                <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225]">Total Crime Incidents Recorded</td><td className="px-4 py-2 text-right font-black text-[#3a3225] text-xs">{summaryAggregates.totalCrimes}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* OPS TRENDS TAB */}
+      {activeDomain === 'TRENDS' && (
+        <div className="space-y-3 pb-12">
+          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm flex justify-between items-center">
+            <div>
+              <h2 className="text-sm font-extrabold">Operational Trends & Comparative Matrix</h2>
+              <p className="text-[11px] text-[#b8ab97] mt-0.5">Week-over-week comparison of disruptive operations vs. success stories vs. crime reports.</p>
+            </div>
+          </div>
+
+          <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
+            <table className="min-w-full divide-y divide-[#e2d6c3]">
+              <thead className="bg-[#efece6]">
+                <tr>
+                  <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Period (Week Identifier)</th>
+                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Disruptive Operations</th>
+                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Success Stories</th>
+                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Crime Incidents</th>
+                </tr>
+              </thead>
+              <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
+                {opsTrendsData.length > 0 ? (
+                  opsTrendsData.map((row, idx) => (
+                    <tr key={idx} className="hover:bg-[#e9eedf]/30">
+                      <td className="px-3 py-2 text-[11px] font-bold text-[#3a3225]">{row.week}</td>
+                      <td className="px-3 py-2 text-center text-[11px] font-extrabold text-[#596E47]">{row.ops}</td>
+                      <td className="px-3 py-2 text-center text-[11px] font-extrabold text-amber-800">{row.successes}</td>
+                      <td className="px-3 py-2 text-center text-[11px] font-extrabold text-[#3a3225]">{row.crimes}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr><td colSpan="4" className="text-center py-6 text-[11px] text-[#736450]">No temporal trend data available for the selected filters.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MANPOWER ANALYSIS TAB */}
+      {activeDomain === 'MANPOWER_DEEP' && (
         <div className="space-y-6 pb-12">
           <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
             <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
@@ -816,7 +737,6 @@ const AnalyticsDashboard = ({
             </p>
           </div>
 
-          {/* DEPLOYABLE PERSONNEL (UNITS) TABLE */}
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
              <div className="bg-[#efece6] px-4 py-2 border-b border-[#d3c2a8] flex items-center justify-between">
                 <h3 className="text-xs font-black text-[#3a3225] uppercase">General Summary (Deployable Personnel)</h3>
@@ -876,218 +796,6 @@ const AnalyticsDashboard = ({
                   </tfoot>
                </table>
              </div>
-          </div>
-
-          {/* NON-DEPLOYABLE PERSONNEL (CASUALTIES) TABLE */}
-          <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-             <div className="bg-[#efece6] px-4 py-2 border-b border-[#d3c2a8] flex items-center justify-between">
-                <h3 className="text-xs font-black text-amber-900 uppercase">Consolidated Casualty / Non-Deployables Summary</h3>
-                <span className="text-[10px] font-extrabold text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-200">
-                  Total Casualties: {manpowerAnalysis.grandTotals.nonDeployableTotal}
-                </span>
-             </div>
-             <div className="overflow-x-auto w-full custom-scrollbar">
-               <table className="min-w-full divide-y divide-[#e2d6c3]">
-                  <thead className="bg-[#efece6]">
-                     <tr>
-                       <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase sticky left-0 bg-[#efece6] z-10 w-48 shadow-[1px_0_0_#d3c2a8]">Command Region / Station</th>
-                       {manpowerAnalysis.uniqueReasons.map(r => (
-                          <th key={r} className="px-2 py-2 text-center text-[10px] font-bold text-amber-800 uppercase border-l border-[#e2d6c3]/50">{r}</th>
-                       ))}
-                       <th className="px-3 py-2 text-center text-[11px] font-bold text-[#3a3225] uppercase border-l border-[#e2d6c3] shadow-inner">Total</th>
-                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#e2d6c3]">
-                     {manpowerAnalysis.rows.map(reg => {
-                        const isExpanded = !!expandedManpowerRegions[reg.region];
-                        return (
-                          <React.Fragment key={reg.region}>
-                            <tr onClick={() => toggleManpowerRegion(reg.region)} className="bg-[#efece6]/50 hover:bg-[#e9eedf]/50 cursor-pointer transition-colors border-t border-[#d3c2a8] select-none">
-                               <td className="px-3 py-2 text-[11px] font-extrabold text-[#3a3225] uppercase flex items-center space-x-1.5 sticky left-0 bg-[#efece6]/50 shadow-[1px_0_0_#d3c2a8]">
-                                  <span className="text-amber-700">{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
-                                  <span>{reg.region}</span>
-                               </td>
-                               {manpowerAnalysis.uniqueReasons.map(r => (
-                                  <td key={r} className="px-2 py-2 text-[11px] text-center font-bold text-amber-700 border-l border-[#e2d6c3]/50 bg-white/30">{reg.reasons[r] || ''}</td>
-                               ))}
-                               <td className="px-3 py-2 text-[11px] text-center font-black text-amber-900 border-l border-[#e2d6c3] bg-white/30">{reg.totalNonDeployable}</td>
-                            </tr>
-                            {isExpanded && reg.stationList.map((stn, sIdx) => (
-                               <tr key={`non-${sIdx}`} className="bg-white hover:bg-[#f7f3eb] transition-colors">
-                                  <td className="px-3 py-1.5 pl-7 text-[10px] font-semibold text-[#594d3c] uppercase sticky left-0 bg-white shadow-[1px_0_0_#e2d6c3]">
-                                      — {stn.station}
-                                  </td>
-                                  {manpowerAnalysis.uniqueReasons.map(r => (
-                                     <td key={r} className="px-2 py-1.5 text-[10px] text-center font-medium text-slate-700 border-l border-[#e2d6c3]/50">{stn.reasons[r] || ''}</td>
-                                  ))}
-                                  <td className="px-3 py-1.5 text-[10px] text-center font-bold text-amber-800 border-l border-[#e2d6c3] bg-[#fbf8f3]">{stn.totalNonDeployable || ''}</td>
-                               </tr>
-                            ))}
-                          </React.Fragment>
-                        );
-                     })}
-                  </tbody>
-                  <tfoot className="bg-[#efece6] border-t-2 border-[#d3c2a8]">
-                     <tr className="font-extrabold text-[#3a3225]">
-                       <td className="px-3 py-2.5 text-[11px] uppercase tracking-wider sticky left-0 bg-[#efece6] shadow-[1px_0_0_#d3c2a8]">CASUALTY GRAND TOTAL</td>
-                       {manpowerAnalysis.uniqueReasons.map(r => (
-                          <td key={r} className="px-2 py-2.5 text-[11px] text-center border-l border-[#d3c2a8] bg-white/40 text-amber-800">{manpowerAnalysis.grandTotals.reasons[r] || ''}</td>
-                       ))}
-                       <td className="px-3 py-2.5 text-[11px] text-center font-black text-amber-900 border-l border-[#d3c2a8] bg-amber-50">{manpowerAnalysis.grandTotals.nonDeployableTotal}</td>
-                     </tr>
-                  </tfoot>
-               </table>
-             </div>
-          </div>
-        </div>
-      ) : activeDomain === 'TRENDS' ? (
-        <div className="space-y-3 pb-12">
-          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm flex justify-between items-center">
-            <div>
-              <h2 className="text-sm font-extrabold">Week-to-Week Disruptive Operations & Arrest Trends</h2>
-              <p className="text-[11px] text-[#b8ab97] mt-0.5">Comparing snap sweeps ({operationsTrendsData.previousWeek} vs {operationsTrendsData.currentWeek})</p>
-            </div>
-          </div>
-
-          <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-            <table className="min-w-full divide-y divide-[#e2d6c3]">
-              <thead className="bg-[#efece6]">
-                <tr>
-                  <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Region</th>
-                  <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Station / Post</th>
-                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Previous Arrests</th>
-                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Current Arrests</th>
-                  <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Arrests Variance</th>
-                </tr>
-              </thead>
-              <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
-                {operationsTrendsData.rows.map((row, index) => (
-                  <tr key={index} className="hover:bg-[#e9eedf]/30">
-                    <td className="px-3 py-1.5 text-[11px] font-bold text-[#736450] uppercase">{row.region}</td>
-                    <td className="px-3 py-1.5 text-[11px] font-bold text-[#3a3225]">{row.station}</td>
-                    <td className="px-3 py-1.5 text-[11px] text-center">{row.previousArrests}</td>
-                    <td className="px-3 py-1.5 text-[11px] text-center font-bold text-[#596E47]">{row.currentArrests}</td>
-                    <td className={`px-3 py-1.5 text-[11px] text-center font-extrabold ${row.diffArrests >= 0 ? 'text-[#596E47]' : 'text-amber-800'}`}>
-                      {row.diffArrests > 0 ? `+${row.diffArrests}` : row.diffArrests}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : activeDomain === 'CRIME_SUMMARY' ? (
-        <div className="space-y-3 pb-24">
-          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
-            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <BarChart3 className="mr-2 text-[#C5A880] w-4 h-4" /> Standalone Crime Incident Summary Table
-            </h2>
-            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
-              Consolidated frequency count of crime incidents recorded across selected jurisdictions.
-            </p>
-          </div>
-
-          <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-            <table className="min-w-full divide-y divide-[#e2d6c3]">
-              <thead className="bg-[#3a3225]">
-                <tr>
-                  <th className="px-3 py-2 text-left text-[11px] font-bold text-[#f4eee2] uppercase tracking-wider w-12">SN</th>
-                  <th className="px-3 py-2 text-left text-[11px] font-bold text-[#f4eee2] uppercase tracking-wider">Incident / Offence</th>
-                  <th className="px-3 py-2 text-right text-[11px] font-bold text-[#f4eee2] uppercase tracking-wider">Total Reported</th>
-                </tr>
-              </thead>
-              <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
-                {crimeSummaryData.length > 0 ? (
-                  crimeSummaryData.map((row) => (
-                    <tr key={row.sn} className="hover:bg-[#e9eedf]/40 transition-colors">
-                      <td className="px-3 py-1.5 text-[11px] font-bold text-[#736450]">{row.sn}</td>
-                      <td className="px-3 py-1.5 text-[11px] font-bold text-[#3a3225] uppercase">{row.incident}</td>
-                      <td className="px-3 py-1.5 text-[11px] font-extrabold text-[#596E47] text-right">{row.total}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="3" className="px-3 py-4 text-center text-[11px] text-[#736450] font-medium">
-                      No crimes reported for these specific filters.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-              {crimeSummaryData.length > 0 && (
-                <tfoot className="bg-[#efece6] border-t-2 border-[#d3c2a8]">
-                  <tr>
-                    <td colSpan="2" className="px-3 py-2 text-right text-[11px] font-extrabold text-[#3a3225] uppercase">
-                      Grand Total
-                    </td>
-                    <td className="px-3 py-2 text-right text-xs font-extrabold text-amber-800">
-                      {crimeSummaryGrandTotal}
-                    </td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3 pb-12">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            
-            <div className="bg-[#fbf8f3] p-3.5 rounded-xl shadow-xs border border-[#e2d6c3] flex flex-col items-center justify-between">
-              <h3 className="text-xs font-bold text-[#3a3225] uppercase tracking-wide w-full text-left mb-2 flex items-center">
-                <PieChart size={14} className="mr-1.5 text-[#596E47]" /> Proportional Share
-              </h3>
-              
-              <div className="relative w-36 h-36 my-1">
-                {totalRecords > 0 ? (
-                  <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90 drop-shadow-xs">
-                    {pieSlices.map((slice, idx) => (
-                      <path key={idx} d={slice.pathData} fill={slice.color} className="transition-all duration-300 hover:opacity-80 cursor-pointer" />
-                    ))}
-                  </svg>
-                ) : (
-                  <div className="w-full h-full rounded-full border-2 border-dashed border-[#e2d6c3] flex items-center justify-center text-[10px] text-[#736450] font-bold">No Data</div>
-                )}
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-[10px] text-[#736450] font-bold uppercase">Total</span>
-                  <span className="text-sm font-extrabold text-[#3a3225]">{totalRecords}</span>
-                </div>
-              </div>
-
-              <div className="w-full mt-2 max-h-28 overflow-y-auto custom-scrollbar space-y-1 pr-1 border-t border-[#e2d6c3] pt-2">
-                {pieSlices.map((slice, idx) => (
-                  <div key={idx} className="flex items-center justify-between text-[11px] font-bold text-[#594d3c] px-2 py-1 bg-[#f4eee2] rounded border border-[#e2d6c3]/50">
-                    <div className="flex items-center space-x-1.5 truncate">
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: slice.color }}></span>
-                      <span className="truncate uppercase">{slice.label}</span>
-                    </div>
-                    <span className="text-[#736450] font-mono shrink-0 ml-2">{slice.count} ({slice.percent}%)</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-[#fbf8f3] p-3.5 rounded-xl shadow-xs border border-[#e2d6c3] space-y-2">
-              <h3 className="text-xs font-bold text-[#3a3225] uppercase tracking-wide flex items-center">
-                <BarChart3 size={14} className="mr-1.5 text-[#596E47]" /> Comparative Distribution & Volume
-              </h3>
-              <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1 custom-scrollbar">
-                {aggregatedData.map((item, idx) => {
-                  const percentage = totalRecords > 0 ? (item.count / totalRecords) * 100 : 0;
-                  return (
-                    <div key={idx} className="space-y-0.5">
-                      <div className="flex justify-between text-[11px] font-bold text-[#594d3c]">
-                        <span className="truncate pr-2 uppercase">{item.label}</span>
-                        <span className="text-[#596E47] shrink-0">{item.count} ({percentage.toFixed(1)}%)</span>
-                      </div>
-                      <div className="w-full bg-[#efece6] h-2 rounded-full overflow-hidden shadow-inner">
-                        <div className="bg-[#596E47] h-full rounded-full transition-all duration-500" style={{ width: `${Math.max(percentage, 2)}%` }}></div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
           </div>
         </div>
       )}

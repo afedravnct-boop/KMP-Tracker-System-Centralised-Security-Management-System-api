@@ -1,6 +1,6 @@
 // src/components/SuccessStories.jsx
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X, Filter, FileText, ChevronDown, ChevronUp, Shield } from 'lucide-react';
+import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X, Filter, FileText, ChevronDown, ChevronUp, Shield, Sprout } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { authFetch } from './api';
@@ -126,6 +126,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState((canViewGlobalActive || isRegionalCommand) ? 'ALL STATIONS' : userStnClean);
+  const [categoryFilter, setCategoryFilter] = useState('ALL CATEGORIES');
 
   const isFilterInitialized = useRef(false);
   useEffect(() => {
@@ -158,7 +159,8 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     station: canViewGlobalActive ? REGIONAL_HIERARCHY['KMP NORTH'][0] : userStnClean,
     date: getTodayString(), 
     time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-    narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: ''
+    narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: '',
+    category: 'GENERAL OPERATION'
   });
 
   const toggleRowExpand = (sn) => {
@@ -192,13 +194,19 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       } else {
         const belongsToRegion = filterRegion === 'ALL REGIONS' || 
                                 reg === filterRegion || 
-                                (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
+                                (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(st => isStationEquivalent(st, stn)));
 
         if (!belongsToRegion) return false;
 
         if (filterStation !== 'ALL STATIONS') {
           if (!isStationEquivalent(stn, filterStation)) return false;
         }
+      }
+
+      // 🟢 Category Filter
+      if (categoryFilter !== 'ALL CATEGORIES') {
+        const storyCategory = (s.category || 'GENERAL OPERATION').toUpperCase();
+        if (storyCategory !== categoryFilter.toUpperCase()) return false;
       }
 
       const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24));
@@ -218,7 +226,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       
       return true;
     });
-  }, [stories, filterRegion, filterStation, dateFilter, canViewGlobalActive]);
+  }, [stories, filterRegion, filterStation, categoryFilter, dateFilter, canViewGlobalActive]);
 
   const availableUpdateStories = useMemo(() => {
     return (Array.isArray(stories) ? stories : []).filter(s => {
@@ -307,7 +315,8 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         region: canViewGlobalActive ? 'KMP NORTH' : userRegClean, 
         station: canViewGlobalActive ? REGIONAL_HIERARCHY['KMP NORTH'][0] : userStnClean,
         date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-        narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: ''
+        narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: '',
+        category: 'GENERAL OPERATION'
       });
       setUpdateSearch('');
     }
@@ -346,7 +355,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         
         setStories([newStory, ...stories]);
         setNotification(`Success story SN ${newStory.sn} logged successfully!`);
-        setFormData({ ...formData, time: '', narrative: '', sn: null, updateText: '', photo_url: '' });
+        setFormData({ ...formData, time: '', narrative: '', sn: null, updateText: '', photo_url: '', category: 'GENERAL OPERATION' });
 
       } catch (err) {
         console.error("Cloud sync failed:", err);
@@ -388,7 +397,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       <div className="text-center mb-8 flex flex-col items-center">
         <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-3 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }}/>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-700 dark:text-slate-100 tracking-tight">Operational Success Stories</h1>
-        <h3 className="text-sm sm:text-lg text-amber-500 dark:text-amber-400 mt-2 font-medium">Highlighting UPF Anti-Crime Milestones</h3>
+        <h3 className="text-sm sm:text-lg text-amber-500 dark:text-amber-400 mt-2 font-medium">Highlighting UPF Anti-Crime & Environmental Milestones</h3>
       </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -418,6 +427,14 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
               <form onSubmit={handleFormSubmit} className="space-y-4">
                 {operation === 'update' && formData.sn && <div className="bg-slate-800 dark:bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing: SN {formData.sn}</div>}
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Operation Category / Focus *</label>
+                  <select name="category" value={formData.category} onChange={handleInputChange} className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 border p-2 cursor-pointer font-bold text-amber-600 dark:text-amber-400">
+                    <option value="GENERAL OPERATION">GENERAL OPERATION</option>
+                    <option value="AGRIC_CRIME">🌾 AGRICULTURAL CRIMES / LIVESTOCK & FARM SECURITY</option>
+                  </select>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
@@ -515,6 +532,15 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
               ) : <option value={userStnClean}>{userStnClean}</option>}
             </select>
             <select 
+              value={categoryFilter} 
+              onChange={(e) => setCategoryFilter(e.target.value)} 
+              className="border dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer"
+            >
+              <option value="ALL CATEGORIES">ALL CATEGORIES</option>
+              <option value="GENERAL OPERATION">GENERAL OPERATIONS</option>
+              <option value="AGRIC_CRIME">🌾 AGRIC CRIMES & SECURITY</option>
+            </select>
+            <select 
               value={dateFilter} 
               onChange={(e) => setDateFilter(e.target.value)} 
               className="border-2 border-blue-500 dark:border-blue-600 text-blue-700 dark:text-blue-400 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer"
@@ -550,6 +576,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                     const rowId = story.sn || story.id;
                     const isRowExpanded = Boolean(expandedRows[rowId]);
                     const linkedCase = findLinkedCrimeCase(story.narrative, reports);
+                    const isAgricCrime = (story.category || '').toUpperCase() === 'AGRIC_CRIME';
 
                     return (
                       <tr 
@@ -559,7 +586,13 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                       >
                         <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 dark:text-slate-100 align-top">{rowId}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-slate-400 align-top">{stripHtmlTags(story.date)}<br/><span className="text-xs text-gray-400 dark:text-slate-500">{stripHtmlTags(story.time)}</span></td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-blue-700 dark:text-blue-400 align-top">{stripHtmlTags(story.station)}<br/><span className="text-xs text-gray-400 dark:text-slate-500">{story.region}</span></td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-blue-700 dark:text-blue-400 align-top">
+                          {stripHtmlTags(story.station)}<br/>
+                          <span className="text-xs text-gray-400 dark:text-slate-500">{story.region}</span>
+                          {isAgricCrime && (
+                            <span className="block mt-1 text-[10px] bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-extrabold px-1.5 py-0.5 rounded w-max">🌾 AGRIC CRIME</span>
+                          )}
+                        </td>
                         <td className="px-4 py-4 text-sm text-gray-600 dark:text-slate-300 align-top whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
                           
                           <div className={`relative ${!isRowExpanded ? 'max-h-28 overflow-hidden' : ''}`}>
@@ -651,12 +684,12 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                   <span className="font-extrabold text-slate-800 dark:text-slate-200">{stripHtmlTags(selectedDossier.station)}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 font-bold uppercase block text-[10px]">Accomplished Date & Time</span>
-                  <span className="font-extrabold text-slate-800 dark:text-slate-200">{stripHtmlTags(selectedDossier.date || 'N/A')} at {stripHtmlTags(selectedDossier.time || 'N/A')}</span>
+                  <span className="text-slate-400 font-bold uppercase block text-[10px]">Operation Category</span>
+                  <span className="font-extrabold text-amber-600 dark:text-amber-400">{stripHtmlTags(selectedDossier.category || 'GENERAL OPERATION')}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 font-bold uppercase block text-[10px]">Recording Officer</span>
-                  <span className="font-extrabold text-slate-800 dark:text-slate-200">{stripHtmlTags(selectedDossier.last_updated_by || 'CENTRAL COMMAND')}</span>
+                  <span className="text-slate-400 font-bold uppercase block text-[10px]">Accomplished Date & Time</span>
+                  <span className="font-extrabold text-slate-800 dark:text-slate-200">{stripHtmlTags(selectedDossier.date || 'N/A')} at {stripHtmlTags(selectedDossier.time || 'N/A')}</span>
                 </div>
               </div>
 
