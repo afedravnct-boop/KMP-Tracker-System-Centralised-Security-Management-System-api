@@ -250,7 +250,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   const finalFilteredReports = useMemo(() => {
     if (!Array.isArray(serverReports)) return [];
       
-    return serverReports.filter(r => {
+    const filtered = serverReports.filter(r => {
       if (r.is_hq_general_total || (r.offence || '').toUpperCase().includes("LOCK-UP TOTAL")) return false;
 
       const stn = stripHtmlTags(r.station || '').trim().toUpperCase();
@@ -302,6 +302,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         
       return true;
     });
+
+    // 🟢 Sorted descending by serial number / ID so the latest (last) entry appears first at the top
+    return filtered.sort((a, b) => (b.sn || b.id || 0) - (a.sn || a.id || 0));
 
   }, [serverReports, dateFilter, showAgriculturalOnly, filterRegion, filterStation, canViewGlobalActive]);
 

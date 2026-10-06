@@ -7,8 +7,8 @@ from app import models
 def record_neon_activity(
     logs_db: Session, 
     fnum: str, 
-    action_type: str,     # 'VIEW', 'REGISTER', 'READ', 'EDIT', 'UPDATE', 'DELETE'
-    module: str,          # e.g., 'CRIME_REGISTRY', 'EXHIBITS', 'LOCKUP'
+    action_type: str,      # 'VIEW', 'REGISTER', 'READ', 'EDIT', 'UPDATE', 'DELETE', 'ANALYTICS_SYNC'
+    module: str,           # e.g., 'CRIME_REGISTRY', 'EXHIBITS', 'LOCKUP'
     target_id: str = None,# Specific record ID or case number if applicable
     changes_summary: str = None
 ):
@@ -19,11 +19,13 @@ def record_neon_activity(
         eat_tz = pytz.timezone('Africa/Nairobi')
         timestamp_now = datetime.now(eat_tz).replace(tzinfo=None)
         
-        # Format a precise forensic description based on action type
         upper_action = str(action_type or "ACTION").strip().upper()
         upper_module = str(module or "GENERAL").strip().upper()
         
-        if upper_action in ["VIEW", "READ"]:
+        # 🟢 Distinctly capture analytics background pulling vs direct user navigation
+        if upper_action == "ANALYTICS_SYNC":
+            details = f"Analytics Dashboard executed automated background data compilation for module {upper_module}."
+        elif upper_action in ["VIEW", "READ"]:
             details = f"Officer accessed {upper_module} in read-only inspection mode. No data mutations performed."
         elif upper_action == "REGISTER":
             details = f"Officer INSERTED/REGISTERED a new record in {upper_module}. Target ID: {target_id or 'N/A'}"
