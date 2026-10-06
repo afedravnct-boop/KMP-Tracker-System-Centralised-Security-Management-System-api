@@ -147,7 +147,6 @@ def create_story(
     try:
         data.pop('sn', None) 
         
-        # 🟢 Respect the selected region & station from frontend payload for admins/commanders
         user_role = str(current_user.role or "").upper()
         user_pos = str(current_user.position or "").upper()
         is_global = user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or "KMP COMMANDER" in user_pos
@@ -155,6 +154,16 @@ def create_story(
         if not is_global:
             data["region"] = current_user.region
             data["station"] = current_user.station
+
+        incoming_narrative = (data.get("narrative") or "").strip()
+
+        # 🟢 Database-level duplicate check
+        existing_story = db.query(models.Success_Stories).filter(
+            func.lower(models.Success_Stories.narrative) == func.lower(incoming_narrative)
+        ).first()
+
+        if existing_story:
+            raise HTTPException(status_code=400, detail="Error: This exact success story has already been logged in the system.")
             
         new_record = models.Success_Stories(**data)
         new_record.last_updated_by = get_officer_signature(current_user)
@@ -172,6 +181,10 @@ def create_story(
         )
 
         return {"status": "success", "sn": new_record.sn}
+    except HTTPException as he:
+        db.rollback()
+        logs_db.rollback()
+        raise he
     except Exception as e:
         db.rollback()
         logs_db.rollback()
