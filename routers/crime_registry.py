@@ -10,8 +10,9 @@ from sqlalchemy import func, and_, or_, text
 from botocore.exceptions import ClientError
 
 from app import models
-from app.database import get_db
+from app.database import get_db, get_logs_db
 from auth import get_current_user
+from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1", tags=["Crime Registry"])
 
@@ -190,6 +191,7 @@ def get_reports(
     search: Optional[str] = Query(default=None),
     limit: int = Query(default=200, le=1000), 
     db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
@@ -259,12 +261,22 @@ def get_reports(
         
         result.append(c_dict)
 
+    # 🟢 Record VIEW activity into NeonDB Activity Logs branch
+    from routers.activity_logger import record_neon_activity
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="VIEW",
+        module="CRIME_REGISTRY",
+        target_id="ALL_REPORTS",
+        changes_summary=f"Officer accessed Crime Registry reports ledger (Fetched {len(result)} entries)."
+    )
+
     return result
 
 # ====================================================================
 # 2. FILE UPLOADS (MUGSHOTS & INVESTIGATIONS)
 # ====================================================================
-# 🟢 Centralized the upload route here and removed the trailing slash
 @router.post("/investigation/upload")
 def upload_investigation_file(file: UploadFile = File(...)):
     if not file or not file.filename:
@@ -299,7 +311,12 @@ def upload_investigation_file(file: UploadFile = File(...)):
 # 3. CREATE CRIME REPORT (WITH COMMAND FALLBACK LOGIC)
 # ====================================================================
 @router.post("/reports")
-def create_report(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def create_report(
+    data: dict, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
     SuspectModel = get_model_safe('Suspect_Lockup', 'SuspectLockup', 'suspect_lockup')
     
@@ -313,7 +330,6 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
         user_region = (current_user.region or "").strip().upper()
         is_hq_admin = current_user.role in ["SUPER_ADMIN", "ADMIN"] or "HEADQUARTERS" in user_station or "HEADQUARTERS" in user_region or "999" in (current_user.position or "").upper()
 
-        # 🟢 Fallback Check implemented
         is_hq_general_total = data.pop('is_hq_general_total', False)
 
         if is_hq_general_total:
@@ -372,19 +388,39 @@ def create_report(data: dict, db: Session = Depends(get_db), current_user: model
         db.commit()
         db.refresh(new_record)
         assigned_id = getattr(new_record, 'id', getattr(new_record, 'sn', 1))
+
+        # 🟢 Record REGISTER activity into NeonDB Activity Logs branch
+        from routers.activity_logger import record_neon_activity
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="REGISTER",
+            module="CRIME_REGISTRY",
+            target_id=str(assigned_id),
+            changes_summary=f"New crime report registered. SD Ref: [{data.get('sd_ref', 'N/A')}], Offence: [{data.get('offence', 'GENERAL')}]."
+        )
+
         return {"status": "success", "id": assigned_id, "sn": assigned_id}
     except HTTPException as he:
         db.rollback()
+        logs_db.rollback()
         raise he
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 # ====================================================================
 # 4. UPDATE CRIME REPORT
 # ====================================================================
 @router.put("/reports/{sn}")
-def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def update_report(
+    sn: int, 
+    data: dict, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
     SuspectModel = get_model_safe('Suspect_Lockup', 'SuspectLockup', 'suspect_lockup')
     
@@ -420,10 +456,8 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
         if SuspectModel and hasattr(existing_report, 'id'):
             report_pk = existing_report.id
             
-            # 🟢 THE FIX: Clear the old suspects from the database first so the updated ones (with photos) can be saved
             db.query(SuspectModel).filter(SuspectModel.report_id == report_pk).delete()
             
-            # Now safely insert the fresh suspect list from the frontend
             for s in suspects_data:
                 valid_s_cols = [c.key for c in SuspectModel.__table__.columns]
                 s_payload = {
@@ -442,9 +476,22 @@ def update_report(sn: int, data: dict, db: Session = Depends(get_db), current_us
                 db.add(SuspectModel(**safe_s_payload))
 
         db.commit()
+
+        # 🟢 Record UPDATE activity into NeonDB Activity Logs branch
+        from routers.activity_logger import record_neon_activity
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="CRIME_REGISTRY",
+            target_id=str(sn),
+            changes_summary=f"Crime report record modified. SD Ref: [{getattr(existing_report, 'sd_ref', 'N/A')}]."
+        )
+
         return {"status": "success"}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 # ====================================================================
@@ -457,6 +504,7 @@ def get_consolidated_ledger(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
     db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
@@ -547,13 +595,24 @@ def get_consolidated_ledger(
                     q_stories = q_stories.filter(
                         or_(
                             func.upper(StoryModel.station) == station.upper(),
-                            func.upper(CrimeModel.station) == clean_stn,
-                            func.upper(CrimeModel.station) == f"{clean_stn} HEADQUARTERS"
+                            func.upper(StoryModel.station) == clean_stn,
+                            func.upper(StoryModel.station) == f"{clean_stn} HEADQUARTERS"
                         )
                     )
                     
             stories = q_stories.all()
             stories_data = [clean_model_dict(st) for st in stories]
+
+        # 🟢 Record VIEW activity into NeonDB Activity Logs branch
+        from routers.activity_logger import record_neon_activity
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VIEW",
+            module="CONSOLIDATED_LEDGER",
+            target_id="MASTER_SUMMARY",
+            changes_summary=f"Officer accessed Consolidated Operations & Crime Ledger."
+        )
 
         return {
             "status": "success",

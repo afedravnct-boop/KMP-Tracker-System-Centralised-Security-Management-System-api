@@ -1,4 +1,3 @@
-# embedding_service.py
 import os
 from typing import List, Optional
 from datetime import datetime
@@ -9,6 +8,8 @@ from sqlalchemy.orm import Session
 
 # Import models & db helpers
 from app import models
+from app.database import get_logs_db
+from routers.activity_logger import record_neon_activity
 
 # Configure the Gemini Client
 api_key = os.getenv("GEMINI_API_KEY")
@@ -22,9 +23,9 @@ def get_embedding_vector(text: str) -> List[float]:
         
     try:
         response = client.models.embed_content(
-            model="gemini-embedding-001", # 🟢 FIXED: Updated to the new active model
+            model="gemini-embedding-001", # 🟢 Updated to active model
             contents=clean_text,
-            # 🟢 FIXED: Compress the 3072-dim default back down to your 768-dim requirement
+            # 🟢 Compress the default output down to 768-dim requirement
             config=EmbedContentConfig(output_dimensionality=768) 
         )
         return response.embeddings[0].values
@@ -55,9 +56,11 @@ def ingest_document_vector(
     region: str = "KMP HEADQUARTERS",
     division: str = "HQ",
     station: str = "HQ",
-    sd_ref: Optional[str] = None
+    sd_ref: Optional[str] = None,
+    logs_db: Optional[Session] = None,
+    fnum: str = "SYSTEM"
 ):
-    """Chunks, embeds, and commits an operational document to pgvector."""
+    """Chunks, embeds, and commits an operational document to pgvector with forensic logging."""
     TargetModel = getattr(models, 'OperationalDocumentEmbedding', None)
     if not TargetModel:
         print("Embedding Notice: OperationalDocumentEmbedding model is not defined in app.models.")
@@ -85,3 +88,17 @@ def ingest_document_vector(
         db.add(db_record)
     
     db.commit()
+
+    # 🟢 Record precise forensic REGISTER activity into NeonDB Activity Logs branch
+    if logs_db:
+        try:
+            record_neon_activity(
+                logs_db=logs_db,
+                fnum=fnum,
+                action_type="REGISTER",
+                module="VECTOR_EMBEDDINGS",
+                target_id=str(document_id),
+                changes_summary=f"Operational document vectorized and committed to pgvector. Title: \"{title}\" ({len(chunks)} semantic chunks)."
+            )
+        except Exception as log_err:
+            print(f"⚠️ Vector embedding activity logging error: {log_err}")

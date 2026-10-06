@@ -3,3 +3,13 @@ from . import document_upload
 from . import general_documents
 from . import command_templates
 from . import exhibits
+from . import crime_registry
+from . import establishments
+from . import admin_communication
+from . import success_stories
+from . import agric_summary
+from . import admin_users
+from . import nominal_roll
+from . import analytics_export
+from . import hr_router
+from . import lockup_matrix

@@ -6,7 +6,7 @@ from typing import Optional, List, Union
 from urllib.parse import unquote
 
 import pytz
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, Query
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_, text
@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from app import models, schemas
 from app.database import get_db, get_logs_db
 from auth import get_current_user
+from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1", tags=["Admin Communications"])
 
@@ -72,24 +73,6 @@ def check_global_view(user):
         perms.get("view_global_roster") is True or
         perms.get("global_observer") is True
     )
-
-# 🟢 Activity Logger for NeonDB Activity Logs branch
-def log_independent_activity(logs_db: Session, fnum: str, action: str, module: str, details: str):
-    try:
-        eat_tz = pytz.timezone('Africa/Nairobi')
-        now_eat = datetime.now(eat_tz).strftime('%Y-%m-%d %H:%M:%S')
-        new_activity = models.Activity_Logs(
-            fnum=str(fnum or "SYSTEM").strip().upper(),
-            action=str(action or "ACTION").strip().upper(),
-            module=str(module or "COMMAND_COMMS").strip().upper(),
-            details=details,
-            created_at=now_eat
-        )
-        logs_db.add(new_activity)
-        logs_db.commit()
-    except Exception as e:
-        logs_db.rollback()
-        print(f"⚠️ Activity Log Failure [{action}]: {str(e)}")
 
 async def send_command_briefing(email_to: List[str], subject: str, html_body: str):
     if not email_to or not conf.MAIL_USERNAME or not conf.MAIL_PASSWORD:
@@ -165,13 +148,14 @@ def create_admin_communication(
         db.commit()
         db.refresh(db_comm)
 
-        # 🟢 Record Activity Log for Dispatch / Writing Message
-        log_independent_activity(
+        # 🟢 Record precise forensic REGISTER action into NeonDB Activity Logs branch
+        record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
-            action="DISPATCH_MESSAGE",
+            action_type="REGISTER",
             module="COMMAND_COMMS",
-            details=f"Officer {current_user.name} ({current_user.fnum}) wrote & dispatched message to [{comm.target_audience}] with subject: '{comm.subject}' (Ref: {generated_msg_ref})."
+            target_id=generated_msg_ref,
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} dispatched official command memo ref [{generated_msg_ref}] to audience [{comm.target_audience}]. Subject: '{comm.subject}'."
         )
 
         if comm.send_email:
@@ -219,11 +203,13 @@ def create_admin_communication(
         return {"status": "success", "id": assigned_id, "msg_ref": generated_msg_ref}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to post communication: {str(e)}")
 
 @router.get("/Admin_Communication")
 @router.get("/communications")
 def get_admin_communications(
+    search: Optional[str] = Query(default=None),
     start_date: Optional[str] = None, 
     end_date: Optional[str] = None,
     db: Session = Depends(get_db), 
@@ -267,6 +253,17 @@ def get_admin_communications(
             visibility_conditions.append(CommModel.target_audience.in_(["RPC_ONLY", "ADMINS_ONLY"]))
              
         query = query.filter(or_(*visibility_conditions))
+
+    # 🟢 Apply search filtering if search term provided
+    if search:
+        term = f"%{search.strip().upper()}%"
+        search_conds = []
+        if hasattr(CommModel, 'subject'): search_conds.append(CommModel.subject.ilike(term))
+        if hasattr(CommModel, 'message'): search_conds.append(CommModel.message.ilike(term))
+        if hasattr(CommModel, 'msg_ref'): search_conds.append(CommModel.msg_ref.ilike(term))
+        if hasattr(CommModel, 'sender_name'): search_conds.append(CommModel.sender_name.ilike(term))
+        if search_conds:
+            query = query.filter(or_(*search_conds))
 
     if start_date:
         try:
@@ -334,9 +331,20 @@ def get_admin_communications(
             "acknowledged": is_read
         })
 
-    # 🟢 FIXED: Removed log_independent_activity("OPEN_MESSAGES_INBOX") here to prevent 
-    # false positive logs from background API polling. User intent tracking is now strictly 
-    # handled by the frontend PAGE_ACCESS hook.
+    # 🟢 Precision forensic check: Log search query vs regular inbox view
+    if search:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched command communications for query: \"{search}\" (Returned {len(clean_comms)} matches)."
+    else:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Command Communications inbox (Fetched {len(clean_comms)} messages)."
+
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="VIEW",
+        module="COMMAND_COMMS",
+        target_id=search if search else "INBOX",
+        changes_summary=summary_text
+    )
 
     return clean_comms
 
@@ -390,26 +398,28 @@ def acknowledge_communication(
             db.add(new_read)
             db.commit()
 
-        # 🟢 Record Activity Log for reading/acknowledging a message
-        log_independent_activity(
+        # 🟢 Record precise forensic UPDATE action into NeonDB Activity Logs branch
+        record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
-            action="ACKNOWLEDGE_MESSAGE",
+            action_type="UPDATE",
             module="COMMAND_COMMS",
-            details=f"Officer {current_user.name} ({current_user.fnum}) read and acknowledged message ID {clean_comm_id} (Ref: {getattr(comm, 'msg_ref', 'N/A')})."
+            target_id=str(clean_comm_id),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} acknowledged communication ref [{getattr(comm, 'msg_ref', 'N/A')}]."
         )
              
         return {"status": "success", "message": "Receipt safely recorded."}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to record receipt: {str(e)}")
-
 
 @router.get("/communications/{comm_id:path}/readers")
 @router.get("/Admin_Communication/{comm_id:path}/readers")
 def get_communication_readers(
     comm_id: str, 
     db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     clean_comm_id_str = unquote(unquote(comm_id)).strip()
@@ -454,10 +464,20 @@ def get_communication_readers(
                 "fnum": r.fnum, 
                 "read_at": formatted_time
             })
+
+        # 🟢 Record precise forensic VIEW readers activity into NeonDB Activity Logs branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VIEW",
+            module="COMMAND_COMMS",
+            target_id=str(clean_comm_id),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} inspected reader logs for memo ref [{getattr(comm, 'msg_ref', 'N/A')}]."
+        )
+
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch reader logs: {str(e)}")
-
 
 class BulkAcknowledgePayload(BaseModel):
     comm_ids: List[int]
@@ -498,18 +518,20 @@ def acknowledge_bulk_communications(
         db.bulk_save_objects(new_reads)
         db.commit()
 
-        # 🟢 Record Activity Log for bulk reading
-        log_independent_activity(
+        # 🟢 Record precise forensic UPDATE action into NeonDB Activity Logs branch
+        record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
-            action="BULK_ACKNOWLEDGE_MESSAGES",
+            action_type="UPDATE",
             module="COMMAND_COMMS",
-            details=f"Officer {current_user.name} ({current_user.fnum}) bulk-acknowledged {len(to_insert)} communication items."
+            target_id="BULK_UPDATE",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} bulk-acknowledged {len(to_insert)} command communications."
         )
 
         return {"status": "success"}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/communications/acknowledge-all")
@@ -565,18 +587,20 @@ def acknowledge_all_communications(
         db.bulk_save_objects(new_reads)
         db.commit()
 
-        # 🟢 Record Activity Log for marking all read
-        log_independent_activity(
+        # 🟢 Record precise forensic UPDATE action into NeonDB Activity Logs branch
+        record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
-            action="MARK_ALL_MESSAGES_READ",
+            action_type="UPDATE",
             module="COMMAND_COMMS",
-            details=f"Officer {current_user.name} ({current_user.fnum}) marked all unread messages as read."
+            target_id="ALL_UNREAD",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} marked all remaining unread command memos as acknowledged ({len(unread_ids)} items)."
         )
 
         return {"status": "success"}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 # ====================================================================

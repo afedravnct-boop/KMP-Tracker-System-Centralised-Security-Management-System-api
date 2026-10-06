@@ -1,3 +1,4 @@
+# auth.py
 import os
 import io
 import re
@@ -142,7 +143,8 @@ def require_export_privilege(current_user: models.Users = Depends(get_current_us
 @router.post("/api/v1/auth/login")
 async def login(
     request: Request,
-    db: Session = Depends(database.get_db)
+    db: Session = Depends(database.get_db),
+    logs_db: Session = Depends(get_logs_db)
 ):
     username = None
     password = None
@@ -184,6 +186,17 @@ async def login(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account pending Command approval. Please contact the administrator."
         )
+
+    # 🟢 Record login action to NeonDB activity branch
+    from routers.activity_logger import record_neon_activity
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=user.fnum,
+        action_type="VIEW",
+        module="USER_AUTHENTICATION",
+        target_id=user.fnum,
+        changes_summary="Officer successfully authenticated into session."
+    )
 
     access_token = security.create_access_token(
         data={"sub": user.fnum},
@@ -235,7 +248,8 @@ async def signup(
     profile_photo_path: Optional[str] = Form(None),
     policy_accepted: bool = Form(False),
     file: Optional[UploadFile] = File(None),
-    db: Session = Depends(database.get_db)
+    db: Session = Depends(database.get_db),
+    logs_db: Session = Depends(get_logs_db)
 ):
     if not policy_accepted:
         raise HTTPException(
@@ -426,6 +440,17 @@ async def signup(
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
+
+        # 🟢 Record REGISTER action into NeonDB activity branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=clean_fnum,
+            action_type="REGISTER",
+            module="USER_ACCOUNTS",
+            target_id=clean_fnum,
+            changes_summary=f"New officer account registered: {name} ({rank}) for station {clean_station}."
+        )
+
         return {
             "status": "success",
             "message": "Access authorization request submitted. Awaiting Command approval."
@@ -491,7 +516,8 @@ async def upload_user_profile_photo(
 @router.post("/api/v1/auth/request-reset")
 async def request_password_reset(
     fnum: str = Form(...),
-    db: Session = Depends(database.get_db)
+    db: Session = Depends(database.get_db),
+    logs_db: Session = Depends(get_logs_db)
 ):
     clean_fnum = normalize_fnum(fnum)
     user = db.query(models.Users).filter(
@@ -523,6 +549,16 @@ async def request_password_reset(
             db.add(new_req)
             db.commit()
 
+            # 🟢 Record password reset request to NeonDB activity branch
+            record_neon_activity(
+                logs_db=logs_db,
+                fnum=clean_fnum,
+                action_type="REGISTER",
+                module="PASSWORD_RESETS",
+                target_id=clean_fnum,
+                changes_summary="Password recovery requested."
+            )
+
     return {"status": "success", "message": "Password reset request submitted to Command."}
 
 # ====================================================================
@@ -536,36 +572,33 @@ def change_password(
     logs_db: Session = Depends(get_logs_db),
     db: Session = Depends(database.get_db)
 ):
-    # 1. Verify current password is correct
     if not security.verify_password(data.old_password, current_user.hashed_password):
         raise HTTPException(status_code=400, detail="Current password incorrect.")
 
-    # 2. Prevent repetition: Ensure new password is not identical to the old password
     if data.old_password == data.new_password:
         raise HTTPException(
             status_code=400, 
             detail="Security Error: Your new password cannot be the same as your current password. Please choose a unique key."
         )
 
-    # 3. Hash and store the new secure key
     current_user.hashed_password = security.get_password_hash(data.new_password)
     
     try:
         db.commit()
         
         # Log to activity ledger
-        log_independent_activity(
+        record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
-            action="PASSWORD_CHANGE",
+            action_type="UPDATE",
             module="SECURITY_VAULT",
-            details=f"Officer {current_user.name} ({current_user.fnum}) successfully updated their security key."
+            target_id=current_user.fnum,
+            changes_summary="Security key (password) updated successfully."
         )
         
         return {"status": "success", "message": "Security Key successfully updated. Previous password has been invalidated."}
     except Exception as e:
         db.rollback()
-        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Database commit error: {str(e)}")
 
 @router.put("/profile/update")
@@ -573,6 +606,7 @@ def change_password(
 def update_profile(
     data: schemas.UserUpdate,
     current_user: models.Users = Depends(get_current_user),
+    logs_db: Session = Depends(get_logs_db),
     db: Session = Depends(database.get_db)
 ):
     if data.name: current_user.name = str(data.name).strip().upper()
@@ -590,6 +624,17 @@ def update_profile(
 
     db.commit()
     db.refresh(current_user)
+
+    # 🟢 Record profile update to NeonDB activity branch
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="UPDATE",
+        module="USER_PROFILE",
+        target_id=current_user.fnum,
+        changes_summary="Officer profile metadata updated."
+    )
+
     return {"status": "success", "message": "Profile updated successfully."}
 
 @router.delete("/users/{fnum:path}/revoke")
@@ -598,6 +643,7 @@ def revoke_user_access(
     fnum: str,
     reason: str = "Administrative Revocation",
     db: Session = Depends(database.get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(require_admin)
 ):
     clean_fnum = normalize_fnum(fnum)
@@ -613,6 +659,17 @@ def revoke_user_access(
 
     try:
         db.commit()
+
+        # 🟢 Record revocation action to NeonDB activity branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="ACCESS_MATRIX",
+            target_id=clean_fnum,
+            changes_summary=f"User access revoked. Reason: {reason}"
+        )
+
         return {"status": "success", "message": f"Access successfully revoked for {clean_fnum}."}
     except Exception as e:
         db.rollback()
@@ -623,6 +680,7 @@ def revoke_user_access(
 def permanent_delete_user(
     fnum: str,
     db: Session = Depends(database.get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(require_admin)
 ):
     if current_user.role != "SUPER_ADMIN":
@@ -639,6 +697,17 @@ def permanent_delete_user(
     try:
         db.delete(target_user)
         db.commit()
+
+        # 🟢 Record permanent deletion to NeonDB activity branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="DELETE",
+            module="SECURITY_VAULT",
+            target_id=clean_fnum,
+            changes_summary="Account permanently purged from database."
+        )
+
         return {"status": "success", "message": f"Account {clean_fnum} permanently deleted from database."}
     except Exception as e:
         db.rollback()

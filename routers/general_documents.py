@@ -8,8 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app import models
-from app.database import get_db
+from app.database import get_db, get_logs_db
 from auth import get_current_user
+from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1", tags=["General Documents"])
 
@@ -31,11 +32,16 @@ def get_general_doc_model():
 # 🟢 Matches frontend sync (/api/v1/general-documents) as well as legacy list (/api/v1/general-docs/list)
 @router.get("/general-documents")
 @router.get("/general-docs/list")
-def get_general_documents(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+def get_general_documents(
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user = Depends(get_current_user)
+):
     try:
         Model = get_general_doc_model()
         docs = db.query(Model).order_by(Model.id.desc()).all()
-        return [{
+        
+        serialized_docs = [{
             "id": d.id,
             "name": getattr(d, 'file_name', getattr(d, 'name', 'Document')),
             "type": getattr(d, 'doc_type', getattr(d, 'type', 'General Document')),
@@ -45,6 +51,18 @@ def get_general_documents(db: Session = Depends(get_db), current_user = Depends(
             "region": getattr(d, 'region', 'KMP HEADQUARTERS'),
             "station": getattr(d, 'station', 'HQ')
         } for d in docs]
+
+        # 🟢 Record VIEW activity into NeonDB Activity Logs branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VIEW",
+            module="GENERAL_DOCUMENTS",
+            target_id="ALL_DOCUMENTS",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} accessed General Documents repository (Fetched {len(serialized_docs)} files)."
+        )
+
+        return serialized_docs
     except Exception as e:
         print(f"General docs fetch error: {e}")
         return []
@@ -58,6 +76,7 @@ async def upload_general_document(
     target_region: Optional[str] = Form(None),
     target_station: Optional[str] = Form(None),
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user = Depends(get_current_user)
 ):
     Model = get_general_doc_model()
@@ -93,8 +112,22 @@ async def upload_general_document(
             )
             db.add(new_doc)
             uploaded_count += 1
+
+            # 🟢 Record precise forensic REGISTER activity into NeonDB Activity Logs branch
+            record_neon_activity(
+                logs_db=logs_db,
+                fnum=current_user.fnum,
+                action_type="REGISTER",
+                module="GENERAL_DOCUMENTS",
+                target_id=f.filename,
+                changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} uploaded document titled \"{f.filename}\"."
+            )
+            
         db.commit()
+
         return {"status": "success", "message": f"Successfully uploaded {uploaded_count} general document(s)."}
     except Exception as e:
+        db.rollback()
+        logs_db.rollback()
         print(f"Fetch error: {e}")
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")

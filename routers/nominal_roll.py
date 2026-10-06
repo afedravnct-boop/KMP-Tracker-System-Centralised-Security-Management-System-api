@@ -15,15 +15,16 @@ import pyzipper
 import openpyxl
 from openpyxl.styles import Alignment, PatternFill, Font
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Request
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Request, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_
 from sqlalchemy.exc import IntegrityError
 
 from app import models, schemas
-from app.database import get_db
+from app.database import get_db, get_logs_db
 from auth import get_current_user
+from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1", tags=["Nominal Roll & HR"])
 
@@ -249,7 +250,6 @@ def getOfficialRegionForStation(station_name: str, current_region: Optional[str]
         return STATION_GEO_MAP[stat_upper]["region"]
     return current_region or "KMP HEADQUARTERS"
 
-# 🟢 CORE OPSEC SCOPING ENGINE (Applies Hierarchy Rules universally across queries & exports)
 def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     query = db.query(Model)
     
@@ -263,7 +263,6 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
         try: perms = json.loads(perms)
         except Exception: perms = {}
     
-    # 1. Absolute Global Access
     is_absolute_global = (
         user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
         "KMP COMMANDER" in user_pos_str or
@@ -273,21 +272,18 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
         perms.get("global_observer") is True
     )
 
-    # 2. KMP System Managers (e.g., KMP CID Commander, KMP Traffic Commander)
     is_kmp_system_manager = (
         user_role == "SYSTEM_MANAGER" and
         user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
         "KMP" in user_pos_str
     )
 
-    # 3. KMP Assistant System Managers (Specialists e.g., KMP CID, CI, TRAFFIC)
     is_kmp_specialist = (
         user_role == "ASSISTANT_SYSTEM_MANAGER" and
         user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
         "KMP" in user_pos_str
     )
 
-    # 4. Regional Command (RPCs, Deputy RPCs, Regional HR/Admins) - God mode over region
     is_regional_command = (
         user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] and
         not is_kmp_system_manager and
@@ -298,7 +294,6 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
         return query
         
     elif is_kmp_specialist:
-        # Global access but strictly filtered by specialization
         specs = []
         if "CID" in user_pos_str: specs.append("CID")
         if "CI" in user_pos_str or "CRIME INT" in user_pos_str: specs.append("CI")
@@ -313,27 +308,43 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
                     func.upper(Model.position).ilike(f"%{spec}%")
                 ])
             return query.filter(or_(*conds))
-        return query.filter(Model.id == -1) # Fallback null filter
+        return query.filter(Model.id == -1)
             
     elif is_regional_command:
-        # Regional God Mode: Returns the ENTIRE region (HQ and sub-stations combined)
         return query.filter(func.upper(Model.region) == user_region)
         
     elif user_station and (perms.get("view_nominal_roll", False) or perms.get("acc_hr", False) or current_user.is_approved is True):
-        # Station or Division level access
         return query.filter(func.upper(Model.station) == user_station)
     
     return query.filter(Model.id == -1)
 
 @router.get("/nominal-roll")
-def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def get_Nominal_Rolls(
+    search: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     ActiveModel = get_active_model()
     ArchiveModel = get_archive_model()
     
-    # Secure Queries using OPSEC scope function
     active_query = get_scoped_nominal_query(db, current_user, ActiveModel)
     archive_query = get_scoped_nominal_query(db, current_user, ArchiveModel)
     
+    if search:
+        term = f"%{search.strip().upper()}%"
+        active_conds = []
+        archive_conds = []
+        for M, C in [(ActiveModel, active_conds), (ArchiveModel, archive_conds)]:
+            if hasattr(M, 'name'): C.append(M.name.ilike(term))
+            if hasattr(M, 'fnum'): C.append(M.fnum.ilike(term))
+            if hasattr(M, 'f_num'): C.append(M.f_num.ilike(term))
+            if hasattr(M, 'rank'): C.append(M.rank.ilike(term))
+            if hasattr(M, 'station'): C.append(M.station.ilike(term))
+            if hasattr(M, 'ipps'): C.append(M.ipps.ilike(term))
+        if active_conds: active_query = active_query.filter(or_(*active_conds))
+        if archive_conds: archive_query = archive_query.filter(or_(*archive_conds))
+
     sort_act = getattr(ActiveModel, 'created_at', getattr(ActiveModel, 'id', getattr(ActiveModel, 'sn', None)))
     if sort_act is not None:
         active_query = active_query.order_by(sort_act.asc())
@@ -392,6 +403,21 @@ def get_Nominal_Rolls(db: Session = Depends(get_db), current_user: models.Users 
         clean_results.append(r_dict)
         sequence_counter += 1
         
+    # 🟢 Record VIEW activity into NeonDB Logs
+    if search:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched nominal roll for query: \"{search}\" (Returned {len(clean_results)} matches)."
+    else:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Master Nominal Roll ledger (Fetched {len(clean_results)} records)."
+
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="VIEW",
+        module="NOMINAL_ROLL",
+        target_id=search if search else "ALL_PERSONNEL",
+        changes_summary=summary_text
+    )
+
     return clean_results
 
 @router.post("/nominal-roll/bulk-upload")
@@ -400,6 +426,7 @@ async def bulk_upload_nominal_roll(
     file: Optional[UploadFile] = File(None),
     files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     ActiveModel = get_active_model()
@@ -563,6 +590,17 @@ async def bulk_upload_nominal_roll(
             db.flush()
 
         db.commit()
+
+        # 🟢 Record REGISTER activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="REGISTER",
+            module="NOMINAL_ROLL",
+            target_id="BULK_UPLOAD",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} executed bulk personnel roster upload ({inserted_count} added, {updated_count} updated)."
+        )
+
         return {
             "status": "warning" if (skipped_archived or skipped_blank) else "success",
             "message": f"Batch process complete across {len(file_list)} files. {inserted_count} new personnel recorded, {updated_count} updated.",
@@ -572,10 +610,16 @@ async def bulk_upload_nominal_roll(
 
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Bulk Nominal Roll Upload Failed: {str(e)}")
 
 @router.post("/nominal-roll")
-def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def create_Nominal_Roll(
+    data: dict, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     ActiveModel = get_active_model()
     ArchiveModel = get_archive_model()
     
@@ -673,6 +717,17 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
             db.commit()
             
             assigned_id = getattr(new_record, 'id', getattr(new_record, 'sn', 1))
+
+            # 🟢 Record REGISTER activity into NeonDB Logs
+            record_neon_activity(
+                logs_db=logs_db,
+                fnum=current_user.fnum,
+                action_type="REGISTER",
+                module="NOMINAL_ROLL",
+                target_id=clean_fnum,
+                changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} reintegrated officer {clean_fnum} ({clean_data.get('rank')}) from archives."
+            )
+
             return {"status": "success", "message": f"Officer re-integrated successfully as {clean_data.get('rank')}", "id": assigned_id}
 
         valid_cols = [c.key for c in ActiveModel.__table__.columns]
@@ -686,19 +741,33 @@ def create_Nominal_Roll(data: dict, db: Session = Depends(get_db), current_user:
         db.refresh(new_record)
         
         assigned_id = getattr(new_record, 'id', getattr(new_record, 'sn', 1))
+
+        # 🟢 Record REGISTER activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="REGISTER",
+            module="NOMINAL_ROLL",
+            target_id=clean_fnum,
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} registered new personnel record for officer {clean_fnum}."
+        )
+
         return {"status": "success", "message": "Officer recorded successfully.", "id": assigned_id}
         
     except IntegrityError:
         db.rollback() 
+        logs_db.rollback()
         raise HTTPException(status_code=400, detail="Duplicate Entry: Force Number or IPPS already exists in active database.")
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @router.put("/nominal-roll/archive-record")
 def archive_personnel(
     payload: dict, 
     db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     ActiveModel = get_active_model()
@@ -753,6 +822,16 @@ def archive_personnel(
         db.add(archived_record)
         db.delete(active_record)
         db.commit()
+
+        # 🟢 Record DELETE/ARCHIVE activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="DELETE",
+            module="NOMINAL_ROLL",
+            target_id=fnum_clean,
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} archived personnel record {fnum_clean}. Reason: {archive_reason}."
+        )
         
         return {"status": "success", "message": "Officer successfully moved to archives."}
         
@@ -760,6 +839,7 @@ def archive_personnel(
         raise
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to migrate record: {str(e)}")
 
 @router.put("/nominal-roll/{identifier:path}")
@@ -767,6 +847,7 @@ def update_Nominal_Roll(
     identifier: str, 
     data: dict, 
     db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     ActiveModel = get_active_model()
@@ -837,18 +918,32 @@ def update_Nominal_Roll(
     try:
         db.commit()
         db.refresh(officer)
+
+        # 🟢 Record UPDATE activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="NOMINAL_ROLL",
+            target_id=clean_id,
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} updated personnel record for officer {clean_id}."
+        )
+
         return {"status": "success", "message": f"Officer record updated successfully."}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update officer record: {str(e)}")
 
 @router.get("/nominal-roll/archive")
 @router.get("/nominal-roll-archive")
-def get_archived_personnel(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def get_archived_personnel(
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     try:
         ArchiveModel = get_archive_model()
-        
-        # Apply OPSEC Scoping here too
         query = get_scoped_nominal_query(db, current_user, ArchiveModel)
         
         sort_col = getattr(ArchiveModel, 'archive_date', getattr(ArchiveModel, 'id', None))
@@ -865,6 +960,17 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
                 if hasattr(v, 'isoformat'):
                     d[k] = str(v)
             clean_list.append(d)
+
+        # 🟢 Record VIEW activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VIEW",
+            module="NOMINAL_ROLL_ARCHIVE",
+            target_id="ARCHIVED_PERSONNEL",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} inspected archived personnel roster (Fetched {len(clean_list)} records)."
+        )
+
         return clean_list
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch archives: {str(e)}")
@@ -873,6 +979,7 @@ def get_archived_personnel(db: Session = Depends(get_db), current_user: models.U
 def bulk_archive_personnel(
     payload: dict,
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     ActiveModel = get_active_model()
@@ -934,6 +1041,17 @@ def bulk_archive_personnel(
                 fail_count += 1
 
         db.commit()
+
+        # 🟢 Record DELETE/ARCHIVE activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="DELETE",
+            module="NOMINAL_ROLL",
+            target_id="BULK_ARCHIVE",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} executed bulk personnel archive ({success_count} archived, {fail_count} failed)."
+        )
+
         return {
             "status": "success", 
             "success_count": success_count, 
@@ -942,6 +1060,7 @@ def bulk_archive_personnel(
         }
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Bulk archive transaction failed: {str(e)}")
 
 
@@ -954,11 +1073,11 @@ def export_missing_info_audit(
     region: str = "ALL REGIONS",
     station: str = "ALL STATIONS",
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(require_export_privilege)
 ):
     try:
         ActiveModel = get_active_model()
-        # Ensure they can only export what they have clearance to see
         query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
         region_clean = region.strip().upper()
@@ -1062,6 +1181,17 @@ def export_missing_info_audit(
             zf.writestr(excel_filename, excel_stream.getvalue())
 
         zip_stream.seek(0)
+
+        # 🟢 Record secure export activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="NOMINAL_ROLL_EXPORT",
+            target_id="MISSING_INFO_AUDIT",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded password-encrypted Missing Info Audit spreadsheet ({len(missing_rows)} flagged records)."
+        )
+
         return StreamingResponse(
             zip_stream,
             media_type="application/zip",
@@ -1079,11 +1209,11 @@ def export_station_nominal_roll(
     region: str = "ALL REGIONS",
     station: str = "ALL STATIONS",
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(require_export_privilege)
 ):
     try:
         ActiveModel = get_active_model()
-        # Ensure they can only export what they have clearance to see
         query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
         region_clean = region.strip().upper()
@@ -1212,6 +1342,17 @@ def export_station_nominal_roll(
             zf.writestr(excel_filename, excel_stream.getvalue())
 
         zip_stream.seek(0)
+
+        # 🟢 Record secure export activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="NOMINAL_ROLL_EXPORT",
+            target_id="STATION_LEDGER",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded password-encrypted Full Station Nominal Roll ledger ({len(station_rows)} personnel records for {station_clean})."
+        )
+
         return StreamingResponse(
             zip_stream,
             media_type="application/zip",

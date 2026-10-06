@@ -1,12 +1,14 @@
 import json
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+from typing import Optional, List, Union
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, text
-from datetime import datetime
 
 from app import models
-from app.database import get_db
+from app.database import get_db, get_logs_db
 from auth import get_current_user
+from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1/agric-summary", tags=["Agricultural Summary Ledger"])
 
@@ -93,7 +95,12 @@ def apply_opsec_scope(current_user, query, ModelClass):
     return query.filter(text("1=0"))
 
 @router.get("/")
-def get_agric_summaries(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+def get_agric_summaries(
+    search: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user = Depends(get_current_user)
+):
     Model = getattr(models, 'Agricultural_Crime_Summary', None)
     if not Model: return []
     
@@ -102,9 +109,21 @@ def get_agric_summaries(db: Session = Depends(get_db), current_user = Depends(ge
     # 🟢 Apply OPSEC Role & Dual-Equivalence Scoping
     query = apply_opsec_scope(current_user, query, Model)
         
+    # 🟢 Apply search filtering if search term provided
+    if search:
+        term = f"%{search.strip().upper()}%"
+        search_conds = []
+        if hasattr(Model, 'agric_crime_report'): search_conds.append(Model.agric_crime_report.ilike(term))
+        if hasattr(Model, 'status'): search_conds.append(Model.status.ilike(term))
+        if hasattr(Model, 'station'): search_conds.append(Model.station.ilike(term))
+        if hasattr(Model, 'region'): search_conds.append(Model.region.ilike(term))
+        if hasattr(Model, 'last_updated_by'): search_conds.append(Model.last_updated_by.ilike(term))
+        if search_conds:
+            query = query.filter(or_(*search_conds))
+
     records = query.order_by(Model.id.desc()).all()
     
-    return [{
+    serialized_records = [{
         "id": r.id, 
         "sn": getattr(r, 'sn', None) or idx + 1, 
         "region": r.region, 
@@ -117,8 +136,30 @@ def get_agric_summaries(db: Session = Depends(get_db), current_user = Depends(ge
         "last_updated_by": r.last_updated_by
     } for idx, r in enumerate(records)]
 
+    # 🟢 Precision forensic check: Log search query vs regular view
+    if search:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched agricultural crime ledger for query: \"{search}\" (Returned {len(serialized_records)} matches)."
+    else:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Agricultural Crime Summary Ledger (Fetched {len(serialized_records)} records)."
+
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="VIEW",
+        module="AGRIC_SUMMARY_LEDGER",
+        target_id=search if search else "ALL_RECORDS",
+        changes_summary=summary_text
+    )
+
+    return serialized_records
+
 @router.post("/")
-def create_agric_summary(data: dict, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+def create_agric_summary(
+    data: dict, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user = Depends(get_current_user)
+):
     Model = getattr(models, 'Agricultural_Crime_Summary', None)
     if not Model: raise HTTPException(status_code=500, detail="Model not initialized.")
     
@@ -137,7 +178,18 @@ def create_agric_summary(data: dict, db: Session = Depends(get_db), current_user
         db.commit()
         db.refresh(new_record)
         
+        # 🟢 Record precise forensic REGISTER activity into NeonDB Activity Logs branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="REGISTER",
+            module="AGRIC_SUMMARY_LEDGER",
+            target_id=str(new_record.id),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} registered new agricultural crime summary [{new_record.agric_crime_report}] for station {new_record.station}."
+        )
+
         return {"status": "success", "id": new_record.id}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

@@ -67,6 +67,7 @@ from auth import router as auth_router
 from docx import Document
 from app.schemas import AgricStatsCreate, AgricStatsResponse
 from routers import exhibits
+from routers.activity_logger import record_neon_activity
 
 # ==========================================
 # 0. LOAD ENVIRONMENT VARIABLES & CONFIG

@@ -11,8 +11,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, text
 
 from auth import get_current_user, require_export_privilege
-from app.database import get_db
+from app.database import get_db, get_logs_db
 from app import models
+from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics Exports"])
 
@@ -25,7 +26,11 @@ REGIONAL_HIERARCHY = {
 }
 
 @router.get("/export")
-def export_analytics_report(db: Session = Depends(get_db), current_user = Depends(require_export_privilege)):
+def export_analytics_report(
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user = Depends(require_export_privilege)
+):
     try:
         user_role = str(current_user.role).strip().upper() if current_user.role else ""
         user_pos = str(current_user.position).strip().upper() if current_user.position else ""
@@ -171,7 +176,7 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
         ]
 
         officer_ranks = ['CP', 'ACP', 'SSP', 'SP', 'SASP', 'ASP', 'IP', 'AIP']
-        nco_ranks = ['HCM', 'HC', 'S/SGT', 'SGT', 'CPL', 'L/CPL', 'PC', 'PPC', 'SPC']
+        nco_ranks = ['HCM', 'HC', 'S/SGT', 'SSGT', 'SGT', 'CPL', 'L/CPL', 'PC', 'PPC', 'SPC']
         all_ranks = officer_ranks + nco_ranks
 
         manpower_matrix = {}
@@ -343,6 +348,17 @@ def export_analytics_report(db: Session = Depends(get_db), current_user = Depend
             zf.writestr(f"{fnum_clean}_Analytics_Report_{eat_time.strftime('%Y%m%d')}.xlsx", excel_stream.getvalue())
 
         zip_stream.seek(0)
+
+        # 🟢 Record secure analytics export activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="ANALYTICS_EXPORT",
+            target_id="MASTER_ANALYTICS_REPORT",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded password-encrypted Master Analytics & Operations Report."
+        )
+
         return StreamingResponse(
             zip_stream,
             media_type="application/zip",

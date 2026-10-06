@@ -160,7 +160,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const hasDelegatedApprovalPower = currentUser?.permissions?.can_approve === true || currentUser?.permissions?.system_admin === true;
   const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true;
 
-  // 🟢 Allowed to view/click Kill AI DB Query button (Super Admin, Asst Super Admin, or delegated power)
   const canToggleKillSwitch = isSuperAdmin || userRoleClean === 'ASSISTANT_SUPER_ADMIN' || hasDelegatedApprovalPower || currentUser?.permissions?.ai_hr_access === true;
 
   const canViewGlobalActive = canViewGlobal || isGlobalTier;
@@ -519,6 +518,39 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     } catch (err) { alert(`Bulk Update Failed: ${err.message}`); fetchAllSystemUsers(); }
   };
 
+  // 🟢 GENERAL COLUMN TOGGLE (MASTER CHECK/UNCHECK FOR COLUMNS)
+  const handleToggleEntireColumn = async (permissionKey, shouldEnable) => {
+    if (isReadOnlyObserver) return;
+    
+    // Update local state immediately for fast UI feedback
+    const updatedUsers = allSystemUsers.map(u => {
+      const uRole = (u.role || '').toUpperCase();
+      // Skip super admins from mass unchecking
+      if (uRole === 'SUPER_ADMIN' || uRole === 'ASSISTANT_SUPER_ADMIN') return u;
+      const p = { ...(u.permissions || {}) };
+      p[permissionKey] = shouldEnable;
+      return { ...u, permissions: p };
+    });
+    setAllSystemUsers(updatedUsers);
+
+    // Persist all updates to backend
+    try {
+      await Promise.all(updatedUsers.map(u => {
+        const uRole = (u.role || '').toUpperCase();
+        if (uRole === 'SUPER_ADMIN' || uRole === 'ASSISTANT_SUPER_ADMIN') return Promise.resolve();
+        return authFetch(`/api/v1/users/${encodeURIComponent(u.fnum.trim())}/access`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: u.role, permissions: u.permissions })
+        });
+      }));
+      alert(`✅ Successfully ${shouldEnable ? 'ENABLED' : 'DISABLED'} column [${permissionKey}] for all eligible officers.`);
+    } catch (err) {
+      alert(`Column bulk toggle error: ${err.message}`);
+      fetchAllSystemUsers();
+    }
+  };
+
   const handleGranularPermissionChange = async (fnum, permissionKey, value) => {
     if (isReadOnlyObserver) return;
     const cleanFnum = stripHtmlTags(fnum);
@@ -695,8 +727,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       }
 
       const belongsToRegion = activeReg === 'ALL REGIONS' || 
-                              itemRegion === activeReg || 
-                              (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, itemStation)));
+                            itemRegion === activeReg || 
+                            (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, itemStation)));
 
       if (!belongsToRegion) {
         return false;
@@ -734,8 +766,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
        
       const belongsToRegion = activeReg === 'ALL REGIONS' || 
-                              logRegion === activeReg || 
-                              (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, logStation)));
+                            logRegion === activeReg || 
+                            (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, logStation)));
 
       if (!belongsToRegion) return false;
       if (activeStat && activeStat !== 'ALL STATIONS' && !isStationEquivalent(logStation, activeStat)) return false;
@@ -918,13 +950,35 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                       <th className="p-2.5 text-left md:sticky md:left-0 z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[240px] min-w-[240px]">Officer Details</th>
                       <th className="p-2.5 text-center md:sticky md:left-[240px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[120px] min-w-[120px]">Administrative Tier</th>
                       <th className="p-2.5 text-center md:sticky md:left-[360px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[100px] min-w-[100px]">Quick Actions</th>
-                      {CLEARANCE_MATRIX_COLS.map((col, idx) => (
-                        <th key={idx} className="p-2 border-l border-slate-300 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 w-20 min-w-[80px] align-middle">
-                          <div className="w-20 min-w-[80px] text-[9px] text-blue-900 dark:text-blue-100 font-bold whitespace-normal break-words leading-tight text-center px-0.5" title={col.label}>
-                            {col.label}
-                          </div>
-                        </th>
-                      ))}
+                      {CLEARANCE_MATRIX_COLS.map((col, idx) => {
+                        // Check if all non-admin users have this permission enabled
+                        const allChecked = filteredSystemUsers.length > 0 && filteredSystemUsers.every(u => {
+                          const r = (u.role || '').toUpperCase();
+                          if (r === 'SUPER_ADMIN' || r === 'ASSISTANT_SUPER_ADMIN') return true;
+                          const p = u.permissions || {};
+                          return p[col.key] !== false && (['SUPER_ADMIN', 'ADMIN'].includes(u.role) || Boolean(p[col.key]));
+                        });
+
+                        return (
+                          <th key={idx} className="p-2 border-l border-slate-300 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 w-20 min-w-[80px] align-middle">
+                            <div className="flex flex-col items-center justify-center space-y-1">
+                              <div className="w-20 min-w-[80px] text-[9px] text-blue-900 dark:text-blue-100 font-bold whitespace-normal break-words leading-tight text-center px-0.5" title={col.label}>
+                                {col.label}
+                              </div>
+                              {/* 🟢 GENERAL COLUMN TOGGLE MASTER CHECKBOX */}
+                              {isSuperAdmin && (
+                                <input 
+                                  type="checkbox" 
+                                  checked={allChecked}
+                                  title={`Toggle entire column [${col.label}] for all users`}
+                                  onChange={(e) => handleToggleEntireColumn(col.key, e.target.checked)}
+                                  className="w-3.5 h-3.5 cursor-pointer accent-blue-600 mt-1"
+                                />
+                              )}
+                            </div>
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium text-slate-700 dark:text-slate-300">

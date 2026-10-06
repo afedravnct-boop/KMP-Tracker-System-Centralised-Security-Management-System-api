@@ -5,8 +5,9 @@ from datetime import date, timedelta
 import json
 
 from app import models, schemas
-from app.database import get_db
+from app.database import get_db, get_logs_db
 from auth import get_current_user
+from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1", tags=["Lockup Matrix & Operations"])
 
@@ -113,6 +114,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
 def create_lockup_entry(
     entry: schemas.LockupMatrixCreate, 
     db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
@@ -122,9 +124,21 @@ def create_lockup_entry(
         db.add(new_entry)
         db.commit()
         db.refresh(new_entry)
+
+        # 🟢 Record precise forensic REGISTER activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="REGISTER",
+            module="LOCKUP_MATRIX",
+            target_id=str(new_entry.sn),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} logged cell population for station [{new_entry.station}] (Total Suspects: {new_entry.suspects})."
+        )
+
         return new_entry
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to log cell population: {str(e)}")
 
 @router.get("/lockup-matrix")
@@ -132,6 +146,7 @@ def get_lockup_entries(
     search: str = Query(None, description="Search term for station, region, or update signature"),
     todays_only: bool = Query(False, description="Filter strictly for current 24-hour cycle"),
     db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     query = db.query(models.LockupMatrix)
@@ -156,7 +171,6 @@ def get_lockup_entries(
     entries = query.order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).all()
 
     # 🟢 Calculate increment/decrement margins against previous day's sitrep totals
-    # We fetch historical comparison data to calculate +/- margins relative to previous record totals
     enhanced_entries = []
     for idx, entry in enumerate(entries):
         entry_dict = {
@@ -198,6 +212,21 @@ def get_lockup_entries(
 
         enhanced_entries.append(entry_dict)
 
+    # 🟢 Record precise forensic VIEW activity into NeonDB Logs
+    if search:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched lockup matrix for query: \"{search}\" (Returned {len(enhanced_entries)} matches)."
+    else:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Lockup Matrix & Cell Populations ledger (Fetched {len(enhanced_entries)} entries)."
+
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="VIEW",
+        module="LOCKUP_MATRIX",
+        target_id=search if search else "ALL_LOCKUPS",
+        changes_summary=summary_text
+    )
+
     return enhanced_entries
 
 @router.put("/lockup-matrix/{sn}", response_model=schemas.LockupMatrixResponse)
@@ -205,6 +234,7 @@ def update_lockup_entry(
     sn: int,
     entry: schemas.LockupMatrixCreate,
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     existing_entry = db.query(models.LockupMatrix).filter(models.LockupMatrix.sn == sn).first()
@@ -244,21 +274,70 @@ def update_lockup_entry(
         
         db.commit()
         db.refresh(existing_entry)
+
+        # 🟢 Record precise forensic UPDATE activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="LOCKUP_MATRIX",
+            target_id=str(sn),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} updated cell lockup record ID [{sn}] for station [{existing_entry.station}]."
+        )
+
         return existing_entry
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update entry: {str(e)}")
 
 # --- OPS STATISTICS ---
 @router.get("/stats")
-def get_stats(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def get_stats(
+    search: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     query = db.query(models.Operational_Statistics)
     query = apply_opsec_scope(current_user, query, models.Operational_Statistics)
         
-    return query.order_by(models.Operational_Statistics.sn.desc()).all()
+    if search:
+        term = f"%{search.strip().upper()}%"
+        query = query.filter(
+            or_(
+                func.upper(models.Operational_Statistics.station).like(term),
+                func.upper(models.Operational_Statistics.region).like(term),
+                func.upper(models.Operational_Statistics.last_updated_by).like(term)
+            )
+        )
+
+    records = query.order_by(models.Operational_Statistics.sn.desc()).all()
+
+    # 🟢 Record precise forensic VIEW activity into NeonDB Logs
+    if search:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched operational statistics for query: \"{search}\" (Returned {len(records)} matches)."
+    else:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Operational Statistics ledger (Fetched {len(records)} entries)."
+
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="VIEW",
+        module="OPERATIONAL_STATISTICS",
+        target_id=search if search else "ALL_STATS",
+        changes_summary=summary_text
+    )
+
+    return records
 
 @router.post("/stats")
-def create_stat(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def create_stat(
+    data: dict, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     try:
         data.pop('sn', None) 
         if current_user.role not in ["SUPER_ADMIN", "RPC"]:
@@ -269,13 +348,32 @@ def create_stat(data: dict, db: Session = Depends(get_db), current_user: models.
         new_record.last_updated_by = get_officer_signature(current_user)
         db.add(new_record)
         db.commit()
+        db.refresh(new_record)
+
+        # 🟢 Record precise forensic REGISTER activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="REGISTER",
+            module="OPERATIONAL_STATISTICS",
+            target_id=str(new_record.sn),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} logged operational statistics for station [{new_record.station}]."
+        )
+
         return {"status": "success"}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/stats/{stat_id}")
-def update_stat(stat_id: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def update_stat(
+    stat_id: int, 
+    data: dict, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     try:
         existing_stat = db.query(models.Operational_Statistics).filter(
             or_(models.Operational_Statistics.id == stat_id, models.Operational_Statistics.sn == stat_id)
@@ -298,8 +396,19 @@ def update_stat(stat_id: int, data: dict, db: Session = Depends(get_db), current
         existing_stat.last_updated_by = get_officer_signature(current_user)
         db.commit()
         db.refresh(existing_stat)
+
+        # 🟢 Record precise forensic UPDATE activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="OPERATIONAL_STATISTICS",
+            target_id=str(stat_id),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} updated operational statistics record ID [{stat_id}]."
+        )
         
         return {"status": "success", "message": f"Statistics record {stat_id} updated successfully."}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

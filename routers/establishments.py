@@ -1,13 +1,14 @@
 import json
 from datetime import datetime
 from typing import Optional, List, Union
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 
 from app import models
-from app.database import get_db
+from app.database import get_db, get_logs_db
 from auth import get_current_user
+from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1", tags=["Establishments"])
 
@@ -49,7 +50,12 @@ def serialize_row(row):
     return d
 
 @router.get("/establishments")
-def get_all_establishments(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def get_all_establishments(
+    search: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     EstModel = get_est_model()
     query = db.query(EstModel)
     
@@ -107,16 +113,49 @@ def get_all_establishments(db: Session = Depends(get_db), current_user: models.U
         # Strict Station Fallback
         query = query.filter(func.upper(EstModel.station) == user_stn)
     
+    # 🟢 Apply search filtering if search term provided
+    if search:
+        term = f"%{search.strip().upper()}%"
+        search_conds = []
+        if hasattr(EstModel, 'station'): search_conds.append(EstModel.station.ilike(term))
+        if hasattr(EstModel, 'region'): search_conds.append(EstModel.region.ilike(term))
+        if hasattr(EstModel, 'division'): search_conds.append(EstModel.division.ilike(term))
+        if hasattr(EstModel, 'last_updated_by'): search_conds.append(EstModel.last_updated_by.ilike(term))
+        if search_conds:
+            query = query.filter(or_(*search_conds))
+
     pk_col = getattr(EstModel, 'id', getattr(EstModel, 'sn', None))
     if pk_col is not None:
         records = query.order_by(pk_col.desc()).all()
     else:
         records = query.all()
         
-    return [serialize_row(r) for r in records]
+    serialized_records = [serialize_row(r) for r in records]
+
+    # 🟢 Precision forensic check: Log search query vs regular view
+    if search:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched establishments for query: \"{search}\" (Returned {len(serialized_records)} matches)."
+    else:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Regional Establishments directory (Fetched {len(serialized_records)} records)."
+
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="VIEW",
+        module="ESTABLISHMENTS",
+        target_id=search if search else "ALL_ESTABLISHMENTS",
+        changes_summary=summary_text
+    )
+
+    return serialized_records
 
 @router.post("/establishments")
-def create_establishment(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def create_establishment(
+    data: dict, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     EstModel = get_est_model()
     try:
         data.pop('sn', None)
@@ -149,14 +188,33 @@ def create_establishment(data: dict, db: Session = Depends(get_db), current_user
         db.commit()
         db.refresh(new_est)
         
+        assigned_id = getattr(new_est, 'id', getattr(new_est, 'sn', 1))
+
+        # 🟢 Record REGISTER activity into NeonDB Activity Logs branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="REGISTER",
+            module="ESTABLISHMENTS",
+            target_id=str(assigned_id),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} registered new regional establishment for station [{getattr(new_est, 'station', 'N/A')}]."
+        )
+
         return serialize_row(new_est)
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         print(f"Establishment creation error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to record establishment: {str(e)}")
 
 @router.put("/establishments/{est_id}")
-def update_establishment(est_id: int, est_update: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def update_establishment(
+    est_id: int, 
+    est_update: dict, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     EstModel = get_est_model()
     
     pk_col = getattr(EstModel, 'id', getattr(EstModel, 'sn', None))
@@ -197,14 +255,31 @@ def update_establishment(est_id: int, est_update: dict, db: Session = Depends(ge
     try:
         db.commit()
         db.refresh(existing_est)
+
+        # 🟢 Record UPDATE activity into NeonDB Activity Logs branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="ESTABLISHMENTS",
+            target_id=str(est_id),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} modified establishment record for station [{getattr(existing_est, 'station', 'N/A')}]."
+        )
+
         return serialize_row(existing_est)
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         print(f"Establishment update error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update establishment: {str(e)}")
 
 @router.delete("/establishments/{est_id}")
-def delete_establishment(est_id: int, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def delete_establishment(
+    est_id: int, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     EstModel = get_est_model()
     
     pk_col = getattr(EstModel, 'id', getattr(EstModel, 'sn', None))
@@ -220,7 +295,19 @@ def delete_establishment(est_id: int, db: Session = Depends(get_db), current_use
     try:
         db.delete(existing_est)
         db.commit()
+
+        # 🟢 Record DELETE activity into NeonDB Activity Logs branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="DELETE",
+            module="ESTABLISHMENTS",
+            target_id=str(est_id),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} permanently purged establishment record ID {est_id}."
+        )
+
         return {"status": "success", "message": f"Establishment record {est_id} deleted successfully."}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to delete establishment: {str(e)}")

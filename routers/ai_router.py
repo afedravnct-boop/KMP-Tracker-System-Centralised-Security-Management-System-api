@@ -11,8 +11,9 @@ from google import genai
 from google.genai import types
 
 from auth import get_current_user
-from app.database import get_db, engine
+from app.database import get_db, get_logs_db, engine
 from app import models
+from routers.activity_logger import record_neon_activity
 
 try:
     from embedding_service import get_embedding_vector
@@ -52,7 +53,8 @@ def check_ai_db_query_clearance(user) -> bool:
 @router.post("/admin/toggle-db-query")
 async def toggle_ai_database_queries(
     current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db)
 ):
     role = (current_user.role or "").upper()
     perms = current_user.permissions or {}
@@ -86,6 +88,16 @@ async def toggle_ai_database_queries(
         
     db.commit()
     new_bool_state = new_state_str == "true"
+
+    # 🟢 Record precise forensic UPDATE activity into NeonDB Activity Logs branch
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="UPDATE",
+        module="TACTICAL_AI",
+        target_id="AI_DATABASE_KILLSWITCH",
+        changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} toggled AI Database Querying kill-switch to: {new_state_str.upper()}."
+    )
     
     return {
         "status": "success", 
@@ -97,7 +109,8 @@ async def toggle_ai_database_queries(
 async def process_tactical_query(
     payload: QueryPayload, 
     current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db)
 ):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -329,6 +342,16 @@ async def process_tactical_query(
                 db.commit()
         except Exception as db_err:
             db.rollback()
+
+        # 🟢 Record precise forensic REGISTER/QUERY activity into NeonDB Activity Logs branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="REGISTER",
+            module="TACTICAL_AI",
+            target_id="AI_QUERY",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} submitted Tactical AI query prompt: \"{payload.prompt}\"."
+        )
 
         return {
             "response": response.text if hasattr(response, 'text') else str(response),

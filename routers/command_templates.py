@@ -6,7 +6,6 @@ import urllib.parse
 import re
 from datetime import datetime
 from typing import Optional, List
-
 import boto3
 import openpyxl
 import pymupdf
@@ -14,19 +13,20 @@ import pytz
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt, RGBColor
-from docx.oxml import parse_xml # Required for floating vertical text
+from docx.oxml import parse_xml
 from pptx import Presentation
 from pptx.util import Inches, Pt as PPTXPt
 from pptx.dml.color import RGBColor as PPTXRGBColor
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, status
 from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, or_, func
 
 from app import models
-from app.database import get_db
+from app.database import get_db, get_logs_db
 from auth import get_current_user
+from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1/templates", tags=["Command Templates"])
 
@@ -52,13 +52,33 @@ def get_template_model():
     return None
 
 @router.get("/list")
-def get_command_templates(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+def get_command_templates(
+    search: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user = Depends(get_current_user)
+):
     try:
         TemplateModel = get_template_model()
         if not TemplateModel:
             return []
             
-        templates = db.query(TemplateModel).all()
+        query = db.query(TemplateModel)
+
+        # 🟢 Apply search filtering if search term provided
+        if search:
+            term = f"%{search.strip().upper()}%"
+            search_conds = []
+            if hasattr(TemplateModel, 'file_name'): search_conds.append(TemplateModel.file_name.ilike(term))
+            elif hasattr(TemplateModel, 'filename'): search_conds.append(TemplateModel.filename.ilike(term))
+            if hasattr(TemplateModel, 'doc_type'): search_conds.append(TemplateModel.doc_type.ilike(term))
+            if hasattr(TemplateModel, 'station'): search_conds.append(TemplateModel.station.ilike(term))
+            if hasattr(TemplateModel, 'region'): search_conds.append(TemplateModel.region.ilike(term))
+            if hasattr(TemplateModel, 'uploaded_by'): search_conds.append(TemplateModel.uploaded_by.ilike(term))
+            if search_conds:
+                query = query.filter(or_(*search_conds))
+
+        templates = query.all()
         results = []
         for t in templates:
             filename = getattr(t, 'file_name', getattr(t, 'filename', getattr(t, 'file_path', 'document')))
@@ -83,6 +103,22 @@ def get_command_templates(db: Session = Depends(get_db), current_user = Depends(
                 "region": getattr(t, 'region', 'KMP HEADQUARTERS'),
                 "station": getattr(t, 'station', 'HQ')
             })
+
+        # 🟢 Precision forensic check: Log search query vs regular templates view
+        if search:
+            summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched command templates for query: \"{search}\" (Returned {len(results)} matches)."
+        else:
+            summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Command Templates repository (Fetched {len(results)} templates)."
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VIEW",
+            module="COMMAND_TEMPLATES",
+            target_id=search if search else "ALL_TEMPLATES",
+            changes_summary=summary_text
+        )
+
         return results
     except Exception as e:
         print(f"Templates List Notice: {str(e)}")
@@ -95,6 +131,7 @@ async def upload_command_template(
     files: Optional[List[UploadFile]] = File(None),
     doc_type: str = Form("Command Template"),
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user = Depends(get_current_user)
 ):
     TemplateModel = get_template_model()
@@ -138,9 +175,21 @@ async def upload_command_template(
             db.add(new_template)
             uploaded_count += 1
 
+            # 🟢 Record precise forensic REGISTER activity into NeonDB Activity Logs branch
+            record_neon_activity(
+                logs_db=logs_db,
+                fnum=current_user.fnum,
+                action_type="REGISTER",
+                module="COMMAND_TEMPLATES",
+                target_id=single_file.filename,
+                changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} uploaded command template titled \"{single_file.filename}\"."
+            )
+
         db.commit()
         return {"status": "success", "message": f"Successfully uploaded {uploaded_count} template(s)."}
     except Exception as e:
+        db.rollback()
+        logs_db.rollback()
         print(f"Fetch error: {e}")
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
@@ -150,6 +199,7 @@ def download_template_file(
     doc_id: int, 
     return_url: bool = False,
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user = Depends(get_current_user)
 ):
     TemplateModel = get_template_model()
@@ -307,15 +357,22 @@ def download_template_file(
         output_stream.seek(0)
         final_bytes = output_stream.getvalue()
 
+        # 🟢 Record precise forensic UPDATE/DOWNLOAD activity into NeonDB Activity Logs branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="COMMAND_TEMPLATES",
+            target_id=str(doc_id),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded & watermarked command template titled \"{file_name}\"."
+        )
+
         if return_url:
-            # 🟢 FIX: Aggressive Regex Stripping.
-            # Erase all spaces, percent signs, and special characters from the filename to prevent Google Viewer %2520 encoding bugs.
             safe_file_name = re.sub(r'[^a-zA-Z0-9.]', '_', file_name)
-            safe_file_name = re.sub(r'_+', '_', safe_file_name) # Squeeze multiple underscores into one
+            safe_file_name = re.sub(r'_+', '_', safe_file_name)
             
             temp_s3_key = f"forensic_cache/{stamp_id}_{safe_file_name}"
             
-            # 🟢 FIX: Enforce "inline" disposition so the browser knows not to auto-download
             s3_client.put_object(
                 Bucket=BUCKET_NAME,
                 Key=temp_s3_key,

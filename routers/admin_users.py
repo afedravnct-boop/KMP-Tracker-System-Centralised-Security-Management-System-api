@@ -1,13 +1,14 @@
 from urllib.parse import unquote
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from datetime import datetime, timedelta
 import pytz
 
 from app import models
-from app.database import get_db
+from app.database import get_db, get_logs_db
 from auth import get_current_user  
+from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin Users"])
 
@@ -25,6 +26,7 @@ def is_high_command_admin(current_user: models.Users):
 def approve_pending_user(
     fnum: str,
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)  
 ):
     if not is_high_command_admin(current_user):
@@ -53,12 +55,24 @@ def approve_pending_user(
         target_user.is_active = True
 
     db.commit()
+
+    # 🟢 Record precise forensic REGISTER/APPROVE action into NeonDB Activity Logs branch
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="REGISTER",
+        module="USER_ACCOUNTS",
+        target_id=clean_fnum,
+        changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} approved and authorized command account for officer {clean_fnum}."
+    )
+
     return {"status": "success", "message": f"Officer {clean_fnum} successfully authorized."}
 
 @router.get("/pending-users")
 @router.get("/users/pending")
 def get_pending_users(
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)  
 ):
     if not is_high_command_admin(current_user):
@@ -70,13 +84,26 @@ def get_pending_users(
     query = db.query(models.Users).filter(models.Users.is_approved == False)
     pending_users = query.order_by(models.Users.id.desc()).all()
 
+    # 🟢 Record precise forensic VIEW activity into NeonDB Activity Logs branch
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="VIEW",
+        module="USER_ACCOUNTS",
+        target_id="PENDING_ROSTER",
+        changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} inspected pending user authorizations roster (Fetched {len(pending_users)} pending records)."
+    )
+
     return pending_users
 
 
-# 🟢 ADDED: User lists, heartbeats, and online tracking to resolve console 404 errors
-
 @router.get("/users")
-def get_all_active_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def get_all_active_users(
+    search: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     try:
         query = db.query(models.Users).filter(models.Users.is_approved == True)
         perms = current_user.permissions or {}
@@ -99,7 +126,34 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
             else:
                 query = query.filter(func.upper(models.Users.station) == func.upper(current_user.station))
                 
+        # 🟢 Apply search filtering if search keyword is provided
+        if search:
+            term = f"%{search.strip().upper()}%"
+            query = query.filter(or_(
+                models.Users.name.ilike(term),
+                models.Users.fnum.ilike(term),
+                models.Users.rank.ilike(term),
+                models.Users.station.ilike(term),
+                models.Users.ipps.ilike(term)
+            ))
+
         users = query.all()
+
+        # 🟢 Precision forensic check: log search query vs regular active roster view
+        if search:
+            summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched active officers directory for query: \"{search}\" (Returned {len(users)} matches)."
+        else:
+            summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed active users directory roster (Fetched {len(users)} profiles)."
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VIEW",
+            module="USER_ROSTER",
+            target_id=search if search else "ACTIVE_USERS",
+            changes_summary=summary_text
+        )
+
         return [
             {
                 "fnum": u.fnum, "name": u.name, "rank": u.rank, "role": u.role, 

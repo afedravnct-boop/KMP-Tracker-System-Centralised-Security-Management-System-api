@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+import json
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, text
+from sqlalchemy import or_, func, text
 
 from app import models
-from app.database import get_db
+from app.database import get_db, get_logs_db
 from auth import get_current_user
+from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1", tags=["Success Stories"])
 
@@ -96,14 +98,53 @@ def apply_opsec_scope(current_user, query, ModelClass):
     return query.filter(text("1=0"))
 
 @router.get("/stories")
-def get_stories(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def get_stories(
+    search: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     query = db.query(models.Success_Stories)
     query = apply_opsec_scope(current_user, query, models.Success_Stories)
+    
+    # 🟢 Apply search filtering if search term provided
+    if search:
+        term = f"%{search.strip().upper()}%"
+        search_conds = []
+        if hasattr(models.Success_Stories, 'title'): search_conds.append(models.Success_Stories.title.ilike(term))
+        if hasattr(models.Success_Stories, 'narrative'): search_conds.append(models.Success_Stories.narrative.ilike(term))
+        if hasattr(models.Success_Stories, 'station'): search_conds.append(models.Success_Stories.station.ilike(term))
+        if hasattr(models.Success_Stories, 'region'): search_conds.append(models.Success_Stories.region.ilike(term))
+        if hasattr(models.Success_Stories, 'last_updated_by'): search_conds.append(models.Success_Stories.last_updated_by.ilike(term))
+        if search_conds:
+            query = query.filter(or_(*search_conds))
+
+    records = query.order_by(models.Success_Stories.sn.desc()).all()
         
-    return query.order_by(models.Success_Stories.sn.desc()).all()
+    # 🟢 Precision forensic check: Log search query vs regular view
+    if search:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched success stories ledger for query: \"{search}\" (Returned {len(records)} matches)."
+    else:
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Success Stories ledger (Fetched {len(records)} records)."
+
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="VIEW",
+        module="SUCCESS_STORIES",
+        target_id=search if search else "ALL_STORIES",
+        changes_summary=summary_text
+    )
+
+    return records
 
 @router.post("/stories")
-def create_story(data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def create_story(
+    data: dict, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     try:
         data.pop('sn', None) 
         
@@ -115,13 +156,31 @@ def create_story(data: dict, db: Session = Depends(get_db), current_user: models
         db.add(new_record)
         db.commit()
         db.refresh(new_record)
+
+        # 🟢 Record precise forensic REGISTER action to NeonDB activity branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="REGISTER",
+            module="SUCCESS_STORIES",
+            target_id=str(new_record.sn),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} registered new success story for station {current_user.station}."
+        )
+
         return {"status": "success", "sn": new_record.sn}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/stories/{sn}")
-def update_story(sn: int, data: dict, db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def update_story(
+    sn: int, 
+    data: dict, 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     try:
         record = db.query(models.Success_Stories).filter(models.Success_Stories.sn == sn).first()
         if not record:
@@ -142,7 +201,18 @@ def update_story(sn: int, data: dict, db: Session = Depends(get_db), current_use
         db.commit()
         db.refresh(record)
         
+        # 🟢 Record precise forensic UPDATE action to NeonDB activity branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="SUCCESS_STORIES",
+            target_id=str(sn),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} modified success story record SN [{sn}]."
+        )
+
         return {"status": "success", "sn": record.sn, "message": "Success story updated successfully."}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

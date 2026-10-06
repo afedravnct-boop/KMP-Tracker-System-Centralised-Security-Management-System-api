@@ -13,19 +13,20 @@ import pytz
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt, RGBColor
-from docx.oxml import parse_xml # Required for floating vertical text
+from docx.oxml import parse_xml
 from pptx import Presentation
 from pptx.util import Inches, Pt as PPTXPt
 from pptx.dml.color import RGBColor as PPTXRGBColor
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, status
 from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, or_, func
 
 from app import models
-from app.database import get_db
+from app.database import get_db, get_logs_db
 from auth import get_current_user
+from routers.activity_logger import record_neon_activity
 
 # Try safe import for embedding ingestion
 try:
@@ -73,13 +74,34 @@ def get_general_doc_model():
     return None
 
 @router.get("/reports/archive")
-def get_document_archive(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+def get_document_archive(
+    search: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user = Depends(get_current_user)
+):
     try:
         ArchiveModel = get_doc_archive_model()
-        docs = db.query(ArchiveModel).all()
+        query = db.query(ArchiveModel)
+
+        # 🟢 Apply search filtering if search term provided
+        if search:
+            term = f"%{search.strip().upper()}%"
+            search_conds = []
+            if hasattr(ArchiveModel, 'file_name'): search_conds.append(ArchiveModel.file_name.ilike(term))
+            elif hasattr(ArchiveModel, 'filename'): search_conds.append(ArchiveModel.filename.ilike(term))
+            if hasattr(ArchiveModel, 'doc_type'): search_conds.append(ArchiveModel.doc_type.ilike(term))
+            elif hasattr(ArchiveModel, 'doctype'): search_conds.append(ArchiveModel.doctype.ilike(term))
+            if hasattr(ArchiveModel, 'station'): search_conds.append(ArchiveModel.station.ilike(term))
+            if hasattr(ArchiveModel, 'region'): search_conds.append(ArchiveModel.region.ilike(term))
+            if hasattr(ArchiveModel, 'uploaded_by'): search_conds.append(ArchiveModel.uploaded_by.ilike(term))
+            if search_conds:
+                query = query.filter(or_(*search_conds))
+
+        docs = query.all()
         if not docs:
             raw_result = db.execute(text("SELECT id, file_name, doc_type, file_size, file_path, region, station, uploaded_by, upload_date FROM document_archive ORDER BY id DESC")).fetchall()
-            return [
+            results = [
                 {
                     "id": row[0],
                     "name": row[1] or "document",
@@ -91,33 +113,49 @@ def get_document_archive(db: Session = Depends(get_db), current_user = Depends(g
                     "station": row[6] or "KMP HEADQUARTERS"
                 } for row in raw_result
             ]
+        else:
+            results = []
+            for doc in docs:
+                file_name = getattr(doc, 'file_name', getattr(doc, 'filename', 'document'))
+                doc_type = getattr(doc, 'doc_type', getattr(doc, 'doctype', 'General Document'))
+                file_size = getattr(doc, 'file_size', getattr(doc, 'filesize', 'N/A'))
+                file_path = getattr(doc, 'file_path', getattr(doc, 'filepath', ''))
+                region = getattr(doc, 'region', 'KMP HEADQUARTERS')
+                station = getattr(doc, 'station', 'KMP HEADQUARTERS')
+                upload_date = getattr(doc, 'upload_date', getattr(doc, 'uploaded_at', None))
+                
+                date_str = ""
+                if isinstance(upload_date, datetime):
+                    date_str = upload_date.strftime("%Y-%m-%d")
+                elif upload_date:
+                    date_str = str(upload_date).split(' ')[0]
 
-        results = []
-        for doc in docs:
-            file_name = getattr(doc, 'file_name', getattr(doc, 'filename', 'document'))
-            doc_type = getattr(doc, 'doc_type', getattr(doc, 'doctype', 'General Document'))
-            file_size = getattr(doc, 'file_size', getattr(doc, 'filesize', 'N/A'))
-            file_path = getattr(doc, 'file_path', getattr(doc, 'filepath', ''))
-            region = getattr(doc, 'region', 'KMP HEADQUARTERS')
-            station = getattr(doc, 'station', 'KMP HEADQUARTERS')
-            upload_date = getattr(doc, 'upload_date', getattr(doc, 'uploaded_at', None))
-            
-            date_str = ""
-            if isinstance(upload_date, datetime):
-                date_str = upload_date.strftime("%Y-%m-%d")
-            elif upload_date:
-                date_str = str(upload_date).split(' ')[0]
+                results.append({
+                    "id": getattr(doc, 'id', getattr(doc, 'sn', 1)),
+                    "name": file_name,
+                    "type": doc_type or "General Document",
+                    "date": date_str,
+                    "size": file_size or "N/A",
+                    "file_path": file_path,
+                    "region": region,
+                    "station": station
+                })
 
-            results.append({
-                "id": getattr(doc, 'id', getattr(doc, 'sn', 1)),
-                "name": file_name,
-                "type": doc_type or "General Document",
-                "date": date_str,
-                "size": file_size or "N/A",
-                "file_path": file_path,
-                "region": region,
-                "station": station
-            })
+        # 🟢 Precision forensic check: Log search query vs regular archive view
+        if search:
+            summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched document archive for query: \"{search}\" (Returned {len(results)} matches)."
+        else:
+            summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Document Archive repository (Fetched {len(results)} records)."
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VIEW",
+            module="DOCUMENT_ARCHIVE",
+            target_id=search if search else "ALL_ARCHIVE",
+            changes_summary=summary_text
+        )
+
         return results
     except Exception as e:
         print(f"Archive fetch error: {str(e)}")
@@ -143,6 +181,7 @@ async def upload_word_report(
     target_region: Optional[str] = Form(None), 
     target_station: Optional[str] = Form(None), 
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user = Depends(get_current_user)
 ):
     ArchiveModel = get_doc_archive_model()
@@ -202,6 +241,16 @@ async def upload_word_report(
             db.add(new_archive)
             db.flush()
 
+            # 🟢 Record precise forensic REGISTER activity into NeonDB branch
+            record_neon_activity(
+                logs_db=logs_db,
+                fnum=current_user.fnum,
+                action_type="REGISTER",
+                module="DOCUMENT_ARCHIVE",
+                target_id=single_file.filename,
+                changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} uploaded document report titled \"{single_file.filename}\" (Type: {display_type})."
+            )
+
             try:
                 ingest_document_vector(
                     db=db,
@@ -212,7 +261,9 @@ async def upload_word_report(
                     region=effective_region,
                     division=getattr(current_user, 'division', 'KMP HEADQUARTERS'),
                     station=effective_station,
-                    sd_ref="N/A"
+                    sd_ref="N/A",
+                    logs_db=logs_db,
+                    fnum=current_user.fnum
                 )
             except Exception as vec_err:
                 print(f"Vector ingestion notice: {vec_err}")
@@ -223,6 +274,7 @@ async def upload_word_report(
         return {"status": "success", "message": f"Successfully archived {uploaded_count} document(s)."}
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to process document intake: {str(e)}")
 
 
@@ -234,6 +286,7 @@ def download_archive_file(
     return_url: bool = False,
     category: Optional[str] = None, 
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user = Depends(get_current_user)
 ):
     ArchiveModel = get_doc_archive_model()
@@ -289,7 +342,6 @@ def download_archive_file(
         keywords_str = f"KMP_AUDIT;{encoded_token}"[:250]
         comments_str = f"Export: {officer_signature} [{command_post}]. ID: {stamp_id}"
 
-        # 🟢 Clean Vertical Stamp Text
         vertical_stamp_text = f"SECURE ACCESS BY: {officer_signature}  |  CLEARANCE: {current_user.role}  |  STAMP ID: {stamp_id}  |  TIMESTAMP: {timestamp_eat}"
 
         output_stream = io.BytesIO()
@@ -304,10 +356,6 @@ def download_archive_file(
             core_props.comments = comments_str
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
-            # 🟢 VML Injection for True Left Margin Vertical Stamp
-            # Adjusted margin-left from -290pt to -265pt. 
-            # This pulls the text 25 points inward, making it 100% safe for physical printers,
-            # while still keeping it strictly in the empty left margin, well clear of your document text.
             section = word_doc.sections[0]
             footer = section.footer
             if not footer.paragraphs:
@@ -367,7 +415,6 @@ def download_archive_file(
                 
                 if prs.slides:
                     slide = prs.slides[0]
-                    # Adjusted Left margin for PPT printable safety (0.35 inches inward)
                     left_box = slide.shapes.add_textbox(Inches(-3.4), Inches(3.5), Inches(8), Inches(0.5))
                     left_box.rotation = 270 
                     p_left = left_box.text_frame.add_paragraph()
@@ -388,7 +435,6 @@ def download_archive_file(
                 pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
                 for page in pdf_doc:
                     rect = page.rect
-                    # 🟢 Adjusted PDF X coordinate from 15 to 25 to guarantee print safety
                     page.insert_text(
                         pymupdf.Point(25, rect.height - 50),
                         vertical_stamp_text,
@@ -407,11 +453,19 @@ def download_archive_file(
         else:
             output_stream.write(raw_bytes)
 
-        # 🟢 GUARANTEED GENERATION OF FINAL BYTES
         output_stream.seek(0)
         final_bytes = output_stream.getvalue()
 
-        # 🟢 CACHE S3 URL FOR WEB VIEWERS
+        # 🟢 Record precise forensic UPDATE/DOWNLOAD activity into NeonDB branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="DOCUMENT_ARCHIVE",
+            target_id=str(doc_id),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded and watermarked document titled \"{file_name}\"."
+        )
+
         if return_url:
             temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
             
@@ -494,6 +548,7 @@ async def verify_forensic_stamp(file: UploadFile = File(...)):
 def delete_archive_file(
     doc_id: int, 
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user = Depends(get_current_user)
 ):
     if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
@@ -524,8 +579,20 @@ def delete_archive_file(
             
         db.delete(doc_record)
         db.commit()
+
+        # 🟢 Record precise forensic DELETE activity into NeonDB branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="DELETE",
+            module="DOCUMENT_ARCHIVE",
+            target_id=str(doc_id),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} permanently purged archived document ID {doc_id} from repository."
+        )
+
         return {"message": "Document successfully deleted from repository and database."}
     except Exception as e:
         print(f"Delete error: {e}")
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")

@@ -5,8 +5,9 @@ from sqlalchemy import or_, func, text
 from typing import Optional, List
 
 from app import models
-from app.database import get_db
-from auth import get_current_user  # 🟢 Ensure get_current_user is imported
+from app.database import get_db, get_logs_db
+from auth import get_current_user  
+from routers.activity_logger import record_neon_activity
 
 router = APIRouter(
     prefix="/api/v1/exhibits",
@@ -91,7 +92,8 @@ def get_exhibits(
     search: Optional[str] = None, 
     limit: int = 300, 
     db: Session = Depends(get_db), 
-    current_user = Depends(get_current_user)  # 🟢 Fixed to use real authentication
+    logs_db: Session = Depends(get_logs_db),
+    current_user = Depends(get_current_user)
 ):
     from api_backend import serialize_model_row
     try:
@@ -99,8 +101,6 @@ def get_exhibits(
         if not Model: return []
         
         query = db.query(Model)
-        
-        # 🟢 Apply OPSEC Role & Dual-Equivalence Scoping with active user credentials
         query = apply_opsec_scope(current_user, query, Model)
             
         if region and region != 'ALL REGIONS':
@@ -110,7 +110,6 @@ def get_exhibits(
             
         if search:
             term = f"%{search.strip().upper()}%"
-            
             if hasattr(Model, 'category'):
                 query = query.filter(or_(
                     Model.reg_no.ilike(term),
@@ -130,7 +129,25 @@ def get_exhibits(
                 ))
             
         records = query.order_by(Model.id.desc()).limit(limit).all()
-        return [serialize_model_row(r) for r in records]
+        serialized_records = [serialize_model_row(r) for r in records]
+
+        # 🟢 Precision forensic check: Log search query vs regular view
+        if search:
+            summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched exhibits ledger for query: \"{search}\" (Returned {len(serialized_records)} matches)."
+        else:
+            summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Exhibits & Impounded Fleet Ledger (Fetched {len(serialized_records)} items)."
+
+        # 🟢 Record VIEW activity into NeonDB branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VIEW",
+            module="EXHIBITS_REGISTRY",
+            target_id=search if search else "ALL_RECORDS",
+            changes_summary=summary_text
+        )
+
+        return serialized_records
     except Exception as e:
         print(f"Error fetching exhibits: {e}")
         return []
@@ -139,7 +156,8 @@ def get_exhibits(
 def create_exhibit(
     data: dict, 
     db: Session = Depends(get_db), 
-    current_user = Depends(get_current_user)  # 🟢 Fixed to use real authentication
+    logs_db: Session = Depends(get_logs_db),
+    current_user = Depends(get_current_user)
 ):
     from api_backend import serialize_model_row
     try:
@@ -176,9 +194,21 @@ def create_exhibit(
         db.add(new_item)
         db.commit()
         db.refresh(new_item)
+
+        # 🟢 Record precise forensic REGISTER activity into NeonDB branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="REGISTER",
+            module="EXHIBITS_REGISTRY",
+            target_id=str(new_item.id),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} registered new exhibit: Case No [{new_item.case_no}], Type: [{new_item.type_make}]."
+        )
+
         return serialize_model_row(new_item)
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{item_id}")
@@ -186,7 +216,8 @@ def update_exhibit(
     item_id: int, 
     data: dict, 
     db: Session = Depends(get_db), 
-    current_user = Depends(get_current_user)  # 🟢 Fixed to use real authentication
+    logs_db: Session = Depends(get_logs_db),
+    current_user = Depends(get_current_user)
 ):
     from api_backend import serialize_model_row
     try:
@@ -206,7 +237,19 @@ def update_exhibit(
                 
         db.commit()
         db.refresh(item)
+
+        # 🟢 Record precise forensic UPDATE activity into NeonDB branch
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="EXHIBITS_REGISTRY",
+            target_id=str(item_id),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} modified exhibit record for Case No [{getattr(item, 'case_no', 'N/A')}]."
+        )
+
         return serialize_model_row(item)
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

@@ -15,8 +15,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.database import get_db
+from app.database import get_db, get_logs_db
 from auth import get_current_user
+from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1/hr", tags=["HR & Establishments"])
 
@@ -50,6 +51,7 @@ def normalize_education_level(educ_str):
 @router.get("/export-ledger")
 def export_hr_establishments_zip(
     db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
     current_user = Depends(get_current_user)
 ):
     try:
@@ -280,6 +282,16 @@ def export_hr_establishments_zip(
             zf.writestr(word_filename, doc_stream.getvalue())
 
         zip_stream.seek(0)
+
+        # 🟢 Record secure export activity into NeonDB Logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="HR_ESTABLISHMENTS_EXPORT",
+            target_id="MASTER_HR_LEDGER",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded password-encrypted Master HR & Establishments Ledger packages."
+        )
 
         zip_filename = f"SECURE_HR_LEDGER_{eat_time.strftime('%Y%m%d')}.zip"
         headers = {
