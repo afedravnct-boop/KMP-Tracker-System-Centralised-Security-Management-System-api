@@ -1,5 +1,6 @@
 import os
 import uuid
+import re
 import boto3
 from typing import Optional, List, Union
 from datetime import datetime, date
@@ -32,6 +33,59 @@ REGIONAL_HIERARCHY = {
     "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
+
+def strip_html_tags(text_str: str) -> str:
+    if not text_str:
+        return ""
+    return re.sub('<.*?>', '', str(text_str))
+
+# 🟢 Backend Heavy-Lifting Intelligent Narrative Parser for Success Stories
+def parse_success_story_backend(raw_narrative: str):
+    plain_text = strip_html_tags(raw_narrative or '')
+    lower_text = plain_text.lower()
+    
+    suspects_count = 0
+    suspect_matches = [
+        re.search(r'(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang)', lower_text),
+        re.search(r'(?:arrest(?:ed|ing)?|apprehend(?:ed)?)\s*(?:of)?\s*(\d+)', lower_text)
+    ]
+    for m in suspect_matches:
+        if m and m.group(1):
+            suspects_count = int(m.group(1))
+            break
+
+    legal_status = 'UNDER INVESTIGATION'
+    if 'remand' in lower_text or 'remanded' in lower_text:
+        legal_status = 'REMANDED'
+    elif 'convict' in lower_text or 'sentenced' in lower_text:
+        legal_status = 'CONVICTED'
+    elif 'acquit' in lower_text:
+        legal_status = 'ACQUITTED'
+    elif 'court' in lower_text or 'trial' in lower_text or 'magistrate' in lower_text:
+        legal_status = 'UNDERGOING COURT TRIAL'
+
+    recoveries_list = []
+    recovery_matches = re.findall(r'(\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|money|cash|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|birds|chicken|produce|maize|beans|items))', lower_text, re.IGNORECASE)
+    for count_val, item_val in recovery_matches:
+        recoveries_list.append(f"{count_val} {item_val.strip()}")
+
+    if not recoveries_list and ('recovery' in lower_text or 'recovered' in lower_text or 'recover' in lower_text):
+        recoveries_list.append('Recovered exhibits / assets')
+
+    classification = 'Operational breakthrough & suspect apprehension'
+    if 'cattle' in lower_text or 'cow' in lower_text or 'livestock' in lower_text or 'farm' in lower_text or 'agric' in lower_text:
+        classification = 'Arrest of suspects in cattle / agricultural theft & recovery'
+    elif 'phone' in lower_text or 'computer' in lower_text or 'electronics' in lower_text:
+        classification = 'Apprehension of suspects & electronic asset recovery'
+    elif 'robbery' in lower_text or 'gang' in lower_text or 'theft' in lower_text:
+        classification = 'Dismantling of criminal gang & property recovery'
+
+    return {
+        "suspects": suspects_count,
+        "recoveries": ", ".join(recoveries_list) if recoveries_list else "None recorded",
+        "legalStatus": legal_status,
+        "classification": classification
+    }
 
 def is_station_equivalent(stat_a: Optional[str], stat_b: Optional[str]) -> bool:
     import re
@@ -229,7 +283,12 @@ def get_reports(
             query = query.filter(or_(*search_conditions))
 
     pk_col = getattr(CrimeModel, 'sn', getattr(CrimeModel, 'id', None))
-    if pk_col is not None:
+    offence_col = getattr(CrimeModel, 'offence', None)
+    
+    # 🟢 Backend Heavy Lifting: Sort strictly A to Z by offence name
+    if offence_col is not None and pk_col is not None:
+        reports = query.order_by(offence_col.asc(), pk_col.desc()).limit(limit).all()
+    elif pk_col is not None:
         reports = query.order_by(pk_col.desc()).limit(limit).all()
     else:
         reports = query.limit(limit).all()
@@ -252,7 +311,7 @@ def get_reports(
         c_dict['station'] = getattr(r, 'station', 'HQ')
         c_dict['date'] = str(getattr(r, 'date', ''))
         c_dict['time'] = str(getattr(r, 'time', ''))
-        c_dict['offence'] = getattr(r, 'offence', 'GENERAL CRIME')
+        c_dict['offence'] = str(getattr(r, 'offence', 'GENERAL CRIME')).strip().upper()
         c_dict['narrative'] = getattr(r, 'narrative', '')
         c_dict['status'] = getattr(r, 'status', 'PENDING')
         c_dict['suspects'] = getattr(r, 'suspects', 0)
@@ -261,7 +320,6 @@ def get_reports(
         
         result.append(c_dict)
 
-    # 🟢 Record VIEW activity into NeonDB Activity Logs branch
     from routers.activity_logger import record_neon_activity
     record_neon_activity(
         logs_db=logs_db,
@@ -389,7 +447,6 @@ def create_report(
         db.refresh(new_record)
         assigned_id = getattr(new_record, 'id', getattr(new_record, 'sn', 1))
 
-        # 🟢 Record REGISTER activity into NeonDB Activity Logs branch
         from routers.activity_logger import record_neon_activity
         record_neon_activity(
             logs_db=logs_db,
@@ -477,7 +534,6 @@ def update_report(
 
         db.commit()
 
-        # 🟢 Record UPDATE activity into NeonDB Activity Logs branch
         from routers.activity_logger import record_neon_activity
         record_neon_activity(
             logs_db=logs_db,
@@ -495,7 +551,7 @@ def update_report(
         raise HTTPException(status_code=500, detail=str(e))
 
 # ====================================================================
-# 5. CONSOLIDATED LEDGER ENDPOINT
+# 5. CONSOLIDATED LEDGER ENDPOINT (HEAVY LIFTING FOR SUCCESS STORIES & EXHIBITS)
 # ====================================================================
 @router.get("/reports/consolidated-ledger")
 def get_consolidated_ledger(
@@ -512,113 +568,81 @@ def get_consolidated_ledger(
         StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'success_stories', 'Stories', 'stories')
         SuspectModel = get_model_safe('Suspect_Lockup', 'SuspectLockup', 'suspect_lockup')
+        NomModel = get_model_safe('Nominal_Roll', 'NominalRoll', 'Users', 'nominal_roll')
+        ExhibitModel = get_model_safe('Impounded_Exhibits', 'Exhibits', 'impounded_exhibits')
         
+        # 1. Crimes Data (Strict A to Z alphabetical sorting on backend)
         crimes_data = []
         if CrimeModel:
             q_crimes = db.query(CrimeModel)
             q_crimes = apply_opsec_scope(current_user, q_crimes, CrimeModel)
-
-            date_col = getattr(CrimeModel, 'date', getattr(CrimeModel, 'created_at', None))
-            if date_col is not None:
-                if start_date:
-                    q_crimes = q_crimes.filter(date_col >= start_date)
-                if end_date:
-                    q_crimes = q_crimes.filter(date_col <= end_date)
-            if region and region.upper() not in ['ALL REGIONS', 'ALL']:
-                if hasattr(CrimeModel, 'region'):
-                    q_crimes = q_crimes.filter(func.upper(CrimeModel.region) == region.upper())
-            if station and station.upper() not in ['ALL STATIONS', 'ALL']:
-                if hasattr(CrimeModel, 'station'):
-                    clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
-                    q_crimes = q_crimes.filter(
-                        or_(
-                            func.upper(CrimeModel.station) == station.upper(),
-                            func.upper(CrimeModel.station) == clean_stn,
-                            func.upper(CrimeModel.station) == f"{clean_stn} HEADQUARTERS"
-                        )
-                    )
-                    
-            crimes = q_crimes.all()
+            offence_col = getattr(CrimeModel, 'offence', None)
+            pk_col = getattr(CrimeModel, 'sn', getattr(CrimeModel, 'id', None))
             
-            for c in crimes:
+            if offence_col is not None and pk_col is not None:
+                q_crimes = q_crimes.order_by(offence_col.asc(), pk_col.desc())
+            
+            for c in q_crimes.all():
                 c_dict = clean_model_dict(c)
+                c_dict['offence'] = str(c_dict.get('offence', 'GENERAL CRIME')).strip().upper()
                 if SuspectModel and hasattr(c, 'id'):
                     suspects = db.query(SuspectModel).filter(SuspectModel.report_id == c.id).all()
                     c_dict['suspectDetails'] = [clean_model_dict(s) for s in suspects]
                 crimes_data.append(c_dict)
 
-        stats_data = []
-        if StatsModel:
-            q_stats = db.query(StatsModel)
-            q_stats = apply_opsec_scope(current_user, q_stats, StatsModel)
-
-            date_col_st = getattr(StatsModel, 'date', getattr(StatsModel, 'timestamp', getattr(StatsModel, 'created_at', None)))
-            if date_col_st is not None:
-                if start_date:
-                    q_stats = q_stats.filter(date_col_st >= start_date)
-                if end_date:
-                    q_stats = q_stats.filter(date_col_st <= end_date)
-            if region and region.upper() not in ['ALL REGIONS', 'ALL']:
-                if hasattr(StatsModel, 'region'):
-                    q_stats = q_stats.filter(func.upper(StatsModel.region) == region.upper())
-            if station and station.upper() not in ['ALL STATIONS', 'ALL']:
-                if hasattr(StatsModel, 'station'):
-                    clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
-                    q_stats = q_stats.filter(
-                        or_(
-                            func.upper(StatsModel.station) == station.upper(),
-                            func.upper(StatsModel.station) == clean_stn,
-                            func.upper(StatsModel.station) == f"{clean_stn} HEADQUARTERS"
-                        )
-                    )
-                    
-            stats = q_stats.all()
-            stats_data = [clean_model_dict(s) for s in stats]
-
+        # 2. Success Stories with Backend Heavy-Lift Intelligence Parsing
         stories_data = []
         if StoryModel:
             q_stories = db.query(StoryModel)
             q_stories = apply_opsec_scope(current_user, q_stories, StoryModel)
+            for st in q_stories.all():
+                st_dict = clean_model_dict(st)
+                parsed = parse_success_story_backend(st_dict.get('narrative') or st_dict.get('title'))
+                st_dict['parsedSuspects'] = st_dict.get('suspects_arrested') or st_dict.get('suspects_arrested_count') or parsed['suspects']
+                st_dict['parsedRecoveries'] = st_dict.get('suspected_stolen_properties_recovered') or st_dict.get('property_recovered') or parsed['recoveries']
+                st_dict['parsedLegalStatus'] = st_dict.get('legal_status') or parsed['legalStatus']
+                st_dict['parsedClassification'] = parsed['classification']
+                stories_data.append(st_dict)
 
-            date_col_story = getattr(StoryModel, 'date', getattr(StoryModel, 'timestamp', getattr(StoryModel, 'created_at', None)))
-            if date_col_story is not None:
-                if start_date:
-                    q_stories = q_stories.filter(date_col_story >= start_date)
-                if end_date:
-                    q_stories = q_stories.filter(date_col_story <= end_date)
-            if region and region.upper() not in ['ALL REGIONS', 'ALL']:
-                if hasattr(StoryModel, 'region'):
-                    q_stories = q_stories.filter(func.upper(StoryModel.region) == region.upper())
-            if station and station.upper() not in ['ALL STATIONS', 'ALL']:
-                if hasattr(StoryModel, 'station'):
-                    clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
-                    q_stories = q_stories.filter(
-                        or_(
-                            func.upper(StoryModel.station) == station.upper(),
-                            func.upper(StoryModel.station) == clean_stn,
-                            func.upper(StoryModel.station) == f"{clean_stn} HEADQUARTERS"
-                        )
-                    )
-                    
-            stories = q_stories.all()
-            stories_data = [clean_model_dict(st) for st in stories]
+        # 3. Grouped & Summed Exhibits Summary
+        exhibits_data = []
+        if ExhibitModel:
+            q_ex = db.query(ExhibitModel)
+            q_ex = apply_opsec_scope(current_user, q_ex, ExhibitModel)
+            ex_map = {}
+            for ex in q_ex.all():
+                cat = str(getattr(ex, 'category', 'GENERAL') or 'GENERAL').upper()
+                reg = str(getattr(ex, 'region', 'KMP GENERAL') or 'KMP GENERAL').upper()
+                div = str(getattr(ex, 'division', getattr(ex, 'station', 'N/A')) or 'N/A').upper()
+                stn = str(getattr(ex, 'station', 'N/A') or 'N/A').upper()
+                status = str(getattr(ex, 'status', 'IMPOUNDED') or 'IMPOUNDED').upper()
+                key = (cat, reg, div, stn, status)
+                ex_map[key] = ex_map.get(key, 0) + 1
+            
+            for k, total in ex_map.items():
+                exhibits_data.append({
+                    "category": k[0], "region": k[1], "division": k[2], "station": k[3], "status": k[4], "total": total
+                })
 
-        # 🟢 Record VIEW activity into NeonDB Activity Logs branch
-        from routers.activity_logger import record_neon_activity
+        stats_data = [clean_model_dict(s) for s in db.query(StatsModel).all()] if StatsModel else []
+        nom_data = [clean_model_dict(n) for n in db.query(NomModel).all()] if NomModel else []
+
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
             action_type="VIEW",
             module="CONSOLIDATED_LEDGER",
             target_id="MASTER_SUMMARY",
-            changes_summary=f"Officer accessed Consolidated Operations & Crime Ledger."
+            changes_summary=f"Officer accessed heavy-lift backend Consolidated Operations & Crime Ledger."
         )
 
         return {
             "status": "success",
             "crimes": crimes_data,
             "statistics": stats_data,
-            "stories": stories_data
+            "stories": stories_data,
+            "exhibits_summary": exhibits_data,
+            "manpower": nom_data
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Consolidated ledger compilation error: {str(e)}")

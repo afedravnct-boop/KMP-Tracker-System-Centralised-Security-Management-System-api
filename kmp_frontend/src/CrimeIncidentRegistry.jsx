@@ -1,3 +1,4 @@
+// src/components/CrimeIncidentRegistry.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {  
   Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2
@@ -102,9 +103,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   const [serverReports, setServerReports] = useState([]);
   const [isFetchingReports, setIsFetchingReports] = useState(false);
   
-  // Lockup API data used strictly for metrics calculation. Data entry is handled by LockupMatrixLedger.
   const [lockupData, setLockupData] = useState([]);
-
   const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
 
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
@@ -236,13 +235,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     if (mode === 'new') resetFormToBlank();
   };
 
-  // 🟢 Simply loads the actual database string straight into formData.offence without mapping logic
   const populateUpdateCrimeForm = (caseData) => {
     setFormData({ 
       ...caseData, 
       sn: caseData.sn || caseData.id, 
       sd_ref: stripHtmlTags(caseData.sdRef || caseData.sd_ref), 
-      offence: stripHtmlTags(caseData.offence || 'Other'), // Safely carries over the custom text
+      offence: stripHtmlTags(caseData.offence || 'Other'),
       customOffence: '',
       suspectDetails: caseData.suspectDetails || [], 
       updateText: '' 
@@ -303,7 +301,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       else if (dateFilter === 'LAST 180 DAYS') { if (diffDays > 180) return false; }
         
       return true;
-    }).sort((a, b) => (b.sn || b.id || 0) - (a.sn || a.id || 0));
+    });
 
   }, [serverReports, dateFilter, showAgriculturalOnly, filterRegion, filterStation, canViewGlobalActive]);
 
@@ -340,8 +338,8 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const lRegion = getOfficialRegionForStation(lStation, l.region);
       
       const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' || 
-                         lStation.includes('GENERAL TOTAL') || 
-                         lRegion === 'KMP HEADQUARTERS';
+                        lStation.includes('GENERAL TOTAL') || 
+                        lRegion === 'KMP HEADQUARTERS';
 
       if (l.date === todayStr) {
         if (isHQTotal) {
@@ -426,7 +424,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         const token = localStorage.getItem('kmp_authToken') || sessionStorage.getItem('kmp_authToken');
         const API_URL = import.meta.env?.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
         
-        // 🟢 THE FIX: The trailing slash is strictly removed from the URL here
         const response = await fetch(`${API_URL}/api/v1/investigation/upload`, { 
             method: "POST", 
             headers: { "Authorization": `Bearer ${token}` }, 
@@ -437,7 +434,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         
         const data = await response.json();
         
-        // Safely handles either response payload structure from the backend
         if (data.full_s3_url || data.cloud_storage_path || data.url) {
           setNewSuspect({ 
               ...newSuspect, 
@@ -510,13 +506,11 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const cleanRefNumber = stripHtmlTags(formData.ref_number).toUpperCase();
       const final_reference = `${cleanRefType} ${cleanRefNumber}`.trim();
         
-      // 🟢 STRICT REFERENCE VALIDATION
-      // Rejects anything that isn't the exact prefix followed by strictly numbers and slashes.
       const referenceRegex = /^(SD Ref:|CRB:|DEF:|GEF:|TAR:|CID:)\s*\d+(\/\d+)+$/i;
       
       if (!referenceRegex.test(final_reference)) {
         setNotification("⚠️ Invalid Reference Format. Do NOT type station names. The number field must only contain digits and slashes (e.g., 04/2026 or 12/05/11/2026).");
-        return; // 🛑 Stops submission
+        return; 
       }
 
       const isDuplicate = serverReports.some(r => stripHtmlTags(r.station) === stripHtmlTags(formData.station) && ((stripHtmlTags(r.sdRef || r.sd_ref || '')).trim().toLowerCase() === final_reference.toLowerCase() || extractPlainText(r.narrative || '').trim().toLowerCase() === plainTextForDuplicate.toLowerCase()));
@@ -561,7 +555,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
           updatedNarrative = `${formData.narrative}<p><br></p><p><strong style="color: #2563eb;">[UPDATE ${new Date().toLocaleString()}]:</strong></p>${formData.updateText}`;
       }
         
-      // 🟢 Always takes the value loaded in formData.offence as it was handled natively
       const finalOffenceValue = formData.offence === 'Other' ? stripHtmlTags(formData.customOffence).toUpperCase() : stripHtmlTags(formData.offence);
 
       const updatedRecord = { 
@@ -836,7 +829,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                       <option key={off} value={off}>{off}</option>
                     ))}
                     
-                    {/* 🟢 THE FIX: Safely injects the raw custom database string into the options array if it isn't standard, preventing the browser from defaulting to 'Murder' */}
                     {formData.offence && formData.offence !== 'Other' && !STANDARD_OFFENCES.some(o => o.toUpperCase() === formData.offence.toUpperCase()) && (
                       <option value={formData.offence}>{formData.offence}</option>
                     )}
@@ -844,7 +836,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                     <option value="Other">Other (Specify Below)</option>
                   </select>
                   
-                  {/* 🟢 Only display the custom manual entry box when creating a brand NEW case */}
                   {formData.offence === 'Other' && operation === 'new' && (
                     <input type="text" name="customOffence" required value={stripHtmlTags(formData.customOffence || '')} onChange={handleInputChange} placeholder="Type the specific offence here..." className="mt-1.5 w-full text-xs border-blue-400 dark:border-slate-700 rounded shadow-sm border p-1.5 focus:ring-blue-500 bg-blue-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 uppercase" />
                   )}
@@ -1066,10 +1057,8 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                       const isValidPhoto = s.photo_url && !s.photo_url.startsWith('blob:');
 
                       return (
-                        // 🟢 FIXED: Forced strict "flex-row" and "gap-5" so they always sit side-by-side perfectly
                         <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-4 rounded-xl border border-red-200 dark:border-red-900 flex flex-row items-start gap-5 shadow-sm w-full">
                           
-                          {/* 🟢 Photo Container - Fixed Width so it doesn't shrink */}
                           <div className="shrink-0">
                             {isValidPhoto ? ( 
                               <img src={s.photo_url} alt={s.name} className="w-28 h-28 rounded-lg object-cover border-4 border-red-300 dark:border-red-800 shadow-md bg-white" onError={(e) => { e.target.style.display = 'none'; }} /> 
@@ -1081,7 +1070,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                             )}
                           </div>
                           
-                          {/* 🟢 Text Container - flex-1 allows it to take up all remaining horizontal space to the right */}
                           <div className="flex-1 min-w-0 py-1">
                             <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-sm mb-1">{idx + 1}. {stripHtmlTags(s.name)}</div>
                             <div className="text-xs text-red-900 dark:text-red-300 font-bold mb-1.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
