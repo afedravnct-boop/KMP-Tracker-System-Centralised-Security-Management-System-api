@@ -105,6 +105,18 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
     return new Response(JSON.stringify({ detail: "Network connectivity interrupted" }), { status: 503 });
   }
 
+  // 🛡️ SAFE STREAM GUARD: Applied immediately to prevent body stream exhaustion
+  if (response && typeof response.clone === 'function') {
+    const originalJson = response.json.bind(response);
+    response.json = async () => {
+      try {
+        return await originalJson();
+      } catch (e) {
+        return await response.clone().json();
+      }
+    };
+  }
+
   // 🛡️ BULLETPROOF 401 INTERCEPTOR WITH HARD REVOCATION CHECK
   if (response.status === 401 && !url.includes('/api/auth/login') && !url.includes('/heartbeat')) {
     
@@ -199,7 +211,7 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
             </div>
 
             <div style="display: flex; justify-content: flex-end;">
-              <button id="immediate-logout-btn" style="background: #dc2626; hover:background: #b91c1c; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: text; text-transform: uppercase;">
+              <button id="immediate-logout-btn" style="background: #dc2626; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: pointer; text-transform: uppercase;">
                 Conclude & Exit Now
               </button>
             </div>
@@ -235,18 +247,6 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
       // Fallback if parsing fails
     }
     throw new Error("Clearance Denied");
-  }
-
-  // 🛡️ SAFE STREAM GUARD: Prevents "body stream already read" crashes permanently
-  if (response && typeof response.clone === 'function') {
-    const originalJson = response.json.bind(response);
-    response.json = async () => {
-      try {
-        return await originalJson();
-      } catch (e) {
-        return await response.clone().json();
-      }
-    };
   }
 
   return response;
