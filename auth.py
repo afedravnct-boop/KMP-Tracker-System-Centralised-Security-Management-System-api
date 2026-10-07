@@ -195,13 +195,13 @@ async def login(
         )
     ).first()
 
-    if not user or not security.verify_password(password, user.hashed_password):
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect Force Number or password"
         )
 
-    # 🟢 CHECK FOR REVOKED ACCESS
+    # 🟢 CHECK FOR REVOKED ACCESS FIRST (Before checking password, or right after user lookup)
     if str(user.role).strip().upper() == "REVOKED":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -212,6 +212,12 @@ async def login(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account pending Command approval. Please contact the administrator."
+        )
+
+    if not security.verify_password(password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect Force Number or password"
         )
 
     # 🟢 Record login action to NeonDB activity branch
