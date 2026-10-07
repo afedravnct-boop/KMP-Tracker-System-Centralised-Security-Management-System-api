@@ -97,15 +97,15 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
   }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
 
   const getRawRoll = () => {
-    if (Array.isArray(data)) {
-      if (data.length > 0 && (data[0].fnum || data[0].f_num || data[0].rank)) return data;
-      return [];
-    }
+    if (Array.isArray(data)) return data;
     if (data && typeof data === 'object') {
-      const keys = ['nominal_rolls', 'nominalRolls', 'nominal_roll', 'nominalRoll', 'Nominal_Rolls', 'personnel', 'hr', 'hrData'];
+      const keys = ['establishments', 'personnel', 'nominal_rolls', 'nominalRolls', 'nominal_roll', 'nominalRoll', 'Nominal_Rolls', 'hr', 'hrData', 'data'];
       for (let key of keys) {
         if (Array.isArray(data[key])) return data[key];
       }
+      // Fallback: if it's an object with nested array values, grab the first array found
+      const firstArray = Object.values(data).find(val => Array.isArray(val));
+      if (firstArray) return firstArray;
     }
     return [];
   };

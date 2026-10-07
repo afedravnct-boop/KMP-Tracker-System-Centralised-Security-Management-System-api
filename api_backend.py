@@ -1250,6 +1250,8 @@ def get_establishments_json(db: Session = Depends(get_db), current_user = Depend
 def get_consolidated_ledger(
     start_date: Optional[str] = None, 
     end_date: Optional[str] = None, 
+    region: Optional[str] = None,
+    station: Optional[str] = None,
     db: Session = Depends(get_db), 
     current_user = Depends(get_current_user)
 ):
@@ -1259,8 +1261,11 @@ def get_consolidated_ledger(
         StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', None))
         EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
         NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
+        ExhibitModel = getattr(models, 'Impounded_Exhibits', getattr(models, 'ImpoundedExhibits', None))
 
         def apply_scope(query, ModelClass):
+            if not ModelClass:
+                return None
             return apply_opsec_scope(current_user, query, ModelClass)
 
         crimes = apply_scope(db.query(CrimeModel), CrimeModel).all() if CrimeModel else []
@@ -1268,14 +1273,27 @@ def get_consolidated_ledger(
         stories = apply_scope(db.query(StoryModel), StoryModel).all() if StoryModel else []
         establishments = apply_scope(db.query(EstModel), EstModel).all() if EstModel else []
         nominal_roll = apply_scope(db.query(NomModel), NomModel).all() if NomModel else []
-        
+        exhibits = apply_scope(db.query(ExhibitModel), ExhibitModel).all() if ExhibitModel else []
+
+        exhibits_summary = []
+        for ex in exhibits:
+            exhibits_summary.append({
+                "category": str(getattr(ex, 'category', 'GENERAL') or 'GENERAL').upper(),
+                "region": str(getattr(ex, 'region', 'KMP GENERAL') or 'KMP GENERAL').upper(),
+                "station": str(getattr(ex, 'station', 'N/A') or 'N/A').upper(),
+                "status": str(getattr(ex, 'status', 'IMPOUNDED') or 'IMPOUNDED').upper(),
+                "total": 1
+            })
+
         return {
             "status": "success",
             "crimes": [serialize_model_row(c) for c in crimes],
             "statistics": [serialize_model_row(s) for s in stats],
             "stories": [serialize_model_row(st) for st in stories],
             "establishments": [serialize_model_row(e) for e in establishments],
-            "nominal_rolls": [serialize_model_row(n) for n in nominal_roll]
+            "nominal_rolls": [serialize_model_row(n) for n in nominal_roll],
+            "manpower": [serialize_model_row(n) for n in nominal_roll],
+            "exhibits_summary": exhibits_summary
         }
     except Exception as e:
         print(f"Consolidated Ledger DB Query Error: {e}")
