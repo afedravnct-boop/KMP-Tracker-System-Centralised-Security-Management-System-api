@@ -1120,7 +1120,7 @@ def log_user_session(data: dict, db: Session = Depends(get_db)):
 
 # 🟢 NEW: Explicit Logout and Timeout Tracking Endpoints
 @app.post("/api/v1/auth/log-logout")
-def log_user_logout(request: Request, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db)):
+def log_user_logout(request: Request, logs_db: Session = Depends(get_logs_db)):
     try:
         token = request.headers.get("Authorization", "").replace("Bearer ", "") or request.cookies.get("kmp_authToken")
         if token:
@@ -1139,7 +1139,7 @@ def log_user_logout(request: Request, db: Session = Depends(get_db), logs_db: Se
     return {"status": "success"}
 
 @app.post("/api/v1/auth/log-timeout")
-def log_user_timeout(request: Request, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db)):
+def log_user_timeout(request: Request, logs_db: Session = Depends(get_logs_db)):
     try:
         token = request.headers.get("Authorization", "").replace("Bearer ", "") or request.cookies.get("kmp_authToken")
         if token:

@@ -2924,6 +2924,16 @@ const App = () => {
     };
   }, [currentUser?.fnum]);
 
+  const handleSecureLogout = async () => {
+    try {
+      await authFetch('/api/v1/auth/log-logout', { method: 'POST' });
+    } catch (e) {}
+
+    clearAuthSession();
+    setCurrentUser(null);
+    window.location.reload();
+  };
+
   const handleMasterExport = async (scope, value) => {
     let url = `/api/v1/reports/export?timeframe=all`; 
     if (scope && value) url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
