@@ -17,7 +17,6 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-// 🟢 Standard offenses list for dropdown matching
 const STANDARD_OFFENCES = ["Murder", "Aggravated Robbery", "Theft", "Assault", "Burglary", "Defilement / Rape", "Traffic Accident (Fatal)", "Traffic Accident (Minor)", "Fraud / Forgery", "Drug Offenses"];
 
 const isStationEquivalent = (statA, statB) => {
@@ -270,20 +269,25 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         }
       }
 
+      // 🟢 Heavy-Lift Backend Flag Integration with Frontend Fallback
       if (showAgriculturalOnly) {
-        const offenceText = stripHtmlTags(r.offence || '').toLowerCase();
-        const narrativeText = extractPlainText(r.narrative || '').toLowerCase();
-        const combinedText = `${offenceText} ${narrativeText}`;
+        if (r.isAgriculturalCrime !== undefined) {
+          if (!r.isAgriculturalCrime) return false;
+        } else {
+          const offenceText = stripHtmlTags(r.offence || '').toLowerCase();
+          const narrativeText = extractPlainText(r.narrative || '').toLowerCase();
+          const combinedText = `${offenceText} ${narrativeText}`;
 
-        const excludedTerms = ['murder', 'homicide', 'killed', 'death', 'accident', 'tar', 'collision', 'hit and run', 'overturned', 'crash', 'boda boda', 'motorcycle', 'motor cycle', 'bajaj', 'tvs', 'boxer', 'scooter', 'traffic', 'aggravated robbery', 'defilement', 'rape'];
-        if (excludedTerms.some(term => offenceText.includes(term) || combinedText.includes(term))) {
-          return false;
+          const excludedTerms = ['murder', 'homicide', 'killed', 'death', 'accident', 'tar', 'collision', 'hit and run', 'overturned', 'crash', 'boda boda', 'motorcycle', 'motor cycle', 'bajaj', 'tvs', 'boxer', 'scooter', 'traffic', 'aggravated robbery', 'defilement', 'rape'];
+          if (excludedTerms.some(term => offenceText.includes(term) || combinedText.includes(term))) {
+            return false;
+          }
+
+          const agriCrimeIndicators = ['theft of produce', 'produce theft', 'animal theft', 'cattle theft', 'stole a cow', 'stole cattle', 'stock theft', 'theft of livestock', 'granary', 'granaries', 'broke into food store', 'food stores', 'storehouse', 'barn', 'silo', 'silos', 'cutting down crops', 'cutting crops', 'slashing crops', 'burning crops', 'burning produce', 'destroying crops', 'crop destruction', 'arson of crops', 'arson of produce', 'theft of crops', 'theft of coffee', 'theft of vanilla', 'theft of cassava', 'theft of maize', 'coffee theft', 'vanilla theft', 'maize theft', 'matooke theft', 'theft of matooke', 'bribery to receive farm inputs', 'extortion of farmers', 'farm break-in', 'farm robbery', 'farm trespass', 'fire on crops', 'fire in the sugarcane', 'fire on farm house', 'crop theft', 'suspected stolen cows', 'suspected stolen cattle', 'suspected stolen goats', 'suspected stolen sheep', 'suspected stolen chicken', 'suspected stolen eggs', 'suspected stolen produce', 'suspected stolen coffee', 'suspected stolen vanilla', 'suspected stolen maize', 'suspected stolen matooke', 'suspected stolen cassava', 'suspected stolen livestock', 'suspected stolen funds for farmers'];
+
+          const isAgriCrimeMatch = agriCrimeIndicators.some(indicator => combinedText.includes(indicator));
+          if (!isAgriCrimeMatch) return false;
         }
-
-        const agriCrimeIndicators = ['theft of produce', 'produce theft', 'animal theft', 'cattle theft', 'stole a cow', 'stole cattle', 'stock theft', 'theft of livestock', 'granary', 'granaries', 'broke into food store', 'food stores', 'storehouse', 'barn', 'silo', 'silos', 'cutting down crops', 'cutting crops', 'slashing crops', 'burning crops', 'burning produce', 'destroying crops', 'crop destruction', 'arson of crops', 'arson of produce', 'theft of crops', 'theft of coffee', 'theft of vanilla', 'theft of cassava', 'theft of maize', 'coffee theft', 'vanilla theft', 'maize theft', 'matooke theft', 'theft of matooke', 'bribery to receive farm inputs', 'extortion of farmers', 'farm break-in', 'farm robbery', 'farm trespass', 'fire on crops', 'fire in the sugarcane', 'fire on farm house', 'crop theft', 'suspected stolen cows', 'suspected stolen cattle', 'suspected stolen goats', 'suspected stolen sheep', 'suspected stolen chicken', 'suspected stolen eggs', 'suspected stolen produce', 'suspected stolen coffee', 'suspected stolen vanilla', 'suspected stolen maize', 'suspected stolen matooke', 'suspected stolen cassava', 'suspected stolen livestock', 'suspected stolen funds for farmers'];
-
-        const isAgriCrimeMatch = agriCrimeIndicators.some(indicator => combinedText.includes(indicator));
-        if (!isAgriCrimeMatch) return false;
       }
         
       const diffDays = Math.ceil(Math.abs(new Date() - new Date(r.date)) / (1000 * 60 * 60 * 24));
@@ -303,7 +307,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       return true;
     });
 
-    // 🟢 Sorted descending by serial number / ID so the latest (last) entry appears first at the top
     return filtered.sort((a, b) => (b.sn || b.id || 0) - (a.sn || a.id || 0));
 
   }, [serverReports, dateFilter, showAgriculturalOnly, filterRegion, filterStation, canViewGlobalActive]);
@@ -970,6 +973,8 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                     <tr><td colSpan="7" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium text-xs border-b-0"><Loader2 className="w-5 h-5 mx-auto animate-spin mb-2" /> Syncing database records...</td></tr>
                   ) : finalFilteredReports.map((report, index) => {
                     const rRegion = getOfficialRegionForStation(report.station, report.region);
+                    const isAgriMatch = report.isAgriculturalCrime;
+
                     return (
                       <tr key={report.id || report.sn || index} className="even:bg-slate-50 dark:even:bg-slate-900/50 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors cursor-pointer group" onClick={() => { if (operation === 'update') { populateUpdateCrimeForm(report); } else { setSelectedCase(report); } }}>
                         <td className="px-3.5 py-3 whitespace-nowrap text-xs font-black text-gray-900 dark:text-slate-100 align-top group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">{isStationSpecific ? (index + 1) : (report.id || report.sn || '—')}</td>
@@ -977,7 +982,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                         <td className="px-3.5 py-3 whitespace-nowrap text-[11px] text-gray-500 dark:text-slate-400 align-top">{stripHtmlTags(report.date)}<br/><span className="text-[9px] text-gray-400 dark:text-slate-500">{stripHtmlTags(report.time)}</span></td>
                         <td className="px-3.5 py-3 whitespace-nowrap text-[11px] text-gray-700 dark:text-slate-300 align-top font-bold">{stripHtmlTags(report.station)} <br/><span className="text-[9px] text-gray-400 dark:text-slate-500 font-medium">{rRegion}</span></td>
                         <td className="px-3.5 py-3 text-[11px] text-gray-700 dark:text-slate-300 align-top whitespace-normal break-words overflow-wrap-anywhere">
-                          {report.offence && <div className="font-extrabold text-red-600 dark:text-red-400 uppercase mb-0.5">{stripHtmlTags(report.offence)}</div>}
+                          <div className="flex items-center space-x-2 mb-0.5">
+                            {report.offence && <div className="font-extrabold text-red-600 dark:text-red-400 uppercase">{stripHtmlTags(report.offence)}</div>}
+                            {isAgriMatch && (
+                              <span className="bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-black text-[9px] px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800">🌾 AGRI-CRIME</span>
+                            )}
+                          </div>
                           <div className="ql-editor p-0 line-clamp-3 text-slate-600 dark:text-slate-300 [&_*]:!text-[11px] [&_*]:!bg-transparent whitespace-normal break-words" dangerouslySetInnerHTML={{ __html: report.narrative }} />
                         </td>
                         <td className="px-3.5 py-3 whitespace-nowrap text-[11px] font-extrabold text-red-600 dark:text-red-400 text-center align-top">{(report.suspectDetails || report.suspect_details || []).length}</td>

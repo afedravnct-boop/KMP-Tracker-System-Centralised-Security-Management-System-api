@@ -1,5 +1,6 @@
+// src/components/CrimeAnalytics.jsx
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Filter, Search, Shield } from 'lucide-react';
+import { Filter, Search, Shield, Sprout } from 'lucide-react';
 import { authFetch } from './api';
 
 const REGIONAL_HIERARCHY = {
@@ -15,7 +16,6 @@ const stripHtml = (html) => {
   return String(html).replace(/<[^>]*>?/gm, '').trim();
 };
 
-// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
 const isStationEquivalent = (statA, statB) => {
   const a = stripHtml(statA || '').trim().toUpperCase();
   const b = stripHtml(statB || '').trim().toUpperCase();
@@ -48,8 +48,8 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
 export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
   const [reports, setReports] = useState([]);
   const [timeFilter, setTimeFilter] = useState("all"); 
+  const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
 
-  // 🟢 OPSEC Role Classification Engine
   const userRoleClean = stripHtml(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtml(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtml(currentUser?.region || '').toUpperCase();
@@ -86,11 +86,9 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
     }
   }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
 
-  // Fetch the data securely when the component loads
   useEffect(() => {
     let isMounted = true;
     
-    // Fallback to basic fetch if authFetch is not imported correctly
     const fetchWrapper = typeof authFetch === 'function' ? authFetch : async (url) => {
       const token = localStorage.getItem('kmp_authToken');
       return fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
@@ -111,10 +109,8 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
     return () => { isMounted = false; };
   }, []);
 
-  // 1. FILTERING LOGIC WITH OPSEC AND DUAL-EQUIVALENCE
   const filteredReports = useMemo(() => {
     return reports.filter(report => {
-      // Time Filtering
       if (timeFilter !== "all") {
         const reportDateStr = report.date || report.createdAt || report.timestamp;
         if (!reportDateStr) return true;
@@ -130,7 +126,27 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
         }
       }
 
-      // OPSEC Location Filtering
+      // 🟢 Heavy-Lift Backend Flag Integration with Frontend Fallback
+      if (showAgriculturalOnly) {
+        if (report.isAgriculturalCrime !== undefined) {
+          if (!report.isAgriculturalCrime) return false;
+        } else {
+          const offenceText = stripHtml(report.offence || '').toLowerCase();
+          const narrativeText = stripHtml(report.narrative || '').toLowerCase();
+          const combinedText = `${offenceText} ${narrativeText}`;
+
+          const excludedTerms = ['murder', 'homicide', 'killed', 'death', 'accident', 'tar', 'collision', 'hit and run', 'overturned', 'crash', 'boda boda', 'motorcycle', 'motor cycle', 'bajaj', 'tvs', 'boxer', 'scooter', 'traffic', 'aggravated robbery', 'defilement', 'rape'];
+          if (excludedTerms.some(term => offenceText.includes(term) || combinedText.includes(term))) {
+            return false;
+          }
+
+          const agriCrimeIndicators = ['theft of produce', 'produce theft', 'animal theft', 'cattle theft', 'stole a cow', 'stole cattle', 'stock theft', 'theft of livestock', 'granary', 'granaries', 'broke into food store', 'food stores', 'storehouse', 'barn', 'silo', 'silos', 'cutting down crops', 'cutting crops', 'slashing crops', 'burning crops', 'burning produce', 'destroying crops', 'crop destruction', 'arson of crops', 'arson of produce', 'theft of crops', 'theft of coffee', 'theft of vanilla', 'theft of cassava', 'theft of maize', 'coffee theft', 'vanilla theft', 'maize theft', 'matooke theft', 'theft of matooke', 'bribery to receive farm inputs', 'extortion of farmers', 'farm break-in', 'farm robbery', 'farm trespass', 'fire on crops', 'fire in the sugarcane', 'fire on farm house', 'crop theft', 'suspected stolen cows', 'suspected stolen cattle', 'suspected stolen goats', 'suspected stolen sheep', 'suspected stolen chicken', 'suspected stolen eggs', 'suspected stolen produce', 'suspected stolen coffee', 'suspected stolen vanilla', 'suspected stolen maize', 'suspected stolen matooke', 'suspected stolen cassava', 'suspected stolen livestock', 'suspected stolen funds for farmers'];
+
+          const isAgriCrimeMatch = agriCrimeIndicators.some(indicator => combinedText.includes(indicator));
+          if (!isAgriCrimeMatch) return false;
+        }
+      }
+
       const stn = stripHtml(report.station || '').toUpperCase();
       const reg = getOfficialRegionForStation(stn, report.region);
 
@@ -150,13 +166,11 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
 
       return true;
     });
-  }, [reports, timeFilter, filterRegion, filterStation, canViewGlobalLevel]);
+  }, [reports, timeFilter, showAgriculturalOnly, filterRegion, filterStation, canViewGlobalLevel]);
 
-  // 2. GROUPING LOGIC
   const summaryData = useMemo(() => {
     const crimeCounts = {};
     filteredReports.forEach(report => {
-      // Exclude lockup log auto-generations from general crime tallies if any leaked through
       if (report.is_hq_general_total || (report.daily_lock_up && !report.offence)) return;
 
       const crimeName = report.offence || report.crime_category || "Unspecified";
@@ -177,19 +191,32 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
   const grandTotal = summaryData.reduce((sum, item) => sum + item.total, 0);
 
   return (
-    <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-200 animate-in fade-in duration-300 font-sans">
-      <h2 className="text-xl font-extrabold text-slate-900 border-b border-slate-200 pb-3 mb-6 flex items-center">
-        <Shield className="mr-2 text-blue-600" /> Standalone Crime Incident Summary
-      </h2>
+    <div className="p-6 bg-white dark:bg-slate-900 dark:text-slate-100 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 animate-in fade-in duration-300 font-sans">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-200 dark:border-slate-800 pb-3 mb-6 gap-3">
+        <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100 flex items-center">
+          <Shield className="mr-2 text-blue-600 dark:text-blue-400" /> Standalone Crime Incident Summary
+        </h2>
+        <button
+          type="button"
+          onClick={() => setShowAgriculturalOnly(prev => !prev)}
+          className={`px-3.5 py-2 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
+            showAgriculturalOnly 
+              ? 'bg-emerald-700 text-white border-emerald-800 ring-2 ring-emerald-500/20' 
+              : 'bg-white dark:bg-slate-800 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-slate-700'
+          }`}
+        >
+          <Sprout className="w-4 h-4 mr-1.5" />
+          {showAgriculturalOnly ? 'Agri-Crimes: ON' : 'Filter Agri-Crimes'}
+        </button>
+      </div>
 
-      {/* FILTER CONTROLS */}
       <div className="flex flex-col sm:flex-row gap-4 mb-6">
         <div className="flex-1">
-          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Timeframe</label>
+          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Timeframe</label>
           <select 
             value={timeFilter} 
             onChange={(e) => setTimeFilter(e.target.value)} 
-            className="w-full p-2.5 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 outline-none focus:border-blue-500 cursor-pointer"
+            className="w-full p-2.5 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 outline-none focus:border-blue-500 cursor-pointer"
           >
             <option value="all">All Time</option>
             <option value="today">Today Only</option>
@@ -198,12 +225,12 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
         </div>
 
         <div className="flex-1">
-          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Target Region</label>
+          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Target Region</label>
           <select 
             value={filterRegion} 
             onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }}
             disabled={!canViewGlobalLevel}
-            className="w-full p-2.5 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 outline-none focus:border-blue-500 cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
+            className="w-full p-2.5 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 outline-none focus:border-blue-500 cursor-pointer disabled:bg-slate-100 dark:disabled:bg-slate-900 disabled:text-slate-500"
           >
             {canViewGlobalLevel ? (
               <>
@@ -219,12 +246,12 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
         </div>
 
         <div className="flex-1">
-          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Station / Post</label>
+          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Station / Post</label>
           <select 
             value={filterStation} 
             onChange={(e) => setFilterStation(e.target.value)}
             disabled={!(canViewGlobalLevel || isRegionalCommand)}
-            className="w-full p-2.5 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 outline-none focus:border-blue-500 cursor-pointer disabled:bg-slate-100 disabled:text-slate-500"
+            className="w-full p-2.5 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 outline-none focus:border-blue-500 cursor-pointer disabled:bg-slate-100 dark:disabled:bg-slate-900 disabled:text-slate-500"
           >
             {(canViewGlobalLevel || isRegionalCommand) ? (
               <>
@@ -240,40 +267,39 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
         </div>
       </div>
 
-      {/* SUMMARY TABLE */}
-      <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-        <table className="min-w-full divide-y divide-gray-200 table-auto">
-          <thead className="bg-slate-900">
+      <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800 table-auto">
+          <thead className="bg-slate-900 dark:bg-slate-950">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider w-16">SN</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Incident / Offence</th>
               <th className="px-4 py-3 text-right text-xs font-bold text-white uppercase tracking-wider">Total Reported</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-slate-100">
+          <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800">
             {summaryData.length > 0 ? (
               summaryData.map((row) => (
-                <tr key={row.sn} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3 text-sm font-bold text-slate-500">{row.sn}</td>
-                  <td className="px-4 py-3 text-sm font-bold text-slate-800 uppercase">{row.incident}</td>
-                  <td className="px-4 py-3 text-sm font-extrabold text-blue-600 text-right">{row.total}</td>
+                <tr key={row.sn} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                  <td className="px-4 py-3 text-sm font-bold text-slate-500 dark:text-slate-400">{row.sn}</td>
+                  <td className="px-4 py-3 text-sm font-bold text-slate-800 dark:text-slate-200 uppercase">{row.incident}</td>
+                  <td className="px-4 py-3 text-sm font-extrabold text-blue-600 dark:text-blue-400 text-right">{row.total}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan="3" className="px-4 py-8 text-center text-sm text-slate-500 font-medium">
+                <td colSpan="3" className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400 font-medium">
                   No crimes reported for these specific filters.
                 </td>
               </tr>
             )}
           </tbody>
           {summaryData.length > 0 && (
-            <tfoot className="bg-slate-100 border-t-2 border-slate-300">
+            <tfoot className="bg-slate-100 dark:bg-slate-950 border-t-2 border-slate-300 dark:border-slate-800">
               <tr>
-                <td colSpan="2" className="px-4 py-3 text-right text-sm font-extrabold text-slate-700 uppercase">
+                <td colSpan="2" className="px-4 py-3 text-right text-sm font-extrabold text-slate-700 dark:text-slate-300 uppercase">
                   Grand Total ({filterRegion} {filterStation !== 'ALL STATIONS' ? `- ${filterStation}` : ''})
                 </td>
-                <td className="px-4 py-3 text-right text-base font-extrabold text-red-600">
+                <td className="px-4 py-3 text-right text-base font-extrabold text-red-600 dark:text-red-400">
                   {grandTotal}
                 </td>
               </tr>

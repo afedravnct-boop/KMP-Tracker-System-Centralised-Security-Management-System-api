@@ -25,7 +25,6 @@ s3_client = boto3.client(
 )
 BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
 
-# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 REGIONAL_HIERARCHY = {
     "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
     "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -39,14 +38,22 @@ def strip_html_tags(text_str: str) -> str:
         return ""
     return re.sub('<.*?>', '', str(text_str))
 
-# 🟢 Backend Heavy-Lifting Intelligent Narrative Parser for Success Stories
-def parse_success_story_backend(raw_narrative: str):
-    plain_text = strip_html_tags(raw_narrative or '')
+# 🟢 Backend Heavy-Lifting Intelligent Crime & Agricultural Parser
+def parse_crime_incident_backend(offence_str: str, narrative_str: str):
+    combined_text = f"{offence_str or ''} {narrative_str or ''}"
+    plain_text = strip_html_tags(combined_text)
     lower_text = plain_text.lower()
     
+    # 1. Automatic Agricultural / Livestock Security Tagging
+    is_agric = False
+    agric_keywords = ['cattle', 'cow', 'cows', 'livestock', 'farm', 'crop', 'crops', 'produce', 'coffee', 'vanilla', 'maize', 'beans', 'beasts', 'goat', 'goats', 'sheep', 'poultry', 'chicken']
+    if any(kw in lower_text for kw in agric_keywords):
+        is_agric = True
+
+    # 2. Extract Suspects Count
     suspects_count = 0
     suspect_matches = [
-        re.search(r'(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang)', lower_text),
+        re.search(r'(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang|arrested)', lower_text),
         re.search(r'(?:arrest(?:ed|ing)?|apprehend(?:ed)?)\s*(?:of)?\s*(\d+)', lower_text)
     ]
     for m in suspect_matches:
@@ -54,41 +61,22 @@ def parse_success_story_backend(raw_narrative: str):
             suspects_count = int(m.group(1))
             break
 
-    legal_status = 'UNDER INVESTIGATION'
-    if 'remand' in lower_text or 'remanded' in lower_text:
-        legal_status = 'REMANDED'
-    elif 'convict' in lower_text or 'sentenced' in lower_text:
-        legal_status = 'CONVICTED'
-    elif 'acquit' in lower_text:
-        legal_status = 'ACQUITTED'
-    elif 'court' in lower_text or 'trial' in lower_text or 'magistrate' in lower_text:
-        legal_status = 'UNDERGOING COURT TRIAL'
-
+    # 3. Extract Recoveries
     recoveries_list = []
     recovery_matches = re.findall(r'(\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|money|cash|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|birds|chicken|produce|maize|beans|items))', lower_text, re.IGNORECASE)
     for count_val, item_val in recovery_matches:
         recoveries_list.append(f"{count_val} {item_val.strip()}")
 
     if not recoveries_list and ('recovery' in lower_text or 'recovered' in lower_text or 'recover' in lower_text):
-        recoveries_list.append('Recovered exhibits / assets')
-
-    classification = 'Operational breakthrough & suspect apprehension'
-    if 'cattle' in lower_text or 'cow' in lower_text or 'livestock' in lower_text or 'farm' in lower_text or 'agric' in lower_text:
-        classification = 'Arrest of suspects in cattle / agricultural theft & recovery'
-    elif 'phone' in lower_text or 'computer' in lower_text or 'electronics' in lower_text:
-        classification = 'Apprehension of suspects & electronic asset recovery'
-    elif 'robbery' in lower_text or 'gang' in lower_text or 'theft' in lower_text:
-        classification = 'Dismantling of criminal gang & property recovery'
+        recoveries_list.append('Recovered property / exhibit')
 
     return {
-        "suspects": suspects_count,
-        "recoveries": ", ".join(recoveries_list) if recoveries_list else "None recorded",
-        "legalStatus": legal_status,
-        "classification": classification
+        "isAgriculturalCrime": is_agric,
+        "parsedSuspects": suspects_count,
+        "parsedRecoveries": ", ".join(recoveries_list) if recoveries_list else "None recorded"
     }
 
 def is_station_equivalent(stat_a: Optional[str], stat_b: Optional[str]) -> bool:
-    import re
     a = (stat_a or "").strip().upper()
     b = (stat_b or "").strip().upper()
     if not a or not b:
@@ -108,14 +96,12 @@ def get_officer_signature(user):
     return f"{fnum} {rank} {name}".strip().upper()
 
 def get_model_safe(*names):
-    """Safely retrieves a SQLAlchemy model handling naming variants."""
     for name in names:
         if hasattr(models, name):
             return getattr(models, name)
     return None
 
 def clean_model_dict(obj):
-    """Safely converts a SQLAlchemy instance to a clean JSON-serializable dictionary with mapped aliases."""
     if not obj:
         return {}
     d = obj.__dict__.copy()
@@ -139,7 +125,6 @@ def clean_model_dict(obj):
 
     return clean
 
-# 🟢 CORE OPSEC SCOPING ENGINE
 def apply_opsec_scope(current_user, query, ModelClass):
     import json
     import re
@@ -285,7 +270,6 @@ def get_reports(
     pk_col = getattr(CrimeModel, 'sn', getattr(CrimeModel, 'id', None))
     offence_col = getattr(CrimeModel, 'offence', None)
     
-    # 🟢 Backend Heavy Lifting: Sort strictly A to Z by offence name
     if offence_col is not None and pk_col is not None:
         reports = query.order_by(offence_col.asc(), pk_col.desc()).limit(limit).all()
     elif pk_col is not None:
@@ -317,10 +301,15 @@ def get_reports(
         c_dict['suspects'] = getattr(r, 'suspects', 0)
         c_dict['lastUpdatedBy'] = getattr(r, 'last_updated_by', 'UNKNOWN COMMANDER')
         c_dict['daily_lock_up'] = getattr(r, 'daily_lock_up', 0)
+
+        # 🟢 Backend Heavy Lifting: Attach intelligent parsing metrics on the fly
+        parsed_crime = parse_crime_incident_backend(c_dict['offence'], c_dict['narrative'])
+        c_dict['isAgriculturalCrime'] = parsed_crime['isAgriculturalCrime']
+        c_dict['parsedSuspects'] = parsed_crime['parsedSuspects'] or c_dict['suspects']
+        c_dict['parsedRecoveries'] = parsed_crime['parsedRecoveries']
         
         result.append(c_dict)
 
-    from routers.activity_logger import record_neon_activity
     record_neon_activity(
         logs_db=logs_db,
         fnum=current_user.fnum,
@@ -333,7 +322,7 @@ def get_reports(
     return result
 
 # ====================================================================
-# 2. FILE UPLOADS (MUGSHOTS & INVESTIGATIONS)
+# 2. FILE UPLOADS
 # ====================================================================
 @router.post("/investigation/upload")
 def upload_investigation_file(file: UploadFile = File(...)):
@@ -358,7 +347,6 @@ def upload_investigation_file(file: UploadFile = File(...)):
             "cloud_storage_path": s3_key,
             "full_s3_url": full_s3_url
         }
-        
     except ClientError as e:
         print(f"❌ S3 Error: {e}")
         raise HTTPException(status_code=500, detail="Cloud upload failed.")
@@ -366,7 +354,7 @@ def upload_investigation_file(file: UploadFile = File(...)):
         file.file.close()
 
 # ====================================================================
-# 3. CREATE CRIME REPORT (WITH COMMAND FALLBACK LOGIC)
+# 3. CREATE CRIME REPORT
 # ====================================================================
 @router.post("/reports")
 def create_report(
@@ -447,7 +435,6 @@ def create_report(
         db.refresh(new_record)
         assigned_id = getattr(new_record, 'id', getattr(new_record, 'sn', 1))
 
-        from routers.activity_logger import record_neon_activity
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -534,7 +521,6 @@ def update_report(
 
         db.commit()
 
-        from routers.activity_logger import record_neon_activity
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -551,7 +537,7 @@ def update_report(
         raise HTTPException(status_code=500, detail=str(e))
 
 # ====================================================================
-# 5. CONSOLIDATED LEDGER ENDPOINT (HEAVY LIFTING FOR SUCCESS STORIES & EXHIBITS)
+# 5. CONSOLIDATED LEDGER ENDPOINT
 # ====================================================================
 @router.get("/reports/consolidated-ledger")
 def get_consolidated_ledger(
@@ -571,7 +557,6 @@ def get_consolidated_ledger(
         NomModel = get_model_safe('Nominal_Roll', 'NominalRoll', 'Users', 'nominal_roll')
         ExhibitModel = get_model_safe('Impounded_Exhibits', 'Exhibits', 'impounded_exhibits')
         
-        # 1. Crimes Data (Strict A to Z alphabetical sorting on backend)
         crimes_data = []
         if CrimeModel:
             q_crimes = db.query(CrimeModel)
@@ -588,9 +573,14 @@ def get_consolidated_ledger(
                 if SuspectModel and hasattr(c, 'id'):
                     suspects = db.query(SuspectModel).filter(SuspectModel.report_id == c.id).all()
                     c_dict['suspectDetails'] = [clean_model_dict(s) for s in suspects]
+                
+                parsed_c = parse_crime_incident_backend(c_dict['offence'], c_dict.get('narrative'))
+                c_dict['isAgriculturalCrime'] = parsed_c['isAgriculturalCrime']
+                c_dict['parsedSuspects'] = parsed_c['parsedSuspects']
+                c_dict['parsedRecoveries'] = parsed_c['parsedRecoveries']
+                
                 crimes_data.append(c_dict)
 
-        # 2. Success Stories with Backend Heavy-Lift Intelligence Parsing
         stories_data = []
         if StoryModel:
             q_stories = db.query(StoryModel)
@@ -604,7 +594,6 @@ def get_consolidated_ledger(
                 st_dict['parsedClassification'] = parsed['classification']
                 stories_data.append(st_dict)
 
-        # 3. Grouped & Summed Exhibits Summary
         exhibits_data = []
         if ExhibitModel:
             q_ex = db.query(ExhibitModel)

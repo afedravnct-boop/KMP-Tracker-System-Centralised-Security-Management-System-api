@@ -42,25 +42,40 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig):
                 except Exception:
                     total_criminal_cases = 0
 
-                # 2. Total Agricultural Crimes Entered in the Week
+                # 2. Total Agricultural Crimes Entered in the Week (Offences & Narratives)
                 try:
-                    total_agric_cases = db.execute(text(f"SELECT COUNT(*) FROM reports WHERE created_at >= :start AND (UPPER(offence) LIKE '%PRODUCE%' OR UPPER(offence) LIKE '%CATTLE%' OR UPPER(offence) LIKE '%COW%' OR UPPER(offence) LIKE '%LIVESTOCK%' OR UPPER(offence) LIKE '%CROP%' OR UPPER(offence) LIKE '%COFFEE%' OR UPPER(offence) LIKE '%VANILLA%' OR UPPER(offence) LIKE '%MAIZE%') {crime_filter}"), {"start": one_week_ago}).scalar() or 0
+                    total_agric_cases = db.execute(
+                        text(f"SELECT COUNT(*) FROM reports WHERE created_at >= :start AND (UPPER(offence) LIKE '%PRODUCE%' OR UPPER(offence) LIKE '%CATTLE%' OR UPPER(offence) LIKE '%COW%' OR UPPER(offence) LIKE '%LIVESTOCK%' OR UPPER(offence) LIKE '%CROP%' OR UPPER(offence) LIKE '%COFFEE%' OR UPPER(offence) LIKE '%VANILLA%' OR UPPER(offence) LIKE '%MAIZE%' OR UPPER(narrative) LIKE '%CATTLE%' OR UPPER(narrative) LIKE '%LIVESTOCK%') {crime_filter}"),
+                        {"start": one_week_ago}
+                    ).scalar() or 0
                 except Exception:
                     total_agric_cases = 0
 
-                # 3. Total Suspects Arrested in That Week
+                # 3. Agricultural Success Stories / Breakthroughs (Checking category or narrative)
+                try:
+                    agric_success_stories = db.execute(
+                        text(f"SELECT COUNT(*) FROM success_stories WHERE created_at >= :start AND (UPPER(category) = 'AGRIC_CRIME' OR UPPER(narrative) LIKE '%PRODUCE%' OR UPPER(narrative) LIKE '%CATTLE%' OR UPPER(narrative) LIKE '%COW%' OR UPPER(narrative) LIKE '%LIVESTOCK%' OR UPPER(narrative) LIKE '%CROP%') {story_filter}"),
+                        {"start": one_week_ago}
+                    ).scalar() or 0
+                except Exception:
+                    agric_success_stories = 0
+
+                # Total combined agricultural crimes & related breakthroughs
+                combined_agric_total = total_agric_cases + agric_success_stories
+
+                # 4. Total Suspects Arrested in That Week
                 try:
                     total_arrests = db.execute(text(f"SELECT SUM(arrested) FROM stats WHERE date >= :start {stats_filter}"), {"start": one_week_ago.date()}).scalar() or 0
                 except Exception:
                     total_arrests = 0
 
-                # 4. Total Success Stories / Operational Breakthroughs
+                # 5. Total Success Stories / Operational Breakthroughs (Overall)
                 try:
                     total_success_stories = db.execute(text(f"SELECT COUNT(*) FROM success_stories WHERE created_at >= :start {story_filter}"), {"start": one_week_ago}).scalar() or 0
                 except Exception:
                     total_success_stories = 0
 
-                # 5. Total Personnel Strength as per Nominal Roll
+                # 6. Total Personnel Strength as per Nominal Roll
                 try:
                     total_personnel = db.execute(text("SELECT COUNT(*) FROM nominal_roll")).scalar() or 0
                 except Exception:
@@ -76,7 +91,7 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig):
                     <h3 style='color: #1e3a8a; margin-bottom: 8px;'>1. Weekly Operational Metrics</h3>
                     <ul style='margin-top: 0; padding-left: 20px;'>
                         <li><strong>Total Criminal Cases Entered:</strong> {total_criminal_cases:,}</li>
-                        <li><strong>Total Agricultural Cases Entered:</strong> {total_agric_cases:,}</li>
+                        <li><strong>Total Agricultural Crimes & Security Cases:</strong> {combined_agric_total:,} <em>(Includes {agric_success_stories} agricultural success stories/recoveries)</em></li>
                         <li><strong>Total Suspects Arrested:</strong> {total_arrests:,}</li>
                         <li><strong>Total Success Stories / Breakthroughs:</strong> {total_success_stories:,}</li>
                         <li><strong>Total Personnel Strength (Nominal Roll):</strong> {total_personnel:,}</li>
@@ -93,7 +108,7 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig):
                         <li>Uphold absolute transparency, professional conduct, and positive public-police relations.</li>
                     </ul>
 
-                    <p style='font-size: 11px; color: #64748b; margin-top: 30px; border-top: 1px solid #e2e8f0; paddingTop: 10px;'>
+                    <p style='font-size: 11px; color: #64748b; margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 10px;'>
                         Auto-generated and dispatched by the KMP Centralised Security Data Management System.
                     </p>
                 </div>

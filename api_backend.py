@@ -90,6 +90,7 @@ from routers import (
     admin_communication,
     ai_router,
     analytics_export,
+    statistics
 )
 
 # ==========================================

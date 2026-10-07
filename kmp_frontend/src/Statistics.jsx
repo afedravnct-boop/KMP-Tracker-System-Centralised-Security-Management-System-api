@@ -1,10 +1,11 @@
+// src/components/Statistics.jsx
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { BarChart3, PlusCircle, Edit, AlertTriangle, CheckCircle, Sprout, Save } from 'lucide-react';
 import { authFetch, getAuthToken } from './api';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
   "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
   "POLICE HEADQUARTERS": ["NAGURU"]
@@ -15,7 +16,6 @@ const cleanStr = (str) => {
   return String(str).replace(/\s+/g, ' ').trim().toUpperCase();
 };
 
-// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
 const isStationEquivalent = (statA, statB) => {
   const a = cleanStr(statA);
   const b = cleanStr(statB);
@@ -120,7 +120,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
     date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]
   });
 
-  // 🟢 OPSEC Role Classification Engine
   const userRoleClean = cleanStr(currentUser?.role);
   const userPosClean = cleanStr(currentUser?.position);
   const userRegClean = cleanStr(currentUser?.region);
@@ -273,18 +272,14 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
     arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0
   });
 
-  // 🟢 WEEKLY COMPLIANCE CHECK ENGINE
   const complianceWarning = useMemo(() => {
-    // 1. Calculate time in East Africa Time (EAT)
     const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Nairobi" }));
-    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 5 = Friday, 6 = Saturday
+    const dayOfWeek = now.getDay(); 
 
-    // 2. Determine if we are in the Warning Window (Friday 00:00 to Sunday 23:59)
     const isWarningPeriod = dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0;
     
-    if (!isWarningPeriod) return null; // No warnings required Monday through Thursday
+    if (!isWarningPeriod) return null;
 
-    // 3. Find the exact date string for Monday of the current week
     const startOfWeek = new Date(now);
     const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     startOfWeek.setDate(now.getDate() + diffToMonday);
@@ -294,13 +289,10 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
     const dd = String(startOfWeek.getDate()).padStart(2, '0');
     const mondayDateStr = `${yyyy}-${mm}-${dd}`;
 
-    // 4. Identify the station to check compliance for
     const targetStation = filterStation !== 'ALL STATIONS' ? filterStation : cleanStr(currentUser?.station);
     
-    // Global generic view bypasses the warning
     if (targetStation === 'ALL STATIONS') return null;
 
-    // 5. Scan the ledger for ANY submission made by the target station since Monday
     const hasSubmitted = currentDomainStats.some(s => {
       return isStationEquivalent(s.station, targetStation) && s.date >= mondayDateStr;
     });
@@ -312,7 +304,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
     return null;
   }, [currentDomainStats, currentUser?.station, filterStation, statsDomain]);
 
-  // 🟢 Apply OPSEC & Dual-Equivalence Engine filtering to stats
   const filteredStats = useMemo(() => {
     return (Array.isArray(currentDomainStats) ? currentDomainStats : []).filter(s => {
       const statRegion = cleanStr(s.region);
@@ -527,7 +518,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
         <h3 className="text-sm sm:text-lg text-blue-700 dark:text-blue-400 mt-2 font-medium">Weekly Numerical Aggregates</h3>
       </div>
       
-      {/* 🟢 COMPLIANCE WARNING BANNER INJECTED HERE */}
       {complianceWarning && (
         <div className="bg-red-600 border border-red-800 shadow-lg rounded-xl p-4 flex items-center justify-center text-white animate-pulse transition-all">
           <AlertTriangle className="w-6 h-6 mr-3 shrink-0" />
