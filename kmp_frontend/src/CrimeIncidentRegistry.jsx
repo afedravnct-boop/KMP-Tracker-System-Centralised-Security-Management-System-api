@@ -270,11 +270,10 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         }
       }
 
-      // 🟢 Form-Selected Category or Heavy-Lift Backend Flag Integration
+      // 🟢 Strictly filter using the Form-Selected Category field
       if (showAgriculturalOnly) {
         const isCatAgri = (r.category || '').toUpperCase() === 'AGRIC_CRIME';
-        const isFlagAgri = r.isAgriculturalCrime === true;
-        if (!isCatAgri && !isFlagAgri) return false;
+        if (!isCatAgri) return false;
       }
         
       const diffDays = Math.ceil(Math.abs(new Date() - new Date(r.date)) / (1000 * 60 * 60 * 24));
@@ -970,7 +969,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                     <tr><td colSpan="7" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium text-xs border-b-0"><Loader2 className="w-5 h-5 mx-auto animate-spin mb-2" /> Syncing database records...</td></tr>
                   ) : finalFilteredReports.map((report, index) => {
                     const rRegion = getOfficialRegionForStation(report.station, report.region);
-                    const isAgriMatch = (report.category || '').toUpperCase() === 'AGRIC_CRIME' || report.isAgriculturalCrime === true;
+                    const isAgriMatch = (report.category || '').toUpperCase() === 'AGRIC_CRIME';
 
                     return (
                       <tr key={report.id || report.sn || index} className="even:bg-slate-50 dark:even:bg-slate-900/50 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors cursor-pointer group" onClick={() => { if (operation === 'update') { populateUpdateCrimeForm(report); } else { setSelectedCase(report); } }}>
