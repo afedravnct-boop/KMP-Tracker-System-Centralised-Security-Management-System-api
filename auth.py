@@ -73,6 +73,26 @@ def validate_and_normalize_phone(phone_str: Optional[str]) -> Optional[str]:
         )
     return clean_phone
 
+def get_eat_time():
+    import pytz
+    eat_tz = pytz.timezone('Africa/Nairobi')
+    return datetime.now(eat_tz).strftime('%Y-%m-%d %H:%M:%S')
+
+def log_independent_activity(logs_db: Session, fnum: str, action: str, module: str, details: str):
+    try:
+        new_activity = models.Activity_Logs(
+            fnum=str(fnum or "SYSTEM").strip().upper(),
+            action=str(action or "ACTION").strip().upper(),
+            module=str(module or "GENERAL").strip().upper(),
+            details=details,
+            created_at=get_eat_time()
+        )
+        logs_db.add(new_activity)
+        logs_db.commit()
+    except Exception as e:
+        logs_db.rollback()
+        print(f"⚠️ Neon Activity Log Failure [{action}]: {str(e)}")
+
 # ====================================================================
 # AUTHENTICATION DEPENDENCY
 # ====================================================================
@@ -181,6 +201,13 @@ async def login(
             detail="Incorrect Force Number or password"
         )
 
+    # 🟢 CHECK FOR REVOKED ACCESS
+    if str(user.role).strip().upper() == "REVOKED":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="ACCESS DENIED: Your system access credentials have been revoked by Command. Please contact your Regional Administrator."
+        )
+
     if not user.is_approved:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -188,14 +215,12 @@ async def login(
         )
 
     # 🟢 Record login action to NeonDB activity branch
-    from routers.activity_logger import record_neon_activity
-    record_neon_activity(
+    log_independent_activity(
         logs_db=logs_db,
         fnum=user.fnum,
-        action_type="VIEW",
+        action="USER_AUTHENTICATION",
         module="USER_AUTHENTICATION",
-        target_id=user.fnum,
-        changes_summary="Officer successfully authenticated into session."
+        details=f"Officer {user.fnum} successfully authenticated into session."
     )
 
     access_token = security.create_access_token(
@@ -441,14 +466,12 @@ async def signup(
         db.commit()
         db.refresh(new_user)
 
-        # 🟢 Record REGISTER action into NeonDB activity branch
-        record_neon_activity(
+        log_independent_activity(
             logs_db=logs_db,
             fnum=clean_fnum,
-            action_type="REGISTER",
+            action="USER_REGISTRATION",
             module="USER_ACCOUNTS",
-            target_id=clean_fnum,
-            changes_summary=f"New officer account registered: {name} ({rank}) for station {clean_station}."
+            details=f"New officer account registered: {name} ({rank}) for station {clean_station}."
         )
 
         return {
@@ -549,14 +572,12 @@ async def request_password_reset(
             db.add(new_req)
             db.commit()
 
-            # 🟢 Record password reset request to NeonDB activity branch
-            record_neon_activity(
+            log_independent_activity(
                 logs_db=logs_db,
                 fnum=clean_fnum,
-                action_type="REGISTER",
+                action="PASSWORD_RESET_REQUEST",
                 module="PASSWORD_RESETS",
-                target_id=clean_fnum,
-                changes_summary="Password recovery requested."
+                details="Password recovery requested."
             )
 
     return {"status": "success", "message": "Password reset request submitted to Command."}
@@ -586,14 +607,12 @@ def change_password(
     try:
         db.commit()
         
-        # Log to activity ledger
-        record_neon_activity(
+        log_independent_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
-            action_type="UPDATE",
+            action="PASSWORD_CHANGE",
             module="SECURITY_VAULT",
-            target_id=current_user.fnum,
-            changes_summary="Security key (password) updated successfully."
+            details="Security key (password) updated successfully."
         )
         
         return {"status": "success", "message": "Security Key successfully updated. Previous password has been invalidated."}
@@ -625,14 +644,12 @@ def update_profile(
     db.commit()
     db.refresh(current_user)
 
-    # 🟢 Record profile update to NeonDB activity branch
-    record_neon_activity(
+    log_independent_activity(
         logs_db=logs_db,
         fnum=current_user.fnum,
-        action_type="UPDATE",
+        action="PROFILE_UPDATE",
         module="USER_PROFILE",
-        target_id=current_user.fnum,
-        changes_summary="Officer profile metadata updated."
+        details="Officer profile metadata updated."
     )
 
     return {"status": "success", "message": "Profile updated successfully."}
@@ -660,14 +677,12 @@ def revoke_user_access(
     try:
         db.commit()
 
-        # 🟢 Record revocation action to NeonDB activity branch
-        record_neon_activity(
+        log_independent_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
-            action_type="UPDATE",
+            action="REVOKE_USER_ACCESS",
             module="ACCESS_MATRIX",
-            target_id=clean_fnum,
-            changes_summary=f"User access revoked. Reason: {reason}"
+            details=f"User access revoked for {clean_fnum}. Reason: {reason}"
         )
 
         return {"status": "success", "message": f"Access successfully revoked for {clean_fnum}."}
@@ -698,14 +713,12 @@ def permanent_delete_user(
         db.delete(target_user)
         db.commit()
 
-        # 🟢 Record permanent deletion to NeonDB activity branch
-        record_neon_activity(
+        log_independent_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
-            action_type="DELETE",
+            action="PERMANENT_ACCOUNT_PURGE",
             module="SECURITY_VAULT",
-            target_id=clean_fnum,
-            changes_summary="Account permanently purged from database."
+            details=f"Account {clean_fnum} permanently purged from database."
         )
 
         return {"status": "success", "message": f"Account {clean_fnum} permanently deleted from database."}
