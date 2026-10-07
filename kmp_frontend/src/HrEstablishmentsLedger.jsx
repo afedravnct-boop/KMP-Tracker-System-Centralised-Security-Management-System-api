@@ -1,3 +1,4 @@
+// src/components/HrEstablishmentsLedger.jsx
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, Shield, FileText, Users, Building, Filter, ChevronDown, ChevronRight } from 'lucide-react';
 import { stripHtmlTags } from './App'; // Assumes you use stripHtmlTags or stripHtml
@@ -67,7 +68,13 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
   const [selectedStation, setSelectedStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtml(currentUser?.station || '').toUpperCase());
 
   // 🟢 State to manage expanded regions in the hierarchical tree table
-  const [expandedRegions, setExpandedRegions] = useState({});
+  const [expandedRegions, setExpandedRegions] = useState({
+    "KMP NORTH": true,
+    "KMP SOUTH": true,
+    "KMP EAST": true,
+    "KMP HEADQUARTERS": true,
+    "POLICE HEADQUARTERS": true
+  });
 
   const toggleRegion = (regionName) => {
     setExpandedRegions(prev => ({
@@ -566,7 +573,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                       <td className="p-4 text-center text-lg font-black text-white bg-blue-800 border-r border-blue-900 shadow-inner">{masterTotals.totalOff}</td>
                       <td className="p-4 text-center text-lg font-black text-white bg-emerald-700 border-r border-emerald-900 shadow-inner">{masterTotals.totalNco}</td>
                       <td className="p-4 text-center text-xl font-black text-yellow-400 bg-slate-950 shadow-inner">
-                         {masterTotals.regionTotal}
+                           {masterTotals.regionTotal}
                       </td>
                    </tr>
                 </tbody>
@@ -574,90 +581,98 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
           </div>
         </div>
 
-        {/* 🟢 HIERARCHICAL POLICE ESTABLISHMENTS TABLE WITH EXPANDABLE REGIONS */}
+        {/* 🟢 EXACT 8-COLUMN HIERARCHICAL POLICE ESTABLISHMENTS TABLE */}
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px]">
           <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
              <h3 className="font-extrabold text-green-900 text-sm uppercase tracking-wider flex items-center">
                 <Building className="mr-2 w-5 h-5" /> Police Establishments (Hierarchical Nominal Roll Extraction)
              </h3>
           </div>
-          <div className="overflow-x-auto w-full max-h-[500px] custom-scrollbar">
-             <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50 sticky top-0 shadow-sm z-10">
+          <div className="overflow-x-auto w-full max-h-[650px] custom-scrollbar">
+             <table className="min-w-full divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-900 text-white sticky top-0 shadow-sm z-10">
                    <tr>
-                      <th className="p-3 text-left text-[10px] font-black text-slate-600 uppercase w-12">SN</th>
-                      <th className="p-3 text-left text-[11px] font-black text-slate-600 uppercase bg-slate-100">REGION / STATION / POST</th>
-                      <th className="p-3 text-center text-[10px] font-black text-slate-600 uppercase">REGIONAL HQ PERSONNEL</th>
-                      <th className="p-3 text-center text-[10px] font-black text-slate-600 uppercase bg-slate-100">STATION PERSONNEL</th>
-                      <th className="p-3 text-center text-[10px] font-black text-slate-600 uppercase">POST PERSONNEL</th>
-                      <th className="p-3 text-center text-[11px] font-black text-white uppercase bg-emerald-800 shadow-inner">TOTAL PERSONNEL</th>
+                      <th className="p-3 text-center text-[10px] font-black uppercase w-12 border-r border-slate-700">SN</th>
+                      <th className="p-3 text-left text-[11px] font-black uppercase border-r border-slate-700">REGIONAL HQ</th>
+                      <th className="p-3 text-center text-[10px] font-black uppercase border-r border-slate-700">NO OF PERSONNEL</th>
+                      <th className="p-3 text-left text-[11px] font-black uppercase border-r border-slate-700">STATION</th>
+                      <th className="p-3 text-center text-[10px] font-black uppercase border-r border-slate-700">NO OF PERSONNEL</th>
+                      <th className="p-3 text-left text-[11px] font-black uppercase border-r border-slate-700">POST</th>
+                      <th className="p-3 text-center text-[10px] font-black uppercase border-r border-slate-700">NO OF PERSONNEL</th>
+                      <th className="p-3 text-center text-[11px] font-black uppercase bg-emerald-800 text-white">TOTAL MANPOWER</th>
                    </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                    {hierarchicalEstablishments.map((regGroup, rIdx) => {
                       const isExpanded = !!expandedRegions[regGroup.regionName];
                       
-                      // Calculate regional sums
                       let regHqSum = regGroup.hqPersonnel;
                       let regStnSum = Object.values(regGroup.stations).reduce((acc, s) => acc + s.stationPersonnel, 0);
                       let regPostSum = Object.values(regGroup.stations).reduce((acc, s) => acc + Object.values(s.posts).reduce((a, b) => a + b, 0), 0);
-                      let regTotalSum = regGroup.total;
+                      let regTotalSum = regHqSum + regStnSum + regPostSum;
 
                       return (
                          <React.Fragment key={regGroup.regionName}>
-                            {/* REGION HEADER ROW (CLICKABLE) */}
+                            {/* REGION / REGIONAL HQ ROW (CLICKABLE) */}
                             <tr 
                               onClick={() => toggleRegion(regGroup.regionName)}
                               className="bg-slate-100 hover:bg-slate-200 cursor-pointer transition-colors font-extrabold text-slate-900 border-t-2 border-slate-300 select-none"
                             >
-                               <td className="p-3 text-xs font-bold text-slate-700">{rIdx + 1}</td>
-                               <td className="p-3 text-xs uppercase flex items-center space-x-2">
+                               <td className="p-3 text-center font-bold text-slate-700 border-r border-slate-200">{rIdx + 1}</td>
+                               <td className="p-3 uppercase flex items-center space-x-2 border-r border-slate-200">
                                   <span className="text-blue-700">{isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
-                                  <span>🛡️ {regGroup.regionName} (REGIONAL COMMAND)</span>
+                                  <span>🛡️ {regGroup.regionName} HEADQUARTERS</span>
                                </td>
-                               <td className="p-3 text-center text-xs font-black text-blue-800">{regHqSum > 0 ? regHqSum : '-'}</td>
-                               <td className="p-3 text-center text-xs font-black text-green-800 bg-slate-50">{regStnSum > 0 ? regStnSum : '-'}</td>
-                               <td className="p-3 text-center text-xs font-black text-amber-800">{regPostSum > 0 ? regPostSum : '-'}</td>
-                               <td className="p-3 text-center text-xs font-black text-white bg-emerald-800 shadow-inner">{regTotalSum > 0 ? regTotalSum : '-'}</td>
+                               <td className="p-3 text-center font-black text-blue-800 border-r border-slate-200">{regHqSum > 0 ? regHqSum : '-'}</td>
+                               <td className="p-3 text-slate-400 border-r border-slate-200">-</td>
+                               <td className="p-3 text-center text-slate-400 border-r border-slate-200">-</td>
+                               <td className="p-3 text-slate-400 border-r border-slate-200">-</td>
+                               <td className="p-3 text-center text-slate-400 border-r border-slate-200">-</td>
+                               <td className="p-3 text-center font-black text-white bg-emerald-800 shadow-inner">{regTotalSum > 0 ? regTotalSum : '-'}</td>
                             </tr>
 
-                            {/* STATION & POST SUB-ROWS (RENDERED WHEN EXPANDED) */}
+                            {/* STATION & POST SUB-ROWS */}
                             {isExpanded && Object.values(regGroup.stations).map((stnObj, sIdx) => {
                                const stnTotal = stnObj.stationPersonnel + Object.values(stnObj.posts).reduce((a, b) => a + b, 0);
                                
                                return (
                                   <React.Fragment key={`${regGroup.regionName}-${stnObj.stationName}-${sIdx}`}>
+                                     {/* STATION ROW */}
                                      <tr className="hover:bg-emerald-50/40 transition-colors bg-white">
-                                        <td className="p-3 text-xs text-slate-400 pl-6">—</td>
-                                        <td className="p-3 text-xs font-bold text-slate-700 uppercase pl-8">
-                                            ↳ STATION: {stnObj.stationName}
+                                        <td className="p-3 text-slate-400 border-r border-slate-200 text-center">·</td>
+                                        <td className="p-3 text-slate-400 border-r border-slate-200">-</td>
+                                        <td className="p-3 text-center text-slate-400 border-r border-slate-200">-</td>
+                                        <td className="p-3 font-bold text-slate-700 uppercase border-r border-slate-200 pl-6">
+                                            ↳ {stnObj.stationName}
                                         </td>
-                                        <td className="p-3 text-center text-xs text-slate-400">—</td>
-                                        <td className="p-3 text-center text-xs font-bold text-green-700 bg-slate-50/50">
+                                        <td className="p-3 text-center font-bold text-green-700 bg-slate-50/50 border-r border-slate-200">
                                            {stnObj.stationPersonnel > 0 ? stnObj.stationPersonnel : '-'}
                                         </td>
-                                        <td className="p-3 text-center text-xs text-slate-400">—</td>
-                                        <td className="p-3 text-center text-xs font-bold text-emerald-700 bg-slate-50/30">
+                                        <td className="p-3 text-slate-400 border-r border-slate-200">-</td>
+                                        <td className="p-3 text-center text-slate-400 border-r border-slate-200">-</td>
+                                        <td className="p-3 text-center font-bold text-emerald-700 bg-slate-50/30">
                                            {stnTotal > 0 ? stnTotal : '-'}
                                         </td>
                                      </tr>
 
                                      {/* POST SUB-ROWS */}
                                      {Object.entries(stnObj.posts).map(([postName, postCount], pIdx) => (
-                                        <tr key={`post-${pIdx}`} className="hover:bg-amber-50/30 transition-colors bg-slate-50/30">
-                                           <td className="p-2 text-[10px] text-slate-400 pl-10">·</td>
-                                           <td className="p-2 text-[11px] font-medium text-slate-600 uppercase pl-12">
-                                              └─ Post / Section: {postName}
-                                           </td>
-                                           <td className="p-2 text-center text-[11px] text-slate-400">—</td>
-                                           <td className="p-2 text-center text-[11px] text-slate-400 bg-slate-50/20">—</td>
-                                           <td className="p-2 text-center text-[11px] font-bold text-amber-700">
-                                              {postCount > 0 ? postCount : '-'}
-                                           </td>
-                                           <td className="p-2 text-center text-[11px] font-bold text-amber-800 bg-amber-50/30">
-                                              {postCount > 0 ? postCount : '-'}
-                                           </td>
-                                        </tr>
+                                         <tr key={`post-${pIdx}`} className="hover:bg-amber-50/30 transition-colors bg-slate-50/30">
+                                            <td className="p-2 text-slate-400 border-r border-slate-200 text-center">·</td>
+                                            <td className="p-2 text-slate-400 border-r border-slate-200">-</td>
+                                            <td className="p-2 text-center text-slate-400 border-r border-slate-200">-</td>
+                                            <td className="p-2 text-slate-400 border-r border-slate-200">-</td>
+                                            <td className="p-2 text-center text-slate-400 border-r border-slate-200">-</td>
+                                            <td className="p-2 font-medium text-slate-600 uppercase border-r border-slate-200 pl-8">
+                                               └─ {postName}
+                                            </td>
+                                            <td className="p-2 text-center font-bold text-amber-700 border-r border-slate-200">
+                                               {postCount > 0 ? postCount : '-'}
+                                            </td>
+                                            <td className="p-2 text-center font-bold text-amber-800 bg-amber-50/30">
+                                               {postCount > 0 ? postCount : '-'}
+                                            </td>
+                                         </tr>
                                      ))}
                                   </React.Fragment>
                                );
@@ -667,20 +682,22 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                    })}
 
                    {hierarchicalEstablishments.length === 0 && (
-                      <tr><td colSpan="6" className="p-6 text-center text-slate-500 font-medium">No establishments data available from the nominal roll.</td></tr>
+                      <tr><td colSpan="8" className="p-6 text-center text-slate-500 font-medium">No establishments data available from the nominal roll.</td></tr>
                    )}
                    
-                   {/* GRAND TOTAL ROW AT THE BOTTOM */}
-                   <tr className="bg-slate-800 border-t-4 border-slate-900 text-white font-black">
+                   {/* MASTER GRAND TOTAL ROW */}
+                   <tr className="bg-slate-900 border-t-4 border-slate-950 text-white font-black">
                       <td colSpan="2" className="p-4 text-right uppercase tracking-widest text-xs border-r border-slate-700">
                           MASTER GRAND TOTALS:
                       </td>
                       <td className="p-4 text-center text-sm font-black text-blue-300 border-r border-slate-700">
                           {hierarchicalEstablishments.reduce((sum, r) => sum + r.hqPersonnel, 0)}
                       </td>
+                      <td className="p-4 text-slate-400 border-r border-slate-700">-</td>
                       <td className="p-4 text-center text-sm font-black text-green-400 border-r border-slate-700 bg-slate-900/50">
                           {hierarchicalEstablishments.reduce((sum, r) => sum + Object.values(r.stations).reduce((acc, s) => acc + s.stationPersonnel, 0), 0)}
                       </td>
+                      <td className="p-4 text-slate-400 border-r border-slate-700">-</td>
                       <td className="p-4 text-center text-sm font-black text-amber-300 border-r border-slate-700">
                           {hierarchicalEstablishments.reduce((sum, r) => sum + Object.values(r.stations).reduce((acc, s) => acc + Object.values(s.posts).reduce((a, b) => a + b, 0), 0), 0)}
                       </td>

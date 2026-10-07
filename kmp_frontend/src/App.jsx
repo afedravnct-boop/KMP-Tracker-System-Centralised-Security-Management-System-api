@@ -3260,7 +3260,7 @@ const App = () => {
         establishments: data.establishments || [],
         nominal_rolls: data.nominal_rolls || []
       });
-      setIsViewingConsolidated(true);
+      setIsViewingConsolidated(true); // 🟢 Forces the ledger modal/overlay to open
     } catch (err) { 
       console.error("Consolidated Ledger load error:", err);
       alert(`Failed to load Consolidated Ledger: ${err.message}`); 
