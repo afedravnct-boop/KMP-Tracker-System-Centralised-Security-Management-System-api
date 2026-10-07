@@ -201,19 +201,21 @@ async def login(
             detail="Incorrect Force Number or password"
         )
 
-    # 🟢 CHECK FOR REVOKED ACCESS FIRST (Before verifying password)
+    # 🟢 1. CHECK FOR REVOKED ACCESS FIRST (Before approval and password checks)
     if str(user.role).strip().upper() == "REVOKED":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="ACCESS DENIED: Your system access credentials have been revoked by Command. Please contact your Regional Administrator."
         )
 
+    # 🟢 2. CHECK APPROVAL STATUS
     if not user.is_approved:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account pending Command approval. Please contact the administrator."
         )
 
+    # 🟢 3. VERIFY PASSWORD HASH
     if not security.verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
