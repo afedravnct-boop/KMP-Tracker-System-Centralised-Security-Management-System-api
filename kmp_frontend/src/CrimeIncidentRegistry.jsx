@@ -223,7 +223,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
       region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
       date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-      offence: '', customOffence: '', category: 'GENERAL OPERATION', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
+      offence: '', customOffence: '', category: 'GENERAL CRIMES', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
     });
     setUpdateSearch('');
   };
@@ -240,7 +240,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       sn: caseData.sn || caseData.id, 
       sd_ref: stripHtmlTags(caseData.sdRef || caseData.sd_ref), 
       offence: stripHtmlTags(caseData.offence || 'Other'),
-      category: caseData.category || 'GENERAL OPERATION',
+      category: caseData.category || 'GENERAL CRIMES',
       customOffence: '',
       suspectDetails: caseData.suspectDetails || [], 
       updateText: '' 
@@ -519,7 +519,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         date: stripHtmlTags(formData.date), 
         time: formattedTime, 
         offence: formData.offence === 'Other' ? stripHtmlTags(formData.customOffence).toUpperCase() : stripHtmlTags(formData.offence), 
-        category: formData.category || 'GENERAL OPERATION',
+        category: formData.category || 'GENERAL CRIMES',
         narrative: plainNarrative, 
         status: stripHtmlTags(formData.status), 
         suspects: formData.suspectDetails.length, 
@@ -556,7 +556,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         time: formattedTime, 
         narrative: updatedNarrative, 
         offence: finalOffenceValue, 
-        category: formData.category || 'GENERAL OPERATION',
+        category: formData.category || 'GENERAL CRIMES',
         status: formData.status,
         suspects: formData.suspectDetails.length,
         last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})`, 
@@ -775,7 +775,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                 <div>
                   <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Operation Category / Focus *</label>
                   <select name="category" value={formData.category} onChange={handleInputChange} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 border p-2 cursor-pointer font-bold text-amber-600 dark:text-amber-400">
-                    <option value="GENERAL OPERATION">GENERAL OPERATION</option>
+                    <option value="GENERAL CRIMES">GENERAL CRIMES</option>
                     <option value="AGRIC_CRIME">🌾 AGRICULTURAL CRIMES / LIVESTOCK & FARM SECURITY</option>
                   </select>
                 </div>

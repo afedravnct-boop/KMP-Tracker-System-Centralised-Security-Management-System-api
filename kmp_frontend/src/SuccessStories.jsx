@@ -160,7 +160,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     date: getTodayString(), 
     time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
     narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: '',
-    category: 'GENERAL OPERATION'
+    category: 'GENERAL CRIMES'
   });
 
   const toggleRowExpand = (sn) => {
@@ -205,7 +205,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
       // 🟢 Category Filter
       if (categoryFilter !== 'ALL CATEGORIES') {
-        const storyCategory = (s.category || 'GENERAL OPERATION').toUpperCase();
+        const storyCategory = (s.category || 'GENERAL CRIMES').toUpperCase();
         if (storyCategory !== categoryFilter.toUpperCase()) return false;
       }
 
@@ -316,7 +316,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         station: canViewGlobalActive ? REGIONAL_HIERARCHY['KMP NORTH'][0] : userStnClean,
         date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
         narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: '',
-        category: 'GENERAL OPERATION'
+        category: 'GENERAL CRIMES'
       });
       setUpdateSearch('');
     }
@@ -355,7 +355,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         
         setStories([newStory, ...stories]);
         setNotification(`Success story SN ${newStory.sn} logged successfully!`);
-        setFormData({ ...formData, time: '', narrative: '', sn: null, updateText: '', photo_url: '', category: 'GENERAL OPERATION' });
+        setFormData({ ...formData, time: '', narrative: '', sn: null, updateText: '', photo_url: '', category: 'GENERAL CRIMES' });
 
       } catch (err) {
         console.error("Cloud sync failed:", err);
@@ -431,7 +431,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                 <div>
                   <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Operation Category / Focus *</label>
                   <select name="category" value={formData.category} onChange={handleInputChange} className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 border p-2 cursor-pointer font-bold text-amber-600 dark:text-amber-400">
-                    <option value="GENERAL OPERATION">GENERAL OPERATION</option>
+                    <option value="GENERAL CRIMES">GENERAL CRIMES</option>
                     <option value="AGRIC_CRIME">🌾 AGRICULTURAL CRIMES / LIVESTOCK & FARM SECURITY</option>
                   </select>
                 </div>
@@ -537,7 +537,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
               className="border dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer"
             >
               <option value="ALL CATEGORIES">ALL CATEGORIES</option>
-              <option value="GENERAL OPERATION">GENERAL OPERATIONS</option>
+              <option value="GENERAL CRIMES">GENERAL CRIMESS</option>
               <option value="AGRIC_CRIME">🌾 AGRIC CRIMES & SECURITY</option>
             </select>
             <select 
@@ -685,7 +685,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                 </div>
                 <div>
                   <span className="text-slate-400 font-bold uppercase block text-[10px]">Operation Category</span>
-                  <span className="font-extrabold text-amber-600 dark:text-amber-400">{stripHtmlTags(selectedDossier.category || 'GENERAL OPERATION')}</span>
+                  <span className="font-extrabold text-amber-600 dark:text-amber-400">{stripHtmlTags(selectedDossier.category || 'GENERAL CRIMES')}</span>
                 </div>
                 <div>
                   <span className="text-slate-400 font-bold uppercase block text-[10px]">Accomplished Date & Time</span>
