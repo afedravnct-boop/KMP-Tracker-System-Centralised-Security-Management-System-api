@@ -2409,13 +2409,18 @@ const handleExportLogs = async () => {
                     <div>
                       <span className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1 block">HR & Establishments</span>
                       <div className="flex space-x-2">
-                        <button onClick={onViewHRReport} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center cursor-pointer">
+                        <button 
+                          type="button"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onViewHRReport(); }} 
+                          className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center cursor-pointer shadow"
+                        >
                           <Eye size={14} className="mr-1"/> View
                         </button>
                         {checkClearance(currentUser, 'export_data', true) && (
                           <button 
-                            onClick={onGenerateHRReport} 
-                            className="flex-1 flex items-center justify-center text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded px-3 py-1.5 transition-colors cursor-pointer"
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onGenerateHRReport(); }} 
+                            className="flex-1 flex items-center justify-center text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded px-3 py-1.5 transition-colors cursor-pointer shadow"
                           >
                             <Download className="w-3 h-3 mr-2" /> Export
                           </button>
@@ -2423,12 +2428,20 @@ const handleExportLogs = async () => {
                       </div>
                     </div>
                     {checkClearance(currentUser, 'acc_consolidated', true) && (
-                      <button onClick={onViewConsolidated} className="w-full text-xs py-2 rounded transition flex items-center justify-center font-bold mt-3 bg-slate-900 hover:bg-slate-950 text-blue-400 border border-blue-900 cursor-pointer">
+                      <button 
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onViewConsolidated(); }} 
+                        className="w-full text-xs py-2.5 rounded transition flex items-center justify-center font-bold mt-3 bg-slate-900 hover:bg-slate-950 text-blue-400 border border-blue-900 cursor-pointer shadow"
+                      >
                         <Eye size={14} className="mr-2"/> Consolidated Entries
                       </button>
                     )}
                     {checkClearance(currentUser, 'export_logs', ['SUPER_ADMIN'].includes(currentUser?.role)) && (
-                      <button onClick={handleExportLogs} className="w-full mt-2 text-xs py-2 rounded transition font-bold bg-slate-900 hover:bg-slate-950 text-slate-300 border border-slate-700 flex items-center justify-center cursor-pointer">
+                      <button 
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleExportLogs(); }} 
+                        className="w-full mt-2 text-xs py-2.5 rounded transition font-bold bg-slate-900 hover:bg-slate-950 text-slate-300 border border-slate-700 flex items-center justify-center cursor-pointer shadow"
+                      >
                         <Download size={14} className="mr-2 text-blue-400"/> Export Audit Logs
                       </button>
                     )}
@@ -3260,7 +3273,7 @@ const App = () => {
         establishments: data.establishments || [],
         nominal_rolls: data.nominal_rolls || []
       });
-      setIsViewingConsolidated(true); // 🟢 Forces the ledger modal/overlay to open
+      setIsViewingConsolidated(true);
     } catch (err) { 
       console.error("Consolidated Ledger load error:", err);
       alert(`Failed to load Consolidated Ledger: ${err.message}`); 
