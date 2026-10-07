@@ -201,7 +201,7 @@ async def login(
             detail="Incorrect Force Number or password"
         )
 
-    # 🟢 CHECK FOR REVOKED ACCESS FIRST (Before checking password, or right after user lookup)
+    # 🟢 CHECK FOR REVOKED ACCESS FIRST (Before verifying password)
     if str(user.role).strip().upper() == "REVOKED":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
