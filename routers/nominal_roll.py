@@ -1,3 +1,4 @@
+# routers/nominal_roll.py
 import io
 import os
 import math
@@ -27,6 +28,77 @@ from auth import get_current_user
 from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1", tags=["Nominal Roll & HR"])
+
+# ====================================================================
+# HIERARCHICAL RANK & COMMAND RESPONSIBILITY WEIGHT ENGINE
+# ====================================================================
+
+RANK_SENIORITY = {
+    "IGP": 1, "DIGP": 2, "AIGP": 3, "SCP": 4, "CP": 5, "ACP": 6,
+    "SSP": 7, "SP": 8, "SASP": 9, "ASP": 10, "IP": 11, "AIP": 12,
+    "HCM": 13, "HC": 14, "S/SGT": 15, "SSGT": 15, "SGT": 16,
+    "CPL": 17, "L/CPL": 18, "LCPL": 18, "PC": 19, "PPC": 20, "SPC": 21, "CIVILIAN": 50
+}
+
+def clean_str(val) -> str:
+    if not val: return ''
+    return str(val).strip().upper()
+
+def get_station_priority_weight(station, region) -> int:
+    stn = clean_str(station)
+    reg = clean_str(region)
+    if 'KMP HEADQUARTERS' in stn or 'KMP HEADQUARTERS' in reg or stn == 'HQ':
+        return 0
+    if 'HEADQUARTERS' in stn or 'RPC' in stn:
+        return 1
+    return 2
+
+def get_command_weight(officer) -> int:
+    pos = clean_str(getattr(officer, 'position', ''))
+    name = clean_str(getattr(officer, 'name', ''))
+    
+    if any(k in pos for k in ['COMMANDER KMP', 'COMDR KMP', 'COMD KMP', 'KMP COMMANDER', 'KMP COMDR', 'KMP COMD']) or any(k in name for k in ['COMMANDER KMP', 'KMP COMMANDER']):
+        if 'DEPUTY' in pos or 'D/COMDR' in pos or 'D/COMMANDER' in pos:
+            return 1
+        return 0
+        
+    if 'ADMIN OFFICER' in pos or 'ADMINISTRATIVE OFFICER' in pos: return 2
+    if pos == 'RPC' or 'REGIONAL POLICE COMMANDER' in pos: return 3
+    if pos == 'D/RPC' or 'DEPUTY RPC' in pos or 'DY.RPC' in pos: return 4
+    if pos.startswith('R/'): return 5
+    if pos == 'OC' or pos.startswith('OC ') or 'I/C' in pos or 'IN CHARGE' in pos: return 6
+    
+    return 99
+
+def get_rank_weight(rank_str: str) -> int:
+    if not rank_str: return 99
+    r = clean_str(rank_str)
+
+    if r == 'DC' or r.startswith('D/C'):
+        r = 'PC'
+    elif r.startswith('D/') or r.startswith('D-') or r.startswith('D '):
+        r = r.replace('D/', '').replace('D-', '').replace('D ', '').strip()
+        if r == 'C': r = 'PC'
+
+    if '/DRV' in r or '-DRV' in r or ' DRV' in r or r == 'DRV' or 'C/DRV' in r:
+        if r == 'C/DRV' or r == 'DRV':
+            r = 'PC'
+        else:
+            r = r.replace('/DRV', '').replace('-DRV', '').replace(' DRV', '').replace('DRV', '').strip()
+
+    if not r: r = 'PC'
+    return RANK_SENIORITY.get(r, 40)
+
+def hierarchical_sort_key(officer):
+    stn = getattr(officer, 'station', '')
+    reg = getattr(officer, 'region', '')
+    
+    prio = get_station_priority_weight(stn, reg)
+    cmd = get_command_weight(officer)
+    rank_w = get_rank_weight(getattr(officer, 'rank', ''))
+    fnum = clean_str(getattr(officer, 'f_num', getattr(officer, 'fnum', '')))
+    
+    return (prio, cmd, rank_w, fnum)
 
 # ====================================================================
 # GLOBAL HELPER FUNCTIONS & OPSEC SCOPING
@@ -112,22 +184,18 @@ def is_uniformed_rank(rank_str: str) -> bool:
     uniformed_ranks = {
         'IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'SASP', 'ASP',
         'IP', 'AIP', 'HCM', 'HC', 'S/SGT', 'SSGT', 'SGT', 'CPL', 'L/CPL', 'LCPL',
-        'PC', 'PPC', 'SPC', 'DC', 'D/C'
+        'PC', 'PPC', 'SPC'
     }
     return r in uniformed_ranks
 
-# 🟢 Strict Pre-Upload Validation Gate to Prevent Stray Data in Any Column
 def is_invalid_roster_entry(r) -> bool:
     name = str(getattr(r, 'name', '') or '').strip().upper()
     rank = str(getattr(r, 'rank', '') or '').strip().upper()
     fnum = str(getattr(r, 'fnum', getattr(r, 'f_num', '')) or '').strip().upper()
     
     combined = f"{fnum} {rank} {name}"
-    
-    # 1. Block separator lines and administrative headings
     if "---" in combined or "___" in combined or "===" in combined: return True
     
-    # 2. Block station/unit names accidentally mapping into officer columns
     forbidden_terms = [
         "POLICE STATION", "CANINE UNIT", "ATTACHED", "DEPARTMENT", 
         "DIVISION HEADQUARTERS", "REGIONAL HQ", "POST", "BARRACKS", 
@@ -135,7 +203,6 @@ def is_invalid_roster_entry(r) -> bool:
     ]
     if any(term in combined for term in forbidden_terms): return True
     
-    # 3. Block if name contains numbers or suspicious patterns typical of misaligned columns
     if any(char.isdigit() for char in name) and not any(r_term in rank for r_term in ['PC', 'SGT', 'CPL', 'ASP', 'IP']):
         return True
 
@@ -371,16 +438,9 @@ def get_Nominal_Rolls(
         if active_conds: active_query = active_query.filter(or_(*active_conds))
         if archive_conds: archive_query = archive_query.filter(or_(*archive_conds))
 
-    sort_act = getattr(ActiveModel, 'created_at', getattr(ActiveModel, 'id', getattr(ActiveModel, 'sn', None)))
-    if sort_act is not None:
-        active_query = active_query.order_by(sort_act.asc())
-
-    sort_arc = getattr(ArchiveModel, 'archive_date', getattr(ArchiveModel, 'created_at', getattr(ArchiveModel, 'id', getattr(ArchiveModel, 'sn', None))))
-    if sort_arc is not None:
-        archive_query = archive_query.order_by(sort_arc.desc())
-
-    active_records = active_query.all()
-    archive_records = archive_query.all()
+    # 🟢 INTEGRATED HIERARCHICAL SORTING ENGINE (Python Sort)
+    active_records = sorted(active_query.all(), key=hierarchical_sort_key)
+    archive_records = sorted(archive_query.all(), key=hierarchical_sort_key)
     
     clean_results = []
     sequence_counter = 1
@@ -983,11 +1043,9 @@ def get_archived_personnel(
         ArchiveModel = get_archive_model()
         query = get_scoped_nominal_query(db, current_user, ArchiveModel)
         
-        sort_col = getattr(ArchiveModel, 'archive_date', getattr(ArchiveModel, 'id', None))
-        if sort_col is not None:
-            query = query.order_by(sort_col.desc())
-            
-        archives = query.all()
+        # 🟢 INTEGRATED HIERARCHICAL SORTING ENGINE (Archive)
+        archives = sorted(query.all(), key=hierarchical_sort_key)
+        
         clean_list = []
         for a in archives:
             if is_invalid_roster_entry(a): continue
@@ -1119,7 +1177,7 @@ def export_missing_info_audit(
         region_clean = region.strip().upper()
         station_clean = station.strip().upper()
 
-        records = query.all()
+        records = sorted(query.all(), key=hierarchical_sort_key)
         missing_rows = []
 
         for r in records:
@@ -1255,7 +1313,7 @@ def export_station_nominal_roll(
         region_clean = region.strip().upper()
         station_clean = station.strip().upper()
 
-        records = query.all()
+        records = sorted(query.all(), key=hierarchical_sort_key)
         station_rows = []
 
         for r in records:

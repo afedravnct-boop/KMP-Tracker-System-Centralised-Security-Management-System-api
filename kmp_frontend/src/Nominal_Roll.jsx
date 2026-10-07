@@ -1,3 +1,4 @@
+// src/components/Nominal_Roll.jsx
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Users, PlusCircle, Edit, AlertTriangle, CheckCircle, Upload, 
@@ -43,41 +44,6 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
     if (stationsList.includes(cleanStation)) return regionName;
   }
   return cleanDbRegion || cleanStation || 'UNASSIGNED';
-};
-
-const getStationPriorityWeight = (station, region) => {
-  const stn = cleanStr(station);
-  const reg = cleanStr(region);
-  
-  if (stn.includes('KMP HEADQUARTERS') || reg.includes('KMP HEADQUARTERS') || stn === 'HQ') {
-    return 0;
-  }
-  if (stn.includes('HEADQUARTERS') || stn.includes('RPC')) {
-    return 1;
-  }
-  return 2;
-};
-
-const getCommandWeight = (officer) => {
-  if (!officer) return 99;
-  const pos = cleanStr(officer.position);
-  const rank = cleanStr(officer.rank);
-  const name = cleanStr(officer.name);
-  
-  if (pos.includes('COMMANDER KMP') || pos.includes('COMDR KMP') || pos.includes('KMP COMMANDER') || name.includes('COMMANDER KMP')) {
-    if (pos.includes('DEPUTY') || pos.includes('D/COMDR') || pos.includes('D/COMMANDER')) {
-      return 1; 
-    }
-    return 0; 
-  }
-  
-  if (pos.includes('ADMIN OFFICER') || pos.includes('ADMINISTRATIVE OFFICER')) return 2;
-  if (pos === 'RPC' || rank === 'RPC') return 3;
-  if (pos === 'D/RPC' || pos === 'DEPUTY RPC' || rank === 'D/RPC') return 4;
-  if (pos.startsWith('R/')) return 5; 
-  if (pos === 'OC' || pos.startsWith('OC ') || pos.includes('I/C') || pos.includes('IN CHARGE')) return 6;
-  
-  return 99; 
 };
 
 const getRankWeight = (rank) => {
@@ -251,19 +217,16 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
   });
 
-  // 🟢 Stations List strictly combining initial major stations first, followed by discovered DB entries
   const availableStationsList = useMemo(() => {
     const list = new Set();
     const activeReg = filterRegion;
 
-    // First load initial major stations mapped to this region (or all if ALL REGIONS)
     if (activeReg && activeReg !== 'ALL REGIONS' && REGIONAL_HIERARCHY[activeReg]) {
       REGIONAL_HIERARCHY[activeReg].forEach(stn => list.add(stn));
     } else {
       Object.values(REGIONAL_HIERARCHY).forEach(arr => arr.forEach(stn => list.add(stn)));
     }
 
-    // Next append discovered stations from database entries
     (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).forEach(n => {
       if (n.station) {
         const cleaned = cleanStr(n.station);
@@ -502,6 +465,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
+  // 🟢 Filter Engine (Backend already handles sorting hierarchy)
   const filteredRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const statusStr = cleanStr(n.status);
@@ -532,20 +496,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         }
       }
       return true;
-    }).sort((a, b) => {
-      const prioA = getStationPriorityWeight(a.station, a.region);
-      const prioB = getStationPriorityWeight(b.station, b.region);
-      if (prioA !== prioB) return prioA - prioB;
-
-      const cmdA = getCommandWeight(a);
-      const cmdB = getCommandWeight(b);
-      if (cmdA !== cmdB) return cmdA - cmdB;
-
-      const weightA = getRankWeight(a.rank);
-      const weightB = getRankWeight(b.rank);
-      if (weightA !== weightB) return weightA - weightB;
-
-      return cleanStr(a.f_num || a.fnum).localeCompare(cleanStr(b.f_num || b.fnum), undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [Nominal_Rolls, filterRegion, filterStation, searchTerm]);
 
@@ -579,20 +529,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         }
       }
       return true;
-    }).sort((a, b) => {
-      const prioA = getStationPriorityWeight(a.station, a.region);
-      const prioB = getStationPriorityWeight(b.station, b.region);
-      if (prioA !== prioB) return prioA - prioB;
-
-      const cmdA = getCommandWeight(a);
-      const cmdB = getCommandWeight(b);
-      if (cmdA !== cmdB) return cmdA - cmdB;
-
-      const weightA = getRankWeight(a.rank);
-      const weightB = getRankWeight(b.rank);
-      if (weightA !== weightB) return weightA - weightB;
-
-      return cleanStr(a.f_num || a.fnum).localeCompare(cleanStr(b.f_num || b.fnum), undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [Nominal_Roll_archives, filterRegion, filterStation, searchTerm]);
 
@@ -663,17 +599,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           else grouped[key].unknown += 1;
       });
 
-      const resultsArray = Object.values(grouped);
-
-      if (metricCategory === 'RANK') {
-          return resultsArray.sort((a, b) => {
-             const weightA = getRankWeight(a.category);
-             const weightB = getRankWeight(b.category);
-             return weightA - weightB;
-          });
-      } else {
-          return resultsArray.sort((a, b) => b.total - a.total);
-      }
+      return Object.values(grouped).sort((a, b) => b.total - a.total);
   }, [currentRollDataset, metricCategory]);
 
   const metricsData = useMemo(() => {
@@ -928,7 +854,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                     {operation === 'update' && (formData.sn || formData.fnum) && (
                       <div className="bg-red-50 p-3 rounded-lg border border-red-200 space-y-2 mb-3 shadow-xs">
                         <h4 className="text-[11px] font-bold text-red-700 uppercase border-b border-red-200 pb-1 flex items-center"><AlertTriangle size={12} className="mr-1.5"/> Archive / Remove</h4>
-                        
+                         
                         <div className="space-y-2">
                             <div>
                                 <label className="block text-[10px] font-bold text-red-800 mb-0.5">Removal Reason *</label>
