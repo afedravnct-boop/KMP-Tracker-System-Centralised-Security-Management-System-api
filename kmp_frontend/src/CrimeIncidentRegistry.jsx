@@ -164,7 +164,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
     region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
     date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-    offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
+    offence: '', customOffence: '', category: 'GENERAL OPERATION', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
   });
 
   useEffect(() => {
@@ -223,7 +223,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
       region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
       date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-      offence: '', customOffence: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
+      offence: '', customOffence: '', category: 'GENERAL OPERATION', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
     });
     setUpdateSearch('');
   };
@@ -240,6 +240,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       sn: caseData.sn || caseData.id, 
       sd_ref: stripHtmlTags(caseData.sdRef || caseData.sd_ref), 
       offence: stripHtmlTags(caseData.offence || 'Other'),
+      category: caseData.category || 'GENERAL OPERATION',
       customOffence: '',
       suspectDetails: caseData.suspectDetails || [], 
       updateText: '' 
@@ -269,25 +270,11 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         }
       }
 
-      // 🟢 Heavy-Lift Backend Flag Integration with Frontend Fallback
+      // 🟢 Form-Selected Category or Heavy-Lift Backend Flag Integration
       if (showAgriculturalOnly) {
-        if (r.isAgriculturalCrime !== undefined) {
-          if (!r.isAgriculturalCrime) return false;
-        } else {
-          const offenceText = stripHtmlTags(r.offence || '').toLowerCase();
-          const narrativeText = extractPlainText(r.narrative || '').toLowerCase();
-          const combinedText = `${offenceText} ${narrativeText}`;
-
-          const excludedTerms = ['murder', 'homicide', 'killed', 'death', 'accident', 'tar', 'collision', 'hit and run', 'overturned', 'crash', 'boda boda', 'motorcycle', 'motor cycle', 'bajaj', 'tvs', 'boxer', 'scooter', 'traffic', 'aggravated robbery', 'defilement', 'rape'];
-          if (excludedTerms.some(term => offenceText.includes(term) || combinedText.includes(term))) {
-            return false;
-          }
-
-          const agriCrimeIndicators = ['theft of produce', 'produce theft', 'animal theft', 'cattle theft', 'stole a cow', 'stole cattle', 'stock theft', 'theft of livestock', 'granary', 'granaries', 'broke into food store', 'food stores', 'storehouse', 'barn', 'silo', 'silos', 'cutting down crops', 'cutting crops', 'slashing crops', 'burning crops', 'burning produce', 'destroying crops', 'crop destruction', 'arson of crops', 'arson of produce', 'theft of crops', 'theft of coffee', 'theft of vanilla', 'theft of cassava', 'theft of maize', 'coffee theft', 'vanilla theft', 'maize theft', 'matooke theft', 'theft of matooke', 'bribery to receive farm inputs', 'extortion of farmers', 'farm break-in', 'farm robbery', 'farm trespass', 'fire on crops', 'fire in the sugarcane', 'fire on farm house', 'crop theft', 'suspected stolen cows', 'suspected stolen cattle', 'suspected stolen goats', 'suspected stolen sheep', 'suspected stolen chicken', 'suspected stolen eggs', 'suspected stolen produce', 'suspected stolen coffee', 'suspected stolen vanilla', 'suspected stolen maize', 'suspected stolen matooke', 'suspected stolen cassava', 'suspected stolen livestock', 'suspected stolen funds for farmers'];
-
-          const isAgriCrimeMatch = agriCrimeIndicators.some(indicator => combinedText.includes(indicator));
-          if (!isAgriCrimeMatch) return false;
-        }
+        const isCatAgri = (r.category || '').toUpperCase() === 'AGRIC_CRIME';
+        const isFlagAgri = r.isAgriculturalCrime === true;
+        if (!isCatAgri && !isFlagAgri) return false;
       }
         
       const diffDays = Math.ceil(Math.abs(new Date() - new Date(r.date)) / (1000 * 60 * 60 * 24));
@@ -533,6 +520,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         date: stripHtmlTags(formData.date), 
         time: formattedTime, 
         offence: formData.offence === 'Other' ? stripHtmlTags(formData.customOffence).toUpperCase() : stripHtmlTags(formData.offence), 
+        category: formData.category || 'GENERAL OPERATION',
         narrative: plainNarrative, 
         status: stripHtmlTags(formData.status), 
         suspects: formData.suspectDetails.length, 
@@ -569,6 +557,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         time: formattedTime, 
         narrative: updatedNarrative, 
         offence: finalOffenceValue, 
+        category: formData.category || 'GENERAL OPERATION',
         status: formData.status,
         suspects: formData.suspectDetails.length,
         last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})`, 
@@ -784,6 +773,14 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
               <form onSubmit={handleFormSubmit} className="space-y-3 text-xs">
                 {operation === 'update' && formData.sn && <div className="bg-slate-800 text-white text-[11px] font-bold px-2.5 py-1.5 rounded">Currently Editing DB-ID: {formData.sn}</div>}
                  
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Operation Category / Focus *</label>
+                  <select name="category" value={formData.category} onChange={handleInputChange} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 border p-2 cursor-pointer font-bold text-amber-600 dark:text-amber-400">
+                    <option value="GENERAL OPERATION">GENERAL OPERATION</option>
+                    <option value="AGRIC_CRIME">🌾 AGRICULTURAL CRIMES / LIVESTOCK & FARM SECURITY</option>
+                  </select>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2">
                     <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">File Reference Prefix & Number *</label>
@@ -973,7 +970,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                     <tr><td colSpan="7" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium text-xs border-b-0"><Loader2 className="w-5 h-5 mx-auto animate-spin mb-2" /> Syncing database records...</td></tr>
                   ) : finalFilteredReports.map((report, index) => {
                     const rRegion = getOfficialRegionForStation(report.station, report.region);
-                    const isAgriMatch = report.isAgriculturalCrime;
+                    const isAgriMatch = (report.category || '').toUpperCase() === 'AGRIC_CRIME' || report.isAgriculturalCrime === true;
 
                     return (
                       <tr key={report.id || report.sn || index} className="even:bg-slate-50 dark:even:bg-slate-900/50 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors cursor-pointer group" onClick={() => { if (operation === 'update') { populateUpdateCrimeForm(report); } else { setSelectedCase(report); } }}>
@@ -999,7 +996,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                           } ${
                             report.status.includes('BAIL') ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-900' : ''
                           } ${
-                            report.status.includes('ACQUITTED') ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900' : ''
+                            report.status.includes('ACQUITTED') ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : ''
                           } ${
                             report.status.includes('CLOSED') ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 border border-green-200 dark:border-green-900' : ''
                           } ${
