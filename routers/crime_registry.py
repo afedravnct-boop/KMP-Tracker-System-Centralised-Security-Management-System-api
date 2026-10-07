@@ -1,3 +1,4 @@
+# routers/crime_registry.py
 import os
 import uuid
 import re
@@ -38,19 +39,11 @@ def strip_html_tags(text_str: str) -> str:
         return ""
     return re.sub('<.*?>', '', str(text_str))
 
-# 🟢 Backend Heavy-Lifting Intelligent Crime & Agricultural Parser
 def parse_crime_incident_backend(offence_str: str, narrative_str: str):
     combined_text = f"{offence_str or ''} {narrative_str or ''}"
     plain_text = strip_html_tags(combined_text)
     lower_text = plain_text.lower()
     
-    # 1. Automatic Agricultural / Livestock Security Tagging
-    is_agric = False
-    agric_keywords = ['cattle', 'cow', 'cows', 'livestock', 'farm', 'crop', 'crops', 'produce', 'coffee', 'vanilla', 'maize', 'beans', 'beasts', 'goat', 'goats', 'sheep', 'poultry', 'chicken']
-    if any(kw in lower_text for kw in agric_keywords):
-        is_agric = True
-
-    # 2. Extract Suspects Count
     suspects_count = 0
     suspect_matches = [
         re.search(r'(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang|arrested)', lower_text),
@@ -61,7 +54,6 @@ def parse_crime_incident_backend(offence_str: str, narrative_str: str):
             suspects_count = int(m.group(1))
             break
 
-    # 3. Extract Recoveries
     recoveries_list = []
     recovery_matches = re.findall(r'(\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|money|cash|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|birds|chicken|produce|maize|beans|items))', lower_text, re.IGNORECASE)
     for count_val, item_val in recovery_matches:
@@ -71,7 +63,6 @@ def parse_crime_incident_backend(offence_str: str, narrative_str: str):
         recoveries_list.append('Recovered property / exhibit')
 
     return {
-        "isAgriculturalCrime": is_agric,
         "parsedSuspects": suspects_count,
         "parsedRecoveries": ", ".join(recoveries_list) if recoveries_list else "None recorded"
     }
@@ -296,15 +287,14 @@ def get_reports(
         c_dict['date'] = str(getattr(r, 'date', ''))
         c_dict['time'] = str(getattr(r, 'time', ''))
         c_dict['offence'] = str(getattr(r, 'offence', 'GENERAL CRIME')).strip().upper()
+        c_dict['category'] = str(getattr(r, 'category', 'GENERAL CRIMES')).strip().upper()
         c_dict['narrative'] = getattr(r, 'narrative', '')
         c_dict['status'] = getattr(r, 'status', 'PENDING')
         c_dict['suspects'] = getattr(r, 'suspects', 0)
         c_dict['lastUpdatedBy'] = getattr(r, 'last_updated_by', 'UNKNOWN COMMANDER')
         c_dict['daily_lock_up'] = getattr(r, 'daily_lock_up', 0)
 
-        # 🟢 Backend Heavy Lifting: Attach intelligent parsing metrics on the fly
         parsed_crime = parse_crime_incident_backend(c_dict['offence'], c_dict['narrative'])
-        c_dict['isAgriculturalCrime'] = parsed_crime['isAgriculturalCrime']
         c_dict['parsedSuspects'] = parsed_crime['parsedSuspects'] or c_dict['suspects']
         c_dict['parsedRecoveries'] = parsed_crime['parsedRecoveries']
         
@@ -389,6 +379,9 @@ def create_report(
                 data["region"] = current_user.region
                 data["station"] = current_user.station
 
+        if not data.get("category"):
+            data["category"] = "GENERAL CRIMES"
+
         incoming_sd_ref = (data.get("sd_ref") or "").strip().lower()
         incoming_station = (data.get("station") or "").strip().lower()
         if incoming_sd_ref and hasattr(CrimeModel, 'station') and hasattr(CrimeModel, 'sd_ref'):
@@ -441,7 +434,7 @@ def create_report(
             action_type="REGISTER",
             module="CRIME_REGISTRY",
             target_id=str(assigned_id),
-            changes_summary=f"New crime report registered. SD Ref: [{data.get('sd_ref', 'N/A')}], Offence: [{data.get('offence', 'GENERAL')}]."
+            changes_summary=f"New crime report registered. SD Ref: [{data.get('sd_ref', 'N/A')}], Category: [{data.get('category', 'GENERAL')}]."
         )
 
         return {"status": "success", "id": assigned_id, "sn": assigned_id}
@@ -489,6 +482,9 @@ def update_report(
         if current_user.role not in ["SUPER_ADMIN", "RPC"]:
             data.pop("region", None)
             data.pop("station", None)
+
+        if "category" not in data or not data["category"]:
+            data["category"] = getattr(existing_report, 'category', 'GENERAL CRIMES')
         
         for key, value in data.items():
             if hasattr(existing_report, key):
@@ -527,7 +523,7 @@ def update_report(
             action_type="UPDATE",
             module="CRIME_REGISTRY",
             target_id=str(sn),
-            changes_summary=f"Crime report record modified. SD Ref: [{getattr(existing_report, 'sd_ref', 'N/A')}]."
+            changes_summary=f"Crime report record modified. SD Ref: [{getattr(existing_report, 'sd_ref', 'N/A')}], Category: [{getattr(existing_report, 'category', 'GENERAL')}]."
         )
 
         return {"status": "success"}
@@ -570,12 +566,12 @@ def get_consolidated_ledger(
             for c in q_crimes.all():
                 c_dict = clean_model_dict(c)
                 c_dict['offence'] = str(c_dict.get('offence', 'GENERAL CRIME')).strip().upper()
+                c_dict['category'] = str(c_dict.get('category', 'GENERAL CRIMES')).strip().upper()
                 if SuspectModel and hasattr(c, 'id'):
                     suspects = db.query(SuspectModel).filter(SuspectModel.report_id == c.id).all()
                     c_dict['suspectDetails'] = [clean_model_dict(s) for s in suspects]
                 
                 parsed_c = parse_crime_incident_backend(c_dict['offence'], c_dict.get('narrative'))
-                c_dict['isAgriculturalCrime'] = parsed_c['isAgriculturalCrime']
                 c_dict['parsedSuspects'] = parsed_c['parsedSuspects']
                 c_dict['parsedRecoveries'] = parsed_c['parsedRecoveries']
                 
@@ -587,11 +583,7 @@ def get_consolidated_ledger(
             q_stories = apply_opsec_scope(current_user, q_stories, StoryModel)
             for st in q_stories.all():
                 st_dict = clean_model_dict(st)
-                parsed = parse_success_story_backend(st_dict.get('narrative') or st_dict.get('title'))
-                st_dict['parsedSuspects'] = st_dict.get('suspects_arrested') or st_dict.get('suspects_arrested_count') or parsed['suspects']
-                st_dict['parsedRecoveries'] = st_dict.get('suspected_stolen_properties_recovered') or st_dict.get('property_recovered') or parsed['recoveries']
-                st_dict['parsedLegalStatus'] = st_dict.get('legal_status') or parsed['legalStatus']
-                st_dict['parsedClassification'] = parsed['classification']
+                st_dict['category'] = str(st_dict.get('category', 'GENERAL CRIMES')).strip().upper()
                 stories_data.append(st_dict)
 
         exhibits_data = []

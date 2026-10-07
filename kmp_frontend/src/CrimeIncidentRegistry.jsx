@@ -164,7 +164,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
     region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
     date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-    offence: '', customOffence: '', category: 'GENERAL OPERATION', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
+    offence: '', customOffence: '', category: 'GENERAL CRIMES', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
   });
 
   useEffect(() => {

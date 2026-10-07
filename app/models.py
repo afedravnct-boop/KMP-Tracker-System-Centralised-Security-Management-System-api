@@ -29,6 +29,7 @@ class Crime_Reports(Base):
     date = Column(String)
     time = Column(String)
     offence = Column(String)
+    category = Column(String, default="GENERAL CRIMES", index=True, nullable=True) # 🟢 Added category column
     narrative = Column(Text)
     status = Column(String, default="ACTIVE INVESTIGATION")
     suspects = Column(Integer, default=0)
@@ -119,6 +120,7 @@ class Success_Stories(Base):
     time = Column(String)
     region = Column(String)
     station = Column(String)
+    category = Column(String, default="GENERAL CRIMES", index=True, nullable=True) # 🟢 Added category column
     narrative = Column(Text, nullable=False)
     status = Column(String, default="COMPLETED / SUCCESS")
     photo_url = Column(String, nullable=True)
@@ -289,7 +291,7 @@ class Audit_Logs(Base):
     details = Column(String, nullable=True)
     created_at = Column(DateTime, default=get_eat_time)
     user_fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
-    user_name = Column(String, nullable=True) # 🟢 Added user name column for direct audit mapping
+    user_name = Column(String, nullable=True)
 
 
 class Activity_Logs(Base):
@@ -329,7 +331,6 @@ class Communication_Reads(Base):
     __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
-    # 🟢 FIXED: Now explicitly linked. If a message is deleted, its reads vanish instantly.
     comm_id = Column(Integer, ForeignKey("Admin_Communication.id", ondelete="CASCADE"), index=True)
     fnum = Column(String, ForeignKey("users.fNum", onupdate="CASCADE"), index=True)
     read_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -406,20 +407,20 @@ class LockupMatrix(Base):
     sn = Column(Integer, primary_key=True, index=True, autoincrement=True)
     sd_ref = Column(String, unique=True, index=True, nullable=False) 
     date = Column(String, index=True, nullable=False)                
-    time = Column(String, nullable=True)                               
-    region = Column(String, index=True, nullable=False)              
-    station = Column(String, index=True, nullable=False)             
-    suspects = Column(Integer, default=0, nullable=False)              
+    time = Column(String, nullable=True)                            
+    region = Column(String, index=True, nullable=False)             
+    station = Column(String, index=True, nullable=False)            
+    suspects = Column(Integer, default=0, nullable=False)            
     
-    male_count = Column(Integer, default=0, nullable=False)          
+    male_count = Column(Integer, default=0, nullable=False)         
     male_juvenile_count = Column(Integer, default=0, nullable=False)
     female_count = Column(Integer, default=0, nullable=False)         
     female_juvenile_count = Column(Integer, default=0, nullable=False)
-    detention_1day = Column(Integer, default=0, nullable=False)      
-    detention_2days = Column(Integer, default=0, nullable=False)     
+    detention_1day = Column(Integer, default=0, nullable=False)     
+    detention_2days = Column(Integer, default=0, nullable=False)    
     detention_3days_over = Column(Integer, default=0, nullable=False)
 
-    last_updated_by = Column(String, nullable=True)                  
+    last_updated_by = Column(String, nullable=True)                 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class GeneralDocuments(Base):
@@ -436,7 +437,6 @@ class GeneralDocuments(Base):
     uploaded_by = Column(String, nullable=True)
     upload_date = Column(DateTime, default=get_eat_time)
 
-# Add compatibility alias at the bottom
 General_Documents = GeneralDocuments
 
 class OperationalDocumentEmbedding(Base):
@@ -499,7 +499,7 @@ class Agricultural_Crime_Summary(Base):
     
     agric_crime_report = Column(String, nullable=False) 
     number_count = Column(Integer, default=0)            
-    recoveries = Column(Integer, default=0)              
+    recoveries = Column(Integer, default=0)               
     status = Column(String, default="UNDER INVESTIGATION") 
     
     last_updated_by = Column(String)

@@ -159,7 +159,7 @@ def create_story(
 
         # Ensure category defaults if missing
         if not data.get("category"):
-            data["category"] = "GENERAL OPERATION"
+            data["category"] = "GENERAL CRIMES"
 
         incoming_narrative = (data.get("narrative") or "").strip()
 
@@ -185,7 +185,7 @@ def create_story(
             changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} registered new success story [{new_record.category}] for region [{new_record.region}] station [{new_record.station}]."
         )
 
-        return {"status": "success", "sn": new_record.sn}
+        return {"status": "success", "sn": new_record.sn, "category": new_record.category}
     except HTTPException as he:
         db.rollback()
         logs_db.rollback()
@@ -215,6 +215,10 @@ def update_story(
             data.pop('region', None)
             data.pop('station', None)
 
+        # Ensure category has a safe fallback if omitted in update payload
+        if "category" not in data or not data["category"]:
+            data["category"] = record.category or "GENERAL CRIMES"
+
         for key, value in data.items():
             if key not in ['sn', 'id']:
                 setattr(record, key, value)
@@ -229,10 +233,10 @@ def update_story(
             action_type="UPDATE",
             module="SUCCESS_STORIES",
             target_id=str(sn),
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} modified success story record SN [{sn}]."
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} modified success story record SN [{sn}] to category [{record.category}]."
         )
 
-        return {"status": "success", "sn": record.sn, "message": "Success story updated successfully."}
+        return {"status": "success", "sn": record.sn, "category": record.category, "message": "Success story updated successfully."}
     except Exception as e:
         db.rollback()
         logs_db.rollback()
