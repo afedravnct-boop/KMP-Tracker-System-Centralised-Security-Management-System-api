@@ -1120,13 +1120,23 @@ def log_user_session(data: dict, db: Session = Depends(get_db)):
 
 # 🟢 NEW: Explicit Logout and Timeout Tracking Endpoints
 @app.post("/api/v1/auth/log-logout")
-def log_user_logout(request: Request, logs_db: Session = Depends(get_logs_db)):
+def log_user_logout(request: Request, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db)):
     try:
         token = request.headers.get("Authorization", "").replace("Bearer ", "") or request.cookies.get("kmp_authToken")
         if token:
             payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
             fnum = payload.get("sub")
             if fnum:
+                # 1. Write to Audit Logs (Admin Approvals Tab)
+                log_semantic_audit(
+                    db=db,
+                    fnum=fnum,
+                    action="OFFICER_LOGOUT",
+                    target_identifier="SYSTEM",
+                    changes={},
+                    remarks="Officer performed a secure manual logout."
+                )
+                # 2. Write to Neon Branch Activity Logs (Activity stream)
                 log_independent_activity(
                     logs_db=logs_db,
                     fnum=fnum,
@@ -1135,17 +1145,27 @@ def log_user_logout(request: Request, logs_db: Session = Depends(get_logs_db)):
                     details=f"Officer {fnum} performed a secure manual logout."
                 )
     except Exception as e:
-        print(f"Logout tracking error: {e}")
+        print(f"Logout logging error: {e}")
     return {"status": "success"}
 
 @app.post("/api/v1/auth/log-timeout")
-def log_user_timeout(request: Request, logs_db: Session = Depends(get_logs_db)):
+def log_user_timeout(request: Request, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db)):
     try:
         token = request.headers.get("Authorization", "").replace("Bearer ", "") or request.cookies.get("kmp_authToken")
         if token:
             payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
             fnum = payload.get("sub")
             if fnum:
+                # 1. Write to Audit Logs (Admin Approvals Tab)
+                log_semantic_audit(
+                    db=db,
+                    fnum=fnum,
+                    action="SESSION_TIMEOUT_EXPIRED",
+                    target_identifier="SYSTEM",
+                    changes={},
+                    remarks="Session expired due to inactivity curtain timeout."
+                )
+                # 2. Write to Neon Branch Activity Logs (Activity stream)
                 log_independent_activity(
                     logs_db=logs_db,
                     fnum=fnum,
@@ -1154,7 +1174,7 @@ def log_user_timeout(request: Request, logs_db: Session = Depends(get_logs_db)):
                     details=f"Officer {fnum} session expired due to inactivity curtain timeout."
                 )
     except Exception as e:
-        print(f"Timeout tracking error: {e}")
+        print(f"Timeout logging error: {e}")
     return {"status": "success"}
 
 @app.get("/api/v1/users/recipients-list")
