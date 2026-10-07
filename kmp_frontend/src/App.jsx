@@ -1972,7 +1972,11 @@ const WorkspaceSecurityCurtain = () => {
     return () => clearInterval(countdownInterval);
   }, [showIdleWarning, isTimedOut]);
 
-  const handleForceLogout = () => {
+  const handleForceLogout = async () => {
+    try {
+      await authFetch('/api/v1/auth/log-timeout', { method: 'POST' });
+    } catch (e) {}
+
     localStorage.removeItem('kmp_authToken');
     localStorage.removeItem('kmp_currentUser');
     localStorage.removeItem('kmp_currentPage');
@@ -3379,11 +3383,7 @@ const isReadOnlyObserver = currentUser?.permissions?.global_observer === true &&
         currentUser={currentUser} 
         currentPage={currentPage} 
         setCurrentPage={handlePageChange} 
-        onLogout={() => { 
-          clearAuthSession();
-          setCurrentUser(null);
-          window.location.reload(); 
-        }}
+        onLogout={handleSecureLogout} // 🟢 Points to the async function that logs out and records to Neon
         onUpdateUserRole={handleUpdateUserRole} 
         onRevokeUser={handleRevokeUser} 
         users={users} 

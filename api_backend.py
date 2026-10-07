@@ -1118,6 +1118,45 @@ def log_user_session(data: dict, db: Session = Depends(get_db)):
         )
     return {"status": "success"}
 
+# 🟢 NEW: Explicit Logout and Timeout Tracking Endpoints
+@app.post("/api/v1/auth/log-logout")
+def log_user_logout(request: Request, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db)):
+    try:
+        token = request.headers.get("Authorization", "").replace("Bearer ", "") or request.cookies.get("kmp_authToken")
+        if token:
+            payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
+            fnum = payload.get("sub")
+            if fnum:
+                log_independent_activity(
+                    logs_db=logs_db,
+                    fnum=fnum,
+                    action="OFFICER_LOGOUT",
+                    module="SECURITY_VAULT",
+                    details=f"Officer {fnum} performed a secure manual logout."
+                )
+    except Exception as e:
+        print(f"Logout tracking error: {e}")
+    return {"status": "success"}
+
+@app.post("/api/v1/auth/log-timeout")
+def log_user_timeout(request: Request, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db)):
+    try:
+        token = request.headers.get("Authorization", "").replace("Bearer ", "") or request.cookies.get("kmp_authToken")
+        if token:
+            payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
+            fnum = payload.get("sub")
+            if fnum:
+                log_independent_activity(
+                    logs_db=logs_db,
+                    fnum=fnum,
+                    action="SESSION_TIMEOUT_EXPIRED",
+                    module="SECURITY_VAULT",
+                    details=f"Officer {fnum} session expired due to inactivity curtain timeout."
+                )
+    except Exception as e:
+        print(f"Timeout tracking error: {e}")
+    return {"status": "success"}
+
 @app.get("/api/v1/users/recipients-list")
 @app.get("/api/v1/communications/recipients-list")
 def get_recipients_list(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
@@ -1260,7 +1299,6 @@ def get_consolidated_ledger(
         EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
         NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
 
-        # Fetch records with limits or optimized queries to prevent heavy payload lag
         crimes = db.query(CrimeModel).limit(500).all() if CrimeModel else []
         stats = db.query(StatsModel).limit(500).all() if StatsModel else []
         stories = db.query(StoryModel).limit(200).all() if StoryModel else []

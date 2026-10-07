@@ -1,3 +1,4 @@
+// src/components/AdminApprovals.jsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
@@ -518,14 +519,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     } catch (err) { alert(`Bulk Update Failed: ${err.message}`); fetchAllSystemUsers(); }
   };
 
-  // 🟢 GENERAL COLUMN TOGGLE (MASTER CHECK/UNCHECK FOR COLUMNS)
   const handleToggleEntireColumn = async (permissionKey, shouldEnable) => {
     if (isReadOnlyObserver) return;
     
-    // Update local state immediately for fast UI feedback
     const updatedUsers = allSystemUsers.map(u => {
       const uRole = (u.role || '').toUpperCase();
-      // Skip super admins from mass unchecking
       if (uRole === 'SUPER_ADMIN' || uRole === 'ASSISTANT_SUPER_ADMIN') return u;
       const p = { ...(u.permissions || {}) };
       p[permissionKey] = shouldEnable;
@@ -533,7 +531,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     });
     setAllSystemUsers(updatedUsers);
 
-    // Persist all updates to backend
     try {
       await Promise.all(updatedUsers.map(u => {
         const uRole = (u.role || '').toUpperCase();
@@ -951,7 +948,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                       <th className="p-2.5 text-center md:sticky md:left-[240px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[120px] min-w-[120px]">Administrative Tier</th>
                       <th className="p-2.5 text-center md:sticky md:left-[360px] z-20 bg-slate-100 dark:bg-slate-950 text-blue-900 dark:text-blue-100 w-[100px] min-w-[100px]">Quick Actions</th>
                       {CLEARANCE_MATRIX_COLS.map((col, idx) => {
-                        // Check if all non-admin users have this permission enabled
                         const allChecked = filteredSystemUsers.length > 0 && filteredSystemUsers.every(u => {
                           const r = (u.role || '').toUpperCase();
                           if (r === 'SUPER_ADMIN' || r === 'ASSISTANT_SUPER_ADMIN') return true;
@@ -965,7 +961,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                               <div className="w-20 min-w-[80px] text-[9px] text-blue-900 dark:text-blue-100 font-bold whitespace-normal break-words leading-tight text-center px-0.5" title={col.label}>
                                 {col.label}
                               </div>
-                              {/* 🟢 GENERAL COLUMN TOGGLE MASTER CHECKBOX */}
                               {isSuperAdmin && (
                                 <input 
                                   type="checkbox" 
@@ -1167,43 +1162,51 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       {/* 5. AUDIT LOGS TAB */}
       {activeTab === 'logs' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
-          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">System Audit Logs</div>
+          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">System Audit & Authentication Logs</div>
           <div className="w-full overflow-x-auto custom-scrollbar">
             <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs">
               <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px] whitespace-nowrap">
                 <tr>
                   <th className="px-4 py-3.5 text-left w-32">Timestamp</th>
                   <th className="px-4 py-3.5 text-left w-48">User</th>
-                  <th className="px-4 py-3.5 text-left w-40">Event</th>
-                  <th className="px-4 py-3.5 text-left">Details</th>
+                  <th className="px-4 py-3.5 text-left w-40">Event Type</th>
+                  <th className="px-4 py-3.5 text-left">Details / Lifecycle Context</th>
                 </tr>
               </thead>
               <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
-                {filteredLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800">
-                    <td className="px-4 py-2.5 font-mono text-[10px] text-slate-500 dark:text-slate-400 whitespace-nowrap">{log.created_at}</td>
-                     
-                    <td className="px-4 py-2.5 font-extrabold text-blue-700 dark:text-blue-400 whitespace-nowrap">
-                      {log.user_fnum} {log.user_name ? `- ${log.user_name}` : ''}
-                    </td>
+                {filteredLogs.map((log) => {
+                  const evType = (log.event_type || '').toUpperCase();
+                  let badgeColor = 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300';
+                  if (evType.includes('AUTH') || evType.includes('LOGIN') || evType.includes('SESSION')) {
+                    badgeColor = 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300';
+                  } else if (evType.includes('LOGOUT') || evType.includes('TIMEOUT') || evType.includes('REVOKE')) {
+                    badgeColor = 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300';
+                  } else if (evType.includes('SUBMIT') || evType.includes('CREATE') || evType.includes('REGISTER')) {
+                    badgeColor = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300';
+                  }
 
-                    <td className="px-4 py-2.5 uppercase font-extrabold text-[10px] whitespace-nowrap">
-                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                        log.event_type?.includes('AUTH') ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' :
-                        log.event_type?.includes('SUBMIT') || log.event_type?.includes('CREATE') ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' :
-                        'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
-                      }`}>
-                        {log.event_type}
-                      </span>
-                    </td>
+                  return (
+                    <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800">
+                      <td className="px-4 py-2.5 font-mono text-[10px] text-slate-500 dark:text-slate-400 whitespace-nowrap">{log.created_at}</td>
+                       
+                      <td className="px-4 py-2.5 font-extrabold text-blue-700 dark:text-blue-400 whitespace-nowrap">
+                        {log.user_fnum} {log.user_name ? `- ${log.user_name}` : ''}
+                      </td>
 
-                    <td className="px-4 py-2.5 text-[11px] text-slate-700 dark:text-slate-300 font-medium whitespace-normal break-words min-w-[500px] w-full">
-                      {log.details?.includes('Target: SYSTEM | Changes: | Remarks:') 
-                        ? 'Standard System Authentication / Session Init' 
-                        : log.details}
-                    </td>
-                  </tr>
-                ))}
+                      <td className="px-4 py-2.5 uppercase font-extrabold text-[10px] whitespace-nowrap">
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${badgeColor}`}>
+                          {log.event_type}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-2.5 text-[11px] text-slate-700 dark:text-slate-300 font-medium whitespace-normal break-words min-w-[500px] w-full">
+                        {log.details?.includes('Target: SYSTEM | Changes: | Remarks:') 
+                          ? 'Standard System Authentication / Active Session Lifecycle' 
+                          : log.details}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
