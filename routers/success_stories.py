@@ -1,3 +1,4 @@
+# routers/success_stories.py
 import json
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -115,6 +116,7 @@ def get_stories(
         if hasattr(models.Success_Stories, 'narrative'): search_conds.append(models.Success_Stories.narrative.ilike(term))
         if hasattr(models.Success_Stories, 'station'): search_conds.append(models.Success_Stories.station.ilike(term))
         if hasattr(models.Success_Stories, 'region'): search_conds.append(models.Success_Stories.region.ilike(term))
+        if hasattr(models.Success_Stories, 'category'): search_conds.append(models.Success_Stories.category.ilike(term))
         if hasattr(models.Success_Stories, 'last_updated_by'): search_conds.append(models.Success_Stories.last_updated_by.ilike(term))
         if search_conds:
             query = query.filter(or_(*search_conds))
@@ -155,9 +157,12 @@ def create_story(
             data["region"] = current_user.region
             data["station"] = current_user.station
 
+        # Ensure category defaults if missing
+        if not data.get("category"):
+            data["category"] = "GENERAL OPERATION"
+
         incoming_narrative = (data.get("narrative") or "").strip()
 
-        # 🟢 Database-level duplicate check
         existing_story = db.query(models.Success_Stories).filter(
             func.lower(models.Success_Stories.narrative) == func.lower(incoming_narrative)
         ).first()
@@ -177,7 +182,7 @@ def create_story(
             action_type="REGISTER",
             module="SUCCESS_STORIES",
             target_id=str(new_record.sn),
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} registered new success story for region [{new_record.region}] station [{new_record.station}]."
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} registered new success story [{new_record.category}] for region [{new_record.region}] station [{new_record.station}]."
         )
 
         return {"status": "success", "sn": new_record.sn}
