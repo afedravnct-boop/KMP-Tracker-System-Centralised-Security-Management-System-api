@@ -184,7 +184,7 @@ def is_uniformed_rank(rank_str: str) -> bool:
     uniformed_ranks = {
         'IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'SASP', 'ASP',
         'IP', 'AIP', 'HCM', 'HC', 'S/SGT', 'SSGT', 'SGT', 'CPL', 'L/CPL', 'LCPL',
-        'PC', 'PPC', 'SPC'
+        'PC', 'PPC', 'SPC', 'DC', 'D/C'
     }
     return r in uniformed_ranks
 
