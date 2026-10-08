@@ -1,6 +1,7 @@
+// src/components/adminModals.jsx
 import React from 'react';
-import { 
-  Shield, CheckCircle, AlertTriangle, X, Lock, XCircle, ShieldAlert, Power, ArrowRight 
+import {  
+  Shield, CheckCircle, AlertTriangle, X, Lock, XCircle, ShieldAlert, Power, ArrowRight  
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { REGIONAL_HIERARCHY } from './adminUtils';
@@ -188,7 +189,7 @@ export const HRModificationModal = ({ req, onClose, isProcessingAction, handleRe
             <div className="bg-white rounded-xl border border-emerald-200 shadow-2xs overflow-hidden relative">
                <div className="absolute left-[-16px] top-1/2 transform -translate-y-1/2 bg-white rounded-full p-1 shadow-md z-10 hidden md:block border border-slate-200"><ArrowRight size={16} className="text-slate-400" /></div>
                <div className="bg-emerald-50 px-4 py-2 border-b border-emerald-200 text-[10px] font-black text-emerald-800 uppercase tracking-wider flex justify-between items-center">
-                 <span>Requested Changes</span><span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[8px]">PENDING</span>
+                  <span>Requested Changes</span><span className="bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded text-[8px]">PENDING</span>
                </div>
                <div className="p-4 space-y-3 text-xs">
                  <div><span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Legal Name</span><span className={`font-extrabold ${req.requested_name !== req.current_name ? 'text-emerald-700' : 'text-slate-700'}`}>{req.requested_name || req.current_name}</span></div>

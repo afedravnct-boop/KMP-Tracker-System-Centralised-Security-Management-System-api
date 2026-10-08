@@ -3,17 +3,18 @@ import os
 import io
 import re
 import traceback
+import asyncio
 import boto3
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_
 
-from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File, Request, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from fastapi.responses import JSONResponse
+from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 
 from app.core import security
 from app import database, models, schemas
@@ -29,6 +30,32 @@ s3_client = boto3.client(
     region_name=os.getenv("AWS_REGION")
 )
 BUCKET_NAME = os.getenv("AWS_BUCKET_NAME")
+
+# Configure Mail (pulling from environment variables)
+conf = ConnectionConfig(
+    MAIL_USERNAME=os.getenv("MAIL_USERNAME", ""),
+    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD", ""),
+    MAIL_FROM=os.getenv("MAIL_FROM", os.getenv("MAIL_USERNAME", "no-reply@upf.go.ug")),
+    MAIL_PORT=int(os.getenv("MAIL_PORT", 587)),
+    MAIL_SERVER=os.getenv("MAIL_SERVER", "smtp.gmail.com"),
+    MAIL_STARTTLS=True,
+    MAIL_SSL_TLS=False
+)
+
+async def send_auth_notification(email_to: List[str], subject: str, html_body: str):
+    if not email_to or not conf.MAIL_USERNAME or not conf.MAIL_PASSWORD:
+        return
+    message = MessageSchema(
+        subject=subject,
+        recipients=email_to,
+        body=html_body,
+        subtype="html"
+    )
+    fm = FastMail(conf)
+    try:
+        await fm.send_message(message)
+    except Exception as e:
+        print(f"❌ Failed to dispatch auth notification email: {e}")
 
 # ====================================================================
 # HELPERS & VALIDATORS
@@ -201,28 +228,24 @@ async def login(
             detail="Incorrect Force Number or password"
         )
 
-    # 🟢 1. CHECK FOR REVOKED ACCESS FIRST (Before approval and password checks)
     if str(user.role).strip().upper() == "REVOKED":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="ACCESS DENIED: Your system access credentials have been revoked by Command. Please contact your Regional Administrator."
         )
 
-    # 🟢 2. CHECK APPROVAL STATUS
     if not user.is_approved:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account pending Command approval. Please contact the administrator."
         )
 
-    # 🟢 3. VERIFY PASSWORD HASH
     if not security.verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect Force Number or password"
         )
 
-    # 🟢 Record login action to NeonDB activity branch
     log_independent_activity(
         logs_db=logs_db,
         fnum=user.fnum,
@@ -258,12 +281,13 @@ async def login(
     }
 
 # ====================================================================
-# 2. SIGNUP ENDPOINT
+# 2. SIGNUP ENDPOINT (WITH HIERARCHICAL APPROVER NOTIFICATIONS)
 # ====================================================================
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
 @router.post("/api/auth/signup", status_code=status.HTTP_201_CREATED)
 @router.post("/api/v1/auth/signup", status_code=status.HTTP_201_CREATED)
 async def signup(
+    background_tasks: BackgroundTasks,
     fnum: str = Form(...),
     ipps: str = Form(...),
     nin: Optional[str] = Form(None),
@@ -320,114 +344,6 @@ async def signup(
             detail="Registration Error: Force/File Number, IPPS, or NIN is already registered."
         )
 
-    # ====================================================================
-    # 🟢 COMMAND UNIQUENESS ENFORCEMENT ENGINE
-    # ====================================================================
-    active_users_query = db.query(models.Users).filter(models.Users.role != 'REVOKED')
-
-    # 1. Regional Command: Only ONE RPC and ONE Deputy RPC per Region
-    if clean_role == 'RPC' or 'RPC' in clean_position:
-        existing_rpc = active_users_query.filter(
-            func.upper(models.Users.region) == clean_region,
-            or_(
-                func.upper(models.Users.role) == 'RPC',
-                func.upper(models.Users.position).like('%RPC%')
-            )
-        ).first()
-        if existing_rpc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Registration Blocked: Region '{clean_region}' already has an active Regional Police Commander (RPC) assigned ({existing_rpc.name})."
-            )
-
-    if 'DEPUTY RPC' in clean_position or 'DEPUTY REGIONAL' in clean_position:
-        existing_d_rpc = active_users_query.filter(
-            func.upper(models.Users.region) == clean_region,
-            func.upper(models.Users.position).like('%DEPUTY RPC%')
-        ).first()
-        if existing_d_rpc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Registration Blocked: Region '{clean_region}' already has an active Deputy RPC assigned ({existing_d_rpc.name})."
-            )
-
-    # 2. Regional Admin: Strictly ONE per Region
-    if clean_role == 'REGIONAL_ADMIN':
-        existing_reg_admin = active_users_query.filter(
-            func.upper(models.Users.region) == clean_region,
-            func.upper(models.Users.role) == 'REGIONAL_ADMIN'
-        ).first()
-        if existing_reg_admin:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Registration Blocked: Region '{clean_region}' already has a designated Regional Administrator."
-            )
-
-    # 3. Station / Division Command: Only ONE DPC, ONE OC Station, ONE OC CID per Station
-    if 'DPC' in clean_position or 'DIVISION POLICE COMMANDER' in clean_position:
-        existing_dpc = active_users_query.filter(
-            func.upper(models.Users.station) == clean_station,
-            func.upper(models.Users.position).like('%DPC%')
-        ).first()
-        if existing_dpc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Registration Blocked: Station/Division '{clean_station}' already has a Division Police Commander (DPC) assigned."
-            )
-
-    if 'OC STATION' in clean_position or clean_position == 'OC':
-        existing_oc = active_users_query.filter(
-            func.upper(models.Users.station) == clean_station,
-            or_(
-                func.upper(models.Users.position) == 'OC STATION',
-                func.upper(models.Users.position) == 'OC'
-            )
-        ).first()
-        if existing_oc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Registration Blocked: Station '{clean_station}' already has an OC Station assigned."
-            )
-
-    if 'OC CID' in clean_position or 'DIOC' in clean_position:
-        existing_occid = active_users_query.filter(
-            func.upper(models.Users.station) == clean_station,
-            or_(
-                func.upper(models.Users.position).like('%OC CID%'),
-                func.upper(models.Users.position).like('%DIOC%')
-            )
-        ).first()
-        if existing_occid:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Registration Blocked: Station '{clean_station}' already has an OC CID assigned."
-            )
-
-    # 4. Singular National / KMP Directorate Command Positions
-    singular_positions = {
-        'KMP COMMANDER': 'KMP Commander / Commander KMP',
-        'COMMANDER KMP': 'KMP Commander / Commander KMP',
-        'DEPUTY KMP COMMANDER': 'Deputy Commander KMP',
-        'KMP ADMIN OFFICER': 'Admin Officer KMP',
-        'KMP COMMANDER CID': 'KMP Commander CID',
-        'KMP COMMANDER CI': 'KMP Commander CI',
-        'KMP COMMANDER TRAFFIC': 'KMP Commander Traffic',
-        'KMP COMMANDER FFU': 'KMP Commander FFU',
-        'COMMANDER 999 ERU': 'Commander 999 ERU',
-        'KMP COMMANDER OPERATIONS': 'KMP Commander Operations'
-    }
-
-    for key_pos, label in singular_positions.items():
-        if key_pos in clean_position:
-            existing_singular = active_users_query.filter(
-                func.upper(models.Users.position).like(f'%{key_pos}%')
-            ).first()
-            if existing_singular:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Registration Blocked: Position '{label}' is already occupied by {existing_singular.name} ({existing_singular.fnum})."
-                )
-
     uploaded_photo_url = profile_photo_path
     if file and BUCKET_NAME:
         try:
@@ -482,6 +398,48 @@ async def signup(
             details=f"New officer account registered: {name} ({rank}) for station {clean_station}."
         )
 
+        # 🟢 HIERARCHICAL APPROVER NOTIFICATION:
+        # 1. Super Admins & Assistant Super Admins receive GLOBALLY.
+        # 2. Regional Commanders / Division Admins / Station Admins receive STRICTLY for their matching jurisdiction.
+        approvers = db.query(models.Users).filter(
+            models.Users.is_approved == True,
+            models.Users.email.isnot(None),
+            or_(
+                # Global top tier commanders
+                func.upper(models.Users.role).in_(["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]),
+                # Regional commanders/admins matching the region
+                and_(
+                    func.upper(models.Users.region) == clean_region,
+                    func.upper(models.Users.role).in_(["RPC", "SYSTEM_MANAGER", "REGIONAL_ADMIN", "DIVISION_ADMIN"])
+                ),
+                # Station administrators matching the exact station
+                and_(
+                    func.upper(models.Users.station) == clean_station,
+                    func.upper(models.Users.role) == "STATION_ADMIN"
+                )
+            )
+        ).all()
+
+        approver_emails = [appr.email for appr in approvers if appr.email and "@" in appr.email]
+        if approver_emails:
+            subject = f"Pending User Approval Request: {rank} {name}".strip()
+            html_body = f"""
+            <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <h2 style="color: #b91c1c; margin-top: 0;">New User Account Awaiting Approval</h2>
+                <p>An officer has signed up and is requesting clearance within your command jurisdiction:</p>
+                <ul style="line-height: 1.6; background: #f8fafc; padding: 15px; border-radius: 6px;">
+                    <li><strong>Name & Rank:</strong> {rank} {name}</li>
+                    <li><strong>F-Number / IPPS:</strong> {clean_fnum}</li>
+                    <li><strong>Requested Station:</strong> {clean_station}</li>
+                    <li><strong>Requested Region:</strong> {clean_region}</li>
+                </ul>
+                <p>Please log in to the KMP Centralised Security Data Management System to review and authorize this request.</p>
+            </div>
+            """
+            def send_alerts():
+                asyncio.run(send_auth_notification(list(set(approver_emails)), subject, html_body))
+            background_tasks.add_task(send_alerts)
+
         return {
             "status": "success",
             "message": "Access authorization request submitted. Awaiting Command approval."
@@ -495,7 +453,60 @@ async def signup(
         )
 
 # ====================================================================
-# 3. PROFILE PHOTO UPLOAD ENDPOINT
+# 3. USER APPROVAL ENDPOINT (WITH USER NOTIFICATION EMAIL)
+# ====================================================================
+@router.put("/users/{user_id}/approve")
+@router.put("/api/v1/users/{user_id}/approve")
+def approve_user_account(
+    user_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(database.get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    if str(current_user.role).strip().upper() not in ["SUPER_ADMIN", "ADMIN", "RPC", "SYSTEM_MANAGER"]:
+        raise HTTPException(status_code=403, detail="Clearance Denied: Administrator rights required.")
+
+    target_user = db.query(models.Users).filter(models.Users.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User account not found.")
+
+    target_user.is_approved = True
+    db.commit()
+    db.refresh(target_user)
+
+    log_independent_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action="APPROVE_USER",
+        module="USER_ACCOUNTS",
+        details=f"User account approved for {target_user.fnum} ({target_user.name})."
+    )
+
+    if target_user.email and "@" in target_user.email:
+        subject = "Account Approved: KMP Centralised Security System Clearance Granted"
+        html_body = f"""
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <h2 style="color: #16a34a; margin-top: 0;">✅ Account Approval Granted</h2>
+            <p>Dear {target_user.rank or ''} {target_user.name},</p>
+            <p>Your account request for the <strong>KMP Centralised Security Data Management System</strong> has been officially reviewed and approved by command authority.</p>
+            <p>You can now log in using your registered credentials to access your designated modules:</p>
+            <ul style="line-height: 1.6; background: #f8fafc; padding: 15px; border-radius: 6px;">
+                <li><strong>Assigned Station:</strong> {target_user.station}</li>
+                <li><strong>Assigned Region:</strong> {target_user.region}</li>
+                <li><strong>F-Number / ID:</strong> {target_user.fnum}</li>
+            </ul>
+            <p style="margin-top: 20px;">Welcome aboard, officer.</p>
+        </div>
+        """
+        def send_user_email():
+            asyncio.run(send_auth_notification([target_user.email], subject, html_body))
+        background_tasks.add_task(send_user_email)
+
+    return {"status": "success", "message": f"User {target_user.name} has been successfully approved and notified."}
+
+# ====================================================================
+# 4. PROFILE PHOTO UPLOAD ENDPOINT
 # ====================================================================
 @router.post("/upload-profile")
 @router.post("/api/v1/users/upload-profile")
@@ -541,7 +552,7 @@ async def upload_user_profile_photo(
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
 
 # ====================================================================
-# 4. PASSWORD RESET REQUEST ENDPOINT
+# 5. PASSWORD RESET REQUEST ENDPOINT
 # ====================================================================
 @router.post("/request-reset")
 @router.post("/api/v1/auth/request-reset")
@@ -591,7 +602,7 @@ async def request_password_reset(
     return {"status": "success", "message": "Password reset request submitted to Command."}
 
 # ====================================================================
-# 5. USER PASSWORD, PROFILE UPDATE, REVOCATION & PERMANENT DELETION
+# 6. USER PASSWORD, PROFILE UPDATE, REVOCATION & PERMANENT DELETION
 # ====================================================================
 @router.put("/change-password")
 @router.put("/api/v1/users/change-password")
