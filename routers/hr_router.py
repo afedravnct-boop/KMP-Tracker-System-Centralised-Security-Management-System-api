@@ -52,9 +52,96 @@ def get_aggregated_hr_ledger(
     current_user = Depends(get_current_user)
 ):
     try:
-        # Simplest raw fetch to test database connectivity and table schema
-        nr_query = "SELECT fnum, name, rank, sex, region, station, position, educ_level, status FROM nominal_roll"
-        records = db.execute(text(nr_query)).fetchall()
+        user_role = str(current_user.role).strip().upper() if current_user.role else ""
+        user_pos = str(current_user.position).strip().upper() if current_user.position else ""
+        user_reg = str(current_user.region).strip().upper() if current_user.region else ""
+        user_stn = str(current_user.station).strip().upper() if current_user.station else ""
+
+        perms = current_user.permissions or {}
+        if isinstance(perms, str):
+            try: perms = json.loads(perms)
+            except Exception: perms = {}
+
+        is_absolute_global = (
+            user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+            "KMP COMMANDER" in user_pos or
+            "DEPUTY KMP COMMANDER" in user_pos or
+            "KMP ADMIN" in user_pos or
+            perms.get("view_global_roster") is True or
+            perms.get("global_observer") is True
+        )
+
+        is_kmp_sys_mgr = (
+            user_role == "SYSTEM_MANAGER" and
+            user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+            "KMP" in user_pos
+        )
+
+        is_kmp_specialist = (
+            user_role == "ASSISTANT_SYSTEM_MANAGER" and
+            user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+            "KMP" in user_pos
+        )
+
+        is_regional_command = (
+            user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] and
+            not is_kmp_sys_mgr and
+            not is_kmp_specialist
+        )
+
+        # 🟢 Corrected column name from fnum to f_num matching database schema
+        nr_query = "SELECT f_num, name, rank, sex, region, station, position, educ_level, status, dob, nin FROM nominal_roll WHERE UPPER(COALESCE(status, 'ACTIVE')) != 'ARCHIVED'"
+        nr_where = ""
+        params = {}
+
+        if is_absolute_global or is_kmp_sys_mgr:
+            pass 
+        elif is_kmp_specialist:
+            specs = []
+            if "CID" in user_pos: specs.append("CID")
+            if "CI" in user_pos or "CRIME INT" in user_pos: specs.append("CI")
+            if "TRAFFIC" in user_pos: specs.append("TRAFFIC")
+            
+            if specs:
+                conds = []
+                for i, spec in enumerate(specs):
+                    conds.append(f"(UPPER(position) LIKE :spec_{i})")
+                    params[f"spec_{i}"] = f"%{spec}%"
+                nr_where = " AND (" + " OR ".join(conds) + ")"
+            else:
+                nr_where = " AND 1=0"
+        elif is_regional_command:
+            conds = ["UPPER(region) = :user_reg"]
+            params['user_reg'] = user_reg
+            
+            if user_reg in REGIONAL_HIERARCHY:
+                expanded_stns = set()
+                for s in REGIONAL_HIERARCHY[user_reg]:
+                    expanded_stns.add(s)
+                    expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
+                    expanded_stns.add(s + ' HEADQUARTERS')
+                    expanded_stns.add(s + ' HQ')
+                
+                stn_keys = []
+                for i, s in enumerate(expanded_stns):
+                    key = f"stn_{i}"
+                    params[key] = s
+                    stn_keys.append(f":{key}")
+                
+                if stn_keys:
+                    in_clause = ", ".join(stn_keys)
+                    conds.append(f"UPPER(station) IN ({in_clause})")
+                    
+            nr_where = " AND (" + " OR ".join(conds) + ")"
+        else:
+            params['user_stn'] = user_stn
+            clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
+            params['clean_stn'] = clean_user_stn
+            params['hq_stn'] = f"{clean_user_stn} HEADQUARTERS"
+            
+            nr_where = " AND (UPPER(station) = :user_stn OR UPPER(station) = :clean_stn OR UPPER(station) = :hq_stn)"
+
+        records = db.execute(text(nr_query + nr_where), params).fetchall()
 
         def is_officer(rank_str):
             if not rank_str: return False
@@ -67,9 +154,24 @@ def get_aggregated_hr_ledger(
             current_year = datetime.now().year
             for p in lst:
                 sex = str(p[3] or '').upper()
-                if sex == 'F': stats["sex"]["F"] += 1
+                nin = str(p[10] or '').upper() if len(p) > 10 and p[10] else ''
+                if sex == 'F' or nin.startswith('CF'): stats["sex"]["F"] += 1
                 else: stats["sex"]["M"] += 1
-                stats["age"]["unknown"] += 1
+
+                dob = p[9] if len(p) > 9 else None
+                if dob:
+                    try:
+                        birth_year = int(str(dob).split('-')[0])
+                        age = current_year - birth_year
+                        if 18 <= age <= 29: stats["age"]["twenties"] += 1
+                        elif 30 <= age <= 39: stats["age"]["thirties"] += 1
+                        elif 40 <= age <= 49: stats["age"]["forties"] += 1
+                        elif age >= 50: stats["age"]["fifties"] += 1
+                        else: stats["age"]["unknown"] += 1
+                    except:
+                        stats["age"]["unknown"] += 1
+                else:
+                    stats["age"]["unknown"] += 1
 
                 edu = normalize_education_level(p[7])
                 if "DEGREE" in edu or "BACHELOR" in edu: stats["edu"]["degree"] += 1
@@ -128,9 +230,8 @@ def get_aggregated_hr_ledger(
         }
     except Exception as e:
         import traceback
-        error_detail = traceback.format_exc()
-        print(error_detail)
-        raise HTTPException(status_code=500, detail=str(e))
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Aggregation Error: {str(e)}")
 
 @router.get("/export-ledger")
 def export_hr_establishments_zip(
