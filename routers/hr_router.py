@@ -46,6 +46,7 @@ def normalize_education_level(educ_str):
         
     return cleaned
 
+# 🟢 NEW JSON ENDPOINT TO POPULATE THE FRONTEND DASHBOARD TABLES
 @router.get("/ledger-data")
 def get_hr_ledger_data(
     db: Session = Depends(get_db), 
