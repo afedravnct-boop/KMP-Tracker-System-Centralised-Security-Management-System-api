@@ -69,6 +69,7 @@ from app.schemas import AgricStatsCreate, AgricStatsResponse
 from routers import exhibits
 from routers.activity_logger import record_neon_activity
 from routers.weekly_briefing import run_weekly_tactical_briefing_job
+from routers import hr_ledger
 
 # ==========================================
 # 0. LOAD ENVIRONMENT VARIABLES & CONFIG
@@ -110,6 +111,7 @@ app.include_router(admin_communication.router)
 app.include_router(ai_router.router)
 app.include_router(auth_router)
 app.include_router(exhibits.router)
+app.include_hr_router(hr_ledger.router)
 
 # ==========================================
 # GLOBAL EXCEPTION HANDLER
