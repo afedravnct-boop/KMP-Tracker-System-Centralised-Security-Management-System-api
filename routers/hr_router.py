@@ -1,3 +1,4 @@
+# routers/hr_ledger.py (or your HR export router file)
 import io
 import json
 import base64
@@ -21,7 +22,6 @@ from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1/hr", tags=["HR & Establishments"])
 
-# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 REGIONAL_HIERARCHY = {
     "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
     "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -36,11 +36,9 @@ def normalize_education_level(educ_str):
         return "N/A"
     cleaned = str(educ_str).strip().upper()
     
-    # Keep uncertified lower secondary classes as entered
     if any(term in cleaned for term in ['S.1', 'S1', 'S.2', 'S2', 'S.3', 'S3', 'SENIOR 1', 'SENIOR 2', 'SENIOR 3']):
         return cleaned
         
-    # Map certified levels
     if any(term in cleaned for term in ['UACE', 'A-LEVEL', 'A LEVEL', 'S.6', 'S6', 'SENIOR 6']):
         return "UACE"
     if any(term in cleaned for term in ['UCE', 'O-LEVEL', 'O LEVEL', 'S.4', 'S4', 'SENIOR 4', 'PLE', 'P.7']):
@@ -65,7 +63,6 @@ def export_hr_establishments_zip(
             try: perms = json.loads(perms)
             except Exception: perms = {}
 
-        # 🟢 OPSEC Role Classification Engine
         is_absolute_global = (
             user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
             "KMP COMMANDER" in user_pos or
@@ -100,9 +97,8 @@ def export_hr_establishments_zip(
         est_where = ""
         params = {}
 
-        # 1. Scope Jurisdiction using unified clearance rules directly mapped to SQL
         if is_absolute_global or is_kmp_sys_mgr:
-            pass # Global scope: No WHERE clause required
+            pass 
             
         elif is_kmp_specialist:
             specs = []
@@ -118,9 +114,6 @@ def export_hr_establishments_zip(
                 nr_where = " WHERE " + " OR ".join(conds)
             else:
                 nr_where = " WHERE 1=0"
-                
-            # Allow full structural view of establishments for KMP Specialists
-            pass
 
         elif is_regional_command:
             conds = ["UPPER(region) = :user_reg"]
@@ -133,7 +126,7 @@ def export_hr_establishments_zip(
                     expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
                     expanded_stns.add(s + ' HEADQUARTERS')
                     expanded_stns.add(s + ' HQ')
-                    
+                
                 stn_keys = []
                 for i, s in enumerate(expanded_stns):
                     key = f"stn_{i}"
@@ -150,13 +143,17 @@ def export_hr_establishments_zip(
             
         else:
             params['user_stn'] = user_stn
-            nr_where = " WHERE UPPER(station) = :user_stn"
-            est_where = " WHERE UPPER(station) = :user_stn"
+            # Flexible station matching (handles HQ suffix differences)
+            clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
+            params['clean_stn'] = clean_user_stn
+            params['hq_stn'] = f"{clean_user_stn} HEADQUARTERS"
+            
+            nr_where = " WHERE (UPPER(station) = :user_stn OR UPPER(station) = :clean_stn OR UPPER(station) = :hq_stn)"
+            est_where = " WHERE (UPPER(station) = :user_stn OR UPPER(station) = :clean_stn OR UPPER(station) = :hq_stn)"
 
         nr_records = db.execute(text(nr_query + nr_where), params).fetchall()
         est_records = db.execute(text(est_query + est_where), params).fetchall()
 
-        # 2. Build Excel File in Memory with Normalized Education Levels
         wb = openpyxl.Workbook()
         ws_nr = wb.active
         ws_nr.title = "Nominal Roll"
@@ -175,9 +172,7 @@ def export_hr_establishments_zip(
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # 3. Build Formatted Two-Page A4 Landscape Word Document matching UI Structure
         doc = Document()
-        
         section = doc.sections[0]
         section.orientation = WD_ORIENT.LANDSCAPE
         section.page_width = Inches(11.69) 
@@ -272,7 +267,6 @@ def export_hr_establishments_zip(
         zip_stream = io.BytesIO()
         zip_password = str(current_user.fnum).strip().encode('utf-8')
 
-        # 4. Bind and AES Encrypt Data Export Packages 
         with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
             excel_filename = f"{officer_fnum.replace('/', '_')}_HR_Ledger_{eat_time.strftime('%Y%m%d')}.xlsx"
@@ -283,7 +277,6 @@ def export_hr_establishments_zip(
 
         zip_stream.seek(0)
 
-        # 🟢 Record secure export activity into NeonDB Logs
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
