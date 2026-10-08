@@ -80,7 +80,7 @@ export const isStationEquivalent = (statA, statB) => {
 // 2. CORE UTILITY FUNCTIONS & ENGINES
 // ====================================================================
 
-export const checkClearance = (currentUser, permissionKey, export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = true) => {
+export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = true) => {
   if (!currentUser) return false;
   if (currentUser.role === 'SUPER_ADMIN') return true;
 
