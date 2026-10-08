@@ -1,4 +1,4 @@
-# routers/hr_ledger.py (or your HR export router file)
+# routers/hr_ledger.py
 import io
 import json
 import base64
@@ -45,6 +45,124 @@ def normalize_education_level(educ_str):
         return "UCE"
         
     return cleaned
+
+@router.get("/ledger-data")
+def get_hr_ledger_data(
+    db: Session = Depends(get_db), 
+    current_user = Depends(get_current_user)
+):
+    try:
+        user_role = str(current_user.role).strip().upper() if current_user.role else ""
+        user_pos = str(current_user.position).strip().upper() if current_user.position else ""
+        user_reg = str(current_user.region).strip().upper() if current_user.region else ""
+        user_stn = str(current_user.station).strip().upper() if current_user.station else ""
+
+        perms = current_user.permissions or {}
+        if isinstance(perms, str):
+            try: perms = json.loads(perms)
+            except Exception: perms = {}
+
+        is_absolute_global = (
+            user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+            "KMP COMMANDER" in user_pos or
+            "DEPUTY KMP COMMANDER" in user_pos or
+            "KMP ADMIN" in user_pos or
+            perms.get("view_global_roster") is True or
+            perms.get("global_observer") is True
+        )
+
+        is_kmp_sys_mgr = (
+            user_role == "SYSTEM_MANAGER" and
+            user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+            "KMP" in user_pos
+        )
+
+        is_kmp_specialist = (
+            user_role == "ASSISTANT_SYSTEM_MANAGER" and
+            user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+            "KMP" in user_pos
+        )
+
+        is_regional_command = (
+            user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] and
+            not is_kmp_sys_mgr and
+            not is_kmp_specialist
+        )
+
+        nr_query = "SELECT fnum, name, rank, sex, region, station, position, educ_level, status, dob, nin, section, dir FROM nominal_roll"
+        nr_where = ""
+        params = {}
+
+        if is_absolute_global or is_kmp_sys_mgr:
+            pass 
+        elif is_kmp_specialist:
+            specs = []
+            if "CID" in user_pos: specs.append("CID")
+            if "CI" in user_pos or "CRIME INT" in user_pos: specs.append("CI")
+            if "TRAFFIC" in user_pos: specs.append("TRAFFIC")
+            
+            if specs:
+                conds = []
+                for i, spec in enumerate(specs):
+                    conds.append(f"(UPPER(section) LIKE :spec_{i} OR UPPER(dir) LIKE :spec_{i} OR UPPER(position) LIKE :spec_{i})")
+                    params[f"spec_{i}"] = f"%{spec}%"
+                nr_where = " WHERE " + " OR ".join(conds)
+            else:
+                nr_where = " WHERE 1=0"
+        elif is_regional_command:
+            conds = ["UPPER(region) = :user_reg"]
+            params['user_reg'] = user_reg
+            
+            if user_reg in REGIONAL_HIERARCHY:
+                expanded_stns = set()
+                for s in REGIONAL_HIERARCHY[user_reg]:
+                    expanded_stns.add(s)
+                    expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
+                    expanded_stns.add(s + ' HEADQUARTERS')
+                    expanded_stns.add(s + ' HQ')
+                
+                stn_keys = []
+                for i, s in enumerate(expanded_stns):
+                    key = f"stn_{i}"
+                    params[key] = s
+                    stn_keys.append(f":{key}")
+                
+                if stn_keys:
+                    in_clause = ", ".join(stn_keys)
+                    conds.append(f"UPPER(station) IN ({in_clause})")
+                    
+            nr_where = " WHERE " + " OR ".join(conds)
+        else:
+            params['user_stn'] = user_stn
+            clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
+            params['clean_stn'] = clean_user_stn
+            params['hq_stn'] = f"{clean_user_stn} HEADQUARTERS"
+            
+            nr_where = " WHERE (UPPER(station) = :user_stn OR UPPER(station) = :clean_stn OR UPPER(station) = :hq_stn)"
+
+        records = db.execute(text(nr_query + nr_where), params).fetchall()
+        
+        result_list = []
+        for r in records:
+            result_list.append({
+                "fnum": r[0],
+                "name": r[1],
+                "rank": r[2],
+                "sex": r[3],
+                "region": r[4],
+                "station": r[5],
+                "position": r[6],
+                "educ_level": r[7],
+                "status": r[8],
+                "dob": str(r[9]) if r[9] else None,
+                "nin": r[10],
+                "section": r[11],
+                "dir": r[12]
+            })
+
+        return result_list
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load ledger data: {str(e)}")
 
 @router.get("/export-ledger")
 def export_hr_establishments_zip(
@@ -143,7 +261,6 @@ def export_hr_establishments_zip(
             
         else:
             params['user_stn'] = user_stn
-            # Flexible station matching (handles HQ suffix differences)
             clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
             params['clean_stn'] = clean_user_stn
             params['hq_stn'] = f"{clean_user_stn} HEADQUARTERS"
