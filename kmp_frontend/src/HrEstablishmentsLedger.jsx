@@ -1,7 +1,8 @@
 // src/components/HrEstablishmentsLedger.jsx
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Shield, FileText, Users, Building, Filter, ChevronDown, ChevronRight } from 'lucide-react';
-import { stripHtmlTags } from './App'; // Assumes you use stripHtmlTags or stripHtml
+import { X, Shield, FileText, Users, Building, Filter, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { stripHtmlTags } from './App';
+import { authFetch, hasValidSession } from './api';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -16,7 +17,6 @@ const stripHtml = (html) => {
   return String(html).replace(/<[^>]*>?/gm, '').trim();
 };
 
-// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
 const isStationEquivalent = (statA, statB) => {
   const a = stripHtml(statA || '').trim().toUpperCase();
   const b = stripHtml(statB || '').trim().toUpperCase();
@@ -47,8 +47,35 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
 };
 
 const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = false }) => {
-  
-  // 🟢 OPSEC Role Classification Engine
+  const [ledgerData, setLedgerData] = useState(data || []);
+  const [isLoading, setIsLoading] = useState(!data || (Array.isArray(data) && data.length === 0));
+
+  // Fetch data automatically if prop is empty
+  useEffect(() => {
+    const fetchLedgerData = async () => {
+      if (Array.isArray(data) && data.length > 0) {
+        setLedgerData(data);
+        setIsLoading(false);
+        return;
+      }
+      if (!hasValidSession()) return;
+      
+      setIsLoading(true);
+      try {
+        const response = await authFetch('/api/v1/hr/ledger-data');
+        if (response.ok) {
+          const result = await response.json();
+          setLedgerData(result);
+        }
+      } catch (err) {
+        console.error("Failed to load HR ledger dataset:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchLedgerData();
+  }, [data]);
+
   const userRoleClean = stripHtml(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtml(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtml(currentUser?.region || '').toUpperCase();
@@ -67,7 +94,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
   const [selectedStation, setSelectedStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtml(currentUser?.station || '').toUpperCase());
 
-  // 🟢 State to manage expanded regions in the hierarchical tree table
   const [expandedRegions, setExpandedRegions] = useState({
     "KMP NORTH": true,
     "KMP SOUTH": true,
@@ -97,20 +123,18 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
   }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
 
   const getRawRoll = () => {
-    if (Array.isArray(data)) return data;
-    if (data && typeof data === 'object') {
+    if (Array.isArray(ledgerData)) return ledgerData;
+    if (ledgerData && typeof ledgerData === 'object') {
       const keys = ['establishments', 'personnel', 'nominal_rolls', 'nominalRolls', 'nominal_roll', 'nominalRoll', 'Nominal_Rolls', 'hr', 'hrData', 'data'];
       for (let key of keys) {
-        if (Array.isArray(data[key])) return data[key];
+        if (Array.isArray(ledgerData[key])) return ledgerData[key];
       }
-      // Fallback: if it's an object with nested array values, grab the first array found
-      const firstArray = Object.values(data).find(val => Array.isArray(val));
+      const firstArray = Object.values(ledgerData).find(val => Array.isArray(val));
       if (firstArray) return firstArray;
     }
     return [];
   };
 
-  // 🟢 CORE FILTER ENGINE: Applies Dual-Equivalence & OPSEC constraints
   const filteredRoll = useMemo(() => {
     return getRawRoll().filter(p => {
       const statusStr = stripHtml(String(p.status || '')).trim().toUpperCase();
@@ -134,9 +158,8 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       }
       return true;
     });
-  }, [data, selectedRegion, selectedStation, canViewGlobalLevel]);
+  }, [ledgerData, selectedRegion, selectedStation, canViewGlobalLevel]);
 
-  // 🟢 HIERARCHICAL ESTABLISHMENTS BUILDER
   const hierarchicalEstablishments = useMemo(() => {
     const regionMap = {};
 
@@ -154,7 +177,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
         };
       }
 
-      // Check if this entry belongs to Regional Headquarters or a specific station
       const isHqRecord = stn.includes('HEADQUARTERS') && !stn.includes('DIVISION');
       if (isHqRecord && (!pst || pst === '-')) {
         regionMap[reg].hqPersonnel += 1;
@@ -407,6 +429,15 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     </div>
   );
 
+  if (isLoading) {
+    return (
+      <div className="absolute inset-0 bg-slate-100 z-50 flex flex-col items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
+        <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Syncing HR & Establishments Ledger...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="absolute inset-0 bg-slate-100 z-50 flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
       <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shadow-md shrink-0">
@@ -581,7 +612,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
           </div>
         </div>
 
-        {/* 🟢 EXACT 8-COLUMN HIERARCHICAL POLICE ESTABLISHMENTS TABLE */}
+        {/* POLICE ESTABLISHMENTS TABLE */}
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px]">
           <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
              <h3 className="font-extrabold text-green-900 text-sm uppercase tracking-wider flex items-center">
@@ -613,7 +644,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
 
                       return (
                          <React.Fragment key={regGroup.regionName}>
-                            {/* REGION / REGIONAL HQ ROW (CLICKABLE) */}
                             <tr 
                               onClick={() => toggleRegion(regGroup.regionName)}
                               className="bg-slate-100 hover:bg-slate-200 cursor-pointer transition-colors font-extrabold text-slate-900 border-t-2 border-slate-300 select-none"
@@ -631,13 +661,11 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                                <td className="p-3 text-center font-black text-white bg-emerald-800 shadow-inner">{regTotalSum > 0 ? regTotalSum : '-'}</td>
                             </tr>
 
-                            {/* STATION & POST SUB-ROWS */}
                             {isExpanded && Object.values(regGroup.stations).map((stnObj, sIdx) => {
                                const stnTotal = stnObj.stationPersonnel + Object.values(stnObj.posts).reduce((a, b) => a + b, 0);
                                
                                return (
                                   <React.Fragment key={`${regGroup.regionName}-${stnObj.stationName}-${sIdx}`}>
-                                     {/* STATION ROW */}
                                      <tr className="hover:bg-emerald-50/40 transition-colors bg-white">
                                         <td className="p-3 text-slate-400 border-r border-slate-200 text-center">·</td>
                                         <td className="p-3 text-slate-400 border-r border-slate-200">-</td>
@@ -655,7 +683,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                                         </td>
                                      </tr>
 
-                                     {/* POST SUB-ROWS */}
                                      {Object.entries(stnObj.posts).map(([postName, postCount], pIdx) => (
                                          <tr key={`post-${pIdx}`} className="hover:bg-amber-50/30 transition-colors bg-slate-50/30">
                                             <td className="p-2 text-slate-400 border-r border-slate-200 text-center">·</td>
@@ -664,7 +691,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                                             <td className="p-2 text-slate-400 border-r border-slate-200">-</td>
                                             <td className="p-2 text-center text-slate-400 border-r border-slate-200">-</td>
                                             <td className="p-2 font-medium text-slate-600 uppercase border-r border-slate-200 pl-8">
-                                               └─ {postName}
+                                                └─ {postName}
                                             </td>
                                             <td className="p-2 text-center font-bold text-amber-700 border-r border-slate-200">
                                                {postCount > 0 ? postCount : '-'}
@@ -685,7 +712,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                       <tr><td colSpan="8" className="p-6 text-center text-slate-500 font-medium">No establishments data available from the nominal roll.</td></tr>
                    )}
                    
-                   {/* MASTER GRAND TOTAL ROW */}
                    <tr className="bg-slate-900 border-t-4 border-slate-950 text-white font-black">
                       <td colSpan="2" className="p-4 text-right uppercase tracking-widest text-xs border-r border-slate-700">
                           MASTER GRAND TOTALS:
