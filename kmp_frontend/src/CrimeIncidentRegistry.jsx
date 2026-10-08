@@ -157,6 +157,22 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
   const [showLockup, setShowLockup] = useState(false);
   const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', nationality: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' });
+  const [editingSuspectId, setEditingSuspectId] = useState(null);
+
+  const handleSelectSuspectToEdit = (suspect) => {
+    setNewSuspect({
+      name: suspect.name || '',
+      sex: suspect.sex || 'MALE',
+      age: suspect.age !== null && suspect.age !== undefined ? String(suspect.age) : '',
+      tribe: suspect.tribe || '',
+      nationality: suspect.nationality || '',
+      residence: suspect.residence || '',
+      contact: suspect.contact || '',
+      mental_health_status: suspect.mental_health_status || 'NORMAL',
+      photo_url: suspect.photo_url || ''
+    });
+    setEditingSuspectId(suspect.id);
+  };
 
   const getTodayString = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).split(',')[0].replace(/\//g, '-');
 
@@ -394,13 +410,29 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       nationality: stripHtmlTags(newSuspect.nationality),
       residence: stripHtmlTags(newSuspect.residence),
       contact: stripHtmlTags(newSuspect.contact),
-      id: Date.now()
+      id: editingSuspectId || Date.now()
     };
-    setFormData({ ...formData, suspectDetails: [...formData.suspectDetails, sanitizedSuspect] });
+
+    if (editingSuspectId !== null) {
+      setFormData({
+        ...formData,
+        suspectDetails: formData.suspectDetails.map(s => s.id === editingSuspectId ? sanitizedSuspect : s)
+      });
+      setEditingSuspectId(null);
+    } else {
+      setFormData({
+        ...formData,
+        suspectDetails: [...formData.suspectDetails, sanitizedSuspect]
+      });
+    }
+
     setNewSuspect({ name: '', sex: 'MALE', age: '', tribe: '', nationality: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' }); 
   };
 
-  const handleRemoveSuspect = (id) => setFormData({ ...formData, suspectDetails: formData.suspectDetails.filter(s => s.id !== id) });
+  const handleRemoveSuspect = (id) => {
+    setFormData({ ...formData, suspectDetails: formData.suspectDetails.filter(s => s.id !== id) });
+    if (editingSuspectId === id) setEditingSuspectId(null);
+  };
 
   const handleSuspectPhotoUpload = async (e) => {
     const file = e.target.files[0];
@@ -619,7 +651,14 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
             </div>
             <div className="p-5 overflow-y-auto bg-slate-50 dark:bg-slate-800 space-y-4 flex-1 custom-scrollbar">
               <div className="bg-white dark:bg-slate-900 p-3.5 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700">
-                <h4 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-2">Add Suspect Details</h4>
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">
+                    {editingSuspectId !== null ? '✏️ Editing Selected Suspect' : 'Add Suspect Details'}
+                  </h4>
+                  {editingSuspectId !== null && (
+                    <button type="button" onClick={() => { setEditingSuspectId(null); setNewSuspect({ name: '', sex: 'MALE', age: '', tribe: '', nationality: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' }); }} className="text-[10px] text-blue-600 font-bold hover:underline">Cancel Edit</button>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2.5">
                   <div className="md:col-span-2">
                     <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Full Name *</label>
@@ -666,22 +705,44 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                   </div>
                 </div>
                 <div className="flex justify-end mt-3">
-                  <button type="button" onClick={handleAddSuspect} className="bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-3 rounded text-xs transition-colors flex items-center"><PlusCircle size={14} className="mr-1"/> Add to Register</button>
+                  <button type="button" onClick={handleAddSuspect} className={`font-bold py-1.5 px-3 rounded text-xs transition-colors flex items-center ${editingSuspectId !== null ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}>
+                    <PlusCircle size={14} className="mr-1"/> {editingSuspectId !== null ? 'Update Suspect Details' : 'Add to Register'}
+                  </button>
                 </div>
               </div>
               <div>
-                <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 border-b dark:border-slate-700 pb-1.5">Currently Logged Suspects ({formData.suspectDetails.length})</h4>
+                <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 border-b dark:border-slate-700 pb-1.5 flex justify-between items-center">
+                  <span>Currently Logged Suspects ({formData.suspectDetails.length})</span>
+                  <span className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">💡 Click any entry to edit</span>
+                </h4>
                 {formData.suspectDetails.length === 0 ? (
                   <div className="text-center p-4 bg-white dark:bg-slate-900 border border-dashed border-gray-300 dark:border-slate-700 rounded-lg text-gray-400 dark:text-slate-500 text-xs font-medium">No suspects added to this report yet.</div>
                 ) : (
                   <div className="space-y-2">
                     {formData.suspectDetails.map((suspect, index) => (
-                      <div key={suspect.id} className="bg-white dark:bg-slate-900 border border-red-100 dark:border-red-950 rounded-lg p-2.5 flex justify-between items-center shadow-sm">
+                      <div 
+                        key={suspect.id} 
+                        onClick={() => handleSelectSuspectToEdit(suspect)}
+                        className={`bg-white dark:bg-slate-900 border rounded-lg p-2.5 flex justify-between items-center shadow-sm cursor-pointer transition-all ${
+                          editingSuspectId === suspect.id ? 'border-blue-600 ring-2 ring-blue-500/20 bg-blue-50/50 dark:bg-slate-800' : 'border-red-100 dark:border-red-950 hover:border-blue-400'
+                        }`}
+                      >
                         <div>
-                          <div className="font-bold text-slate-800 dark:text-slate-100 text-xs uppercase">{index + 1}. {stripHtmlTags(suspect.name)}</div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">{stripHtmlTags(suspect.sex)} • {suspect.age ? `${stripHtmlTags(String(suspect.age))}yrs` : 'Age Unknown'} • Tribe: {stripHtmlTags(suspect.tribe || 'N/A')} • Nat: {stripHtmlTags(suspect.nationality || 'N/A')} | Res: {stripHtmlTags(suspect.residence || 'N/A')} | Tel: {stripHtmlTags(suspect.contact || 'N/A')}</div>
+                          <div className="font-bold text-slate-800 dark:text-slate-100 text-xs uppercase flex items-center">
+                            {index + 1}. {stripHtmlTags(suspect.name)}
+                            {editingSuspectId === suspect.id && <span className="ml-2 text-[9px] bg-blue-600 text-white px-1.5 py-0.5 rounded font-black">Editing</span>}
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                            {stripHtmlTags(suspect.sex)} • {suspect.age ? `${stripHtmlTags(String(suspect.age))}yrs` : 'Age Unknown'} • Tribe: {stripHtmlTags(suspect.tribe || 'N/A')} • Nat: {stripHtmlTags(suspect.nationality || 'N/A')} | Res: {stripHtmlTags(suspect.residence || 'N/A')} | Tel: {stripHtmlTags(suspect.contact || 'N/A')}
+                          </div>
                         </div>
-                        <button type="button" onClick={() => handleRemoveSuspect(suspect.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 p-1.5 rounded transition"><X size={16}/></button>
+                        <button 
+                          type="button" 
+                          onClick={(e) => { e.stopPropagation(); handleRemoveSuspect(suspect.id); }} 
+                          className="text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 p-1.5 rounded transition"
+                        >
+                          <X size={16}/>
+                        </button>
                       </div>
                     ))}
                   </div>
