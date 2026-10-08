@@ -1026,7 +1026,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             const isObserverCol = col.key === 'global_observer';
                             const isOpenCol = col.key === 'global_open';
                             const isMutuallyDisabled = (isObserverCol && Boolean(p.global_open)) || (isOpenCol && Boolean(p.global_observer));
-                            const isDisabled = isSelf || isMutuallyDisabled || !canModifyThisUser || isReadOnlyObserver;
+                            // 🟢 Ring-fence global_open to Super Admins only without altering your structure
+                            const isDisabled = isSelf || isMutuallyDisabled || !canModifyThisUser || isReadOnlyObserver || (isOpenCol && !isSuperAdmin);
 
                             return (
                               <td key={idx} className="p-2 text-center border-l border-slate-100 dark:border-slate-800 w-20 min-w-[80px]">

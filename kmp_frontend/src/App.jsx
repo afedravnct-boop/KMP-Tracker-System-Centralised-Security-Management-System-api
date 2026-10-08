@@ -86,23 +86,20 @@ export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = t
 
   const perms = currentUser.permissions || {};
 
-  // 🟢 CRITICAL OVERRIDE: If an admin explicitly unchecks a permission, it is stored as 'false'. 
-  // This must take absolute priority to deny access, bypassing all defaults.
+  // Explicit false denial takes precedence
   if (perms[permissionKey] === false) {
     return false;
   }
 
-  // If explicitly checked true, grant access
-  if (perms[permissionKey] === true) {
-    return true;
-  }
-
-  // Global bypasses
+  // 🟢 Both Global Observer (Read-Only) and Global Full Access can view/navigate modules
   if (perms.global_observer === true || perms.view_global_roster === true || perms.global_open === true) {
     return true;
   }
 
-  // Fallback to default role/module access if the permission key hasn't been explicitly toggled
+  if (perms[permissionKey] === true) {
+    return true;
+  }
+
   return Boolean(defaultRoleAccess);
 };
 
@@ -2226,29 +2223,19 @@ const DashboardLayout = ({
   const hasUnreadComms = adminCommsData?.hasUnread === true;
 
   const navItems = [
-    checkClearance(currentUser, 'acc_home', true) ? { 
-      name: 'Home Dashboard', 
-      id: 'home', 
-      icon: <Home size={20} />
-    } : null,
+    checkClearance(currentUser, 'acc_home', true) ? { name: 'Home Dashboard', id: 'home', icon: <Home size={20} /> } : null,
     checkClearance(currentUser, 'acc_comms', true) ? { 
       name: 'Command Communications', 
       id: 'Admin_Communication', 
       icon: (
         <div className="relative flex items-center justify-center">
           <Bell size={20} className={hasUnreadComms ? "text-green-400 animate-bounce" : ""} />
-          {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping" />}
-          {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full" />}
+          {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full animate-ping" />}
         </div>
-      )
+      ) 
     } : null,
     checkClearance(currentUser, 'acc_crime', true) ? { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> } : null,
-    // 🟢 Set default to false so unchecking the matrix permission hides the tab
-    checkClearance(currentUser, 'acc_lockup', false) ? { 
-      name: 'Daily Suspects Lock-up', 
-      id: 'lockup-matrix', 
-      icon: <Lock size={20} className="text-amber-400" /> 
-    } : null,
+    checkClearance(currentUser, 'acc_lockup', true) ? { name: 'Daily Suspects Lock-up', id: 'lockup-matrix', icon: <Lock size={20} className="text-amber-400" /> } : null,
     checkClearance(currentUser, 'acc_ops', true) ? { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> } : null,
     checkClearance(currentUser, 'acc_stories', true) ? { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> } : null,
     checkClearance(currentUser, 'acc_est', true) ? { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> } : null,
@@ -2256,12 +2243,7 @@ const DashboardLayout = ({
     checkClearance(currentUser, 'acc_analytics', true) ? { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> } : null,
     checkClearance(currentUser, 'acc_hr', true) ? { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> } : null,
     checkClearance(currentUser, 'acc_documents', true) ? { name: 'Documents & Reports', id: 'reports_hub', icon: <FileText size={20} /> } : null,
-    // 🟢 Set default to false here as well
-    checkClearance(currentUser, 'acc_ai', false) ? { 
-      name: 'AI Command Console', 
-      id: 'ai_console', 
-      icon: <Sparkles size={20} className="text-amber-400" /> 
-    } : null
+    checkClearance(currentUser, 'acc_ai', true) ? { name: 'AI Command Console', id: 'ai_console', icon: <Sparkles size={20} className="text-amber-400" /> } : null
   ].filter(Boolean);
 
 const handleExportLogs = async () => {

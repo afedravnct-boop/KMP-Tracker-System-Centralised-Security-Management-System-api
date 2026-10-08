@@ -277,7 +277,20 @@ def update_user_access(
     if "is_approved" in payload:
         target_user.is_approved = payload["is_approved"]
     if "permissions" in payload:
-        target_user.permissions = payload["permissions"]
+        new_perms = payload["permissions"]
+        if isinstance(new_perms, str):
+            try: new_perms = json.loads(new_perms)
+            except: new_perms = {}
+            
+        # 🟢 RING-FENCE GLOBAL OPEN / FULL ACCESS TO SUPER ADMINS ONLY
+        if new_perms.get("global_open") is True:
+            current_role = (current_user.role or "").strip().upper()
+            if current_role != "SUPER_ADMIN":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Security Violation: Only Super Admins can grant Global Full Access (Open/Editable)."
+                )
+        target_user.permissions = new_perms
 
     db.commit()
 
