@@ -410,10 +410,10 @@ def create_report(
             for s in suspects_data:
                 valid_s_cols = [c.key for c in SuspectModel.__table__.columns]
                 
-                # 🟢 Clean age digits to avoid datatype mismatch error
+                # 🟢 Strictly parse age digits into an integer to prevent datatype mismatch errors
                 raw_age = s.get('age')
                 parsed_age = None
-                if raw_age:
+                if raw_age is not None and str(raw_age).strip() != "":
                     digits_only = re.sub(r'\D', '', str(raw_age))
                     parsed_age = int(digits_only) if digits_only else None
 
@@ -509,10 +509,10 @@ def update_report(
             for s in suspects_data:
                 valid_s_cols = [c.key for c in SuspectModel.__table__.columns]
                 
-                # 🟢 Clean age digits to avoid datatype mismatch error
+                # 🟢 Strictly parse age digits into an integer to prevent datatype mismatch errors
                 raw_age = s.get('age')
                 parsed_age = None
-                if raw_age:
+                if raw_age is not None and str(raw_age).strip() != "":
                     digits_only = re.sub(r'\D', '', str(raw_age))
                     parsed_age = int(digits_only) if digits_only else None
 
