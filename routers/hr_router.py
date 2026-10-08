@@ -89,7 +89,8 @@ def get_aggregated_hr_ledger(
             not is_kmp_specialist
         )
 
-        nr_query = "SELECT fnum, name, rank, sex, region, station, position, educ_level, status, dob, nin, section, dir FROM nominal_roll WHERE UPPER(status) != 'ARCHIVED'"
+        # Safe query selecting explicit columns
+        nr_query = "SELECT fnum, name, rank, sex, region, station, position, educ_level, status, dob, nin FROM nominal_roll WHERE UPPER(COALESCE(status, 'ACTIVE')) != 'ARCHIVED'"
         nr_where = ""
         params = {}
 
@@ -104,7 +105,7 @@ def get_aggregated_hr_ledger(
             if specs:
                 conds = []
                 for i, spec in enumerate(specs):
-                    conds.append(f"(UPPER(section) LIKE :spec_{i} OR UPPER(dir) LIKE :spec_{i} OR UPPER(position) LIKE :spec_{i})")
+                    conds.append(f"(UPPER(position) LIKE :spec_{i})")
                     params[f"spec_{i}"] = f"%{spec}%"
                 nr_where = " AND (" + " OR ".join(conds) + ")"
             else:
@@ -153,11 +154,11 @@ def get_aggregated_hr_ledger(
             current_year = datetime.now().year
             for p in lst:
                 sex = str(p[3] or '').upper()
-                nin = str(p[10] or '').upper()
+                nin = str(p[10] or '').upper() if len(p) > 10 and p[10] else ''
                 if sex == 'F' or nin.startswith('CF'): stats["sex"]["F"] += 1
                 else: stats["sex"]["M"] += 1
 
-                dob = p[9]
+                dob = p[9] if len(p) > 9 else None
                 if dob:
                     try:
                         birth_year = int(str(dob).split('-')[0])
@@ -207,12 +208,11 @@ def get_aggregated_hr_ledger(
         for r in records:
             stn = str(r[5] or 'HQ').strip().upper()
             reg = str(r[4] or 'KMP GENERAL').strip().upper()
-            pst = str(r[11] or r[12] or '').strip().upper()
 
             if reg not in region_map:
                 region_map[reg] = {"regionName": reg, "hqPersonnel": 0, "stations": {}, "total": 0}
 
-            if 'HEADQUARTERS' in stn and 'DIVISION' not in stn and (not pst or pst == '-'):
+            if 'HEADQUARTERS' in stn and 'DIVISION' not in stn:
                 region_map[reg]["hqPersonnel"] += 1
                 region_map[reg]["total"] += 1
                 continue
@@ -220,11 +220,7 @@ def get_aggregated_hr_ledger(
             if stn not in region_map[reg]["stations"]:
                 region_map[reg]["stations"][stn] = {"stationName": stn, "stationPersonnel": 0, "posts": {}, "total": 0}
 
-            if pst and pst != '-':
-                region_map[reg]["stations"][stn]["posts"][pst] = region_map[reg]["stations"][stn]["posts"].get(pst, 0) + 1
-            else:
-                region_map[reg]["stations"][stn]["stationPersonnel"] += 1
-
+            region_map[reg]["stations"][stn]["stationPersonnel"] += 1
             region_map[reg]["stations"][stn]["total"] += 1
             region_map[reg]["total"] += 1
 
@@ -233,6 +229,8 @@ def get_aggregated_hr_ledger(
             "hierarchicalEstablishments": list(region_map.values())
         }
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Aggregation Error: {str(e)}")
 
 @router.get("/export-ledger")
@@ -298,7 +296,7 @@ def export_hr_establishments_zip(
             if specs:
                 conds = []
                 for i, spec in enumerate(specs):
-                    conds.append(f"(UPPER(section) LIKE :spec_{i} OR UPPER(dir) LIKE :spec_{i} OR UPPER(position) LIKE :spec_{i})")
+                    conds.append(f"(UPPER(position) LIKE :spec_{i})")
                     params[f"spec_{i}"] = f"%{spec}%"
                 nr_where = " WHERE " + " OR ".join(conds)
             else:
