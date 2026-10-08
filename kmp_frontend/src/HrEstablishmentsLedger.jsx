@@ -12,73 +12,13 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-const stripHtml = (html) => {
-  if (!html) return '';
-  return String(html).replace(/<[^>]*>?/gm, '').trim();
-};
+const HrEstablishmentsLedger = ({ onClose, currentUser, canViewGlobal = false }) => {
+  const [data, setData] = useState({ nominalAggregates: [], hierarchicalEstablishments: [] });
+  const [isLoading, setIsLoading] = useState(true);
 
-const isStationEquivalent = (statA, statB) => {
-  const a = stripHtml(statA || '').trim().toUpperCase();
-  const b = stripHtml(statB || '').trim().toUpperCase();
-  if (!a || !b) return false;
-  if (a === b) return true;
-
-  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
-  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
-
-  return cleanA === cleanB && cleanA.length > 0;
-};
-
-const getOfficialRegionForStation = (stationName, dbRegion) => {
-  const cleanStation = stripHtml(stationName || '').trim().toUpperCase();
-  const cleanDbRegion = stripHtml(dbRegion || '').trim().toUpperCase();
-
-  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
-    return cleanDbRegion;
-  }
-
-  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
-    if (stationsList.includes(cleanStation)) {
-      return regionName;
-    }
-  }
-
-  return cleanDbRegion || 'KMP GENERAL';
-};
-
-const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = false }) => {
-  const [ledgerData, setLedgerData] = useState(data || []);
-  const [isLoading, setIsLoading] = useState(!data || (Array.isArray(data) && data.length === 0));
-
-  // Fetch data automatically if prop is empty
-  useEffect(() => {
-    const fetchLedgerData = async () => {
-      if (Array.isArray(data) && data.length > 0) {
-        setLedgerData(data);
-        setIsLoading(false);
-        return;
-      }
-      if (!hasValidSession()) return;
-      
-      setIsLoading(true);
-      try {
-        const response = await authFetch('/api/v1/hr/ledger-data');
-        if (response.ok) {
-          const result = await response.json();
-          setLedgerData(result);
-        }
-      } catch (err) {
-        console.error("Failed to load HR ledger dataset:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchLedgerData();
-  }, [data]);
-
-  const userRoleClean = stripHtml(currentUser?.role || '').toUpperCase();
-  const userPosClean = stripHtml(currentUser?.position || '').toUpperCase();
-  const userRegClean = stripHtml(currentUser?.region || '').toUpperCase();
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
 
   const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
     ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
@@ -88,18 +28,18 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
   const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
 
   const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
-  
   const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
 
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
-  const [selectedStation, setSelectedStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtml(currentUser?.station || '').toUpperCase());
+  const [selectedStation, setSelectedStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
 
   const [expandedRegions, setExpandedRegions] = useState({
     "KMP NORTH": true,
     "KMP SOUTH": true,
     "KMP EAST": true,
     "KMP HEADQUARTERS": true,
-    "POLICE HEADQUARTERS": true
+    "POLICE HEADQUARTERS": true,
+    "GENERAL / HQ": true
   });
 
   const toggleRegion = (regionName) => {
@@ -118,248 +58,62 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       setSelectedStation('ALL STATIONS');
     } else {
       setSelectedRegion(userRegClean);
-      setSelectedStation(stripHtml(currentUser?.station || '').toUpperCase());
+      setSelectedStation(stripHtmlTags(currentUser?.station || '').toUpperCase());
     }
   }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
 
-  const getRawRoll = () => {
-    if (Array.isArray(ledgerData)) return ledgerData;
-    if (ledgerData && typeof ledgerData === 'object') {
-      const keys = ['establishments', 'personnel', 'nominal_rolls', 'nominalRolls', 'nominal_roll', 'nominalRoll', 'Nominal_Rolls', 'hr', 'hrData', 'data'];
-      for (let key of keys) {
-        if (Array.isArray(ledgerData[key])) return ledgerData[key];
-      }
-      const firstArray = Object.values(ledgerData).find(val => Array.isArray(val));
-      if (firstArray) return firstArray;
-    }
-    return [];
-  };
-
-  const filteredRoll = useMemo(() => {
-    return getRawRoll().filter(p => {
-      const statusStr = stripHtml(String(p.status || '')).trim().toUpperCase();
-      if (statusStr === 'ARCHIVED' || p.is_archived === true) return false;
-
-      const stn = stripHtml(p.station || '').trim().toUpperCase();
-      const reg = getOfficialRegionForStation(stn, p.region);
-
-      if (canViewGlobalLevel && selectedRegion === 'ALL REGIONS' && selectedStation === 'ALL STATIONS') {
-        return true;
-      }
-
-      const belongsToRegion = selectedRegion === 'ALL REGIONS' || 
-                              reg === selectedRegion || 
-                              (REGIONAL_HIERARCHY[selectedRegion] && REGIONAL_HIERARCHY[selectedRegion].some(s => isStationEquivalent(s, stn)));
-
-      if (!belongsToRegion) return false;
-
-      if (selectedStation !== 'ALL STATIONS') {
-        if (!isStationEquivalent(stn, selectedStation)) return false;
-      }
-      return true;
-    });
-  }, [ledgerData, selectedRegion, selectedStation, canViewGlobalLevel]);
-
-  const hierarchicalEstablishments = useMemo(() => {
-    const regionMap = {};
-
-    filteredRoll.forEach(p => {
-      const stn = stripHtml(p.station || 'HQ').trim().toUpperCase();
-      const reg = getOfficialRegionForStation(stn, p.region);
-      const pst = stripHtml(p.section || p.post || '').trim().toUpperCase();
-
-      if (!regionMap[reg]) {
-        regionMap[reg] = {
-          regionName: reg,
-          hqPersonnel: 0,
-          stations: {},
-          total: 0
-        };
-      }
-
-      const isHqRecord = stn.includes('HEADQUARTERS') && !stn.includes('DIVISION');
-      if (isHqRecord && (!pst || pst === '-')) {
-        regionMap[reg].hqPersonnel += 1;
-        regionMap[reg].total += 1;
-        return;
-      }
-
-      if (!regionMap[reg].stations[stn]) {
-        regionMap[reg].stations[stn] = {
-          stationName: stn,
-          stationPersonnel: 0,
-          posts: {},
-          total: 0
-        };
-      }
-
-      if (pst && pst !== '-') {
-        if (!regionMap[reg].stations[stn].posts[pst]) {
-          regionMap[reg].stations[stn].posts[pst] = 0;
+  useEffect(() => {
+    const fetchAggregates = async () => {
+      if (!hasValidSession()) return;
+      setIsLoading(true);
+      try {
+        const res = await authFetch('/api/v1/hr/aggregated-ledger');
+        if (res.ok) {
+          const result = await res.json();
+          setData(result);
         }
-        regionMap[reg].stations[stn].posts[pst] += 1;
-      } else {
-        regionMap[reg].stations[stn].stationPersonnel += 1;
+      } catch (err) {
+        console.error("Failed to load server-aggregated HR ledger:", err);
+      } finally {
+        setIsLoading(false);
       }
-
-      regionMap[reg].stations[stn].total += 1;
-      regionMap[reg].total += 1;
-    });
-
-    return Object.values(regionMap);
-  }, [filteredRoll]);
-
-  const nominalAggregates = useMemo(() => {
-    const regions = [
-      { key: 'GENERAL / HQ', match: ['HEADQUARTERS', 'HQ', 'GENERAL', 'NAGURU'] },
-      { key: 'KMP EAST', match: ['KMP EAST', 'EAST'] },
-      { key: 'KMP NORTH', match: ['KMP NORTH', 'NORTH'] },
-      { key: 'KMP SOUTH', match: ['KMP SOUTH', 'SOUTH'] }
-    ];
-
-    const isOfficer = (rankStr) => {
-      if (!rankStr) return false;
-      let cleanRank = stripHtml(String(rankStr)).toUpperCase().replace(/[\.\/]/g, '').trim();
-      const officerKeywords = ['IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'ASP', 'IP', 'AIP'];
-      const words = cleanRank.split(/\s+/); 
-      return words.some(word => officerKeywords.includes(word)) || 
-             cleanRank.includes('INSPECTOR') || 
-             cleanRank.includes('SUPERINTENDENT') || 
-             cleanRank.includes('COMMISSIONER');
     };
+    fetchAggregates();
+  }, []);
 
-    const calculateStats = (personnelList) => {
-      const stats = {
-        total: personnelList.length,
-        sex: { M: 0, F: 0 },
-        age: { twenties: 0, thirties: 0, forties: 0, fifties: 0, unknown: 0 },
-        edu: { degree: 0, diploma: 0, cert: 0, uace: 0, uce: 0, s2_s3: 0, others: 0 }
-      };
+  // Filter backend nominal aggregates based on active UI selections
+  const filteredNominalAggregates = useMemo(() => {
+    if (!data.nominalAggregates) return [];
+    if (!selectedRegion || selectedRegion === 'ALL REGIONS') return data.nominalAggregates;
 
-      personnelList.forEach(p => {
-        const sexStr = stripHtml(String(p.sex || p.gender || '')).trim().toUpperCase();
-        const ninStr = stripHtml(String(p.nin || '')).trim().toUpperCase();
-        
-        if (sexStr === 'M' || sexStr === 'MALE' || ninStr.startsWith('CM')) {
-          stats.sex.M++;
-        } else if (sexStr === 'F' || sexStr === 'FEMALE' || ninStr.startsWith('CF')) {
-          stats.sex.F++;
-        } else {
-          stats.sex.M++;
-        }
-
-        const dobStr = p.dob || p.date_of_birth || p.dateofbirth;
-        let ageCalculated = false;
-        
-        if (dobStr) {
-          let birthYear;
-          const strVal = stripHtml(String(dobStr)).trim();
-          if (strVal.includes('-')) {
-            const parts = strVal.split('-');
-            birthYear = parts[0].length === 4 ? parseInt(parts[0], 10) : parseInt(parts[2], 10);
-          } else if (strVal.includes('/')) {
-            const parts = strVal.split('/');
-            birthYear = parts[2].length === 4 ? parseInt(parts[2], 10) : parseInt(parts[0], 10);
-          } else {
-            birthYear = new Date(strVal).getFullYear();
-          }
-
-          const currentYear = new Date().getFullYear();
-          if (!isNaN(birthYear) && birthYear > 1900 && birthYear <= currentYear) {
-            const age = currentYear - birthYear;
-            if (age >= 18 && age <= 29) { stats.age.twenties++; ageCalculated = true; }
-            else if (age >= 30 && age <= 39) { stats.age.thirties++; ageCalculated = true; }
-            else if (age >= 40 && age <= 49) { stats.age.forties++; ageCalculated = true; }
-            else if (age >= 50) { stats.age.fifties++; ageCalculated = true; }
-          }
-        }
-        
-        if (!ageCalculated) {
-          stats.age.unknown++;
-        }
-
-        const eduStr = stripHtml(String(p.educ_level || p.educlevel || p.education || '')).trim().toUpperCase();
-        
-        if (eduStr.includes('DEGREE') || eduStr.includes('BACHELOR') || eduStr.match(/\bB\.?A\b/) || eduStr.match(/\bB\.?SC\b/) || eduStr.includes('MASTER') || eduStr.includes('PHD')) {
-          stats.edu.degree++;
-        } else if (eduStr.includes('DIP') || eduStr.includes('ND') || eduStr.includes('DIPLOMA')) {
-          stats.edu.diploma++;
-        } else if (eduStr.includes('CERT')) {
-          stats.edu.cert++;
-        } else if (eduStr.includes('UACE') || eduStr.includes('A LEVEL') || eduStr.includes('A-LEVEL') || eduStr.includes('S.6') || eduStr.match(/\bS6\b/) || eduStr.includes('FORM 6')) {
-          stats.edu.uace++;
-        } else if (eduStr.includes('UCE') || eduStr.includes('O LEVEL') || eduStr.includes('O-LEVEL') || eduStr.includes('S.4') || eduStr.match(/\bS4\b/) || eduStr.includes('FORM 4')) {
-          stats.edu.uce++;
-        } else if (eduStr.includes('S.2') || eduStr.match(/\bS2\b/) || eduStr.includes('S.3') || eduStr.match(/\bS3\b/) || eduStr.includes('S.1') || eduStr.match(/\bS1\b/)) {
-          stats.edu.s2_s3++;
-        } else {
-          stats.edu.others++;
-        }
-      });
-
-      return stats;
-    };
-
-    let aggregatedRegions = regions.map(reg => {
-      const regionPersonnel = filteredRoll.filter(p => {
-        const pReg = stripHtml(String(p.region || '')).trim().toUpperCase();
-        return reg.match.some(m => pReg.includes(m));
-      });
-
-      const officers = regionPersonnel.filter(p => isOfficer(p.rank));
-      const ncos = regionPersonnel.filter(p => !isOfficer(p.rank));
-
-      return {
-        region: reg.key,
-        officers: calculateStats(officers),
-        ncos: calculateStats(ncos),
-        totalOff: officers.length,
-        totalNco: ncos.length,
-        regionTotal: regionPersonnel.length
-      };
+    const cleanSelected = selectedRegion.trim().toUpperCase();
+    return data.nominalAggregates.filter(row => {
+      const rName = (row.region || '').toUpperCase();
+      if (cleanSelected.includes('NORTH') && rName.includes('NORTH')) return true;
+      if (cleanSelected.includes('EAST') && rName.includes('EAST')) return true;
+      if (cleanSelected.includes('SOUTH') && rName.includes('SOUTH')) return true;
+      if (cleanSelected.includes('HEADQUARTERS') && (rName.includes('GENERAL') || rName.includes('HQ') || rName.includes('HEADQUARTERS'))) return true;
+      return rName === cleanSelected;
     });
-    
-    const assignedIds = new Set();
-    aggregatedRegions.forEach(r => {
-      filteredRoll.filter(p => regions.find(reg => reg.key === r.region)?.match.some(m => stripHtml(String(p.region || '')).toUpperCase().includes(m)))
-        .forEach(p => assignedIds.add(p.id || p.sn || p.fnum));
+  }, [data.nominalAggregates, selectedRegion]);
+
+  const filteredEstablishments = useMemo(() => {
+    if (!data.hierarchicalEstablishments) return [];
+    if (!selectedRegion || selectedRegion === 'ALL REGIONS') return data.hierarchicalEstablishments;
+
+    const cleanSelected = selectedRegion.trim().toUpperCase();
+    return data.hierarchicalEstablishments.filter(group => {
+      const gName = (group.regionName || '').toUpperCase();
+      return gName.includes(cleanSelected) || cleanSelected.includes(gName);
     });
-    
-    const unassigned = filteredRoll.filter(p => !assignedIds.has(p.id || p.sn || p.fnum));
-    if (unassigned.length > 0) {
-      const officers = unassigned.filter(p => isOfficer(p.rank));
-      const ncos = unassigned.filter(p => !isOfficer(p.rank));
-      aggregatedRegions.push({
-        region: 'OTHER / UNASSIGNED',
-        officers: calculateStats(officers),
-        ncos: calculateStats(ncos),
-        totalOff: officers.length,
-        totalNco: ncos.length,
-        regionTotal: unassigned.length
-      });
-    }
-
-    if (selectedRegion && selectedRegion !== 'ALL REGIONS') {
-      const cleanSelected = selectedRegion.trim().toUpperCase();
-      aggregatedRegions = aggregatedRegions.filter(row => {
-        const rName = row.region.toUpperCase();
-        if (cleanSelected.includes('NORTH') && rName.includes('NORTH')) return true;
-        if (cleanSelected.includes('EAST') && rName.includes('EAST')) return true;
-        if (cleanSelected.includes('SOUTH') && rName.includes('SOUTH')) return true;
-        if (cleanSelected.includes('HEADQUARTERS') && (rName.includes('GENERAL') || rName.includes('HQ') || rName.includes('HEADQUARTERS'))) return true;
-        return rName === cleanSelected;
-      });
-    }
-
-    return aggregatedRegions;
-  }, [filteredRoll, selectedRegion]);
+  }, [data.hierarchicalEstablishments, selectedRegion]);
 
   const masterTotals = useMemo(() => {
-    return nominalAggregates.reduce((acc, curr) => {
+    return filteredNominalAggregates.reduce((acc, curr) => {
       acc.totalOff += curr.totalOff;
       acc.totalNco += curr.totalNco;
       acc.regionTotal += curr.regionTotal;
-      
+
       acc.offSex.M += curr.officers.sex.M;
       acc.offSex.F += curr.officers.sex.F;
       acc.ncoSex.M += curr.ncos.sex.M;
@@ -389,43 +143,40 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       acc.ncoEdu.diploma += curr.ncos.edu.diploma;
       acc.ncoEdu.cert += curr.ncos.edu.cert;
       acc.ncoEdu.uace += curr.ncos.edu.uace;
-      acc.ncoEdu.uce += curr.ncos.edu.uace;
+      acc.ncoEdu.uce += curr.ncos.edu.uce;
       acc.ncoEdu.s2_s3 += curr.ncos.edu.s2_s3;
       acc.ncoEdu.others += curr.ncos.edu.others;
 
       return acc;
     }, { 
-      totalOff: 0, 
-      totalNco: 0, 
-      regionTotal: 0, 
-      offSex: { M: 0, F: 0 }, 
-      ncoSex: { M: 0, F: 0 },
+      totalOff: 0, totalNco: 0, regionTotal: 0, 
+      offSex: { M: 0, F: 0 }, ncoSex: { M: 0, F: 0 },
       offAge: { twenties: 0, thirties: 0, forties: 0, fifties: 0, unknown: 0 },
       ncoAge: { twenties: 0, thirties: 0, forties: 0, fifties: 0, unknown: 0 },
       offEdu: { degree: 0, diploma: 0, cert: 0, uace: 0, uce: 0, s2_s3: 0, others: 0 },
       ncoEdu: { degree: 0, diploma: 0, cert: 0, uace: 0, uce: 0, s2_s3: 0, others: 0 }
     });
-  }, [nominalAggregates]);
+  }, [filteredNominalAggregates]);
 
   const renderAgeBlock = (stats, isDark = false) => (
     <div className={`text-[9px] font-medium space-y-0.5 w-full max-w-[90px] mx-auto ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-      <div className="flex justify-between"><span>18-29yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.twenties}</strong></div>
-      <div className="flex justify-between"><span>30-39yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.thirties}</strong></div>
-      <div className="flex justify-between"><span>40-49yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.forties}</strong></div>
-      <div className={`flex justify-between border-t pt-0.5 mt-0.5 ${isDark ? 'border-slate-600' : 'border-slate-200'}`}><span>50+ yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.fifties}</strong></div>
-      {stats.unknown > 0 && <div className={`flex justify-between italic mt-0.5 ${isDark ? 'text-red-400' : 'text-red-500'}`}><span>Unrecorded:</span> <strong>{stats.unknown}</strong></div>}
+      <div className="flex justify-between"><span>18-29yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.age.twenties}</strong></div>
+      <div className="flex justify-between"><span>30-39yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.age.thirties}</strong></div>
+      <div className="flex justify-between"><span>40-49yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.age.forties}</strong></div>
+      <div className={`flex justify-between border-t pt-0.5 mt-0.5 ${isDark ? 'border-slate-600' : 'border-slate-200'}`}><span>50+ yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.age.fifties}</strong></div>
+      {stats.age.unknown > 0 && <div className={`flex justify-between italic mt-0.5 ${isDark ? 'text-red-400' : 'text-red-500'}`}><span>Unrecorded:</span> <strong>{stats.age.unknown}</strong></div>}
     </div>
   );
 
   const renderEduBlock = (stats, isDark = false) => (
     <div className={`text-[9px] font-medium space-y-0.5 w-full max-w-[90px] mx-auto ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-      <div className="flex justify-between"><span>Degree:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.degree}</strong></div>
-      <div className="flex justify-between"><span>Diploma:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.diploma}</strong></div>
-      <div className="flex justify-between"><span>Cert:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.cert}</strong></div>
-      <div className="flex justify-between text-blue-700 font-bold"><span>UACE (S6):</span> <strong className={isDark ? 'text-blue-300' : 'text-blue-900'}>{stats.uace}</strong></div>
-      <div className="flex justify-between text-emerald-700 font-bold"><span>UCE (S4):</span> <strong className={isDark ? 'text-emerald-300' : 'text-emerald-900'}>{stats.uce}</strong></div>
-      <div className={`flex justify-between border-t pt-0.5 mt-0.5 ${isDark ? 'border-slate-600' : 'border-slate-200'}`}><span>S2 / S3:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.s2_s3}</strong></div>
-      <div className="flex justify-between"><span>Others:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.others}</strong></div>
+      <div className="flex justify-between"><span>Degree:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.edu.degree}</strong></div>
+      <div className="flex justify-between"><span>Diploma:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.edu.diploma}</strong></div>
+      <div className="flex justify-between"><span>Cert:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.edu.cert}</strong></div>
+      <div className="flex justify-between text-blue-700 font-bold"><span>UACE (S6):</span> <strong className={isDark ? 'text-blue-300' : 'text-blue-900'}>{stats.edu.uace}</strong></div>
+      <div className="flex justify-between text-emerald-700 font-bold"><span>UCE (S4):</span> <strong className={isDark ? 'text-emerald-300' : 'text-emerald-900'}>{stats.edu.uce}</strong></div>
+      <div className={`flex justify-between border-t pt-0.5 mt-0.5 ${isDark ? 'border-slate-600' : 'border-slate-200'}`}><span>S2 / S3:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.edu.s2_s3}</strong></div>
+      <div className="flex justify-between"><span>Others:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.edu.others}</strong></div>
     </div>
   );
 
@@ -433,7 +184,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
     return (
       <div className="absolute inset-0 bg-slate-100 z-50 flex flex-col items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
-        <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Syncing HR & Establishments Ledger...</p>
+        <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Loading Server-Computed HR Aggregates...</p>
       </div>
     );
   }
@@ -443,7 +194,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
       <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shadow-md shrink-0">
         <div>
           <h2 className="text-lg font-black flex items-center tracking-wide uppercase"><FileText className="mr-2 text-blue-400" /> Human Resource & Establishments Ledger</h2>
-          <p className="text-xs text-slate-400 font-medium mt-1 tracking-wider">KMP Command Operational Aggregates</p>
+          <p className="text-xs text-slate-400 font-medium mt-1 tracking-wider">KMP Command Operational Aggregates (Server Side)</p>
         </div>
         <button onClick={onClose} className="bg-slate-800 hover:bg-slate-700 text-white p-2 rounded-lg transition-colors border border-slate-600 shadow-sm flex items-center cursor-pointer">
           <X size={18} className="mr-2"/> Close Module
@@ -488,7 +239,7 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                 ))}
               </>
             ) : (
-              <option value={stripHtml(currentUser?.station || '').toUpperCase()}>{stripHtml(currentUser?.station || '').toUpperCase() || 'UNKNOWN'}</option>
+              <option value={stripHtmlTags(currentUser?.station || '').toUpperCase()}>{stripHtmlTags(currentUser?.station || '').toUpperCase() || 'UNKNOWN'}</option>
             )}
           </select>
         </div>
@@ -498,10 +249,10 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 sm:p-8 custom-scrollbar bg-slate-50">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-8 custom-scrollbar bg-slate-50 space-y-12">
         
         {/* NOMINAL ROLL AGGREGATES TABLE */}
-        <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px] mb-12">
+        <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mx-auto max-w-[1400px]">
           <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
              <h3 className="font-extrabold text-blue-900 text-sm uppercase tracking-wider flex items-center">
                 <Users className="mr-2 w-5 h-5" /> Nominal Roll Aggregates (Manpower Summary)
@@ -534,16 +285,16 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                    </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
-                   {nominalAggregates.map((row, index) => (
+                   {filteredNominalAggregates.map((row, index) => (
                       <tr key={index} className="hover:bg-blue-50/50 transition-colors">
                          <td className="p-3 text-center text-xs font-bold text-slate-700 border-r border-slate-200">{index + 1}</td>
-                         <td className="p-3 text-left text-xs font-black text-slate-900 border-r border-slate-200 bg-slate-50/50">{stripHtml(row.region)}</td>
+                         <td className="p-3 text-left text-xs font-black text-slate-900 border-r border-slate-200 bg-slate-50/50">{stripHtmlTags(row.region)}</td>
                          
                          <td className="p-3 text-center text-sm font-extrabold text-blue-700 border-r border-slate-200">{row.totalOff}</td>
                          <td className="p-3 text-center text-sm font-extrabold text-green-700 border-r border-slate-200">{row.totalNco}</td>
                          
-                         <td className="p-2 align-top border-r border-slate-200 bg-blue-50/10">{renderAgeBlock(row.officers.age)}</td>
-                         <td className="p-2 align-top border-r border-slate-200 bg-green-50/10">{renderAgeBlock(row.ncos.age)}</td>
+                         <td className="p-2 align-top border-r border-slate-200 bg-blue-50/10">{renderAgeBlock(row.officers)}</td>
+                         <td className="p-2 align-top border-r border-slate-200 bg-green-50/10">{renderAgeBlock(row.ncos)}</td>
                          
                          <td className="p-2 text-center align-middle border-r border-slate-200">
                             <div className="inline-flex flex-col space-y-1">
@@ -558,8 +309,8 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                             </div>
                          </td>
 
-                         <td className="p-2 align-top border-r border-slate-200 bg-blue-50/10">{renderEduBlock(row.officers.edu)}</td>
-                         <td className="p-2 align-top border-r border-slate-200 bg-green-50/10">{renderEduBlock(row.ncos.edu)}</td>
+                         <td className="p-2 align-top border-r border-slate-200 bg-blue-50/10">{renderEduBlock(row.officers)}</td>
+                         <td className="p-2 align-top border-r border-slate-200 bg-green-50/10">{renderEduBlock(row.ncos)}</td>
                          
                          <td className="p-3 text-center text-sm font-black text-blue-800 bg-blue-50 border-r border-blue-100 shadow-inner">{row.totalOff}</td>
                          <td className="p-3 text-center text-sm font-black text-emerald-800 bg-emerald-50 border-r border-emerald-100 shadow-inner">{row.totalNco}</td>
@@ -575,10 +326,10 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                       <td className="p-4 text-center text-base font-bold text-green-400 border-r border-slate-700">{masterTotals.totalNco}</td>
                       
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-500/40">
-                        {renderAgeBlock(masterTotals.offAge, true)}
+                        {renderAgeBlock({ age: masterTotals.offAge }, true)}
                       </td>
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-900/40">
-                        {renderAgeBlock(masterTotals.ncoAge, true)}
+                        {renderAgeBlock({ age: masterTotals.ncoAge }, true)}
                       </td>
 
                       <td className="p-2 text-center align-middle border-r border-slate-700 bg-slate-700/50">
@@ -595,10 +346,10 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                       </td>
                       
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-500/40">
-                        {renderEduBlock(masterTotals.offEdu, true)}
+                        {renderEduBlock({ edu: masterTotals.offEdu }, true)}
                       </td>
                       <td className="p-2 align-top border-r border-slate-700 bg-slate-500/40">
-                        {renderEduBlock(masterTotals.ncoEdu, true)}
+                        {renderEduBlock({ edu: masterTotals.ncoEdu }, true)}
                       </td>
 
                       <td className="p-4 text-center text-lg font-black text-white bg-blue-800 border-r border-blue-900 shadow-inner">{masterTotals.totalOff}</td>
@@ -634,13 +385,10 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                    </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
-                   {hierarchicalEstablishments.map((regGroup, rIdx) => {
+                   {filteredEstablishments.map((regGroup, rIdx) => {
                       const isExpanded = !!expandedRegions[regGroup.regionName];
-                      
                       let regHqSum = regGroup.hqPersonnel;
-                      let regStnSum = Object.values(regGroup.stations).reduce((acc, s) => acc + s.stationPersonnel, 0);
-                      let regPostSum = Object.values(regGroup.stations).reduce((acc, s) => acc + Object.values(s.posts).reduce((a, b) => a + b, 0), 0);
-                      let regTotalSum = regHqSum + regStnSum + regPostSum;
+                      let regTotalSum = regHqSum + Object.values(regGroup.stations).reduce((acc, s) => acc + s.stationPersonnel + Object.values(s.posts).reduce((a, b) => a + b, 0), 0);
 
                       return (
                          <React.Fragment key={regGroup.regionName}>
@@ -707,30 +455,6 @@ const HrEstablishmentsLedger = ({ data, onClose, currentUser, canViewGlobal = fa
                          </React.Fragment>
                       );
                    })}
-
-                   {hierarchicalEstablishments.length === 0 && (
-                      <tr><td colSpan="8" className="p-6 text-center text-slate-500 font-medium">No establishments data available from the nominal roll.</td></tr>
-                   )}
-                   
-                   <tr className="bg-slate-900 border-t-4 border-slate-950 text-white font-black">
-                      <td colSpan="2" className="p-4 text-right uppercase tracking-widest text-xs border-r border-slate-700">
-                          MASTER GRAND TOTALS:
-                      </td>
-                      <td className="p-4 text-center text-sm font-black text-blue-300 border-r border-slate-700">
-                          {hierarchicalEstablishments.reduce((sum, r) => sum + r.hqPersonnel, 0)}
-                      </td>
-                      <td className="p-4 text-slate-400 border-r border-slate-700">-</td>
-                      <td className="p-4 text-center text-sm font-black text-green-400 border-r border-slate-700 bg-slate-900/50">
-                          {hierarchicalEstablishments.reduce((sum, r) => sum + Object.values(r.stations).reduce((acc, s) => acc + s.stationPersonnel, 0), 0)}
-                      </td>
-                      <td className="p-4 text-slate-400 border-r border-slate-700">-</td>
-                      <td className="p-4 text-center text-sm font-black text-amber-300 border-r border-slate-700">
-                          {hierarchicalEstablishments.reduce((sum, r) => sum + Object.values(r.stations).reduce((acc, s) => acc + Object.values(s.posts).reduce((a, b) => a + b, 0), 0), 0)}
-                      </td>
-                      <td className="p-4 text-center text-lg font-black text-yellow-400 bg-slate-950 shadow-inner">
-                          {hierarchicalEstablishments.reduce((sum, r) => sum + r.total, 0)}
-                      </td>
-                   </tr>
                 </tbody>
              </table>
           </div>

@@ -46,9 +46,8 @@ def normalize_education_level(educ_str):
         
     return cleaned
 
-# 🟢 NEW JSON ENDPOINT TO POPULATE THE FRONTEND DASHBOARD TABLES
-@router.get("/ledger-data")
-def get_hr_ledger_data(
+@router.get("/aggregated-ledger")
+def get_aggregated_hr_ledger(
     db: Session = Depends(get_db), 
     current_user = Depends(get_current_user)
 ):
@@ -90,7 +89,7 @@ def get_hr_ledger_data(
             not is_kmp_specialist
         )
 
-        nr_query = "SELECT fnum, name, rank, sex, region, station, position, educ_level, status, dob, nin, section, dir FROM nominal_roll"
+        nr_query = "SELECT fnum, name, rank, sex, region, station, position, educ_level, status, dob, nin, section, dir FROM nominal_roll WHERE UPPER(status) != 'ARCHIVED'"
         nr_where = ""
         params = {}
 
@@ -107,9 +106,9 @@ def get_hr_ledger_data(
                 for i, spec in enumerate(specs):
                     conds.append(f"(UPPER(section) LIKE :spec_{i} OR UPPER(dir) LIKE :spec_{i} OR UPPER(position) LIKE :spec_{i})")
                     params[f"spec_{i}"] = f"%{spec}%"
-                nr_where = " WHERE " + " OR ".join(conds)
+                nr_where = " AND (" + " OR ".join(conds) + ")"
             else:
-                nr_where = " WHERE 1=0"
+                nr_where = " AND 1=0"
         elif is_regional_command:
             conds = ["UPPER(region) = :user_reg"]
             params['user_reg'] = user_reg
@@ -132,38 +131,109 @@ def get_hr_ledger_data(
                     in_clause = ", ".join(stn_keys)
                     conds.append(f"UPPER(station) IN ({in_clause})")
                     
-            nr_where = " WHERE " + " OR ".join(conds)
+            nr_where = " AND (" + " OR ".join(conds) + ")"
         else:
             params['user_stn'] = user_stn
             clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
             params['clean_stn'] = clean_user_stn
             params['hq_stn'] = f"{clean_user_stn} HEADQUARTERS"
             
-            nr_where = " WHERE (UPPER(station) = :user_stn OR UPPER(station) = :clean_stn OR UPPER(station) = :hq_stn)"
+            nr_where = " AND (UPPER(station) = :user_stn OR UPPER(station) = :clean_stn OR UPPER(station) = :hq_stn)"
 
         records = db.execute(text(nr_query + nr_where), params).fetchall()
-        
-        result_list = []
-        for r in records:
-            result_list.append({
-                "fnum": r[0],
-                "name": r[1],
-                "rank": r[2],
-                "sex": r[3],
-                "region": r[4],
-                "station": r[5],
-                "position": r[6],
-                "educ_level": r[7],
-                "status": r[8],
-                "dob": str(r[9]) if r[9] else None,
-                "nin": r[10],
-                "section": r[11],
-                "dir": r[12]
+
+        def is_officer(rank_str):
+            if not rank_str: return False
+            clean = str(rank_str).upper().replace('.', '').replace('/', '').strip()
+            keywords = ['IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'ASP', 'IP', 'AIP', 'INSPECTOR', 'SUPERINTENDENT', 'COMMISSIONER']
+            return any(kw in clean for kw in keywords)
+
+        def calc_stats(lst):
+            stats = {"total": len(lst), "sex": {"M": 0, "F": 0}, "age": {"twenties": 0, "thirties": 0, "forties": 0, "fifties": 0, "unknown": 0}, "edu": {"degree": 0, "diploma": 0, "cert": 0, "uace": 0, "uce": 0, "s2_s3": 0, "others": 0}}
+            current_year = datetime.now().year
+            for p in lst:
+                sex = str(p[3] or '').upper()
+                nin = str(p[10] or '').upper()
+                if sex == 'F' or nin.startswith('CF'): stats["sex"]["F"] += 1
+                else: stats["sex"]["M"] += 1
+
+                dob = p[9]
+                if dob:
+                    try:
+                        birth_year = int(str(dob).split('-')[0])
+                        age = current_year - birth_year
+                        if 18 <= age <= 29: stats["age"]["twenties"] += 1
+                        elif 30 <= age <= 39: stats["age"]["thirties"] += 1
+                        elif 40 <= age <= 49: stats["age"]["forties"] += 1
+                        elif age >= 50: stats["age"]["fifties"] += 1
+                        else: stats["age"]["unknown"] += 1
+                    except:
+                        stats["age"]["unknown"] += 1
+                else:
+                    stats["age"]["unknown"] += 1
+
+                edu = normalize_education_level(p[7])
+                if "DEGREE" in edu or "BACHELOR" in edu: stats["edu"]["degree"] += 1
+                elif "DIP" in edu: stats["edu"]["diploma"] += 1
+                elif "CERT" in edu: stats["edu"]["cert"] += 1
+                elif edu == "UACE": stats["edu"]["uace"] += 1
+                elif edu == "UCE": stats["edu"]["uce"] += 1
+                elif "S.2" in edu or "S.3" in edu: stats["edu"]["s2_s3"] += 1
+                else: stats["edu"]["others"] += 1
+            return stats
+
+        regions_config = [
+            {"key": "GENERAL / HQ", "match": ["HEADQUARTERS", "HQ", "GENERAL", "NAGURU"]},
+            {"key": "KMP EAST", "match": ["KMP EAST", "EAST"]},
+            {"key": "KMP NORTH", "match": ["KMP NORTH", "NORTH"]},
+            {"key": "KMP SOUTH", "match": ["KMP SOUTH", "SOUTH"]}
+        ]
+
+        nominal_aggregates = []
+        for reg in regions_config:
+            reg_personnel = [r for r in records if any(m in str(r[4] or '').upper() for m in reg["match"])]
+            officers = [r for r in reg_personnel if is_officer(r[2])]
+            ncos = [r for r in reg_personnel if not is_officer(r[2])]
+            nominal_aggregates.append({
+                "region": reg["key"],
+                "officers": calc_stats(officers),
+                "ncos": calc_stats(ncos),
+                "totalOff": len(officers),
+                "totalNco": len(ncos),
+                "regionTotal": len(reg_personnel)
             })
 
-        return result_list
+        region_map = {}
+        for r in records:
+            stn = str(r[5] or 'HQ').strip().upper()
+            reg = str(r[4] or 'KMP GENERAL').strip().upper()
+            pst = str(r[11] or r[12] or '').strip().upper()
+
+            if reg not in region_map:
+                region_map[reg] = {"regionName": reg, "hqPersonnel": 0, "stations": {}, "total": 0}
+
+            if 'HEADQUARTERS' in stn and 'DIVISION' not in stn and (not pst or pst == '-'):
+                region_map[reg]["hqPersonnel"] += 1
+                region_map[reg]["total"] += 1
+                continue
+
+            if stn not in region_map[reg]["stations"]:
+                region_map[reg]["stations"][stn] = {"stationName": stn, "stationPersonnel": 0, "posts": {}, "total": 0}
+
+            if pst and pst != '-':
+                region_map[reg]["stations"][stn]["posts"][pst] = region_map[reg]["stations"][stn]["posts"].get(pst, 0) + 1
+            else:
+                region_map[reg]["stations"][stn]["stationPersonnel"] += 1
+
+            region_map[reg]["stations"][stn]["total"] += 1
+            region_map[reg]["total"] += 1
+
+        return {
+            "nominalAggregates": nominal_aggregates,
+            "hierarchicalEstablishments": list(region_map.values())
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load ledger data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Aggregation Error: {str(e)}")
 
 @router.get("/export-ledger")
 def export_hr_establishments_zip(
