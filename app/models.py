@@ -52,7 +52,7 @@ class Suspect_Lockup(Base):
     
     name = Column(String, nullable=False)
     sex = Column(String, default="MALE")
-    age = Column(String, nullable=True)
+    age = Column(Integer, nullable=True)  # 🟢 Changed from String to Integer
     tribe = Column(String, nullable=True)
     nationality = Column(String, nullable=True)
     residence = Column(String, nullable=True)
