@@ -69,7 +69,7 @@ from app.schemas import AgricStatsCreate, AgricStatsResponse
 from routers import exhibits
 from routers.activity_logger import record_neon_activity
 from routers.weekly_briefing import run_weekly_tactical_briefing_job
-from routers import hr_ledger
+from routers.hr_ledger import hr_ledger
 
 # ==========================================
 # 0. LOAD ENVIRONMENT VARIABLES & CONFIG
