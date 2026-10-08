@@ -121,11 +121,12 @@ def log_independent_activity(logs_db: Session, fnum: str, action: str, module: s
         print(f"⚠️ Neon Activity Log Failure [{action}]: {str(e)}")
 
 # ====================================================================
-# AUTHENTICATION DEPENDENCY
+# AUTHENTICATION DEPENDENCY (WITH SESSION TIMEOUT AUDIT LOGGING)
 # ====================================================================
 def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme), 
-    db: Session = Depends(database.get_db)
+    db: Session = Depends(database.get_db),
+    logs_db: Session = Depends(get_logs_db)
 ):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -140,6 +141,21 @@ def get_current_user(
         if fnum is None:
             raise credentials_exception
     except JWTError:
+        # 🟢 Catch expired sessions and write timeout event into NeonDB audit logs
+        try:
+            unverified_payload = jwt.get_unverified_claims(token)
+            expired_fnum = unverified_payload.get("sub")
+            if expired_fnum:
+                log_independent_activity(
+                    logs_db=logs_db,
+                    fnum=expired_fnum,
+                    action="TIMEOUT",
+                    module="SESSION",
+                    details=f"Officer {expired_fnum} session expired due to inactivity or laptop sleep after prolonged absence."
+                )
+        except Exception:
+            pass
+            
         raise credentials_exception
 
     clean_fnum = normalize_fnum(fnum)
@@ -398,21 +414,15 @@ async def signup(
             details=f"New officer account registered: {name} ({rank}) for station {clean_station}."
         )
 
-        # 🟢 HIERARCHICAL APPROVER NOTIFICATION:
-        # 1. Super Admins & Assistant Super Admins receive GLOBALLY.
-        # 2. Regional Commanders / Division Admins / Station Admins receive STRICTLY for their matching jurisdiction.
         approvers = db.query(models.Users).filter(
             models.Users.is_approved == True,
             models.Users.email.isnot(None),
             or_(
-                # Global top tier commanders
                 func.upper(models.Users.role).in_(["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]),
-                # Regional commanders/admins matching the region
                 and_(
                     func.upper(models.Users.region) == clean_region,
                     func.upper(models.Users.role).in_(["RPC", "SYSTEM_MANAGER", "REGIONAL_ADMIN", "DIVISION_ADMIN"])
                 ),
-                # Station administrators matching the exact station
                 and_(
                     func.upper(models.Users.station) == clean_station,
                     func.upper(models.Users.role) == "STATION_ADMIN"
